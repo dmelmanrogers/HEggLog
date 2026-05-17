@@ -2,6 +2,13 @@ module Main (main) where
 
 import Analysis.Facts
 import Analysis.InferFacts (inferFacts)
+import qualified Backend.Compile as BC
+import qualified Backend.IR as B
+import qualified Backend.LLVM.IR as LIR
+import qualified Backend.LLVM.Toolchain as LLVMTools
+import qualified Backend.LLVM.Validate as LV
+import qualified Backend.Lower as BL
+import qualified Backend.Validate as BV
 import CLI.Report (compileReport, renderGoldenReport)
 import Control.Monad (unless)
 import qualified Data.Map.Strict as Map
@@ -222,6 +229,28 @@ testGroups =
       , pureTest "Egglog tryOptimize reports unsupported lambdas" testEgglogTryOptimizeUnsupportedLambda
       , pureTest "ordinary compiler still handles unsupported lambdas" testOrdinaryPipelineHandlesUnsupportedLambda
       , pureTest "simplifier and Egglog agree semantically on supported examples" testEgglogAgreesWithSimplifierSemantically
+      ]
+  , TestGroup
+      "LLVM"
+      [ pureTest "Backend IR validates supported arithmetic" testLLVMBackendValidArithmetic
+      , pureTest "Backend IR validation rejects unbound variables" testLLVMBackendValidationRejectsUnbound
+      , pureTest "Backend IR validation rejects invalid if conditions" testLLVMBackendValidationRejectsBadIf
+      , pureTest "LLVM backend rejects lambdas structurally" testLLVMLowerRejectsLambda
+      , pureTest "LLVM backend rejects applications structurally" testLLVMLowerRejectsApplication
+      , pureTest "LLVM backend rejects open programs" testLLVMLowerRejectsOpenProgram
+      , pureTest "LLVM backend rejects unsupported division" testLLVMLowerRejectsDivision
+      , pureTest "LLVM lowering emits deterministic phi blocks" testLLVMLoweringNestedIf
+      , pureTest "LLVM validator rejects duplicate SSA registers" testLLVMValidatorRejectsDuplicateRegisters
+      , pureTest "LLVM validator rejects missing block references" testLLVMValidatorRejectsMissingBlock
+      , pureTest "LLVM compiler falls back when Egglog is unsupported" testLLVMCompileEgglogFallback
+      , pureTest "LLVM compiler can use Egglog optimized ANF" testLLVMCompileUsesEgglog
+      , ioTest "LLVM arithmetic golden" $
+          checkLLVMGolden "examples/llvm/arithmetic.hg" "test/golden/llvm-arithmetic.ll"
+      , ioTest "LLVM if comparison golden" $
+          checkLLVMGolden "examples/llvm/if-comparison.hg" "test/golden/llvm-if-comparison.ll"
+      , ioTest "LLVM bool root golden" $
+          checkLLVMGolden "examples/llvm/bool-root.hg" "test/golden/llvm-bool-root.ll"
+      , ioTest "LLVM execution matches interpreter when tools are available" testLLVMExecutionMatchesInterpreter
       ]
   , TestGroup
       "Golden"
@@ -1123,6 +1152,199 @@ testEgglogAgreesWithSimplifierSemantically =
     egglogValue <- mapLeft (showText . renderRuntimeError) (evalANF (OEB.optimizedANF egglog))
     expectEqual ("semantic agreement for " <> Text.unpack source) simplifiedValue egglogValue
 
+testLLVMBackendValidArithmetic :: Either String ()
+testLLVMBackendValidArithmetic = do
+  parsed <- parseExpr "let x = 3 in let y = x + 4 in y * 2"
+  backend <- mapLeft (showText . BL.renderBackendLowerError) (BL.lowerANFToBackend (toANF parsed))
+  expectEqual "backend root type" B.BI64 (B.backendRootType backend)
+  mapLeft (showText . BV.renderBackendValidationError) (BV.validateBackendProgram backend)
+
+testLLVMBackendValidationRejectsUnbound :: Either String ()
+testLLVMBackendValidationRejectsUnbound =
+  let program =
+        B.BackendProgram
+          { B.backendRootType = B.BI64
+          , B.backendRoot = B.BEAtom B.BI64 (B.BVar xName)
+          , B.backendProvenance = []
+          }
+   in case BV.validateBackendProgram program of
+        Left (BV.BackendUnboundVariable name)
+          | name == xName -> Right ()
+        other -> Left ("expected backend unbound variable validation error, got " <> show other)
+
+testLLVMBackendValidationRejectsBadIf :: Either String ()
+testLLVMBackendValidationRejectsBadIf =
+  let program =
+        B.BackendProgram
+          { B.backendRootType = B.BI64
+          , B.backendRoot =
+              B.BEIf
+                B.BI64
+                (B.BInt 1)
+                (B.BEAtom B.BI64 (B.BInt 10))
+                (B.BEAtom B.BI64 (B.BInt 20))
+          , B.backendProvenance = []
+          }
+   in case BV.validateBackendProgram program of
+        Left (BV.BackendIfConditionTypeMismatch B.BI64) -> Right ()
+        other -> Left ("expected backend if condition validation error, got " <> show other)
+
+testLLVMLowerRejectsLambda :: Either String ()
+testLLVMLowerRejectsLambda =
+  case BL.lowerANFToBackend (ALam xName TInt (AAtom (AVar xName))) of
+    Left (BL.BackendUnsupportedLambda name TInt)
+      | name == xName -> Right ()
+    other -> Left ("expected LLVM backend to reject lambda, got " <> show other)
+
+testLLVMLowerRejectsApplication :: Either String ()
+testLLVMLowerRejectsApplication =
+  case BL.lowerANFToBackend (AApp (AInt 1) (AInt 2)) of
+    Left (BL.BackendUnsupportedApplication _ _) -> Right ()
+    other -> Left ("expected LLVM backend to reject application, got " <> show other)
+
+testLLVMLowerRejectsOpenProgram :: Either String ()
+testLLVMLowerRejectsOpenProgram =
+  case BL.lowerANFToBackend (APrim Add (AVar xName) (AInt 1)) of
+    Left (BL.BackendInvalidANF (UnboundVariable name))
+      | name == xName -> Right ()
+    other -> Left ("expected LLVM backend to reject open ANF, got " <> show other)
+
+testLLVMLowerRejectsDivision :: Either String ()
+testLLVMLowerRejectsDivision =
+  case BL.lowerANFToBackend (APrim Div (AInt 4) (AInt 2)) of
+    Left (BL.BackendUnsupportedPrimitive Div) -> Right ()
+    other -> Left ("expected LLVM backend to reject division, got " <> show other)
+
+testLLVMLoweringNestedIf :: Either String ()
+testLLVMLoweringNestedIf = do
+  first <- compileLLVMTextNoEgglog "let x = 10 in if x < 5 then 1 else if x < 20 then 2 else 3"
+  second <- compileLLVMTextNoEgglog "let x = 10 in if x < 5 then 1 else if x < 20 then 2 else 3"
+  expectEqualText "deterministic LLVM output" first second
+  assertBool "nested if emits phi" ("phi i64" `Text.isInfixOf` first)
+  assertBool "nested if emits branch" ("br i1" `Text.isInfixOf` first)
+
+testLLVMValidatorRejectsDuplicateRegisters :: Either String ()
+testLLVMValidatorRejectsDuplicateRegisters =
+  let reg = LIR.Register "dup"
+      llvmModule =
+        LIR.LLVMModule
+          { LIR.moduleComments = []
+          , LIR.moduleGlobals = []
+          , LIR.moduleDeclarations = []
+          , LIR.moduleFunctions =
+              [ LIR.LLVMFunction
+                  { LIR.functionName = "bad"
+                  , LIR.functionReturnType = LIR.LI64
+                  , LIR.functionBlocks =
+                      [ LIR.LLVMBlock
+                          { LIR.blockLabel = "entry"
+                          , LIR.blockInstructions =
+                              [ LIR.IAdd reg LIR.LI64 (LIR.OConstInt LIR.LI64 1) (LIR.OConstInt LIR.LI64 2)
+                              , LIR.IMul reg LIR.LI64 (LIR.OConstInt LIR.LI64 3) (LIR.OConstInt LIR.LI64 4)
+                              ]
+                          , LIR.blockTerminator = LIR.TRet LIR.LI64 (LIR.OLocal LIR.LI64 reg)
+                          }
+                      ]
+                  }
+              ]
+          }
+   in case LV.validateLLVMModule llvmModule of
+        Left (LV.DuplicateLLVMRegister "bad" duplicate)
+          | duplicate == reg -> Right ()
+        other -> Left ("expected duplicate LLVM register validation error, got " <> show other)
+
+testLLVMValidatorRejectsMissingBlock :: Either String ()
+testLLVMValidatorRejectsMissingBlock =
+  let llvmModule =
+        LIR.LLVMModule
+          { LIR.moduleComments = []
+          , LIR.moduleGlobals = []
+          , LIR.moduleDeclarations = []
+          , LIR.moduleFunctions =
+              [ LIR.LLVMFunction
+                  { LIR.functionName = "bad"
+                  , LIR.functionReturnType = LIR.LI64
+                  , LIR.functionBlocks =
+                      [ LIR.LLVMBlock
+                          { LIR.blockLabel = "entry"
+                          , LIR.blockInstructions = []
+                          , LIR.blockTerminator = LIR.TBr "missing"
+                          }
+                      ]
+                  }
+              ]
+          }
+   in case LV.validateLLVMModule llvmModule of
+        Left (LV.UnknownLLVMBlock "bad" "missing") -> Right ()
+        other -> Left ("expected missing LLVM block validation error, got " <> show other)
+
+testLLVMCompileEgglogFallback :: Either String ()
+testLLVMCompileEgglogFallback = do
+  result <- compileLLVMDefault "let x = 3 in if x < 5 then x * 2 else x * 3"
+  case BC.llvmOptimizationStatus result of
+    BC.LLVMOptimizationUnsupported {} -> Right ()
+    other -> Left ("expected Egglog unsupported fallback, got " <> show other)
+  assertBool "LLVM text reports Egglog fallback" ("egglog: unsupported; using unoptimized ANF" `Text.isInfixOf` BC.llvmText result)
+
+testLLVMCompileUsesEgglog :: Either String ()
+testLLVMCompileUsesEgglog = do
+  result <- compileLLVMDefault "let x = 3 in let y = x + 4 in y * 2"
+  case BC.llvmOptimizationStatus result of
+    BC.LLVMOptimizationApplied {} -> Right ()
+    other -> Left ("expected Egglog optimization, got " <> show other)
+  assertBool "optimized LLVM returns constant" ("ret i64 14" `Text.isInfixOf` BC.llvmText result)
+
+checkLLVMGolden :: FilePath -> FilePath -> IO (Either String ())
+checkLLVMGolden sourcePath goldenPath = do
+  source <- Text.IO.readFile sourcePath
+  expected <- Text.IO.readFile goldenPath
+  pure $ do
+    result <-
+      mapLeft
+        (showText . BC.renderCompileLLVMError)
+        ( BC.compileToLLVM
+            BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
+            sourcePath
+            source
+        )
+    expectEqualText "LLVM golden output" expected (BC.llvmText result)
+
+testLLVMExecutionMatchesInterpreter :: IO (Either String ())
+testLLVMExecutionMatchesInterpreter = do
+  tools <- LLVMTools.findLLVMTools
+  firstFailureIO (check tools) llvmExecutionExamples
+ where
+  check tools (path, expectedStdout) = do
+    source <- Text.IO.readFile path
+    case BC.compileToLLVM BC.defaultCompileLLVMOptions path source of
+      Left err ->
+        pure (Left (Text.unpack (BC.renderCompileLLVMError err)))
+      Right result -> do
+        runResult <- LLVMTools.runLLVMText tools (BC.llvmText result)
+        pure $
+          case runResult of
+            LLVMTools.LLVMRunSkipped {} ->
+              Right ()
+            LLVMTools.LLVMRunFailed stdoutText stderrText ->
+              Left ("LLVM execution failed for " <> path <> "\nstdout:\n" <> stdoutText <> "\nstderr:\n" <> stderrText)
+            LLVMTools.LLVMRunSucceeded stdoutText ->
+              expectEqual ("LLVM stdout for " <> path) expectedStdout stdoutText
+
+compileLLVMDefault :: Text -> Either String BC.LLVMCompileResult
+compileLLVMDefault source =
+  mapLeft (showText . BC.renderCompileLLVMError) (BC.compileToLLVM BC.defaultCompileLLVMOptions "<test>" source)
+
+compileLLVMTextNoEgglog :: Text -> Either String Text
+compileLLVMTextNoEgglog source =
+  BC.llvmText
+    <$> mapLeft
+      (showText . BC.renderCompileLLVMError)
+      ( BC.compileToLLVM
+          BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
+          "<test>"
+          source
+      )
+
 assertEgglogPreservesSemantics :: Text -> ANFValue -> Either String OEB.EgglogOptimizationResult
 assertEgglogPreservesSemantics source expectedValue = do
   parsed <- parseExpr source
@@ -1366,6 +1588,16 @@ firstFailurePure action = \case
     case action item of
       Left message -> Left message
       Right () -> firstFailurePure action rest
+
+firstFailureIO :: (a -> IO (Either String ())) -> [a] -> IO (Either String ())
+firstFailureIO action = \case
+  [] ->
+    pure (Right ())
+  item : rest -> do
+    result <- action item
+    case result of
+      Left message -> pure (Left message)
+      Right () -> firstFailureIO action rest
 
 checkGolden :: FilePath -> FilePath -> IO (Either String ())
 checkGolden sourcePath goldenPath = do
@@ -1682,6 +1914,16 @@ supportedEgglogSources =
   , "if true then 1 + 0 else 2 * 0"
   , "let x = 2 + 3 in x * 4"
   , "let b = true in if b then 10 else 20"
+  ]
+
+llvmExecutionExamples :: [(FilePath, String)]
+llvmExecutionExamples =
+  [ ("examples/llvm/arithmetic.hg", "14\n")
+  , ("examples/llvm/if-true.hg", "10\n")
+  , ("examples/llvm/if-comparison.hg", "6\n")
+  , ("examples/llvm/nested-if.hg", "2\n")
+  , ("examples/llvm/let-chain.hg", "21\n")
+  , ("examples/llvm/bool-root.hg", "1\n")
   ]
 
 incSource :: Text
