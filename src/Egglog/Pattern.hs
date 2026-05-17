@@ -6,9 +6,12 @@ module Egglog.Pattern
   , evalExistingPattern
   , evalTerm
   , matchPatternValue
+  , renderPattern
   )
 where
 
+import Data.Text (Text)
+import qualified Data.Text as Text
 import qualified Data.Map.Strict as Map
 import Egglog.Database
 import Egglog.Sort
@@ -221,3 +224,24 @@ checkedInteger op lhs rhs = do
   rhsInt <- either (const Nothing) Just (mkHIntLiteral rhs)
   result <- either (const Nothing) Just (op lhsInt rhsInt)
   pure (hintToInteger result)
+
+renderPattern :: Pattern -> Text
+renderPattern = \case
+  PVar name sort ->
+    "?" <> renderVarName name <> ":" <> renderSort sort
+  PValue value ->
+    renderValue value
+  PCall name args ->
+    renderFunctionName name <> renderArgs args
+  PAddInt lhs rhs ->
+    "(" <> renderPattern lhs <> " + " <> renderPattern rhs <> ")"
+  PMulInt lhs rhs ->
+    "(" <> renderPattern lhs <> " * " <> renderPattern rhs <> ")"
+  PKnownInt inner ->
+    "KnownInt(" <> renderPattern inner <> ")"
+  PKnownBool inner ->
+    "KnownBool(" <> renderPattern inner <> ")"
+
+renderArgs :: [Pattern] -> Text
+renderArgs args =
+  "(" <> Text.intercalate ", " (map renderPattern args) <> ")"

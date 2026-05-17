@@ -88,6 +88,7 @@ data EncodedProgram = EncodedProgram
 data EncodedRun = EncodedRun
   { encodedRunResult :: RunResult
   , encodedRunDatabase :: Database
+  , encodedRunDebugLog :: [Text]
   , encodedRunRootValue :: Value
   , encodedRunStats :: RunStats
   , encodedRunRebuildStats :: RebuildStats
@@ -126,6 +127,7 @@ data EgglogOptimizationResult = EgglogOptimizationResult
   , extractionStats :: ExtractionStats
   , appliedRules :: [AppliedRuleSummary]
   , functionEntries :: Int
+  , provenanceTrace :: [Text]
   , unsupportedReason :: Maybe EgglogBackendError
   }
   deriving stock (Show, Eq)
@@ -190,7 +192,7 @@ optimizeWithEgglog config expression = do
           }
   encodedRun <- runEgglogCompilerRules config encoded
   let runResult = encodedRunResult encodedRun
-  optimized <- extractOptimizedANF encoded encodedRun
+  (optimized, extractedRoot) <- extractOptimizedANFWithRoot encoded encodedRun
   optimizedTy <- mapLeft ReconstructedTypeError (inferANFTypeText (encodedFreeVariableTypes encoded) optimized)
   checkSemantics expression optimized
   pure
@@ -213,6 +215,7 @@ optimizeWithEgglog config expression = do
             }
       , appliedRules = map AppliedRuleSummary (resultAppliedRules runResult)
       , functionEntries = sum (Map.elems (encodedRunFunctionTableSizes encodedRun))
+      , provenanceTrace = optimizationProvenance encoded encodedRun extractedRoot optimized
       , unsupportedReason = Nothing
       }
 
@@ -261,7 +264,8 @@ encodeResolvedANF typed = do
 
 runEgglogCompilerRules :: RunConfig -> EncodedProgram -> Either EgglogBackendError EncodedRun
 runEgglogCompilerRules config encoded = do
-  runResult <- mapLeft EgglogKernelError (runProgram config (encodedProgram encoded))
+  let tracingConfig = config {collectDebugLog = True}
+  runResult <- mapLeft EgglogKernelError (runProgram tracingConfig (encodedProgram encoded))
   rootValue <-
     mapLeft EgglogKernelError $
       lookupFunction (encodedRootFunction encoded) [] (resultDatabase runResult)
@@ -271,6 +275,7 @@ runEgglogCompilerRules config encoded = do
         EncodedRun
           { encodedRunResult = runResult
           , encodedRunDatabase = resultDatabase runResult
+          , encodedRunDebugLog = reverse (debugLog (resultDatabase runResult))
           , encodedRunRootValue = value
           , encodedRunStats =
               RunStats
@@ -365,14 +370,12 @@ namedVarTerm ty key =
     TFun {} -> PCall (iVarFn symbols) [PValue (VString (unBinderKey key))]
 
 extractOptimizedANF :: EncodedProgram -> EncodedRun -> Either EgglogBackendError AExpr
-extractOptimizedANF encoded encodedRun = do
-  rootValue <- mapLeft EgglogKernelError (lookupFunction (rootFunction (encodedRootType encoded)) [] db)
-  rootTerm <-
-    case rootValue of
-      Just (VId sortName ident) ->
-        mapLeft ExtractionFailed (extractCheapest rootExtractionDb sortName ident)
-      _ ->
-        Left (MissingRootValue (rootFunction (encodedRootType encoded)))
+extractOptimizedANF encoded encodedRun =
+  fst <$> extractOptimizedANFWithRoot encoded encodedRun
+
+extractOptimizedANFWithRoot :: EncodedProgram -> EncodedRun -> Either EgglogBackendError (AExpr, ExtractedTerm)
+extractOptimizedANFWithRoot encoded encodedRun = do
+  rootTerm <- extractRootTerm encoded encodedRun
   rootBuilt <- buildTop encoded rootTerm
   (bindings, needed) <- collectNeededBindings encoded db (builtRefs rootBuilt)
   let retainedIds = filter (`Set.member` needed) (encodedBindingOrder encoded)
@@ -387,8 +390,19 @@ extractOptimizedANF encoded encodedRun = do
   mapLeft ReconstructedANFInvalid (validateANFWithFreeVars (Map.keysSet (encodedFreeVariableTypes encoded)) optimized)
   optimizedTy <- inferANFType (encodedFreeVariableTypes encoded) optimized
   if optimizedTy == encodedRootType encoded
-    then pure optimized
+    then pure (optimized, rootTerm)
     else Left (OptimizedTypeChanged (encodedRootType encoded) optimizedTy)
+ where
+  db = encodedRunDatabase encodedRun
+
+extractRootTerm :: EncodedProgram -> EncodedRun -> Either EgglogBackendError ExtractedTerm
+extractRootTerm encoded encodedRun = do
+  rootValue <- mapLeft EgglogKernelError (lookupFunction (rootFunction (encodedRootType encoded)) [] db)
+  case rootValue of
+    Just (VId sortName ident) ->
+      mapLeft ExtractionFailed (extractCheapest rootExtractionDb sortName ident)
+    _ ->
+      Left (MissingRootValue (rootFunction (encodedRootType encoded)))
  where
   db = encodedRunDatabase encodedRun
   rootExtractionDb = db {tables = Map.delete (rootFunction (encodedRootType encoded)) (tables db)}
@@ -596,9 +610,50 @@ freeVariableAtom atom =
     _ ->
       Map.empty
 
+optimizationProvenance :: EncodedProgram -> EncodedRun -> ExtractedTerm -> AExpr -> [Text]
+optimizationProvenance encoded encodedRun rootTerm optimized =
+  [ "encoded initial actions: " <> renderCount (length (encodedProvenance encoded))
+  , "applied rules: " <> renderAppliedRuleNames (encodedRunAppliedRules encodedRun)
+  , "function entries: " <> renderCount (sum (Map.elems (encodedRunFunctionTableSizes encodedRun)))
+  , "unions created: " <> renderCount (encodedRunUnionCount encodedRun)
+  , "extracted root: " <> renderExtractedTerm rootTerm
+  , "optimized ANF: " <> renderANF optimized
+  ]
+    <> compactLines "encoded action" 16 (encodedProvenance encoded)
+    <> compactLines "debug" 40 (filter isActionTrace (encodedRunDebugLog encodedRun))
+
+renderAppliedRuleNames :: [AppliedRuleSummary] -> Text
+renderAppliedRuleNames summaries =
+  case uniqueRuleNames (map appliedRuleName summaries) of
+    [] -> "none"
+    names -> Text.intercalate ", " (map renderFunctionName names)
+
+uniqueRuleNames :: [FunctionName] -> [FunctionName]
+uniqueRuleNames =
+  reverse . snd . foldl step (Set.empty, [])
+ where
+  step (seen, acc) name
+    | name `Set.member` seen = (seen, acc)
+    | otherwise = (Set.insert name seen, name : acc)
+
+compactLines :: Text -> Int -> [Text] -> [Text]
+compactLines prefix limit traces =
+  let selected = take limit traces
+      omitted = length traces - length selected
+   in map (\line -> prefix <> ": " <> line) selected
+        <> [prefix <> ": ... " <> renderCount omitted <> " more" | omitted > 0]
+
+isActionTrace :: Text -> Bool
+isActionTrace trace =
+  "initial action:" `Text.isPrefixOf` trace || "rule " `Text.isPrefixOf` trace
+
+renderCount :: Int -> Text
+renderCount =
+  Text.pack . show
+
 actionProvenance :: Action -> Text
 actionProvenance =
-  Text.pack . show
+  renderAction
 
 inferANFType :: Map.Map Name Type -> AExpr -> Either EgglogBackendError Type
 inferANFType =

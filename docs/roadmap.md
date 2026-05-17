@@ -5,7 +5,8 @@ being stabilized, and what should be built next. It is synchronized with the
 current codebase as of the checked `Int64` semantics, Egglog backend, LLVM
 backend, source diagnostics, top-level first-order functions, lambda lifting,
 closure conversion runtime work, and optional monomorphic lambda parameter
-inference, plus semi-naive Egglog rule evaluation.
+inference, semi-naive Egglog rule evaluation, and Egglog provenance/debug
+traces.
 
 ## Current Baseline
 
@@ -28,9 +29,11 @@ Implemented:
 - Prototype e-graph optimizer for a narrow ANF fragment.
 - Standalone Egglog-style kernel with sorts, values, functions, merge behavior,
   union-find, rebuild, rules, rewrite sugar, extraction, delta relations, and
-  semi-naive rule scheduling.
+  semi-naive rule scheduling with opt-in rule/substitution debug traces.
 - Compiler-facing Egglog backend for typed pure first-order ANF: integer
   `Add`/`Mul`, boolean and integer `if`, constants, variables, and lets.
+- Compact Egglog backend provenance traces covering encoded actions, applied
+  rules, extracted root terms, optimized ANF, and rule-action debug lines.
 - Backend IR and LLVM backend v0 for closed first-order programs, including
   top-level first-order functions and saturated direct calls.
 - Lambda lifting for non-capturing let-bound lambdas and lambdas used directly
@@ -79,8 +82,7 @@ Not implemented:
 - Long-term heap ownership policy beyond process-lifetime closure allocation.
 - User-facing Hindley-Milner polymorphism and optional top-level signatures.
 - Algebraic data types or pattern matching.
-- Richer Egglog join planning, richer lattice merges, and provenance/debug
-  traces.
+- Richer Egglog join planning and richer lattice merges.
 - Release packaging beyond basic Cabal metadata.
 
 ## Phase 0 - Project Hygiene And Semantic Stabilization
@@ -495,7 +497,7 @@ Definition of done:
 
 Next recommended task:
 
-- Add Egglog provenance/debug traces.
+- Add cost-based Egglog join planning and richer premise ordering.
 
 ## Phase 8 - Egglog Backend Expansion
 
@@ -554,9 +556,10 @@ Deliverables:
 - Completed: delta relations.
 - Completed: rule scheduling over changed lookup/root-match premises.
 - Completed: keep naive evaluation mode for equivalence and debugging.
+- Completed: provenance/debug traces for changed actions and extracted backend
+  terms.
 - Future: richer join planning and cost-based premise ordering.
 - Richer lattice merges.
-- Provenance/debug traces.
 
 Non-goals:
 
@@ -573,8 +576,8 @@ Tests required:
 - Completed: kernel regression tests.
 - Completed: delta evaluation equivalence tests.
 - Completed: compiler backend preservation tests.
+- Completed: provenance rendering tests.
 - Future: richer rule scheduling tests.
-- Future: provenance rendering tests.
 
 Risks:
 
@@ -1007,10 +1010,55 @@ Commit message suggestion:
 Add semi-naive Egglog evaluation
 ```
 
+### Task K - Egglog Provenance And Debug Traces
+
+Status: complete for kernel rule-action traces and backend extraction
+provenance.
+
+Prerequisite: stable Egglog backend tests and semi-naive evaluation.
+
+Implementation scope:
+
+- Completed: record changed initial actions and rule actions in the kernel debug
+  log.
+- Completed: include rule names, substitution indexes, substitution values, and
+  compact rendered actions in trace lines.
+- Completed: expose raw backend run debug logs and compact optimization
+  provenance.
+- Completed: render extracted root terms and reconstructed optimized ANF in
+  backend provenance.
+
+Files touched:
+
+- `src/Egglog/Pattern.hs`
+- `src/Egglog/Rule.hs`
+- `src/Egglog/Eval.hs`
+- `src/Optimize/EgglogBackend.hs`
+- `test/Main.hs`
+- `docs/egglog-backend.md`
+- `docs/roadmap.md`
+
+Tests required:
+
+- Completed: kernel debug trace coverage.
+- Completed: backend extraction provenance coverage.
+- Completed: existing backend semantic-preservation tests.
+
+Acceptance criteria:
+
+- Completed: optimized backend results carry compact, deterministic provenance
+  without changing optimized semantics.
+
+Commit message suggestion:
+
+```text
+Add Egglog provenance traces
+```
+
 ## Next Recommended Prompt
 
 ```text
-Add Egglog provenance/debug traces: record which rules and substitutions create
-function entries or unions, render compact provenance for extracted optimized
-terms, and preserve existing backend semantic-preservation tests.
+Add cost-based Egglog join planning and richer premise ordering: estimate
+relation sizes for rule premises, choose stable join orders for naive and
+semi-naive evaluation, and preserve existing kernel equivalence tests.
 ```

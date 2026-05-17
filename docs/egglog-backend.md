@@ -124,6 +124,22 @@ RHS, the backend falls back to the original RHS to avoid emitting `let x = x`.
 The synthetic root marker is ignored during root extraction so an expression
 that cannot be folded still reconstructs as ordinary ANF.
 
+## Provenance And Debug Traces
+
+The Egglog kernel can preserve debug logs with `collectDebugLog = True`. Changed
+initial actions, rule actions, and substitutions are recorded with compact
+action renderings such as:
+
+```text
+rule edge-to-path substitution #0 {x=1, y=2}: assert path(?x:Int, ?y:Int)
+```
+
+Backend runs enable trace collection internally and expose both the raw
+`encodedRunDebugLog` and the compact `provenanceTrace` on successful
+optimization results. The compact trace summarizes encoded initial actions,
+applied rules, function-entry counts, union counts, the extracted root term, the
+reconstructed optimized ANF, and a bounded set of rule-action trace lines.
+
 ## Supported Fragment
 
 Supported:
@@ -171,7 +187,6 @@ For supported closed ANF programs, the backend checks:
 
 - richer lattice values
 - richer join planning and cost-based premise ordering
-- provenance/debug traces
 - rule language/parser
 - full ANF integration
 - binder-aware higher-order EqSat

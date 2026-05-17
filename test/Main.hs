@@ -215,6 +215,7 @@ testGroups =
       , pureTest "multi-premise join" testEgglogMultiPremiseJoin
       , pureTest "semi-naive matches naive transitive closure" testEgglogSemiNaiveMatchesNaiveTransitiveClosure
       , pureTest "semi-naive preserves compiler backend result" testEgglogSemiNaivePreservesCompilerBackend
+      , pureTest "debug log records rule action provenance" testEgglogDebugTraceRecordsRuleAction
       , pureTest "variable binding correctness" testEgglogVariableBinding
       , pureTest "typed mismatch failure" testEgglogTypedMismatchFailure
       , pureTest "action application" testEgglogActionApplication
@@ -260,6 +261,7 @@ testGroups =
       , pureTest "Egglog backend optimizes open free-variable fragments" testEgglogBackendOpenFreeVariableFragment
       , pureTest "Egglog backend rejects applications structurally" testEgglogBackendUnsupportedApplication
       , pureTest "Egglog backend extraction is deterministic" testEgglogBackendDeterministic
+      , pureTest "Egglog backend exposes extraction provenance" testEgglogBackendExtractionProvenance
       , pureTest "Egglog backend preserves boolean branches" testEgglogBackendBooleanBranchPreservation
       , pureTest "Egglog tryOptimize reports unsupported lambdas" testEgglogTryOptimizeUnsupportedLambda
       , pureTest "ordinary compiler still handles unsupported lambdas" testOrdinaryPipelineHandlesUnsupportedLambda
@@ -1022,6 +1024,26 @@ testEgglogSemiNaivePreservesCompilerBackend = do
   expectEqual "optimized cost" (OEB.extractionStats naive) (OEB.extractionStats semiNaive)
   assertBool "semi-naive backend run saturates" (OEB.runSaturated (OEB.runStats semiNaive))
 
+testEgglogDebugTraceRecordsRuleAction :: Either String ()
+testEgglogDebugTraceRecordsRuleAction = do
+  result <-
+    egg
+      ( EEV.runProgram
+          EEV.defaultRunConfig {EEV.collectDebugLog = True, EEV.maxIterations = 8}
+          ER.Program
+            { ER.programDecls = [edgeRelDecl, pathRelDecl]
+            , ER.programInitialActions = [ER.relationFact edgeFn [EV.VInt 1, EV.VInt 2]]
+            , ER.programRules = [edgeToPathRule]
+            }
+      )
+  let logs = EDB.debugLog (EEV.resultDatabase result)
+  assertBool
+    "debug log should include the rule action that produced path"
+    (any (\line -> "rule edge-to-path substitution #0" `Text.isInfixOf` line && "assert path" `Text.isInfixOf` line) logs)
+  assertBool
+    "debug log should include substitution values"
+    (any ("{x=1, y=2}" `Text.isInfixOf`) logs)
+
 testEgglogVariableBinding :: Either String ()
 testEgglogVariableBinding = do
   let revFn = fn "rev"
@@ -1441,6 +1463,21 @@ testEgglogBackendDeterministic = do
   first <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (toANF parsed))
   second <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (toANF parsed))
   expectEqual "deterministic optimized ANF" (OEB.optimizedANF first) (OEB.optimizedANF second)
+
+testEgglogBackendExtractionProvenance :: Either String ()
+testEgglogBackendExtractionProvenance = do
+  parsed <- parseExpr "let x = 2 + 3 in x * 4"
+  result <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (toANF parsed))
+  let provenance = OEB.provenanceTrace result
+  assertBool
+    "backend provenance should render the extracted root term"
+    (any ("extracted root:" `Text.isPrefixOf`) provenance)
+  assertBool
+    "backend provenance should render optimized ANF"
+    (any ("optimized ANF:" `Text.isPrefixOf`) provenance)
+  assertBool
+    "backend provenance should include rule-action trace lines"
+    (any ("debug: rule " `Text.isPrefixOf`) provenance)
 
 testEgglogBackendBooleanBranchPreservation :: Either String ()
 testEgglogBackendBooleanBranchPreservation =

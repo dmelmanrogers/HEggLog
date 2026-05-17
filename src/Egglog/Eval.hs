@@ -14,6 +14,8 @@ where
 import Control.Monad (foldM)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import Data.Text (Text)
+import qualified Data.Text as Text
 import Egglog.Database
 import Egglog.Function
 import Egglog.Pattern
@@ -62,7 +64,7 @@ defaultRunConfig =
 runProgram :: RunConfig -> Program -> Either EgglogError RunResult
 runProgram config program = do
   let db0 = databaseFromDecls (programDecls program)
-  (db1, _) <- applyActions emptySubstitution db0 (programInitialActions program)
+  (db1, _) <- applyActionsWithTrace InitialActionTrace emptySubstitution db0 (programInitialActions program)
   (db2, initialStats, _) <- rebuild db1
   let db = clearDebugIfNeeded db2
       initialDelta = databaseDelta db0 db
@@ -147,15 +149,20 @@ applyRules startDb =
  where
   applyRule (currentDb, alreadyChanged, applied) rule = do
     substitutions <- evalRule currentDb rule
-    (nextDb, ruleChanged) <- foldM applySubstitution (currentDb, False) substitutions
+    (nextDb, ruleChanged) <- foldM applySubstitution (currentDb, False) (zip [(0 :: Int) ..] substitutions)
     pure
       ( nextDb
       , alreadyChanged || ruleChanged
       , if ruleChanged then ruleName rule : applied else applied
       )
    where
-    applySubstitution (actionDb, substitutionChanged) subst = do
-      (nextDb, actionChanged) <- applyActions subst actionDb (ruleActions rule)
+    applySubstitution (actionDb, substitutionChanged) (substIndex, subst) = do
+      (nextDb, actionChanged) <-
+        applyActionsWithTrace
+          (RuleActionTrace (ruleName rule) substIndex subst)
+          subst
+          actionDb
+          (ruleActions rule)
       pure (nextDb, substitutionChanged || actionChanged)
 
 applyRulesSemiNaive :: DeltaDatabase -> Database -> [Rule] -> Either EgglogError (Database, Bool, [FunctionName])
@@ -164,15 +171,20 @@ applyRulesSemiNaive delta startDb =
  where
   applyRule (currentDb, alreadyChanged, applied) rule = do
     substitutions <- evalRuleSemiNaive delta currentDb rule
-    (nextDb, ruleChanged) <- foldM applySubstitution (currentDb, False) substitutions
+    (nextDb, ruleChanged) <- foldM applySubstitution (currentDb, False) (zip [(0 :: Int) ..] substitutions)
     pure
       ( nextDb
       , alreadyChanged || ruleChanged
       , if ruleChanged then ruleName rule : applied else applied
       )
    where
-    applySubstitution (actionDb, substitutionChanged) subst = do
-      (nextDb, actionChanged) <- applyActions subst actionDb (ruleActions rule)
+    applySubstitution (actionDb, substitutionChanged) (substIndex, subst) = do
+      (nextDb, actionChanged) <-
+        applyActionsWithTrace
+          (RuleActionTrace (ruleName rule) substIndex subst)
+          subst
+          actionDb
+          (ruleActions rule)
       pure (nextDb, substitutionChanged || actionChanged)
 
 evalRule :: Database -> Rule -> Either EgglogError [Substitution]
@@ -376,13 +388,47 @@ matchPattern db pattern value subst =
         | otherwise -> pure []
       Nothing -> pure []
 
-applyActions :: Substitution -> Database -> [Action] -> Either EgglogError (Database, Bool)
-applyActions subst startDb =
+data ActionTraceContext
+  = InitialActionTrace
+  | RuleActionTrace FunctionName Int Substitution
+  deriving stock (Show, Eq, Ord)
+
+applyActionsWithTrace :: ActionTraceContext -> Substitution -> Database -> [Action] -> Either EgglogError (Database, Bool)
+applyActionsWithTrace traceContext subst startDb =
   foldM applyOne (startDb, False)
  where
   applyOne (currentDb, alreadyChanged) action = do
     (nextDb, actionChanged) <- applyAction subst currentDb action
-    pure (nextDb, alreadyChanged || actionChanged)
+    pure (annotateActionTrace traceContext action actionChanged nextDb, alreadyChanged || actionChanged)
+
+annotateActionTrace :: ActionTraceContext -> Action -> Bool -> Database -> Database
+annotateActionTrace _ _ False db =
+  db
+annotateActionTrace traceContext action True db =
+  db {debugLog = renderActionTrace traceContext action : debugLog db}
+
+renderActionTrace :: ActionTraceContext -> Action -> Text
+renderActionTrace InitialActionTrace action =
+  "initial action: " <> renderAction action
+renderActionTrace (RuleActionTrace name substIndex subst) action =
+  "rule "
+    <> renderFunctionName name
+    <> " substitution #"
+    <> Text.pack (show substIndex)
+    <> " "
+    <> renderSubstitution subst
+    <> ": "
+    <> renderAction action
+
+renderSubstitution :: Substitution -> Text
+renderSubstitution subst
+  | Map.null subst = "{}"
+  | otherwise =
+      "{"
+        <> Text.intercalate
+          ", "
+          [renderVarName name <> "=" <> renderValue value | (name, value) <- Map.toAscList subst]
+        <> "}"
 
 applyAction :: Substitution -> Database -> Action -> Either EgglogError (Database, Bool)
 applyAction subst db = \case
