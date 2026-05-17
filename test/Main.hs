@@ -121,6 +121,7 @@ testGroups =
       , pureTest "fresh names are deterministic" testDeterministicFreshNames
       , pureTest "atomizes application arguments" testApplicationAtomization
       , pureTest "lowers top-level calls as direct calls" testTopLevelDirectCallANF
+      , pureTest "lambda lifting creates direct-call ANF" testLambdaLiftANF
       , pureTest "preserves lambdas" testLambdaPreservation
       , ioTest "validator accepts lowered examples" testValidateLoweredExamples
       , pureTest "validator reports unbound variables" testValidatorUnboundVariable
@@ -269,6 +270,9 @@ testGroups =
       , pureTest "LLVM compiler emits top-level direct calls" testLLVMCompileTopLevelFunctions
       , pureTest "LLVM compiler rejects top-level function values" testLLVMCompileRejectsTopLevelFunctionValue
       , pureTest "LLVM compiler escapes top-level names without collisions" testLLVMCompileEscapesTopLevelNames
+      , pureTest "LLVM compiler lambda lifts non-capturing lets" testLLVMCompileLiftedLetLambda
+      , pureTest "LLVM compiler lambda lifts immediate lambdas" testLLVMCompileImmediateLambda
+      , pureTest "LLVM compiler rejects capturing lambdas" testLLVMCompileRejectsCapturingLambda
       , ioTest "LLVM checked Int overflow aborts when tools are available" testLLVMOverflowAborts
       , ioTest "LLVM arithmetic golden" $
           checkLLVMGolden "examples/llvm/arithmetic.hg" "test/golden/llvm-arithmetic.ll"
@@ -500,6 +504,22 @@ testTopLevelDirectCallANF = do
         )
     )
     (toANFProgram parsed)
+
+testLambdaLiftANF :: Either String ()
+testLambdaLiftANF = do
+  result <- compileLLVMNoEgglog liftedIncSource
+  expectEqual
+    "lambda-lifted direct-call ANF"
+    ( AProgram
+        [ AFun
+            (mkName "_lift_inc_0")
+            [Param (mkName "x") TInt]
+            TInt
+            (APrim Add (AVar (mkName "x")) (AInt 1))
+        ]
+        (ACall (mkName "_lift_inc_0") [AInt 41])
+    )
+    (BC.llvmOriginalANF result)
 
 testLambdaPreservation :: Either String ()
 testLambdaPreservation = do
@@ -1515,6 +1535,39 @@ testLLVMCompileEscapesTopLevelNames = do
     "call targets escaped apostrophe function"
     ("call i64 @hegglog_fun_f_x27_(i64 42)" `Text.isInfixOf` llvmText)
 
+testLLVMCompileLiftedLetLambda :: Either String ()
+testLLVMCompileLiftedLetLambda = do
+  llvmText <- compileLLVMTextNoEgglog "let add = \\x : Int -> \\y : Int -> x + y in add 3 4"
+  assertBool
+    "curried lambda chain becomes one first-order LLVM function"
+    ("define i64 @hegglog_fun__ulift_uadd_u0(i64 %arg_x, i64 %arg_y)" `Text.isInfixOf` llvmText)
+  assertBool
+    "curried lambda call lowers directly"
+    ("call i64 @hegglog_fun__ulift_uadd_u0(i64 3, i64 4)" `Text.isInfixOf` llvmText)
+
+testLLVMCompileImmediateLambda :: Either String ()
+testLLVMCompileImmediateLambda = do
+  llvmText <- compileLLVMTextNoEgglog "(\\x : Int -> x * 2) 21"
+  assertBool
+    "anonymous lambda gets deterministic lifted function"
+    ("define i64 @hegglog_fun__ulift_ulambda_u0(i64 %arg_x)" `Text.isInfixOf` llvmText)
+  assertBool
+    "anonymous lambda call lowers directly"
+    ("call i64 @hegglog_fun__ulift_ulambda_u0(i64 21)" `Text.isInfixOf` llvmText)
+
+testLLVMCompileRejectsCapturingLambda :: Either String ()
+testLLVMCompileRejectsCapturingLambda =
+  case
+    BC.compileToLLVM
+      BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
+      "<test>"
+      "let x = 1 in let f = \\y : Int -> x + y in f 2" of
+    Left (BC.LLVMCompileUnsupportedSource _ message) ->
+      assertBool
+        "capturing lambda rejection names captured variable"
+        ("captured variables: x" `Text.isInfixOf` message)
+    other -> Left ("expected capturing lambda rejection, got " <> show other)
+
 testLLVMOverflowAborts :: IO (Either String ())
 testLLVMOverflowAborts = do
   tools <- LLVMTools.findLLVMTools
@@ -1656,16 +1709,19 @@ compileLLVMDefault :: Text -> Either String BC.LLVMCompileResult
 compileLLVMDefault source =
   mapLeft (showText . BC.renderCompileLLVMError) (BC.compileToLLVM BC.defaultCompileLLVMOptions "<test>" source)
 
+compileLLVMNoEgglog :: Text -> Either String BC.LLVMCompileResult
+compileLLVMNoEgglog source =
+  mapLeft
+    (showText . BC.renderCompileLLVMError)
+    ( BC.compileToLLVM
+        BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
+        "<test>"
+        source
+    )
+
 compileLLVMTextNoEgglog :: Text -> Either String Text
 compileLLVMTextNoEgglog source =
-  BC.llvmText
-    <$> mapLeft
-      (showText . BC.renderCompileLLVMError)
-      ( BC.compileToLLVM
-          BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
-          "<test>"
-          source
-      )
+  BC.llvmText <$> compileLLVMNoEgglog source
 
 assertEgglogPreservesSemantics :: Text -> ANFValue -> Either String OEB.EgglogOptimizationResult
 assertEgglogPreservesSemantics source expectedValue = do
@@ -2304,6 +2360,9 @@ llvmDifferentialSources =
   [ "0"
   , "true"
   , "false"
+  , liftedIncSource
+  , "let add = \\x : Int -> \\y : Int -> x + y in add 3 4"
+  , "(\\x : Int -> x * 2) 21"
   , "1 + 2 * 3"
   , "let x = 10 in let y = x - 4 in y * 3"
   , "if 3 < 4 then 11 else 22"
@@ -2356,6 +2415,10 @@ higherOrderSource =
   "let applyTwice = \\f : (Int -> Int) -> \\x : Int -> f (f x) in\n\
   \let inc = \\n : Int -> n + 1 in\n\
   \applyTwice inc 40"
+
+liftedIncSource :: Text
+liftedIncSource =
+  "let inc = \\x : Int -> x + 1 in inc 41"
 
 topLevelSource :: Text
 topLevelSource =

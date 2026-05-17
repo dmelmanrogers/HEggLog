@@ -197,7 +197,8 @@ Required design decisions:
 
 Recommendation:
 
-- Implement non-capturing lambda lifting before closure conversion.
+- Non-capturing lambda lifting is implemented; closure conversion should build
+  on the generated top-level function path.
 - For closure conversion, start with heap-allocated environment structs and a
   deliberately simple ownership policy, then refine after tests force the
   lifetime model.

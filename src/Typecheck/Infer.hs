@@ -2,7 +2,9 @@ module Typecheck.Infer
   ( infer
   , inferLocated
   , inferLocatedProgram
+  , inferLocatedWithEnv
   , inferProgram
+  , inferWithEnv
   )
 where
 
@@ -20,9 +22,17 @@ infer :: Expr -> Either TypeError Type
 infer expression =
   runReader (runExceptT (inferExpr expression)) emptyTypeEnv
 
+inferWithEnv :: TypeEnv -> Expr -> Either TypeError Type
+inferWithEnv env expression =
+  runReader (runExceptT (inferExpr expression)) env
+
 inferLocated :: LocatedExpr -> Either LocatedTypeError Type
 inferLocated expression =
   runReader (runExceptT (inferLocatedExpr expression)) emptyTypeEnv
+
+inferLocatedWithEnv :: TypeEnv -> LocatedExpr -> Either LocatedTypeError Type
+inferLocatedWithEnv env expression =
+  runReader (runExceptT (inferLocatedExpr expression)) env
 
 inferProgram :: Program -> Either TypeError Type
 inferProgram program =

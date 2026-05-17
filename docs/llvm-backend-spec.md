@@ -42,10 +42,13 @@ Supported source forms:
 - ordered top-level function definitions with `Int`/`Bool` parameters and
   `Int`/`Bool` returns
 - saturated direct calls to top-level functions
+- non-capturing let-bound lambdas and lambdas used directly in function position,
+  after lambda lifting to generated top-level functions
 
 Rejected source forms:
 
-- lambdas
+- capturing lambdas
+- lambdas used as first-class values
 - closure application
 - calls through local variables
 - partial or over-applied top-level calls
@@ -58,9 +61,10 @@ Rejected source forms:
 - strings
 - user-defined data
 
-The compile path rejects lambdas, unsupported applications, and division using
-located source diagnostics before ANF-to-backend lowering. Open programs and
-malformed internal IR are still defended by ANF and backend validators.
+The compile path lambda-lifts eligible lambdas, then rejects remaining lambdas,
+unsupported applications, and division using located source diagnostics before
+ANF-to-backend lowering. Open programs and malformed internal IR are still
+defended by ANF and backend validators.
 
 ## Type Mapping
 
@@ -227,8 +231,8 @@ that fallback in module comments. If Egglog fails internally, LLVM compilation
 fails before backend lowering.
 
 The current Egglog optimizer works over expression ANF. Source programs with
-top-level definitions are treated as unsupported for Egglog and continue through
-the original ANF program.
+top-level or lambda-lifted definitions are treated as unsupported for Egglog and
+continue through the original ANF program.
 
 The selected ANF, whether original or optimized, is validated before Backend IR
 lowering.
@@ -254,7 +258,8 @@ The current contract is covered by:
 - `llvm-as` validation for selected goldens when available
 - optional `lli`/`clang` execution for fixture programs
 - interpreter-vs-LLVM differential tests for successful supported programs
-- top-level parser/typechecker tests and direct-call LLVM execution tests
+- top-level parser/typechecker tests, lambda-lifting tests, and direct-call LLVM
+  execution tests
 - interpreter-vs-LLVM runtime-error equivalence tests for checked arithmetic
   overflow
 

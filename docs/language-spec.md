@@ -116,8 +116,7 @@ yet.
 
 Top-level function parameters and returns must be first-order values (`Int` or
 `Bool`). Function-typed top-level parameters and returns are rejected until
-lambda lifting or closure conversion gives the backend a representation for
-higher-order values.
+closure conversion gives the backend a representation for higher-order values.
 
 ## Top-Level Definitions
 
@@ -222,7 +221,10 @@ currently rejects division structurally.
 Lambdas capture their lexical environment in the interpreter and have function
 type `Type -> BodyType`.
 
-The LLVM backend currently rejects lambdas structurally.
+The LLVM backend lambda-lifts non-capturing lambdas when they are let-bound or
+used directly in function position. Lifted lambdas become generated top-level
+first-order functions. Capturing lambdas and lambdas used as first-class values
+are rejected structurally by LLVM compile mode.
 
 ### Application
 
@@ -310,7 +312,6 @@ though negative source literals are not syntax yet.
 
 ## Planned Features
 
-- Lambda lifting for non-capturing lambdas.
 - Closure conversion and runtime closure representation.
 - Hindley-Milner direction decision.
 - Algebraic data types and pattern matching, later.

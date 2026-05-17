@@ -58,11 +58,13 @@ cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm --run-llvm
 
 The LLVM v0 backend supports `Int`, `Bool`, `let`, `if`, `+`, `-`, `*`, `<`,
 `==`, ordered top-level first-order functions, and saturated direct calls over
-closed first-order programs. Lambdas, closure calls, partial or over-applied
-calls, top-level function values, recursion, heap allocation, free variables,
-and division are rejected structurally. `Int` is a checked signed 64-bit value
-across the interpreter, optimizers, backend IR, and LLVM lowering; overflow is
-reported by interpreters and aborts in generated LLVM.
+closed first-order programs. It also lambda-lifts non-capturing let-bound
+lambdas and lambdas used directly in function position. Capturing lambdas,
+closure calls, partial or over-applied calls, top-level function values,
+recursion, heap allocation, free variables, and division are rejected
+structurally. `Int` is a checked signed 64-bit value across the interpreter,
+optimizers, backend IR, and LLVM lowering; overflow is reported by interpreters
+and aborts in generated LLVM.
 
 See `docs/llvm-backend.md` for CLI behavior and LLVM toolchain notes, and
 `docs/llvm-backend-spec.md` for the backend semantic contract.
@@ -124,6 +126,9 @@ generalization are intentionally out of scope for this slice.
   Egglog kernel. It classifies a typed first-order fragment, encodes integer and
   boolean terms into separate Egglog sorts, runs compiler rules as `Rule` data,
   extracts back to valid ANF, and reports structured unsupported/failure states.
+- `Backend.LambdaLift` rewrites eligible non-capturing lambdas into generated
+  top-level first-order functions before backend lowering, while preserving
+  source diagnostics for captures.
 - `Backend.*` lowers closed first-order ANF programs into a typed backend IR and
   then into deterministic textual LLVM IR with source top-level functions and a
   small C-compatible printing `main`.
@@ -150,8 +155,9 @@ The test suite is grouped by compiler concern:
   compiler rules, extraction/reconstruction, structured unsupported reporting,
   deterministic optimization, and semantic preservation on supported programs
 - LLVM backend validation, structured unsupported cases, direct top-level calls,
-  deterministic SSA/phi lowering, selected LLVM golden files, and optional
-  execution checks against the interpreter when LLVM tools are available
+  lambda lifting, deterministic SSA/phi lowering, selected LLVM golden files,
+  and optional execution checks against the interpreter when LLVM tools are
+  available
 - selected golden CLI output sections
 - QuickCheck properties for ANF validation after lowering and Egglog semantic
   preservation on generated supported ANF fragments

@@ -43,6 +43,7 @@ executable hegglog
       Analysis.InferFacts
       Backend.Compile
       Backend.IR
+      Backend.LambdaLift
       Backend.LLVM.Emit
       Backend.LLVM.IR
       Backend.LLVM.Lower
@@ -114,6 +115,7 @@ test-suite hegglog-test
       Analysis.InferFacts
       Backend.Compile
       Backend.IR
+      Backend.LambdaLift
       Backend.LLVM.Emit
       Backend.LLVM.IR
       Backend.LLVM.Lower

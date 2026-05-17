@@ -15,6 +15,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Backend.IR
+import Backend.LambdaLift
 import Backend.LLVM.Emit
 import Backend.LLVM.IR
 import Backend.LLVM.Lower
@@ -87,10 +88,17 @@ compileToLLVM options path source = do
       Left parseError -> Left (LLVMCompileParseError (Text.pack (errorBundlePretty parseError)))
       Right expr -> Right expr
   inferredType <- mapLeft LLVMCompileTypeError (inferLocatedProgram parsed)
-  case findLLVMUnsupported parsed of
+  lifted <-
+    case lambdaLiftLocatedProgram parsed of
+      Left err ->
+        let (sourceRange, message) = lambdaLiftErrorDiagnostic err
+         in Left (LLVMCompileUnsupportedSource sourceRange message)
+      Right program -> Right program
+  _ <- mapLeft LLVMCompileTypeError (inferLocatedProgram lifted)
+  case findLLVMUnsupported lifted of
     Just (sourceRange, message) -> Left (LLVMCompileUnsupportedSource sourceRange message)
     Nothing -> Right ()
-  let stripped = stripLocatedProgram parsed
+  let stripped = stripLocatedProgram lifted
       anf = toANFProgram stripped
   mapLeft LLVMCompileInvalidANF (validateANFProgram anf)
   (selectedANF, optimizationStatus) <- selectANFProgram options anf
@@ -128,7 +136,7 @@ selectANFProgram options program@(AProgram defs mainExpr)
   | otherwise =
       Right
         ( program
-        , LLVMOptimizationUnsupported (ReconstructedTypeError "top-level definitions are outside the Egglog optimizer fragment")
+        , LLVMOptimizationUnsupported (ReconstructedTypeError "top-level or lambda-lifted definitions are outside the Egglog optimizer fragment")
         )
 
 selectANF :: CompileLLVMOptions -> AExpr -> Either CompileLLVMError (AExpr, LLVMOptimizationStatus)

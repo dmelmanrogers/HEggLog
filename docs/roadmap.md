@@ -27,6 +27,9 @@ Implemented:
   `Add`/`Mul`, boolean and integer `if`, constants, variables, and lets.
 - Backend IR and LLVM backend v0 for closed first-order programs, including
   top-level first-order functions and saturated direct calls.
+- Lambda lifting for non-capturing let-bound lambdas and lambdas used directly
+  in function position, with generated top-level functions and capture
+  diagnostics.
 - CLI report mode and LLVM compile mode, including optional LLVM execution.
 - LLVM toolchain checks that assemble selected emitted goldens with `llvm-as`
   when available, plus documented `llvm-as`/`lli`/`clang` executable workflow.
@@ -55,13 +58,12 @@ Implemented:
   checks.
 - Language and runtime specifications for the current source language, checked
   `Int64` semantics, runtime errors, evaluation order, top-level first-order
-  definitions, and current decision points.
+  definitions, lambda lifting, and current decision points.
 
 Not implemented:
 
 - Normalized one-line parser diagnostics beyond Megaparsec's built-in bundles.
 - Exact subexpression runtime spans beyond the root source expression.
-- Lambda lifting.
 - Closure conversion or closure runtime.
 - Heap allocation and memory management policy.
 - Hindley-Milner inference.
@@ -330,17 +332,19 @@ Next recommended task:
 
 ## Phase 5 - Lambda Lifting
 
-Status: not started.
+Status: complete for non-capturing let-bound lambdas and immediate lambda calls.
 
 Motivation: Support a useful subset of lambdas while preserving a simple backend
 model.
 
 Deliverables:
 
-- Detect non-capturing lambdas.
-- Lift eligible lambdas to generated top-level functions.
-- Reject capturing lambdas structurally until closure conversion exists.
-- Preserve deterministic generated names.
+- Completed: detect non-capturing lambdas.
+- Completed: lift eligible let-bound lambdas and lambdas used directly in
+  function position to generated top-level functions.
+- Completed: reject capturing lambdas structurally until closure conversion
+  exists.
+- Completed: preserve deterministic generated names.
 
 Non-goals:
 
@@ -350,15 +354,15 @@ Non-goals:
 
 Acceptance criteria:
 
-- Non-capturing lambdas compile through LLVM.
-- Capturing lambdas still run in interpreter/report mode and are rejected by
-  backend compile mode with structured diagnostics.
+- Completed: non-capturing lambda examples compile through LLVM.
+- Completed: capturing lambdas still run in interpreter/report mode and are
+  rejected by backend compile mode with structured diagnostics.
 
 Tests required:
 
-- Free-variable analysis tests.
-- Lambda-lifting golden ANF/backend tests.
-- Interpreter-vs-LLVM tests for non-capturing lambdas.
+- Completed: free-variable capture tests.
+- Completed: lambda-lifting ANF/backend tests.
+- Completed: interpreter-vs-LLVM tests for non-capturing lambdas.
 
 Risks:
 
@@ -368,6 +372,11 @@ Definition of done:
 
 - The backend supports non-capturing lambdas without introducing closure
   runtime dependencies.
+
+Next recommended task:
+
+- Start Phase 6 by designing and implementing closure conversion and the closure
+  runtime representation.
 
 ## Phase 6 - Closure Conversion And Runtime
 
@@ -796,12 +805,14 @@ Compile top-level first-order functions
 
 ### Task G - Lambda Lifting For Non-Capturing Lambdas
 
+Status: complete.
+
 Prerequisite: Task F.
 
 Implementation scope:
 
-- Detect and lift non-capturing lambdas.
-- Keep capturing lambdas rejected by backend compile mode.
+- Completed: detect and lift non-capturing lambdas.
+- Completed: keep capturing lambdas rejected by backend compile mode.
 
 Files likely touched:
 
@@ -812,12 +823,14 @@ Files likely touched:
 
 Tests required:
 
-- Capture analysis tests.
-- Interpreter-vs-LLVM tests for non-capturing lambdas.
+- Completed: capture analysis tests.
+- Completed: lambda-lifting ANF/backend tests.
+- Completed: interpreter-vs-LLVM tests for non-capturing lambdas.
 
 Acceptance criteria:
 
-- Non-capturing lambda examples compile to LLVM with no closure runtime.
+- Completed: non-capturing lambda examples compile to LLVM with no closure
+  runtime.
 
 Commit message suggestion:
 
@@ -926,8 +939,8 @@ Add semi-naive Egglog evaluation
 ## Next Recommended Prompt
 
 ```text
-Implement lambda lifting for non-capturing lambdas: detect lambdas with no free
-variables, generate deterministic top-level functions, lower eligible calls
-through the direct-call backend path, keep capturing lambdas rejected by LLVM
-compile mode, add tests, and update the roadmap.
+Design and implement closure conversion: define the closure runtime
+representation, convert capturing lambdas into code pointers plus environments,
+lower closure calls through LLVM, add interpreter-vs-LLVM closure tests, and
+update the roadmap.
 ```

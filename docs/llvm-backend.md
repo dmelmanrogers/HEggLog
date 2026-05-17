@@ -28,11 +28,13 @@ Supported in v0:
 - `if` expressions with `Bool` conditions and same-typed branches
 - ordered top-level first-order functions
 - saturated direct calls to top-level functions
+- lambda lifting for non-capturing let-bound lambdas and lambdas used directly
+  in function position
 
 Rejected structurally:
 
 - free variables and open ANF
-- lambdas
+- capturing lambdas and lambdas used as first-class values
 - closure calls, calls through local variables, partial calls, and over-applied
   calls
 - higher-order values
@@ -217,11 +219,11 @@ The LLVM pipeline can lower either original ANF or Egglog-optimized ANF:
 
 Egglog remains an optimizer. LLVM remains a code generation backend.
 The current Egglog optimizer is expression-oriented; source programs with
-top-level functions bypass Egglog and lower through the original ANF program.
+top-level or lambda-lifted functions bypass Egglog and lower through the
+original ANF program.
 
 ## Future Work
 
-- lambda lifting
 - closure conversion
 - recursion
 - runtime representation
