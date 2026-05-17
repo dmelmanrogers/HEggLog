@@ -41,8 +41,10 @@ executable hegglog
       IR.ANF
       IR.ANF.Validate
       IR.Core
+      Optimize.EGraph
       Optimize.Placeholder
       Optimize.Rewrite
+      Optimize.Simplify
       Syntax.AST
       Syntax.Parser
       Syntax.Pretty
@@ -76,8 +78,10 @@ test-suite hegglog-test
       IR.ANF
       IR.ANF.Validate
       IR.Core
+      Optimize.EGraph
       Optimize.Placeholder
       Optimize.Rewrite
+      Optimize.Simplify
       Syntax.AST
       Syntax.Parser
       Syntax.Pretty

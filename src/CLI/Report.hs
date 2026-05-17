@@ -13,7 +13,22 @@ import Analysis.InferFacts (inferFacts)
 import Eval.Interpreter (RuntimeError, Value, eval, renderRuntimeError, renderValue)
 import IR.ANF (AExpr, renderANF, toANF)
 import IR.Core (CoreProgram, lower, renderCore)
+import Optimize.EGraph
+  ( EGraphError
+  , EGraphResult (..)
+  , optimizeANF
+  , renderEGraphError
+  )
 import Optimize.Placeholder (optimize)
+import Optimize.Simplify
+  ( AppliedRewrite
+  , SimplifyError
+  , appliedRewrites
+  , renderAppliedRewrites
+  , renderSimplifyError
+  , simplifiedANF
+  , simplifyFixpoint
+  )
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Syntax.AST (Expr, Type)
@@ -29,6 +44,9 @@ data CompileReport = CompileReport
   , reportValue :: Value
   , reportANF :: AExpr
   , reportFacts :: [Fact]
+  , reportOptimizedANF :: AExpr
+  , reportAppliedRewrites :: [AppliedRewrite]
+  , reportEGraph :: Either EGraphError EGraphResult
   , reportCore :: CoreProgram
   }
   deriving stock (Show, Eq)
@@ -37,6 +55,7 @@ data CompileError
   = CompileParseError Text
   | CompileTypeError TypeError
   | CompileRuntimeError RuntimeError
+  | CompileSimplifyError SimplifyError
   deriving stock (Show, Eq)
 
 compileReport :: FilePath -> Text -> Either CompileError CompileReport
@@ -54,6 +73,10 @@ compileReport path source = do
       Left runtimeError -> Left (CompileRuntimeError runtimeError)
       Right result -> Right result
   let anf = toANF parsed
+  simplified <-
+    case simplifyFixpoint anf of
+      Left simplifyError -> Left (CompileSimplifyError simplifyError)
+      Right result -> Right result
   pure
     CompileReport
       { reportParsed = parsed
@@ -61,6 +84,9 @@ compileReport path source = do
       , reportValue = value
       , reportANF = anf
       , reportFacts = inferFacts anf
+      , reportOptimizedANF = simplifiedANF simplified
+      , reportAppliedRewrites = appliedRewrites simplified
+      , reportEGraph = optimizeANF anf
       , reportCore = optimize (lower parsed)
       }
 
@@ -72,6 +98,9 @@ renderFullReport report =
     , section "Result" (renderValue (reportValue report))
     , section "ANF IR" (renderANF (reportANF report))
     , section "Inferred Facts" (renderFacts (reportFacts report))
+    , section "Optimized ANF IR" (renderANF (reportOptimizedANF report))
+    , section "Applied Rewrites" (renderAppliedRewrites (reportAppliedRewrites report))
+    , section "EGraph Optimized ANF IR" (renderEGraphReport (reportEGraph report))
     , section "Core IR" (renderCore (reportCore report))
     ]
 
@@ -82,6 +111,9 @@ renderGoldenReport report =
     , section "Result" (renderValue (reportValue report))
     , section "ANF IR" (renderANF (reportANF report))
     , section "Inferred Facts" (renderFacts (reportFacts report))
+    , section "Optimized ANF IR" (renderANF (reportOptimizedANF report))
+    , section "Applied Rewrites" (renderAppliedRewrites (reportAppliedRewrites report))
+    , section "EGraph Optimized ANF IR" (renderEGraphReport (reportEGraph report))
     ]
 
 renderCompileError :: CompileError -> Text
@@ -92,7 +124,20 @@ renderCompileError = \case
     section "Type error" (renderTypeError typeError)
   CompileRuntimeError runtimeError ->
     section "Runtime error" (renderRuntimeError runtimeError)
+  CompileSimplifyError simplifyError ->
+    section "Simplify error" (renderSimplifyError simplifyError)
 
 section :: Text -> Text -> Text
 section title body =
   "== " <> title <> " ==\n" <> Text.stripEnd body <> "\n"
+
+renderEGraphReport :: Either EGraphError EGraphResult -> Text
+renderEGraphReport = \case
+  Right result ->
+    Text.unlines
+      [ renderANF (egraphOptimizedANF result)
+      , "classes: " <> Text.pack (show (egraphClassCount result))
+      , "rewrites: " <> Text.pack (show (egraphRewriteCount result))
+      ]
+  Left err ->
+    renderEGraphError err
