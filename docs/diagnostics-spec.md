@@ -84,16 +84,14 @@ shapes.
 Examples:
 
 ```text
-<llvm-diagnostic>:1:1-14: LLVM backend unsupported: LLVM backend does not support lambda expressions
+LLVM backend cannot print function-valued root expression of type (Int -> Int)
 <llvm-diagnostic>:1:3-8: LLVM backend unsupported: LLVM backend does not support division
 ```
 
 The current LLVM source-fragment rejections are:
 
-- lambda expressions that cannot be lifted, including capturing lambdas and
-  lambdas used as first-class values
-- unsupported applications, such as closure calls, calls through local
-  variables, partial calls, and over-applied top-level calls
+- function-valued root expressions
+- partial or over-applied top-level calls
 - using a top-level function as a first-class value
 - division
 

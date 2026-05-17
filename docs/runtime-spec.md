@@ -10,7 +10,7 @@ Implemented source/interpreter values:
 
 - `Int`: checked signed 64-bit integer, represented in Haskell as `HInt`.
 - `Bool`: boolean.
-- Closure: interpreter-only value containing:
+- Closure: interpreter value containing:
   - captured lexical environment
   - parameter name
   - body expression
@@ -19,8 +19,8 @@ Implemented LLVM values:
 
 - `Int`: LLVM `i64`.
 - `Bool`: LLVM `i1`.
-
-Closure values are not implemented in the LLVM backend yet.
+- Closure: opaque LLVM `ptr` to a heap object whose first field is a code
+  pointer and whose remaining fields are captured values.
 
 ## Int Representation
 
@@ -151,6 +151,7 @@ Current external declarations:
 ```llvm
 declare i32 @printf(ptr, ...)
 declare void @abort()
+declare noalias ptr @malloc(i64)
 ```
 
 Checked arithmetic intrinsics are declared only when needed:
@@ -161,7 +162,8 @@ declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)
 declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)
 ```
 
-There is no custom HeggLog runtime library yet.
+`malloc` is declared only for programs that allocate closures. There is no
+custom HeggLog runtime library yet.
 
 ## Function Runtime
 
@@ -173,39 +175,38 @@ Direct-call model:
 - Arguments and results use backend types (`i64` for `Int`, `i1` for `Bool`).
 - Calls are direct and do not allocate.
 
-## Future Closure Runtime
+## Closure Runtime
 
-Closure conversion should use this representation:
+Closure conversion uses this representation:
 
 ```text
-closure = code pointer + environment pointer
+closure object = code pointer + captured environment fields
 ```
 
-The code pointer identifies a generated function. The environment pointer points
-to a runtime layout containing captured values.
+The closure pointer itself is passed as the environment pointer to generated
+closure-code functions. Field 0 is the loaded code pointer. Fields 1..n store
+captured values in deterministic name order.
 
-Required design decisions:
+Current policy:
 
-- Environment layout: struct per closure shape versus uniform boxed frame.
-- Allocation: stack allocation for proven-local closures versus heap allocation.
-- Lifetime management: explicit freeing, reference counting, arena allocation,
-  or garbage collection.
-- Calling convention: direct call after unpacking versus indirect function
-  pointer call.
-- Runtime type uniformity: whether all values become boxed, or only closures and
-  future aggregate values are boxed.
+- Environment layout: one LLVM struct shape per closure capture list.
+- Allocation: heap allocation with `malloc`.
+- Allocation failure: null-check and `abort`.
+- Lifetime management: process-lifetime allocation; closures are not freed in
+  the first runtime pass.
+- Calling convention: closure calls load field 0 and perform an indirect LLVM
+  call with the closure pointer followed by the source argument.
+- Runtime type uniformity: `Int` and `Bool` remain unboxed; closures are boxed.
 
-Recommendation:
+Future refinements:
 
-- Non-capturing lambda lifting is implemented; closure conversion should build
-  on the generated top-level function path.
-- For closure conversion, start with heap-allocated environment structs and a
-  deliberately simple ownership policy, then refine after tests force the
-  lifetime model.
+- Free or collect closure objects.
+- Stack-allocate non-escaping closures after escape analysis.
+- Introduce a custom runtime allocator if future aggregate values need it.
 
 ## Future Allocation And Memory Management
 
-No heap allocation exists today.
+Closure conversion introduces heap allocation for closure objects.
 
 Possible policies:
 
@@ -216,8 +217,8 @@ Possible policies:
 
 Decision needed:
 
-- Choose the smallest runtime policy that is correct for closures and future
-  aggregate values.
+- Choose the long-term ownership policy for closures and future aggregate
+  values.
 
 ## Runtime Acceptance Criteria
 
@@ -235,3 +236,5 @@ Current checked tests cover:
 - Egglog constant overflow preservation.
 - LLVM checked overflow abort behavior when LLVM execution tools are available.
 - LLVM execution matching interpreter output for supported examples.
+- LLVM closure differential examples for captured variables, returned closures,
+  and higher-order local function values when execution tools are available.

@@ -89,6 +89,10 @@ emitInstruction = \case
         <> " "
         <> emitOperand base
         <> Text.concat [", " <> emitType ty <> " " <> emitOperand operand | (ty, operand) <- indices]
+  ILoad reg ty pointer ->
+    assign reg ("load " <> emitType ty <> ", ptr " <> emitOperand pointer)
+  IStore ty value pointer ->
+    "  store " <> emitType ty <> " " <> emitOperand value <> ", ptr " <> emitOperand pointer
   ICall maybeReg returnType callee varArg args ->
     case maybeReg of
       Just reg -> assign reg (emitCall returnType callee varArg args)
@@ -112,15 +116,22 @@ emitInstruction = \case
           | (operand, label) <- incoming
           ]
 
-emitCall :: LLVMType -> Text -> Bool -> [(LLVMType, LLVMOperand)] -> Text
+emitCall :: LLVMType -> LLVMCallTarget -> Bool -> [(LLVMType, LLVMOperand)] -> Text
 emitCall returnType callee varArg args =
   "call "
     <> emitCallType returnType varArg args
-    <> " @"
-    <> callee
+    <> " "
+    <> emitCallTarget callee
     <> "("
     <> Text.intercalate ", " [emitType ty <> " " <> emitOperand operand | (ty, operand) <- args]
     <> ")"
+
+emitCallTarget :: LLVMCallTarget -> Text
+emitCallTarget = \case
+  DirectCall name ->
+    "@" <> name
+  IndirectCall operand ->
+    emitOperand operand
 
 emitCallType :: LLVMType -> Bool -> [(LLVMType, LLVMOperand)] -> Text
 emitCallType returnType varArg args
@@ -171,6 +182,8 @@ emitOperand = \case
     "true"
   OConstInt _ n ->
     Text.pack (show n)
+  OConstNull ->
+    "null"
 
 emitType :: LLVMType -> Text
 emitType = \case

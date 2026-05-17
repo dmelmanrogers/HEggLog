@@ -1,16 +1,17 @@
 # HeggLog LLVM Backend
 
 The LLVM backend is the first executable code generation path for HeggLog. It is
-intentionally narrow: it compiles closed, pure, first-order ANF programs,
-including ordered top-level functions and saturated direct calls, into a small
-typed backend IR, lowers that IR into structured LLVM IR, and emits textual
-LLVM.
+intentionally narrow but now includes a first closure runtime pass: it compiles
+closed, pure programs with first-order roots, ordered top-level functions,
+saturated direct calls, lambda-lifted non-capturing functions, and local closure
+calls into a small typed backend IR, lowers that IR into structured LLVM IR, and
+emits textual LLVM.
 
 For the normative semantic contract, see
 [`docs/llvm-backend-spec.md`](llvm-backend-spec.md).
 
 ```text
-source -> typecheck -> ANF -> optional Egglog -> Backend IR -> LLVM IR
+source -> typecheck -> lambda lift -> ANF or closure conversion -> Backend IR -> LLVM IR
 ```
 
 ## Supported Fragment
@@ -30,17 +31,16 @@ Supported in v0:
 - saturated direct calls to top-level functions
 - lambda lifting for non-capturing let-bound lambdas and lambdas used directly
   in function position
+- closure conversion for local function values, including captured variables,
+  returned closures, and calls through local closure variables
 
 Rejected structurally:
 
 - free variables and open ANF
-- capturing lambdas and lambdas used as first-class values
-- closure calls, calls through local variables, partial calls, and over-applied
-  calls
-- higher-order values
+- function-valued root expressions
+- partial and over-applied top-level calls
 - using a top-level function as a first-class value
 - recursion
-- heap allocation
 - strings and user-defined data
 - division
 
@@ -53,6 +53,7 @@ HeggLog types lower to backend types before LLVM:
 
 - `Int` -> `BI64` -> LLVM `i64`
 - `Bool` -> `BI1` -> LLVM `i1`
+- `T1 -> T2` -> `BClosure arg result` -> opaque LLVM `ptr`
 
 Backend types are ordinary Haskell constructors, not raw strings. Validation
 checks all variable, primitive, `if`, and root types before LLVM lowering.
@@ -61,9 +62,9 @@ checks all variable, primitive, `if`, and root types before LLVM lowering.
 
 The backend IR is smaller than ANF and codegen-oriented. It contains typed atoms,
 typed primitive expressions, scoped `let`, typed `if`, top-level function
-definitions, direct function calls, and a closed root expression. It has no
-lambda/application constructors, so unsupported higher-order programs cannot
-leak into codegen.
+definitions, direct function calls, closure allocation, closure application,
+environment-field access, and a closed root expression. It has no source lambda
+constructor; closure conversion lowers lambdas before LLVM codegen.
 
 ## LLVM Lowering
 
@@ -78,6 +79,9 @@ Lowering uses SSA:
 - `if` lowers to then/else/join blocks with a `phi` in the join block
 - top-level functions lower to LLVM functions with typed parameters
 - direct calls lower to ordinary LLVM `call` instructions
+- closure allocation calls `malloc`, stores a code pointer plus captured fields,
+  and aborts on null allocation
+- closure calls load the code pointer and lower to indirect LLVM calls
 
 Nested `if` expressions work because each branch returns the current predecessor
 block label for the enclosing `phi`.
@@ -107,8 +111,9 @@ declare i32 @printf(ptr, ...)
 define i32 @main() { ... }
 ```
 
-Programs that contain checked arithmetic also declare the corresponding LLVM
-overflow intrinsics and `abort`.
+Programs that contain checked arithmetic declare the corresponding LLVM overflow
+intrinsics and `abort`. Programs that allocate closures declare `malloc` and
+`abort`.
 
 Top-level source functions emit deterministic LLVM functions named with a
 collision-free escaped form of the source name, prefixed by `hegglog_fun_`.
@@ -168,7 +173,8 @@ The test suite validates selected LLVM golden outputs against checked-in text.
 When `llvm-as` is available, those same emitted modules are also assembled to
 bitcode. It also runs a small differential corpus through both the interpreter
 and LLVM execution path when `lli` or `clang` is available, comparing LLVM stdout
-against the interpreter-derived root value.
+against the interpreter-derived root value. The corpus includes captured
+closures, returned closures, and higher-order local function values.
 
 ## External Tools
 
@@ -202,31 +208,29 @@ when run through the available LLVM execution toolchain.
 
 ## Relationship With Egglog
 
-The LLVM pipeline can lower either original ANF or Egglog-optimized ANF:
+The LLVM pipeline can lower original ANF, Egglog-optimized ANF, or
+closure-converted source:
 
 1. parse
 2. typecheck
-3. lower to ANF
-4. validate ANF
-5. optionally try Egglog optimization
-6. validate the selected ANF
-7. lower to Backend IR
-8. validate Backend IR
-9. lower to LLVM IR
-10. validate and emit LLVM IR
-11. optionally validate emitted text with `llvm-as`
-12. optionally run with `lli` or compile and run with `clang`
+3. lambda-lift eligible non-capturing lambdas
+4. lower to ANF and validate it
+5. optionally try Egglog optimization for the first-order fragment, or
+   closure-convert higher-order source programs
+6. validate Backend IR
+7. lower to LLVM IR
+8. validate and emit LLVM IR
+9. optionally validate emitted text with `llvm-as`
+10. optionally run with `lli` or compile and run with `clang`
 
 Egglog remains an optimizer. LLVM remains a code generation backend.
 The current Egglog optimizer is expression-oriented; source programs with
-top-level or lambda-lifted functions bypass Egglog and lower through the
-original ANF program.
+top-level, lambda-lifted, or closure-converted functions bypass Egglog and lower
+through the original ANF or closure-converted Backend IR.
 
 ## Future Work
 
-- closure conversion
 - recursion
-- runtime representation
-- heap allocation
+- closure memory reclamation
 - richer primitives
 - LLVM optimization pass integration

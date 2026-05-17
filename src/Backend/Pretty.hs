@@ -49,6 +49,16 @@ renderBackendExpr outerPrec = \case
         ]
   BECall _ callee args ->
     Text.unwords (renderDoc (prettyName callee) : map renderBackendAtom args)
+  BEMakeClosure _ code captures ->
+    "closure "
+      <> renderDoc (prettyName code)
+      <> "("
+      <> Text.intercalate ", " [renderBackendAtom atom | (_, atom) <- captures]
+      <> ")"
+  BEApply _ fn arg ->
+    Text.unwords [renderBackendAtom fn, renderBackendAtom arg]
+  BEEnvGet _ _ env index ->
+    renderBackendAtom env <> ".env[" <> Text.pack (show index) <> "]"
   BELet _ name rhs body ->
     parenthesize (outerPrec > 0) $
       "let "
@@ -77,6 +87,10 @@ renderBackendType :: BackendType -> Text
 renderBackendType = \case
   BI64 -> "i64"
   BI1 -> "i1"
+  BClosure arg result ->
+    "(" <> renderBackendType arg <> " -> " <> renderBackendType result <> ")"
+  BEnv fields ->
+    "env{" <> Text.intercalate ", " (map renderBackendType fields) <> "}"
 
 parenthesize :: Bool -> Text -> Text
 parenthesize shouldWrap text

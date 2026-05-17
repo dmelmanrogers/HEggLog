@@ -14,6 +14,7 @@ import Data.Text (Text)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
+import Backend.ClosureConvert
 import Backend.IR
 import Backend.LambdaLift
 import Backend.LLVM.Emit
@@ -77,6 +78,7 @@ data CompileLLVMError
   | LLVMCompileUnsupportedSource SourceSpan Text
   | LLVMCompileInvalidANF ANFValidationError
   | LLVMCompileEgglogFailed EgglogBackendError
+  | LLVMCompileClosureConvertError ClosureConvertError
   | LLVMCompileBackendLowerError BackendLowerError
   | LLVMCompileLowerError LLVMLowerError
   deriving stock (Show, Eq)
@@ -95,15 +97,30 @@ compileToLLVM options path source = do
          in Left (LLVMCompileUnsupportedSource sourceRange message)
       Right program -> Right program
   _ <- mapLeft LLVMCompileTypeError (inferLocatedProgram lifted)
-  case findLLVMUnsupported lifted of
-    Just (sourceRange, message) -> Left (LLVMCompileUnsupportedSource sourceRange message)
-    Nothing -> Right ()
   let stripped = stripLocatedProgram lifted
       anf = toANFProgram stripped
-  mapLeft LLVMCompileInvalidANF (validateANFProgram anf)
-  (selectedANF, optimizationStatus) <- selectANFProgram options anf
-  mapLeft LLVMCompileInvalidANF (validateANFProgram selectedANF)
-  backend <- mapLeft LLVMCompileBackendLowerError (lowerANFProgramToBackend selectedANF)
+  (selectedANF, optimizationStatus, backend) <-
+    if programNeedsClosureRuntime stripped
+      then do
+        case findClosureRuntimeUnsupported lifted of
+          Just (sourceRange, message) -> Left (LLVMCompileUnsupportedSource sourceRange message)
+          Nothing -> Right ()
+        mapLeft LLVMCompileInvalidANF (validateANFProgram anf)
+        backend <- mapLeft LLVMCompileClosureConvertError (closureConvertProgram inferredType stripped)
+        pure
+          ( anf
+          , LLVMOptimizationUnsupported (ReconstructedTypeError "closure-converted programs are outside the Egglog optimizer fragment")
+          , backend
+          )
+      else do
+        case findLLVMUnsupported lifted of
+          Just (sourceRange, message) -> Left (LLVMCompileUnsupportedSource sourceRange message)
+          Nothing -> Right ()
+        mapLeft LLVMCompileInvalidANF (validateANFProgram anf)
+        (selectedANF, optimizationStatus) <- selectANFProgram options anf
+        mapLeft LLVMCompileInvalidANF (validateANFProgram selectedANF)
+        backend <- mapLeft LLVMCompileBackendLowerError (lowerANFProgramToBackend selectedANF)
+        pure (selectedANF, optimizationStatus, backend)
   llvmModule0 <- mapLeft LLVMCompileLowerError (lowerBackendToLLVM backend)
   let llvmModule1 =
         llvmModule0
@@ -164,6 +181,8 @@ renderCompileLLVMError = \case
     "invalid ANF before LLVM compilation: " <> renderANFValidationError err
   LLVMCompileEgglogFailed err ->
     "Egglog optimization failed before LLVM compilation: " <> renderEgglogBackendError err
+  LLVMCompileClosureConvertError err ->
+    renderClosureConvertError err
   LLVMCompileBackendLowerError err ->
     renderBackendLowerError err
   LLVMCompileLowerError err ->
@@ -189,6 +208,64 @@ findLLVMUnsupported program =
  where
   arities =
     Map.fromList [(locatedTopDefName def, length (locatedTopDefParams def)) | def <- locatedProgramDefs program]
+
+findClosureRuntimeUnsupported :: LocatedProgram -> Maybe (SourceSpan, Text)
+findClosureRuntimeUnsupported program =
+  firstJust (map (findTopDefClosureUnsupported arities) (locatedProgramDefs program) <> [findExprClosureUnsupported arities Set.empty (locatedProgramMain program)])
+ where
+  arities =
+    Map.fromList [(locatedTopDefName def, length (locatedTopDefParams def)) | def <- locatedProgramDefs program]
+
+findTopDefClosureUnsupported :: Map.Map Name Int -> LocatedTopDef -> Maybe (SourceSpan, Text)
+findTopDefClosureUnsupported arities def =
+  findExprClosureUnsupported arities localNames (locatedTopDefBody def)
+ where
+  localNames =
+    Set.fromList (map locatedParamName (locatedTopDefParams def))
+
+findExprClosureUnsupported :: Map.Map Name Int -> Set.Set Name -> LocatedExpr -> Maybe (SourceSpan, Text)
+findExprClosureUnsupported arities localNames expr =
+  case locatedExprNode expr of
+    LInt _ ->
+      Nothing
+    LBool _ ->
+      Nothing
+    LVar name
+      | name `Map.member` arities && name `Set.notMember` localNames ->
+          Just (locatedExprSpan expr, topFunctionValueMessage name)
+      | otherwise ->
+          Nothing
+    LLet name rhs body ->
+      firstJust [findExprClosureUnsupported arities localNames rhs, findExprClosureUnsupported arities (Set.insert name localNames) body]
+    LIf cond thenBranch elseBranch ->
+      firstJust
+        [ findExprClosureUnsupported arities localNames cond
+        , findExprClosureUnsupported arities localNames thenBranch
+        , findExprClosureUnsupported arities localNames elseBranch
+        ]
+    LBin Div lhs rhs ->
+      firstJust
+        [ findExprClosureUnsupported arities localNames lhs
+        , findExprClosureUnsupported arities localNames rhs
+        , Just (locatedExprSpan expr, "LLVM backend does not support division")
+        ]
+    LBin _ lhs rhs ->
+      firstJust [findExprClosureUnsupported arities localNames lhs, findExprClosureUnsupported arities localNames rhs]
+    LLam name _ body ->
+      findExprClosureUnsupported arities (Set.insert name localNames) body
+    LApp {} ->
+      case locatedDirectTopCall arities localNames expr of
+        Just (callee, args, expectedArity)
+          | length args == expectedArity ->
+              firstJust (map (findExprClosureUnsupported arities localNames) args)
+          | otherwise ->
+              firstJust
+                ( map (findExprClosureUnsupported arities localNames) args
+                    <> [Just (locatedExprSpan expr, saturatedCallMessage callee expectedArity (length args))]
+                )
+        Nothing ->
+          let (fn, args) = locatedUnwind expr
+           in firstJust (map (findExprClosureUnsupported arities localNames) (fn : args))
 
 findTopDefUnsupported :: Map.Map Name Int -> LocatedTopDef -> Maybe (SourceSpan, Text)
 findTopDefUnsupported arities def =
@@ -250,7 +327,7 @@ findExprUnsupported arities localNames expr =
 
 locatedDirectTopCall :: Map.Map Name Int -> Set.Set Name -> LocatedExpr -> Maybe (Name, [LocatedExpr], Int)
 locatedDirectTopCall arities localNames expression =
-  case unwind [] expression of
+  case locatedUnwind expression of
     (headExpr, args) ->
       case locatedExprNode headExpr of
         LVar name
@@ -260,6 +337,10 @@ locatedDirectTopCall arities localNames expression =
               Just (name, args, arity)
         _ ->
           Nothing
+
+locatedUnwind :: LocatedExpr -> (LocatedExpr, [LocatedExpr])
+locatedUnwind =
+  unwind []
  where
   unwind args current =
     case locatedExprNode current of

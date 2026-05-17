@@ -115,8 +115,8 @@ generalization, polymorphism, algebraic data type, or pattern matching support
 yet.
 
 Top-level function parameters and returns must be first-order values (`Int` or
-`Bool`). Function-typed top-level parameters and returns are rejected until
-closure conversion gives the backend a representation for higher-order values.
+`Bool`). Function-typed top-level parameters and returns remain rejected while
+the first closure runtime pass is limited to local function values.
 
 ## Top-Level Definitions
 
@@ -223,8 +223,9 @@ type `Type -> BodyType`.
 
 The LLVM backend lambda-lifts non-capturing lambdas when they are let-bound or
 used directly in function position. Lifted lambdas become generated top-level
-first-order functions. Capturing lambdas and lambdas used as first-class values
-are rejected structurally by LLVM compile mode.
+first-order functions when every local use is saturated. Remaining function
+values are closure-converted for LLVM compile mode when the program's root value
+is still `Int` or `Bool`.
 
 ### Application
 
@@ -239,10 +240,9 @@ Evaluation is call-by-value: evaluate the function, evaluate the argument, then
 apply the closure.
 
 The LLVM backend supports saturated direct calls to top-level first-order
-functions. Other applications, including closure calls, partial top-level calls,
-over-applied top-level calls, and calls through local variables, are currently
-rejected structurally. Using a top-level function as a first-class value is also
-outside the current LLVM fragment.
+functions and closure calls through local function values. Partial or
+over-applied top-level calls are rejected structurally. Using a top-level
+function as a first-class value is also outside the current LLVM fragment.
 
 ## Evaluation Order
 
@@ -266,8 +266,9 @@ Implemented runtime values:
 
 - `Int`: checked signed 64-bit integer.
 - `Bool`: boolean.
-- Closure: interpreter-only value containing captured environment, parameter
-  name, and body expression.
+- Closure: interpreter value containing captured environment, parameter name,
+  and body expression. LLVM compile mode represents closures as heap objects
+  containing a code pointer and captured fields.
 
 ## Runtime Errors
 
@@ -312,6 +313,5 @@ though negative source literals are not syntax yet.
 
 ## Planned Features
 
-- Closure conversion and runtime closure representation.
 - Hindley-Milner direction decision.
 - Algebraic data types and pattern matching, later.

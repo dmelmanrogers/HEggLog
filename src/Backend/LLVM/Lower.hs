@@ -131,12 +131,12 @@ lowerMainFunction rootType =
         blocks <-
           runLowerM state0 $ do
             resultReg <- freshRegister "result"
-            emit (ICall (Just resultReg) (llvmType rootType) (rootFunctionName rootType) False [])
+            emit (ICall (Just resultReg) (llvmType rootType) (DirectCall (rootFunctionName rootType)) False [])
             let result = OLocal (llvmType rootType) resultReg
             printedValue <- printableValue rootType result
             fmt <- formatPointer rootType
             printedReg <- freshRegister "printed"
-            emit (ICall (Just printedReg) LI32 "printf" True [(LPtr, fmt), (operandType printedValue, printedValue)])
+            emit (ICall (Just printedReg) LI32 (DirectCall "printf") True [(LPtr, fmt), (operandType printedValue, printedValue)])
             terminate (TRet LI32 (OConstInt LI32 0))
         pure
           LLVMFunction
@@ -198,8 +198,39 @@ emitExpr env = \case
     argOperands <- traverse (emitAtom env) args
     reg <- freshRegister "call"
     let returnType = llvmType ty
-    emit (ICall (Just reg) returnType (topFunctionName callee) False [(operandType arg, arg) | arg <- argOperands])
+    emit (ICall (Just reg) returnType (DirectCall (topFunctionName callee)) False [(operandType arg, arg) | arg <- argOperands])
     pure (OLocal returnType reg)
+  BEMakeClosure ty code captures -> do
+    loweredCaptures <- traverse emitCapture captures
+    emitClosureAllocation ty code loweredCaptures
+  BEApply ty fn arg -> do
+    closureOperand <- emitAtom env fn
+    argOperand <- emitAtom env arg
+    codeField <- closureFieldPointer (LStruct [LPtr]) closureOperand 0
+    codeReg <- freshRegister "closure_code"
+    emit (ILoad codeReg LPtr codeField)
+    resultReg <- freshRegister "closure_call"
+    let returnType = llvmType ty
+        codeOperand = OLocal LPtr codeReg
+    emit
+      ( ICall
+          (Just resultReg)
+          returnType
+          (IndirectCall codeOperand)
+          False
+          [(LPtr, closureOperand), (operandType argOperand, argOperand)]
+      )
+    pure (OLocal returnType resultReg)
+  BEEnvGet ty fields envAtom index -> do
+    envOperand <- emitAtom env envAtom
+    fieldPtr <- envFieldPointer fields envOperand index
+    reg <- freshRegister "env"
+    emit (ILoad reg (llvmType ty) fieldPtr)
+    pure (OLocal (llvmType ty) reg)
+ where
+  emitCapture (ty, atom) = do
+    operand <- emitAtom env atom
+    pure (ty, operand)
 
 emitAtom :: ValueEnv -> BackendAtom -> LowerM LLVMOperand
 emitAtom env = \case
@@ -223,6 +254,10 @@ printableValue = \case
       reg <- freshRegister "bool"
       emit (IZext reg value LI32)
       pure (OLocal LI32 reg)
+  BClosure {} ->
+    \_ -> throwError (LLVMValidationFailed (LLVMReturnTypeMismatch "main" LI64 LPtr))
+  BEnv {} ->
+    \_ -> throwError (LLVMValidationFailed (LLVMReturnTypeMismatch "main" LI64 LPtr))
 
 formatPointer :: BackendType -> LowerM LLVMOperand
 formatPointer rootType = do
@@ -231,6 +266,8 @@ formatPointer rootType = do
         case rootType of
           BI64 -> ("fmt_i64", Text.length intFormatBytes)
           BI1 -> ("fmt_i1", Text.length boolFormatBytes)
+          BClosure {} -> ("fmt_i64", Text.length intFormatBytes)
+          BEnv {} -> ("fmt_i64", Text.length intFormatBytes)
       arrayType = LArray byteCount LI8
       global = OGlobal LPtr globalName
   emit
@@ -246,7 +283,7 @@ emitCheckedIntPrim :: Text -> LLVMOperand -> LLVMOperand -> LowerM LLVMOperand
 emitCheckedIntPrim intrinsic lhs rhs = do
   pairReg <- freshRegister "checked"
   let pairType = LStruct [LI64, LI1]
-  emit (ICall (Just pairReg) pairType intrinsic False [(LI64, lhs), (LI64, rhs)])
+  emit (ICall (Just pairReg) pairType (DirectCall intrinsic) False [(LI64, lhs), (LI64, rhs)])
   let pairOperand = OLocal pairType pairReg
   valueReg <- freshRegister "v"
   overflowReg <- freshRegister "overflow"
@@ -257,11 +294,64 @@ emitCheckedIntPrim intrinsic lhs rhs = do
   terminateCurrent (TCondBr (OLocal LI1 overflowReg) overflowLabel continueLabel)
 
   startBlock overflowLabel
-  emit (ICall Nothing LVoid "abort" False [])
+  emit (ICall Nothing LVoid (DirectCall "abort") False [])
   terminateCurrent TUnreachable
 
   startBlock continueLabel
   pure (OLocal LI64 valueReg)
+
+emitClosureAllocation :: BackendType -> Name -> [(BackendType, LLVMOperand)] -> LowerM LLVMOperand
+emitClosureAllocation closureType code captures =
+  case closureType of
+    BClosure {} -> do
+      mallocReg <- freshRegister "closure"
+      let closureStructType = LStruct (LPtr : map (llvmType . fst) captures)
+          closureSize = 8 * fromIntegral (1 + length captures)
+      emit (ICall (Just mallocReg) LPtr (DirectCall "malloc") False [(LI64, OConstInt LI64 closureSize)])
+      let closureOperand = OLocal LPtr mallocReg
+      abortOnNull closureOperand
+      codeField <- closureFieldPointer closureStructType closureOperand 0
+      emit (IStore LPtr (OGlobal LPtr (topFunctionName code)) codeField)
+      mapM_ (storeCapture closureStructType closureOperand) (zip [1 :: Int ..] captures)
+      pure closureOperand
+    other ->
+      throwError (LLVMValidationFailed (LLVMOperandTypeMismatch LPtr (llvmType other) OConstNull))
+ where
+  storeCapture closureStructType closureOperand (index, (captureType, captureOperand)) = do
+    fieldPtr <- closureFieldPointer closureStructType closureOperand index
+    emit (IStore (llvmType captureType) captureOperand fieldPtr)
+
+abortOnNull :: LLVMOperand -> LowerM ()
+abortOnNull pointer = do
+  nullReg <- freshRegister "is_null"
+  emit (IIcmp nullReg ICmpEq LPtr pointer OConstNull)
+  abortLabel <- freshBlockLabel "alloc_abort"
+  continueLabel <- freshBlockLabel "alloc_ok"
+  terminateCurrent (TCondBr (OLocal LI1 nullReg) abortLabel continueLabel)
+
+  startBlock abortLabel
+  emit (ICall Nothing LVoid (DirectCall "abort") False [])
+  terminateCurrent TUnreachable
+
+  startBlock continueLabel
+
+closureFieldPointer :: LLVMType -> LLVMOperand -> Int -> LowerM LLVMOperand
+closureFieldPointer closureStructType closureOperand index = do
+  fieldReg <- freshRegister "field"
+  emit
+    ( IGetElementPtr
+        fieldReg
+        closureStructType
+        closureOperand
+        [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 (fromIntegral index))]
+    )
+  pure (OLocal LPtr fieldReg)
+
+envFieldPointer :: [BackendType] -> LLVMOperand -> Int -> LowerM LLVMOperand
+envFieldPointer fields envOperand index = do
+  let fieldIndex = index + 1
+      envStructType = LStruct (LPtr : map llvmType fields)
+  closureFieldPointer envStructType envOperand fieldIndex
 
 terminate :: LLVMTerminator -> LowerM [LLVMBlock]
 terminate terminator = do
@@ -319,11 +409,15 @@ llvmType :: BackendType -> LLVMType
 llvmType = \case
   BI64 -> LI64
   BI1 -> LI1
+  BClosure {} -> LPtr
+  BEnv {} -> LPtr
 
 rootFunctionName :: BackendType -> Text
 rootFunctionName = \case
   BI64 -> "hegglog_main_i64"
   BI1 -> "hegglog_main_i1"
+  BClosure {} -> "hegglog_main_closure"
+  BEnv {} -> "hegglog_main_env"
 
 formatGlobals :: [LLVMGlobal]
 formatGlobals =
@@ -333,13 +427,16 @@ formatGlobals =
 
 runtimeDeclarations :: BackendProgram -> [Text]
 runtimeDeclarations program =
-  "declare i32 @printf(ptr, ...)" : checkedArithmeticDeclarations program
+  "declare i32 @printf(ptr, ...)" : runtimeSupportDeclarations program
 
-checkedArithmeticDeclarations :: BackendProgram -> [Text]
-checkedArithmeticDeclarations program =
+runtimeSupportDeclarations :: BackendProgram -> [Text]
+runtimeSupportDeclarations program =
   let prims =
         checkedArithmeticPrims (backendRoot program)
           <> foldMap (checkedArithmeticPrims . backendFunctionBody) (backendFunctions program)
+      hasClosures =
+        containsClosureAllocation (backendRoot program)
+          || any (containsClosureAllocation . backendFunctionBody) (backendFunctions program)
       intrinsic prim =
         case prim of
           BPAdd -> ["declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)"]
@@ -347,9 +444,11 @@ checkedArithmeticDeclarations program =
           BPMul -> ["declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)"]
           _ -> []
       intrinsicDecls = concatMap intrinsic (Set.toList prims)
-   in if Set.null prims
-        then []
-        else intrinsicDecls <> ["declare void @abort()"]
+      mallocDecls =
+        if hasClosures then ["declare noalias ptr @malloc(i64)"] else []
+      abortDecls =
+        if Set.null prims && not hasClosures then [] else ["declare void @abort()"]
+   in intrinsicDecls <> mallocDecls <> abortDecls
 
 checkedArithmeticPrims :: BackendExpr -> Set.Set BackendPrim
 checkedArithmeticPrims = \case
@@ -365,8 +464,33 @@ checkedArithmeticPrims = \case
     checkedArithmeticPrims thenBranch <> checkedArithmeticPrims elseBranch
   BECall {} ->
     Set.empty
+  BEMakeClosure {} ->
+    Set.empty
+  BEApply {} ->
+    Set.empty
+  BEEnvGet {} ->
+    Set.empty
   BELet _ _ rhs body ->
     checkedArithmeticPrims rhs <> checkedArithmeticPrims body
+
+containsClosureAllocation :: BackendExpr -> Bool
+containsClosureAllocation = \case
+  BEAtom {} ->
+    False
+  BEPrim {} ->
+    False
+  BEIf _ _ thenBranch elseBranch ->
+    containsClosureAllocation thenBranch || containsClosureAllocation elseBranch
+  BECall {} ->
+    False
+  BEMakeClosure {} ->
+    True
+  BEApply {} ->
+    False
+  BEEnvGet {} ->
+    False
+  BELet _ _ rhs body ->
+    containsClosureAllocation rhs || containsClosureAllocation body
 
 intFormatBytes :: Text
 intFormatBytes =

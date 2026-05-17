@@ -1,5 +1,6 @@
 module Backend.LLVM.IR
   ( LLVMBlock (..)
+  , LLVMCallTarget (..)
   , LLVMFunction (..)
   , LLVMGlobal (..)
   , LLVMInstruction (..)
@@ -33,6 +34,12 @@ data LLVMOperand
   = OLocal LLVMType Register
   | OGlobal LLVMType Text
   | OConstInt LLVMType Integer
+  | OConstNull
+  deriving stock (Show, Eq, Ord)
+
+data LLVMCallTarget
+  = DirectCall Text
+  | IndirectCall LLVMOperand
   deriving stock (Show, Eq, Ord)
 
 data LLVMPredicate
@@ -47,7 +54,9 @@ data LLVMInstruction
   | IIcmp Register LLVMPredicate LLVMType LLVMOperand LLVMOperand
   | IZext Register LLVMOperand LLVMType
   | IGetElementPtr Register LLVMType LLVMOperand [(LLVMType, LLVMOperand)]
-  | ICall (Maybe Register) LLVMType Text Bool [(LLVMType, LLVMOperand)]
+  | ILoad Register LLVMType LLVMOperand
+  | IStore LLVMType LLVMOperand LLVMOperand
+  | ICall (Maybe Register) LLVMType LLVMCallTarget Bool [(LLVMType, LLVMOperand)]
   | IExtractValue Register LLVMType LLVMOperand Int
   | IPhi Register LLVMType [(LLVMOperand, Text)]
   deriving stock (Show, Eq, Ord)
@@ -93,3 +102,4 @@ operandType = \case
   OLocal ty _ -> ty
   OGlobal ty _ -> ty
   OConstInt ty _ -> ty
+  OConstNull -> LPtr

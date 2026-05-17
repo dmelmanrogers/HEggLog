@@ -272,7 +272,7 @@ testGroups =
       , pureTest "LLVM compiler escapes top-level names without collisions" testLLVMCompileEscapesTopLevelNames
       , pureTest "LLVM compiler lambda lifts non-capturing lets" testLLVMCompileLiftedLetLambda
       , pureTest "LLVM compiler lambda lifts immediate lambdas" testLLVMCompileImmediateLambda
-      , pureTest "LLVM compiler rejects capturing lambdas" testLLVMCompileRejectsCapturingLambda
+      , pureTest "LLVM compiler closure-converts capturing lambdas" testLLVMCompileCapturingLambda
       , ioTest "LLVM checked Int overflow aborts when tools are available" testLLVMOverflowAborts
       , ioTest "LLVM arithmetic golden" $
           checkLLVMGolden "examples/llvm/arithmetic.hg" "test/golden/llvm-arithmetic.ll"
@@ -1555,18 +1555,21 @@ testLLVMCompileImmediateLambda = do
     "anonymous lambda call lowers directly"
     ("call i64 @hegglog_fun__ulift_ulambda_u0(i64 21)" `Text.isInfixOf` llvmText)
 
-testLLVMCompileRejectsCapturingLambda :: Either String ()
-testLLVMCompileRejectsCapturingLambda =
-  case
-    BC.compileToLLVM
-      BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
-      "<test>"
-      "let x = 1 in let f = \\y : Int -> x + y in f 2" of
-    Left (BC.LLVMCompileUnsupportedSource _ message) ->
-      assertBool
-        "capturing lambda rejection names captured variable"
-        ("captured variables: x" `Text.isInfixOf` message)
-    other -> Left ("expected capturing lambda rejection, got " <> show other)
+testLLVMCompileCapturingLambda :: Either String ()
+testLLVMCompileCapturingLambda = do
+  llvmText <- compileLLVMTextNoEgglog "let x = 1 in let f = \\y : Int -> x + y in f 2"
+  assertBool
+    "capturing lambda gets closure code function"
+    ("define i64 @hegglog_fun__uclosure_uf_u0(ptr %arg__uenv0, i64 %arg_y)" `Text.isInfixOf` llvmText)
+  assertBool
+    "closure allocation uses malloc"
+    ("call ptr @malloc(i64 16)" `Text.isInfixOf` llvmText)
+  assertBool
+    "closure stores code pointer"
+    ("store ptr @hegglog_fun__uclosure_uf_u0" `Text.isInfixOf` llvmText)
+  assertBool
+    "closure call dispatches through loaded code pointer"
+    ("call i64 %closure_code" `Text.isInfixOf` llvmText)
 
 testLLVMOverflowAborts :: IO (Either String ())
 testLLVMOverflowAborts = do
@@ -2363,6 +2366,9 @@ llvmDifferentialSources =
   , liftedIncSource
   , "let add = \\x : Int -> \\y : Int -> x + y in add 3 4"
   , "(\\x : Int -> x * 2) 21"
+  , "let x = 1 in let f = \\y : Int -> x + y in f 2"
+  , "let makeAdder = \\x : Int -> \\y : Int -> x + y in let add10 = makeAdder 10 in add10 32"
+  , higherOrderSource
   , "1 + 2 * 3"
   , "let x = 10 in let y = x - 4 in y * 3"
   , "if 3 < 4 then 11 else 22"

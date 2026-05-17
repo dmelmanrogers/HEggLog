@@ -3,7 +3,8 @@
 This roadmap is the project-level source of truth for what exists now, what is
 being stabilized, and what should be built next. It is synchronized with the
 current codebase as of the checked `Int64` semantics, Egglog backend, LLVM
-backend, source diagnostics, and top-level first-order function work.
+backend, source diagnostics, top-level first-order functions, lambda lifting,
+and closure conversion runtime work.
 
 ## Current Baseline
 
@@ -28,13 +29,16 @@ Implemented:
 - Backend IR and LLVM backend v0 for closed first-order programs, including
   top-level first-order functions and saturated direct calls.
 - Lambda lifting for non-capturing let-bound lambdas and lambdas used directly
-  in function position, with generated top-level functions and capture
-  diagnostics.
+  in function position, with generated top-level functions.
+- Closure conversion for local function values, with heap-allocated closure
+  objects containing a code pointer and captured fields.
+- LLVM indirect closure calls through local function values, including captured
+  variables, returned closures, and higher-order local functions.
 - CLI report mode and LLVM compile mode, including optional LLVM execution.
 - LLVM toolchain checks that assemble selected emitted goldens with `llvm-as`
   when available, plus documented `llvm-as`/`lli`/`clang` executable workflow.
-- Interpreter-vs-LLVM differential corpus for successful closed first-order
-  source programs when `lli` or `clang` is available.
+- Interpreter-vs-LLVM differential corpus for successful closed first-order and
+  closure source programs when `lli` or `clang` is available.
 - Runtime-error equivalence tests for checked-`Int` overflow in LLVM `+`, `-`,
   and `*` lowering.
 - Dedicated LLVM backend specification for the current supported fragment,
@@ -58,14 +62,14 @@ Implemented:
   checks.
 - Language and runtime specifications for the current source language, checked
   `Int64` semantics, runtime errors, evaluation order, top-level first-order
-  definitions, lambda lifting, and current decision points.
+  definitions, lambda lifting, closure runtime layout, and current decision
+  points.
 
 Not implemented:
 
 - Normalized one-line parser diagnostics beyond Megaparsec's built-in bundles.
 - Exact subexpression runtime spans beyond the root source expression.
-- Closure conversion or closure runtime.
-- Heap allocation and memory management policy.
+- Long-term heap ownership policy beyond process-lifetime closure allocation.
 - Hindley-Milner inference.
 - Algebraic data types or pattern matching.
 - Egglog semi-naive evaluation, join planning, and provenance.
@@ -342,21 +346,19 @@ Deliverables:
 - Completed: detect non-capturing lambdas.
 - Completed: lift eligible let-bound lambdas and lambdas used directly in
   function position to generated top-level functions.
-- Completed: reject capturing lambdas structurally until closure conversion
-  exists.
+- Completed: leave capturing and otherwise non-liftable lambdas for closure
+  conversion.
 - Completed: preserve deterministic generated names.
 
 Non-goals:
 
-- Closure allocation.
-- Captured environments.
 - Full higher-order optimization.
 
 Acceptance criteria:
 
 - Completed: non-capturing lambda examples compile through LLVM.
-- Completed: capturing lambdas still run in interpreter/report mode and are
-  rejected by backend compile mode with structured diagnostics.
+- Completed: capturing lambdas are not lambda-lifted and are handled by the
+  closure-conversion path.
 
 Tests required:
 
@@ -375,48 +377,61 @@ Definition of done:
 
 Next recommended task:
 
-- Start Phase 6 by designing and implementing closure conversion and the closure
-  runtime representation.
+- Completed by Phase 6 closure conversion and runtime representation.
 
 ## Phase 6 - Closure Conversion And Runtime
 
-Status: not started.
+Status: complete for monomorphic local closures with first-order roots.
 
 Motivation: Support real higher-order programs.
 
 Deliverables:
 
-- Runtime spec for closures: code pointer plus environment pointer.
-- Closure-converted IR.
-- Environment layout and access rules.
-- Allocation strategy.
-- Closure call lowering.
-- Runtime error functions.
-- Memory management policy.
+- Completed: runtime spec for closures as heap objects with code pointer plus
+  captured fields.
+- Completed: Backend IR constructors for closure allocation, closure
+  application, and environment-field access.
+- Completed: deterministic environment layout and access rules.
+- Completed: heap allocation with `malloc` and null-allocation abort.
+- Completed: closure call lowering through loaded code pointers and indirect
+  LLVM calls.
+- Completed: process-lifetime memory management policy for the first pass.
 
 Non-goals:
 
 - Optimized garbage collection in the first pass.
 - Polymorphic closures.
+- Function-valued program roots.
+- Top-level functions as first-class values.
 
 Acceptance criteria:
 
-- Capturing lambdas compile and run for representative examples.
-- Runtime layout is documented and tested.
+- Completed: capturing lambdas compile and run for representative examples.
+- Completed: returned closures and higher-order local function values compile
+  and match interpreter output when LLVM execution tools are available.
+- Completed: runtime layout is documented and tested.
 
 Tests required:
 
-- Closure conversion unit tests.
-- Interpreter-vs-LLVM closure tests.
-- Memory/runtime smoke tests.
+- Completed: closure conversion LLVM shape tests.
+- Completed: interpreter-vs-LLVM closure tests.
+- Completed: memory/runtime smoke tests through closure allocation and
+  execution.
 
 Risks:
 
-- Runtime allocation decisions will constrain future data types and closures.
+- Process-lifetime closure allocation is correct for current compiled programs
+  but must be replaced or refined before long-running programs or aggregate
+  values.
 
 Definition of done:
 
 - Higher-order examples run through LLVM with a documented runtime model.
+
+Next recommended task:
+
+- Start Phase 7 by defining the type-inference direction while preserving the
+  explicit backend representation for monomorphic closures.
 
 ## Phase 7 - Type System Improvements
 
@@ -812,7 +827,8 @@ Prerequisite: Task F.
 Implementation scope:
 
 - Completed: detect and lift non-capturing lambdas.
-- Completed: keep capturing lambdas rejected by backend compile mode.
+- Completed: leave capturing and non-liftable higher-order lambdas for closure
+  conversion.
 
 Files likely touched:
 
@@ -829,8 +845,8 @@ Tests required:
 
 Acceptance criteria:
 
-- Completed: non-capturing lambda examples compile to LLVM with no closure
-  runtime.
+- Completed: saturated non-capturing lambda examples compile to LLVM with no
+  closure runtime.
 
 Commit message suggestion:
 
@@ -840,31 +856,33 @@ Lambda lift non-capturing functions
 
 ### Task H - Closure Runtime
 
+Status: complete for monomorphic local closures with first-order roots.
+
 Prerequisite: Task G and runtime spec.
 
 Implementation scope:
 
-- Implement closure conversion.
-- Add runtime representation: code pointer plus environment pointer.
-- Add allocation and closure call lowering.
+- Completed: implement closure conversion.
+- Completed: add runtime representation as code pointer plus captured
+  environment fields.
+- Completed: add allocation and closure call lowering.
 
-Files likely touched:
+Files touched:
 
-- `src/IR/*`
 - `src/Backend/*`
 - `src/Backend/LLVM/*`
-- runtime support files if introduced
 - `test/Main.hs`
+- `docs/*`
 
 Tests required:
 
-- Closure conversion unit tests.
-- Higher-order interpreter-vs-LLVM tests.
-- Runtime allocation smoke tests.
+- Completed: closure conversion LLVM shape tests.
+- Completed: higher-order interpreter-vs-LLVM tests.
+- Completed: runtime allocation smoke tests.
 
 Acceptance criteria:
 
-- Capturing lambda examples compile and run through LLVM.
+- Completed: capturing lambda examples compile and run through LLVM.
 
 Commit message suggestion:
 
@@ -939,8 +957,7 @@ Add semi-naive Egglog evaluation
 ## Next Recommended Prompt
 
 ```text
-Design and implement closure conversion: define the closure runtime
-representation, convert capturing lambdas into code pointers plus environments,
-lower closure calls through LLVM, add interpreter-vs-LLVM closure tests, and
-update the roadmap.
+Define the Hindley-Milner direction: document inference scope and constraints,
+then implement the smallest inference step that preserves explicit backend
+types for monomorphic closures.
 ```

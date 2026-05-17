@@ -18,6 +18,8 @@ import Syntax.AST (Name)
 data BackendType
   = BI64
   | BI1
+  | BClosure BackendType BackendType
+  | BEnv [BackendType]
   deriving stock (Show, Eq, Ord)
 
 data BackendAtom
@@ -39,6 +41,9 @@ data BackendExpr
   | BEPrim BackendType BackendPrim BackendAtom BackendAtom
   | BEIf BackendType BackendAtom BackendExpr BackendExpr
   | BECall BackendType Name [BackendAtom]
+  | BEMakeClosure BackendType Name [(BackendType, BackendAtom)]
+  | BEApply BackendType BackendAtom BackendAtom
+  | BEEnvGet BackendType [BackendType] BackendAtom Int
   | BELet BackendType Name BackendExpr BackendExpr
   deriving stock (Show, Eq, Ord)
 
@@ -67,6 +72,12 @@ backendExprType = \case
   BEIf ty _ _ _ ->
     ty
   BECall ty _ _ ->
+    ty
+  BEMakeClosure ty _ _ ->
+    ty
+  BEApply ty _ _ ->
+    ty
+  BEEnvGet ty _ _ _ ->
     ty
   BELet ty _ _ _ ->
     ty

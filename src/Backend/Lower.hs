@@ -222,6 +222,10 @@ renderBackendType :: BackendType -> Text
 renderBackendType = \case
   BI64 -> "BI64"
   BI1 -> "BI1"
+  BClosure arg result ->
+    "BClosure " <> renderBackendType arg <> " -> " <> renderBackendType result
+  BEnv fields ->
+    "BEnv [" <> Text.intercalate ", " (map renderBackendType fields) <> "]"
 
 mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = \case

@@ -24,6 +24,13 @@ data BackendValidationError
   | BackendPrimitiveResultMismatch BackendPrim BackendType BackendType
   | BackendCallArityMismatch Name Int Int
   | BackendCallArgumentTypeMismatch Name BackendType BackendType BackendAtom
+  | BackendClosureCodeMismatch Name [BackendType] BackendType [BackendType] BackendType
+  | BackendClosureCaptureTypeMismatch Name BackendType BackendType BackendAtom
+  | BackendApplyExpectedClosure BackendType BackendAtom
+  | BackendApplyArgumentTypeMismatch BackendType BackendType BackendAtom
+  | BackendEnvGetExpectedEnv BackendType BackendAtom
+  | BackendEnvGetIndexOutOfBounds BackendType Int
+  | BackendEnvGetTypeMismatch BackendType BackendType Int
   | BackendIfConditionTypeMismatch BackendType
   | BackendIfBranchTypeMismatch BackendType BackendType
   | BackendLetTypeMismatch Name BackendType BackendType
@@ -36,7 +43,7 @@ type FunctionEnv = Map.Map Name ([BackendType], BackendType)
 validateBackendProgram :: BackendProgram -> Either BackendValidationError ()
 validateBackendProgram program = do
   fullFunctionEnv <- buildFunctionEnv (backendFunctions program)
-  validateBackendFunctions Map.empty (backendFunctions program)
+  validateBackendFunctions fullFunctionEnv (backendFunctions program)
   actual <- inferBackendExprType fullFunctionEnv Map.empty (backendRoot program)
   if actual == backendRootType program
     then Right ()
@@ -74,13 +81,7 @@ validateBackendFunctions _ [] =
   Right ()
 validateBackendFunctions functionEnv (function : rest) = do
   validateBackendFunction functionEnv function
-  validateBackendFunctions
-    ( Map.insert
-        (backendFunctionName function)
-        (map snd (backendFunctionParams function), backendFunctionReturnType function)
-        functionEnv
-    )
-    rest
+  validateBackendFunctions functionEnv rest
 
 checkDuplicateParams :: [Name] -> Either BackendValidationError ()
 checkDuplicateParams =
@@ -132,6 +133,52 @@ inferBackendExprType functionEnv env = \case
         if expected == returnType
           then Right expected
           else Left (BackendRootTypeMismatch expected returnType)
+  BEMakeClosure expected code captures -> do
+    case expected of
+      BClosure argType returnType ->
+        case Map.lookup code functionEnv of
+          Nothing ->
+            Left (BackendUnknownFunction code)
+          Just (BEnv captureTypes : actualArgTypes, actualReturnType)
+            | actualArgTypes == [argType] && actualReturnType == returnType -> do
+                if length captureTypes == length captures
+                  then Right ()
+                  else Left (BackendCallArityMismatch code (length captureTypes) (length captures))
+                mapM_ (validateCapture code env) (zip captureTypes captures)
+                Right expected
+            | otherwise ->
+                Left (BackendClosureCodeMismatch code [BEnv (map fst captures), argType] returnType (BEnv captureTypes : actualArgTypes) actualReturnType)
+          Just (actualArgTypes, actualReturnType) ->
+            Left (BackendClosureCodeMismatch code [BEnv (map fst captures), argType] returnType actualArgTypes actualReturnType)
+      other ->
+        Left (BackendApplyExpectedClosure other (BVar code))
+  BEApply expected fn arg -> do
+    fnType <- inferBackendAtomType env fn
+    case fnType of
+      BClosure argType returnType -> do
+        actualArgType <- inferBackendAtomType env arg
+        if actualArgType == argType
+          then Right ()
+          else Left (BackendApplyArgumentTypeMismatch argType actualArgType arg)
+        if expected == returnType
+          then Right expected
+          else Left (BackendRootTypeMismatch expected returnType)
+      other ->
+        Left (BackendApplyExpectedClosure other fn)
+  BEEnvGet expected fields envAtom index -> do
+    envType <- inferBackendAtomType env envAtom
+    case envType of
+      BEnv actualFields
+        | actualFields /= fields ->
+            Left (BackendEnvGetTypeMismatch (BEnv fields) envType index)
+        | index < 0 || index >= length fields ->
+            Left (BackendEnvGetIndexOutOfBounds envType index)
+        | fields !! index == expected ->
+            Right expected
+        | otherwise ->
+            Left (BackendEnvGetTypeMismatch expected (fields !! index) index)
+      other ->
+        Left (BackendEnvGetExpectedEnv other envAtom)
   BELet expected name rhs body -> do
     rhsType <- inferBackendExprType functionEnv env rhs
     bodyType <- inferBackendExprType functionEnv (Map.insert name rhsType env) body
@@ -164,6 +211,13 @@ assertCallAtomType callee env expected atom = do
     then Right ()
     else Left (BackendCallArgumentTypeMismatch callee expected actual atom)
 
+validateCapture :: Name -> TypeEnv -> (BackendType, (BackendType, BackendAtom)) -> Either BackendValidationError ()
+validateCapture code env (expected, (annotated, atom)) = do
+  actual <- inferBackendAtomType env atom
+  if annotated == expected && actual == expected
+    then Right ()
+    else Left (BackendClosureCaptureTypeMismatch code expected actual atom)
+
 renderBackendValidationError :: BackendValidationError -> Text
 renderBackendValidationError = \case
   BackendUnboundVariable name ->
@@ -186,6 +240,51 @@ renderBackendValidationError = \case
     "backend call to " <> renderDoc (prettyName name) <> " has " <> Text.pack (show actual) <> " arguments, expected " <> Text.pack (show expected)
   BackendCallArgumentTypeMismatch name expected actual atom ->
     "backend call argument for " <> renderDoc (prettyName name) <> " has wrong type for " <> Text.pack (show atom) <> ": expected " <> renderBackendType expected <> ", got " <> renderBackendType actual
+  BackendClosureCodeMismatch name expectedParams expectedReturn actualParams actualReturn ->
+    "backend closure code "
+      <> renderDoc (prettyName name)
+      <> " has signature "
+      <> renderBackendFunctionType actualParams actualReturn
+      <> ", expected "
+      <> renderBackendFunctionType expectedParams expectedReturn
+  BackendClosureCaptureTypeMismatch name expected actual atom ->
+    "backend closure capture for "
+      <> renderDoc (prettyName name)
+      <> " has wrong type for "
+      <> Text.pack (show atom)
+      <> ": expected "
+      <> renderBackendType expected
+      <> ", got "
+      <> renderBackendType actual
+  BackendApplyExpectedClosure actual atom ->
+    "backend application expected closure for "
+      <> Text.pack (show atom)
+      <> ", got "
+      <> renderBackendType actual
+  BackendApplyArgumentTypeMismatch expected actual atom ->
+    "backend closure argument for "
+      <> Text.pack (show atom)
+      <> " has wrong type: expected "
+      <> renderBackendType expected
+      <> ", got "
+      <> renderBackendType actual
+  BackendEnvGetExpectedEnv actual atom ->
+    "backend environment access expected env pointer for "
+      <> Text.pack (show atom)
+      <> ", got "
+      <> renderBackendType actual
+  BackendEnvGetIndexOutOfBounds ty index ->
+    "backend environment index "
+      <> Text.pack (show index)
+      <> " is out of bounds for "
+      <> renderBackendType ty
+  BackendEnvGetTypeMismatch expected actual index ->
+    "backend environment field "
+      <> Text.pack (show index)
+      <> " type mismatch: expected "
+      <> renderBackendType expected
+      <> ", got "
+      <> renderBackendType actual
   BackendIfConditionTypeMismatch actual ->
     "backend if condition must be BI1, got " <> renderBackendType actual
   BackendIfBranchTypeMismatch thenType elseType ->
@@ -197,3 +296,11 @@ renderBackendType :: BackendType -> Text
 renderBackendType = \case
   BI64 -> "BI64"
   BI1 -> "BI1"
+  BClosure arg result ->
+    "BClosure " <> renderBackendType arg <> " -> " <> renderBackendType result
+  BEnv fields ->
+    "BEnv [" <> Text.intercalate ", " (map renderBackendType fields) <> "]"
+
+renderBackendFunctionType :: [BackendType] -> BackendType -> Text
+renderBackendFunctionType params returnType =
+  "(" <> Text.intercalate ", " (map renderBackendType params) <> ") -> " <> renderBackendType returnType

@@ -13,14 +13,13 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Syntax.AST
 import Syntax.Located
-import Syntax.Pretty (prettyName, prettyType, renderDoc)
+import Syntax.Pretty (prettyType, renderDoc)
 import Syntax.Span (SourceSpan)
 import Typecheck.Infer (inferLocatedWithEnv)
 import Typecheck.Types (TypeEnv, locatedTypeErrorDetail, renderTypeError)
 
 data LambdaLiftError
-  = CapturingLambda SourceSpan [Name]
-  | UnsupportedLambdaType SourceSpan Type
+  = UnsupportedLambdaType SourceSpan Type
   | LiftedLambdaTypeError SourceSpan Text
   deriving stock (Show, Eq)
 
@@ -89,15 +88,35 @@ liftExpr context expr@(LocatedExpr sourceRange node) =
       pure ([], LocatedExpr sourceRange (LVar (Map.findWithDefault name name (contextAliases context))))
     LLet name rhs body ->
       case lambdaChain rhs of
-        Just chain -> do
-          (liftedDefs, liftedName) <- liftLambdaChain context (Just name) (locatedExprSpan rhs) chain
-          let bodyContext =
-                context
-                  { contextTopTypes = contextTopTypes context <> locatedTopDefTypes liftedDefs
-                  , contextAliases = Map.insert name liftedName (contextAliases context)
-                  }
-          (bodyDefs, bodyExpr) <- liftExpr bodyContext body
-          pure (liftedDefs <> bodyDefs, bodyExpr)
+        Just chain
+          | not (allUsesSaturated name (length (chainParams chain)) body) -> do
+              (rhsDefs, rhsExpr) <- liftExpr context rhs
+              let bodyContext =
+                    context
+                      { contextTopTypes = contextTopTypes context <> locatedTopDefTypes rhsDefs
+                      , contextAliases = Map.delete name (contextAliases context)
+                      }
+              (bodyDefs, bodyExpr) <- liftExpr bodyContext body
+              pure (rhsDefs <> bodyDefs, LocatedExpr sourceRange (LLet name rhsExpr bodyExpr))
+          | otherwise ->
+              tryLiftLambdaChain context (Just name) (locatedExprSpan rhs) chain >>= \case
+                Just (liftedDefs, liftedName) -> do
+                  let bodyContext =
+                        context
+                          { contextTopTypes = contextTopTypes context <> locatedTopDefTypes liftedDefs
+                          , contextAliases = Map.insert name liftedName (contextAliases context)
+                          }
+                  (bodyDefs, bodyExpr) <- liftExpr bodyContext body
+                  pure (liftedDefs <> bodyDefs, bodyExpr)
+                Nothing -> do
+                  (rhsDefs, rhsExpr) <- liftExpr context rhs
+                  let bodyContext =
+                        context
+                          { contextTopTypes = contextTopTypes context <> locatedTopDefTypes rhsDefs
+                          , contextAliases = Map.delete name (contextAliases context)
+                          }
+                  (bodyDefs, bodyExpr) <- liftExpr bodyContext body
+                  pure (rhsDefs <> bodyDefs, LocatedExpr sourceRange (LLet name rhsExpr bodyExpr))
         Nothing -> do
           (rhsDefs, rhsExpr) <- liftExpr context rhs
           let bodyContext =
@@ -121,9 +140,12 @@ liftExpr context expr@(LocatedExpr sourceRange node) =
     LApp fn arg -> do
       (fnDefs, fnExpr) <-
         case lambdaChain fn of
-          Just chain -> do
-            (liftedDefs, liftedName) <- liftLambdaChain context Nothing (locatedExprSpan fn) chain
-            pure (liftedDefs, LocatedExpr (locatedExprSpan fn) (LVar liftedName))
+          Just chain ->
+            tryLiftLambdaChain context Nothing (locatedExprSpan fn) chain >>= \case
+              Just (liftedDefs, liftedName) ->
+                pure (liftedDefs, LocatedExpr (locatedExprSpan fn) (LVar liftedName))
+              Nothing ->
+                liftExpr context fn
           Nothing ->
             liftExpr context fn
       (argDefs, argExpr) <- liftExpr (extendTopTypes fnDefs context) arg
@@ -150,54 +172,96 @@ lambdaChain =
       _ | null params -> Nothing
       _ -> Just LambdaChain {chainParams = params, chainBody = LocatedExpr sourceRange node}
 
-liftLambdaChain :: LiftContext -> Maybe Name -> SourceSpan -> LambdaChain -> LiftM ([LocatedTopDef], Name)
-liftLambdaChain context preferredName sourceRange chain = do
-  mapM_ rejectFunctionParam params
+allUsesSaturated :: Name -> Int -> LocatedExpr -> Bool
+allUsesSaturated target arity =
+  go
+ where
+  go expr =
+    case locatedExprNode expr of
+      LInt {} ->
+        True
+      LBool {} ->
+        True
+      LVar name ->
+        name /= target
+      LLet name rhs body ->
+        go rhs && (name == target || go body)
+      LIf cond thenBranch elseBranch ->
+        go cond && go thenBranch && go elseBranch
+      LBin _ lhs rhs ->
+        go lhs && go rhs
+      LLam name _ body ->
+        name == target || go body
+      LApp {} ->
+        case locatedUnwind expr of
+          (LocatedExpr _ (LVar name), args)
+            | name == target ->
+                length args == arity && all go args
+          (fn, args) ->
+            go fn && all go args
+
+locatedUnwind :: LocatedExpr -> (LocatedExpr, [LocatedExpr])
+locatedUnwind =
+  unwind []
+ where
+  unwind args current =
+    case locatedExprNode current of
+      LApp fn arg -> unwind (arg : args) fn
+      _ -> (current, args)
+
+tryLiftLambdaChain :: LiftContext -> Maybe Name -> SourceSpan -> LambdaChain -> LiftM (Maybe ([LocatedTopDef], Name))
+tryLiftLambdaChain context preferredName sourceRange chain = do
   let paramNames = map paramName params
       lambdaContext =
         context
           { contextAliases = foldr Map.delete (contextAliases context) paramNames
           }
-  (bodyDefs, liftedBody) <- liftExpr lambdaContext (chainBody chain)
-  let topTypes = contextTopTypes context <> locatedTopDefTypes bodyDefs
-      paramTypes = Map.fromList [(paramName param, paramType param) | param <- params]
-      inferEnv = paramTypes <> topTypes
-      captured =
-        Set.toAscList (freeVars liftedBody `Set.difference` (Set.fromList paramNames <> Map.keysSet topTypes))
-  case captured of
-    [] -> pure ()
-    _ -> throwError (CapturingLambda sourceRange captured)
-  returnType <-
-    case inferLocatedWithEnv inferEnv liftedBody of
-      Left err ->
-        throwError (LiftedLambdaTypeError sourceRange (renderTypeError (locatedTypeErrorDetail err)))
-      Right ty ->
-        pure ty
-  rejectFunctionType sourceRange returnType
-  liftName <- freshLiftName preferredName
-  let def =
-        LocatedTopDef
-          { locatedTopDefSpan = sourceRange
-          , locatedTopDefName = liftName
-          , locatedTopDefParams = chainParams chain
-          , locatedTopDefReturnType = returnType
-          , locatedTopDefBody = liftedBody
-          }
-  pure (bodyDefs <> [def], liftName)
+      allowedNames =
+        Set.fromList paramNames
+          <> Map.keysSet (contextTopTypes context)
+          <> Map.keysSet (contextAliases lambdaContext)
+      capturedBeforeLifting =
+        Set.toAscList (freeVars (chainBody chain) `Set.difference` allowedNames)
+  if any (isFunctionType . paramType) params || not (null capturedBeforeLifting)
+    then pure Nothing
+    else do
+      (bodyDefs, liftedBody) <- liftExpr lambdaContext (chainBody chain)
+      let topTypes = contextTopTypes context <> locatedTopDefTypes bodyDefs
+          paramTypes = Map.fromList [(paramName param, paramType param) | param <- params]
+          inferEnv = paramTypes <> topTypes
+          capturedAfterLifting =
+            Set.toAscList (freeVars liftedBody `Set.difference` (Set.fromList paramNames <> Map.keysSet topTypes))
+      if not (null capturedAfterLifting)
+        then pure Nothing
+        else do
+          returnType <-
+            case inferLocatedWithEnv inferEnv liftedBody of
+              Left err ->
+                throwError (LiftedLambdaTypeError sourceRange (renderTypeError (locatedTypeErrorDetail err)))
+              Right ty ->
+                pure ty
+          if isFunctionType returnType
+            then pure Nothing
+            else do
+              liftName <- freshLiftName preferredName
+              let def =
+                    LocatedTopDef
+                      { locatedTopDefSpan = sourceRange
+                      , locatedTopDefName = liftName
+                      , locatedTopDefParams = chainParams chain
+                      , locatedTopDefReturnType = returnType
+                      , locatedTopDefBody = liftedBody
+                      }
+              pure (Just (bodyDefs <> [def], liftName))
  where
   params =
     [param | LocatedParam _ param <- chainParams chain]
-  rejectFunctionParam (Param _ ty) =
-    rejectFunctionType sourceRange ty
 
-rejectFunctionType :: SourceSpan -> Type -> LiftM ()
-rejectFunctionType sourceRange = \case
-  ty@TFun {} ->
-    throwError (UnsupportedLambdaType sourceRange ty)
-  TInt ->
-    pure ()
-  TBool ->
-    pure ()
+isFunctionType :: Type -> Bool
+isFunctionType = \case
+  TFun {} -> True
+  TInt -> False
+  TBool -> False
 
 freshLiftName :: Maybe Name -> LiftM Name
 freshLiftName preferredName = do
@@ -283,11 +347,6 @@ collectNames (LocatedExpr _ node) =
 
 lambdaLiftErrorDiagnostic :: LambdaLiftError -> (SourceSpan, Text)
 lambdaLiftErrorDiagnostic = \case
-  CapturingLambda sourceRange captured ->
-    ( sourceRange
-    , "LLVM backend cannot lambda lift capturing lambda; captured variables: "
-        <> Text.intercalate ", " (map (renderDoc . prettyName) captured)
-    )
   UnsupportedLambdaType sourceRange ty ->
     ( sourceRange
     , "LLVM backend lambda lifting only supports first-order Int/Bool parameters and results, got "

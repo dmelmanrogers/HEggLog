@@ -41,6 +41,7 @@ executable hegglog
   other-modules:
       Analysis.Facts
       Analysis.InferFacts
+      Backend.ClosureConvert
       Backend.Compile
       Backend.IR
       Backend.LambdaLift
@@ -113,6 +114,7 @@ test-suite hegglog-test
   other-modules:
       Analysis.Facts
       Analysis.InferFacts
+      Backend.ClosureConvert
       Backend.Compile
       Backend.IR
       Backend.LambdaLift

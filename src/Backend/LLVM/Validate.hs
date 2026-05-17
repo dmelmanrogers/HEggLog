@@ -19,6 +19,8 @@ data LLVMValidationError
   | UnknownLLVMRegister Text Register
   | LLVMOperandTypeMismatch LLVMType LLVMType LLVMOperand
   | LLVMConditionTypeMismatch LLVMType
+  | LLVMLoadExpectedPointer LLVMOperand
+  | LLVMStoreExpectedPointer LLVMOperand
   | LLVMExtractValueExpectedStruct LLVMType
   | LLVMExtractValueIndexOutOfBounds LLVMType Int
   | LLVMPhiHasNoIncoming Register
@@ -84,7 +86,13 @@ validateInstruction function labels registers = \case
   IGetElementPtr _ _ base indices -> do
     assertOperandType function registers LPtr base
     mapM_ (validateOperand function registers . snd) indices
-  ICall _ _ _ _ args ->
+  ILoad _ _ pointer ->
+    assertOperandType function registers LPtr pointer
+  IStore ty value pointer -> do
+    assertOperandType function registers ty value
+    assertOperandType function registers LPtr pointer
+  ICall _ _ callee _ args -> do
+    validateCallTarget function registers callee
     mapM_ (validateOperand function registers . snd) args
   IExtractValue _ ty aggregate index -> do
     validateOperand function registers aggregate
@@ -131,6 +139,13 @@ validateBinary function registers ty lhs rhs = do
   assertOperandType function registers ty lhs
   assertOperandType function registers ty rhs
 
+validateCallTarget :: Text -> Map.Map Register LLVMType -> LLVMCallTarget -> Either LLVMValidationError ()
+validateCallTarget function registers = \case
+  DirectCall {} ->
+    Right ()
+  IndirectCall operand ->
+    assertOperandType function registers LPtr operand
+
 assertBlock :: Text -> Set.Set Text -> Text -> Either LLVMValidationError ()
 assertBlock function labels label
   | label `Set.member` labels = Right ()
@@ -156,6 +171,8 @@ validateOperand function registers = \case
     Right ()
   OConstInt {} ->
     Right ()
+  OConstNull ->
+    Right ()
 
 registerTypes :: LLVMFunction -> Map.Map Register LLVMType
 registerTypes function =
@@ -176,6 +193,8 @@ instructionResult = \case
   IIcmp reg _ _ _ _ -> Just reg
   IZext reg _ _ -> Just reg
   IGetElementPtr reg _ _ _ -> Just reg
+  ILoad reg _ _ -> Just reg
+  IStore {} -> Nothing
   ICall maybeReg _ _ _ _ -> maybeReg
   IExtractValue reg _ _ _ -> Just reg
   IPhi reg _ _ -> Just reg
@@ -188,6 +207,8 @@ instructionResultType = \case
   IIcmp {} -> LI1
   IZext _ _ ty -> ty
   IGetElementPtr {} -> LPtr
+  ILoad _ ty _ -> ty
+  IStore {} -> LVoid
   ICall _ ty _ _ _ -> ty
   IExtractValue _ ty _ _ -> ty
   IPhi _ ty _ -> ty
@@ -208,6 +229,10 @@ renderLLVMValidationError = \case
     "LLVM operand type mismatch for " <> Text.pack (show operand) <> ": expected " <> renderLLVMType expected <> ", got " <> renderLLVMType actual
   LLVMConditionTypeMismatch actual ->
     "LLVM branch condition must be i1, got " <> renderLLVMType actual
+  LLVMLoadExpectedPointer operand ->
+    "LLVM load expected ptr, got " <> Text.pack (show operand)
+  LLVMStoreExpectedPointer operand ->
+    "LLVM store expected ptr, got " <> Text.pack (show operand)
   LLVMExtractValueExpectedStruct actual ->
     "LLVM extractvalue expected a struct operand, got " <> renderLLVMType actual
   LLVMExtractValueIndexOutOfBounds ty index ->

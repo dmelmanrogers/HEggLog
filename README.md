@@ -48,7 +48,7 @@ The CLI prints:
 
 ## LLVM Backend
 
-Closed first-order programs can be compiled to textual LLVM IR:
+Closed programs with `Int` or `Bool` roots can be compiled to textual LLVM IR:
 
 ```bash
 cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm
@@ -57,11 +57,10 @@ cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm --run-llvm
 ```
 
 The LLVM v0 backend supports `Int`, `Bool`, `let`, `if`, `+`, `-`, `*`, `<`,
-`==`, ordered top-level first-order functions, and saturated direct calls over
-closed first-order programs. It also lambda-lifts non-capturing let-bound
-lambdas and lambdas used directly in function position. Capturing lambdas,
-closure calls, partial or over-applied calls, top-level function values,
-recursion, heap allocation, free variables, and division are rejected
+`==`, ordered top-level first-order functions, saturated direct calls, lambda
+lifting for eligible non-capturing lambdas, and closure conversion for local
+function values. Function-valued roots, partial or over-applied top-level calls,
+top-level function values, recursion, free variables, and division are rejected
 structurally. `Int` is a checked signed 64-bit value across the interpreter,
 optimizers, backend IR, and LLVM lowering; overflow is reported by interpreters
 and aborts in generated LLVM.
@@ -127,11 +126,12 @@ generalization are intentionally out of scope for this slice.
   boolean terms into separate Egglog sorts, runs compiler rules as `Rule` data,
   extracts back to valid ANF, and reports structured unsupported/failure states.
 - `Backend.LambdaLift` rewrites eligible non-capturing lambdas into generated
-  top-level first-order functions before backend lowering, while preserving
-  source diagnostics for captures.
-- `Backend.*` lowers closed first-order ANF programs into a typed backend IR and
-  then into deterministic textual LLVM IR with source top-level functions and a
-  small C-compatible printing `main`.
+  top-level first-order functions before backend lowering.
+- `Backend.ClosureConvert` lowers remaining local function values into closure
+  allocation, environment access, and indirect closure calls.
+- `Backend.*` lowers ANF or closure-converted programs into a typed backend IR
+  and then into deterministic textual LLVM IR with source top-level functions
+  and a small C-compatible printing `main`.
 
 Binder-aware equality saturation remains future work. Lambda rewrites require
 alpha equivalence, capture avoidance, beta-reduction discipline, and extraction
