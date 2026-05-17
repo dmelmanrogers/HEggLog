@@ -36,6 +36,7 @@ Rejected structurally:
 - closure calls, calls through local variables, partial calls, and over-applied
   calls
 - higher-order values
+- using a top-level function as a first-class value
 - recursion
 - heap allocation
 - strings and user-defined data
@@ -107,9 +108,11 @@ define i32 @main() { ... }
 Programs that contain checked arithmetic also declare the corresponding LLVM
 overflow intrinsics and `abort`.
 
-Top-level source functions emit deterministic LLVM functions named
-`hegglog_fun_<source-name>`. Source parameters lower to LLVM function parameters
-and direct calls in function bodies or the root call those generated functions.
+Top-level source functions emit deterministic LLVM functions named with a
+collision-free escaped form of the source name, prefixed by `hegglog_fun_`.
+Source parameters lower to LLVM function parameters with the same escaping
+policy, and direct calls in function bodies or the root call those generated
+functions.
 
 `main` prints `Int` roots as decimal integers and `Bool` roots as `0` or `1`.
 The emitter uses opaque pointer syntax (`ptr`) for the `printf` declaration and

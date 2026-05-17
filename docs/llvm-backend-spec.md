@@ -50,6 +50,7 @@ Rejected source forms:
 - calls through local variables
 - partial or over-applied top-level calls
 - higher-order values
+- using a top-level function as a first-class value
 - free variables
 - division
 - recursion
@@ -174,6 +175,9 @@ Top-level functions use deterministic names:
 ```llvm
 define i64 @hegglog_fun_inc(i64 %arg_x) { ... }
 ```
+
+Source identifiers are escaped injectively before they are used as LLVM function
+or parameter names, so distinct source names cannot collide after lowering.
 
 Root functions:
 

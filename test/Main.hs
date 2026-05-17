@@ -125,6 +125,7 @@ testGroups =
       , ioTest "validator accepts lowered examples" testValidateLoweredExamples
       , pureTest "validator reports unbound variables" testValidatorUnboundVariable
       , pureTest "validator reports duplicate generated temps" testValidatorDuplicateGeneratedTemp
+      , pureTest "program validator reports duplicate function parameters" testValidatorDuplicateFunctionParameter
       ]
   , TestGroup
       "Facts"
@@ -266,6 +267,8 @@ testGroups =
       , pureTest "LLVM compiler falls back when Egglog is unsupported" testLLVMCompileEgglogFallback
       , pureTest "LLVM compiler can use Egglog optimized ANF" testLLVMCompileUsesEgglog
       , pureTest "LLVM compiler emits top-level direct calls" testLLVMCompileTopLevelFunctions
+      , pureTest "LLVM compiler rejects top-level function values" testLLVMCompileRejectsTopLevelFunctionValue
+      , pureTest "LLVM compiler escapes top-level names without collisions" testLLVMCompileEscapesTopLevelNames
       , ioTest "LLVM checked Int overflow aborts when tools are available" testLLVMOverflowAborts
       , ioTest "LLVM arithmetic golden" $
           checkLLVMGolden "examples/llvm/arithmetic.hg" "test/golden/llvm-arithmetic.ll"
@@ -527,6 +530,18 @@ testValidatorDuplicateGeneratedTemp =
             (mkName "_t0")
             (AAtom (AInt 1))
             (ALet (mkName "_t0") (AAtom (AInt 2)) (AAtom (AVar (mkName "_t0"))))
+        )
+    )
+
+testValidatorDuplicateFunctionParameter :: Either String ()
+testValidatorDuplicateFunctionParameter =
+  expectEqual
+    "duplicate ANF function parameter"
+    (Left (DuplicateANFParameter xName))
+    ( validateANFProgram
+        ( AProgram
+            [AFun (mkName "f") [Param xName TInt, Param xName TInt] TInt (AAtom (AVar xName))]
+            (ACall (mkName "f") [AInt 1])
         )
     )
 
@@ -1473,6 +1488,32 @@ testLLVMCompileTopLevelFunctions = do
   assertBool
     "LLVM calls double directly"
     ("call i64 @hegglog_fun_double(i64 %call0)" `Text.isInfixOf` llvmText)
+
+testLLVMCompileRejectsTopLevelFunctionValue :: Either String ()
+testLLVMCompileRejectsTopLevelFunctionValue =
+  case
+    BC.compileToLLVM
+      BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
+      "<test>"
+      "def inc(x : Int) : Int = x + 1; inc" of
+    Left (BC.LLVMCompileUnsupportedSource _ message) ->
+      assertBool
+        "top-level function value is rejected before ANF validation"
+        ("does not support using top-level function inc as a value" `Text.isInfixOf` message)
+    other -> Left ("expected top-level function value rejection, got " <> show other)
+
+testLLVMCompileEscapesTopLevelNames :: Either String ()
+testLLVMCompileEscapesTopLevelNames = do
+  llvmText <- compileLLVMTextNoEgglog "def f'(x : Int) : Int = x; def f_(x : Int) : Int = x + 1; f' 42"
+  assertBool
+    "apostrophe is escaped distinctly"
+    ("define i64 @hegglog_fun_f_x27_(i64 %arg_x)" `Text.isInfixOf` llvmText)
+  assertBool
+    "underscore is escaped distinctly"
+    ("define i64 @hegglog_fun_f_u(i64 %arg_x)" `Text.isInfixOf` llvmText)
+  assertBool
+    "call targets escaped apostrophe function"
+    ("call i64 @hegglog_fun_f_x27_(i64 42)" `Text.isInfixOf` llvmText)
 
 testLLVMOverflowAborts :: IO (Either String ())
 testLLVMOverflowAborts = do

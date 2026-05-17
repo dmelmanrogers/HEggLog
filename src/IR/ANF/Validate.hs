@@ -22,6 +22,7 @@ data ANFValidationError
   | DuplicateGeneratedTemp Name
   | GeneratedTempShadowed Name
   | DuplicateANFFunction Name
+  | DuplicateANFParameter Name
   deriving stock (Show, Eq, Ord)
 
 -- The ANF data type enforces atomic primitive/application operands at the type
@@ -56,6 +57,9 @@ validateFunctions available (function@(AFun name _ _ _) : rest) = do
 
 validateFunction :: Set.Set Name -> AFun -> Either ANFValidationError ()
 validateFunction functionSet (AFun _ params _ body) = do
+  case duplicates (map paramName params) of
+    name : _ -> Left (DuplicateANFParameter name)
+    [] -> Right ()
   validateGeneratedTemps body
   validateExpr functionSet (Set.fromList (map paramName params)) body
 
@@ -180,3 +184,5 @@ renderANFValidationError = \case
     "generated ANF temporary was shadowed: " <> renderDoc (prettyName name)
   DuplicateANFFunction name ->
     "duplicate ANF function: " <> renderDoc (prettyName name)
+  DuplicateANFParameter name ->
+    "duplicate ANF function parameter: " <> renderDoc (prettyName name)

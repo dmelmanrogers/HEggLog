@@ -200,8 +200,11 @@ findExprUnsupported arities localNames expr =
       Nothing
     LBool _ ->
       Nothing
-    LVar _ ->
-      Nothing
+    LVar name
+      | name `Map.member` arities && name `Set.notMember` localNames ->
+          Just (locatedExprSpan expr, topFunctionValueMessage name)
+      | otherwise ->
+          Nothing
     LLet name rhs body ->
       firstJust [findExprUnsupported arities localNames rhs, findExprUnsupported arities (Set.insert name localNames) body]
     LIf cond thenBranch elseBranch ->
@@ -263,6 +266,12 @@ saturatedCallMessage name expected actual =
     <> Text.pack (show expected)
     <> " argument(s), got "
     <> Text.pack (show actual)
+
+topFunctionValueMessage :: Name -> Text
+topFunctionValueMessage name =
+  "LLVM backend does not support using top-level function "
+    <> renderDoc (prettyName name)
+    <> " as a value"
 
 firstJust :: [Maybe a] -> Maybe a
 firstJust = \case

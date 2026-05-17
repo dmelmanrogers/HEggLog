@@ -239,7 +239,8 @@ apply the closure.
 The LLVM backend supports saturated direct calls to top-level first-order
 functions. Other applications, including closure calls, partial top-level calls,
 over-applied top-level calls, and calls through local variables, are currently
-rejected structurally.
+rejected structurally. Using a top-level function as a first-class value is also
+outside the current LLVM fragment.
 
 ## Evaluation Order
 
@@ -309,9 +310,6 @@ though negative source literals are not syntax yet.
 
 ## Planned Features
 
-- Source spans and richer diagnostics.
-- Top-level first-order definitions.
-- Direct backend support for first-order function calls.
 - Lambda lifting for non-capturing lambdas.
 - Closure conversion and runtime closure representation.
 - Hindley-Milner direction decision.
