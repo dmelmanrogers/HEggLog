@@ -213,6 +213,8 @@ testGroups =
       , pureTest "MergeUnion can trigger additional rebuild work" testEgglogRebuildMergeUnion
       , pureTest "single-premise rule" testEgglogSinglePremiseRule
       , pureTest "multi-premise join" testEgglogMultiPremiseJoin
+      , pureTest "semi-naive matches naive transitive closure" testEgglogSemiNaiveMatchesNaiveTransitiveClosure
+      , pureTest "semi-naive preserves compiler backend result" testEgglogSemiNaivePreservesCompilerBackend
       , pureTest "variable binding correctness" testEgglogVariableBinding
       , pureTest "typed mismatch failure" testEgglogTypedMismatchFailure
       , pureTest "action application" testEgglogActionApplication
@@ -980,6 +982,45 @@ testEgglogMultiPremiseJoin = do
       [edgeRelDecl, pathRelDecl]
   found <- egg (EDB.lookupFunction pathFn [EV.VInt 1, EV.VInt 3] (EEV.resultDatabase result))
   expectEqual "join derives transitive path" (Just EV.VUnit) found
+
+testEgglogSemiNaiveMatchesNaiveTransitiveClosure :: Either String ()
+testEgglogSemiNaiveMatchesNaiveTransitiveClosure = do
+  naive <- runReachability EEV.RunNaive
+  semiNaive <- runReachability EEV.RunSemiNaive
+  expectEqual "semi-naive final database" (EEV.resultDatabase naive) (EEV.resultDatabase semiNaive)
+  assertBool "semi-naive reaches saturation" (EEV.resultSaturated semiNaive)
+ where
+  runReachability mode =
+    egg
+      ( EEV.runProgram
+          EEV.defaultRunConfig {EEV.maxIterations = 24, EEV.runMode = mode}
+          ER.Program
+            { ER.programDecls = [edgeRelDecl, pathRelDecl]
+            , ER.programInitialActions =
+                [ ER.relationFact edgeFn [EV.VInt 1, EV.VInt 2]
+                , ER.relationFact edgeFn [EV.VInt 2, EV.VInt 3]
+                , ER.relationFact edgeFn [EV.VInt 3, EV.VInt 4]
+                , ER.relationFact edgeFn [EV.VInt 4, EV.VInt 5]
+                ]
+            , ER.programRules = [edgeToPathRule, transitivePathRule]
+            }
+      )
+
+testEgglogSemiNaivePreservesCompilerBackend :: Either String ()
+testEgglogSemiNaivePreservesCompilerBackend = do
+  parsed <- parseExpr "let x = 3 in let y = x + 4 in y * 2"
+  let expression = toANF parsed
+  naive <-
+    mapLeft
+      (showText . OEB.renderEgglogBackendError)
+      (OEB.optimizeWithEgglog EEV.defaultRunConfig {EEV.runMode = EEV.RunNaive} expression)
+  semiNaive <-
+    mapLeft
+      (showText . OEB.renderEgglogBackendError)
+      (OEB.optimizeWithEgglog EEV.defaultRunConfig {EEV.runMode = EEV.RunSemiNaive} expression)
+  expectEqual "optimized ANF" (OEB.optimizedANF naive) (OEB.optimizedANF semiNaive)
+  expectEqual "optimized cost" (OEB.extractionStats naive) (OEB.extractionStats semiNaive)
+  assertBool "semi-naive backend run saturates" (OEB.runSaturated (OEB.runStats semiNaive))
 
 testEgglogVariableBinding :: Either String ()
 testEgglogVariableBinding = do

@@ -1,16 +1,19 @@
 module Egglog.Eval
   ( DeltaDatabase (..)
+  , RunMode (..)
   , RunConfig (..)
   , RunResult (..)
   , applyAction
   , defaultRunConfig
   , evalRule
+  , evalRuleSemiNaive
   , runProgram
   )
 where
 
 import Control.Monad (foldM)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Egglog.Database
 import Egglog.Function
 import Egglog.Pattern
@@ -20,16 +23,21 @@ import Egglog.Sort
 import Egglog.Value
 import Runtime.Int (hintToInteger)
 
-data DeltaDatabase = DeltaDatabase
+newtype DeltaDatabase = DeltaDatabase
+  { deltaTables :: Map.Map FunctionName FunctionTable
+  }
   deriving stock (Show, Eq, Ord)
 
--- TODO: carry per-function deltas here and evaluate rules incrementally once
--- the kernel grows a real semi-naive planner. The evaluator below is deliberately
--- naive and bounded; it does not pretend to be incremental.
+data RunMode
+  = RunNaive
+  | RunSemiNaive
+  deriving stock (Show, Eq, Ord)
+
 data RunConfig = RunConfig
   { maxIterations :: Int
   , collectDebugLog :: Bool
   , stopOnSaturation :: Bool
+  , runMode :: RunMode
   }
   deriving stock (Show, Eq, Ord)
 
@@ -48,6 +56,7 @@ defaultRunConfig =
     { maxIterations = 32
     , collectDebugLog = False
     , stopOnSaturation = True
+    , runMode = RunSemiNaive
     }
 
 runProgram :: RunConfig -> Program -> Either EgglogError RunResult
@@ -55,9 +64,15 @@ runProgram config program = do
   let db0 = databaseFromDecls (programDecls program)
   (db1, _) <- applyActions emptySubstitution db0 (programInitialActions program)
   (db2, initialStats, _) <- rebuild db1
-  loop 0 initialStats [] (clearDebugIfNeeded db2)
+  let db = clearDebugIfNeeded db2
+      initialDelta = databaseDelta db0 db
+  case runMode config of
+    RunNaive ->
+      loopNaive 0 initialStats [] db
+    RunSemiNaive ->
+      loopSemiNaive 0 initialStats [] initialDelta db
  where
-  loop iteration stats applied db
+  loopNaive iteration stats applied db
     | iteration >= maxIterations config =
         if stopOnSaturation config
           then Left (RunDidNotConverge (maxIterations config))
@@ -87,7 +102,40 @@ runProgram config program = do
                 , resultRebuildStats = stats'
                 , resultAppliedRules = reverse applied'
                 }
-          else loop (iteration + 1) stats' applied' db'
+          else loopNaive (iteration + 1) stats' applied' db'
+
+  loopSemiNaive iteration stats applied delta db
+    | iteration >= maxIterations config =
+        if stopOnSaturation config
+          then Left (RunDidNotConverge (maxIterations config))
+          else
+            Right
+              RunResult
+                { resultDatabase = db
+                , resultIterations = iteration
+                , resultSaturated = False
+                , resultRebuildStats = stats
+                , resultAppliedRules = reverse applied
+                }
+    | otherwise = do
+        (dbAfterRules, ruleChanged, appliedThisIteration) <- applyRulesSemiNaive delta db (programRules program)
+        (dbAfterRebuild, passStats, rebuildChanged) <- rebuild dbAfterRules
+        let stats' = addRebuildStats stats passStats
+            changed = ruleChanged || rebuildChanged
+            db' = clearDebugIfNeeded dbAfterRebuild
+            delta' = databaseDelta db db'
+            applied' = reverse appliedThisIteration <> applied
+        if stopOnSaturation config && not changed
+          then
+            Right
+              RunResult
+                { resultDatabase = db'
+                , resultIterations = iteration + 1
+                , resultSaturated = True
+                , resultRebuildStats = stats'
+                , resultAppliedRules = reverse applied'
+                }
+          else loopSemiNaive (iteration + 1) stats' applied' delta' db'
 
   clearDebugIfNeeded db
     | collectDebugLog config = db
@@ -110,12 +158,102 @@ applyRules startDb =
       (nextDb, actionChanged) <- applyActions subst actionDb (ruleActions rule)
       pure (nextDb, substitutionChanged || actionChanged)
 
+applyRulesSemiNaive :: DeltaDatabase -> Database -> [Rule] -> Either EgglogError (Database, Bool, [FunctionName])
+applyRulesSemiNaive delta startDb =
+  foldM applyRule (startDb, False, [])
+ where
+  applyRule (currentDb, alreadyChanged, applied) rule = do
+    substitutions <- evalRuleSemiNaive delta currentDb rule
+    (nextDb, ruleChanged) <- foldM applySubstitution (currentDb, False) substitutions
+    pure
+      ( nextDb
+      , alreadyChanged || ruleChanged
+      , if ruleChanged then ruleName rule : applied else applied
+      )
+   where
+    applySubstitution (actionDb, substitutionChanged) subst = do
+      (nextDb, actionChanged) <- applyActions subst actionDb (ruleActions rule)
+      pure (nextDb, substitutionChanged || actionChanged)
+
 evalRule :: Database -> Rule -> Either EgglogError [Substitution]
 evalRule db rule =
   foldM extend [emptySubstitution] (rulePremises rule)
  where
   extend substitutions atom =
     concat <$> traverse (evalQueryAtom db atom) substitutions
+
+evalRuleSemiNaive :: DeltaDatabase -> Database -> Rule -> Either EgglogError [Substitution]
+evalRuleSemiNaive delta db rule =
+  case semiNaivePlans delta rule of
+    RunRuleNaively ->
+      evalRule db rule
+    SkipRuleUntilDelta ->
+      pure []
+    RunRuleWithDeltaPremises premiseIndexes -> do
+      substitutions <- concat <$> traverse (evalRuleWithDeltaPremise delta db rule) premiseIndexes
+      pure (dedupeSubstitutions substitutions)
+
+data RuleSchedule
+  = RunRuleNaively
+  | SkipRuleUntilDelta
+  | RunRuleWithDeltaPremises [Int]
+  deriving stock (Show, Eq, Ord)
+
+dedupeSubstitutions :: [Substitution] -> [Substitution]
+dedupeSubstitutions =
+  reverse . snd . foldl step (Set.empty, [])
+ where
+  step (seen, acc) subst
+    | subst `Set.member` seen = (seen, acc)
+    | otherwise = (Set.insert subst seen, subst : acc)
+
+semiNaivePlans :: DeltaDatabase -> Rule -> RuleSchedule
+semiNaivePlans delta rule
+  | null (rulePremises rule) = RunRuleNaively
+  | null deltaEligibleIndexes = RunRuleNaively
+  | null changedIndexes = SkipRuleUntilDelta
+  | otherwise = RunRuleWithDeltaPremises changedIndexes
+ where
+  indexedPremises =
+    zip [0 ..] (rulePremises rule)
+  deltaEligibleIndexes =
+    [index | (index, atom) <- indexedPremises, isDeltaEligible atom]
+  changedIndexes =
+    [index | (index, atom) <- indexedPremises, atomHasDelta delta atom]
+
+evalRuleWithDeltaPremise :: DeltaDatabase -> Database -> Rule -> Int -> Either EgglogError [Substitution]
+evalRuleWithDeltaPremise delta db rule deltaIndex =
+  foldM extend [emptySubstitution] (zip [0 ..] (rulePremises rule))
+ where
+  extend substitutions (index, atom) =
+    concat <$> traverse (evalWithPlan index atom) substitutions
+
+  evalWithPlan index atom
+    | index == deltaIndex = evalQueryAtomDelta delta db atom
+    | otherwise = evalQueryAtom db atom
+
+isDeltaEligible :: QueryAtom -> Bool
+isDeltaEligible atom =
+  case queryAtomFunction atom of
+    Just {} -> True
+    Nothing -> False
+
+atomHasDelta :: DeltaDatabase -> QueryAtom -> Bool
+atomHasDelta delta atom =
+  case queryAtomFunction atom of
+    Just name -> not (Map.null (deltaTable name delta))
+    Nothing -> False
+
+queryAtomFunction :: QueryAtom -> Maybe FunctionName
+queryAtomFunction = \case
+  QLookup name _ _ ->
+    Just name
+  QMatch (PCall name _) _ ->
+    Just name
+  QMatch {} ->
+    Nothing
+  QEq {} ->
+    Nothing
 
 evalQueryAtom :: Database -> QueryAtom -> Substitution -> Either EgglogError [Substitution]
 evalQueryAtom db = \case
@@ -126,15 +264,26 @@ evalQueryAtom db = \case
   QEq lhs rhs ->
     evalEqualityAtom db lhs rhs
 
+evalQueryAtomDelta :: DeltaDatabase -> Database -> QueryAtom -> Substitution -> Either EgglogError [Substitution]
+evalQueryAtomDelta delta db = \case
+  QLookup name args outPattern ->
+    evalLookupAtomInTable db (deltaTable name delta) name args outPattern
+  QMatch (PCall name argPatterns) outPattern ->
+    evalLookupAtomInTable db (deltaTable name delta) name argPatterns outPattern
+  atom ->
+    evalQueryAtom db atom
+
 evalLookupAtom :: Database -> FunctionName -> [Pattern] -> Pattern -> Substitution -> Either EgglogError [Substitution]
 evalLookupAtom db name argPatterns outPattern subst = do
+  evalLookupAtomInTable db (Map.findWithDefault Map.empty name (tables db)) name argPatterns outPattern subst
+
+evalLookupAtomInTable :: Database -> FunctionTable -> FunctionName -> [Pattern] -> Pattern -> Substitution -> Either EgglogError [Substitution]
+evalLookupAtomInTable db table name argPatterns outPattern subst = do
   decl <- getDecl name db
   if length (functionArgSorts decl) /= length argPatterns
     then Left (ArityMismatch name (length (functionArgSorts decl)) (length argPatterns))
     else foldM collect [] (Map.toList table)
  where
-  table = Map.findWithDefault Map.empty name (tables db)
-
   collect matches (args, outValue) = do
     argSubsts <- matchPatterns db argPatterns (canonicalArgs db args) subst
     outSubsts <- concat <$> traverse (\s -> matchPattern db outPattern (canonicalValue db outValue) s) argSubsts
@@ -269,3 +418,38 @@ addRebuildStats lhs rhs =
     , unionsCreated = unionsCreated lhs + unionsCreated rhs
     , rebuildIterations = rebuildIterations lhs + rebuildIterations rhs
     }
+
+databaseDelta :: Database -> Database -> DeltaDatabase
+databaseDelta before after =
+  DeltaDatabase
+    { deltaTables =
+        Map.mapMaybeWithKey changedTableAfter (normalizeTables after after)
+    }
+ where
+  beforeTables =
+    normalizeTables before before
+
+  changedTableAfter name afterTable =
+    let beforeTable = Map.findWithDefault Map.empty name beforeTables
+        entries =
+          Map.filterWithKey
+            ( \args outValue ->
+                Map.lookup args beforeTable /= Just outValue
+            )
+            afterTable
+     in if Map.null entries then Nothing else Just entries
+
+deltaTable :: FunctionName -> DeltaDatabase -> FunctionTable
+deltaTable name delta =
+  Map.findWithDefault Map.empty name (deltaTables delta)
+
+normalizeTables :: Database -> Database -> Map.Map FunctionName FunctionTable
+normalizeTables canonicalDb sourceDb =
+  Map.map (normalizeFunctionTable canonicalDb) (tables sourceDb)
+
+normalizeFunctionTable :: Database -> FunctionTable -> FunctionTable
+normalizeFunctionTable db =
+  Map.fromList . map normalizeEntry . Map.toList
+ where
+  normalizeEntry (args, outValue) =
+    (canonicalArgs db args, canonicalValue db outValue)

@@ -5,7 +5,7 @@ being stabilized, and what should be built next. It is synchronized with the
 current codebase as of the checked `Int64` semantics, Egglog backend, LLVM
 backend, source diagnostics, top-level first-order functions, lambda lifting,
 closure conversion runtime work, and optional monomorphic lambda parameter
-inference.
+inference, plus semi-naive Egglog rule evaluation.
 
 ## Current Baseline
 
@@ -27,7 +27,8 @@ Implemented:
 - Sound local ANF simplifier with validation before and after optimization.
 - Prototype e-graph optimizer for a narrow ANF fragment.
 - Standalone Egglog-style kernel with sorts, values, functions, merge behavior,
-  union-find, rebuild, rules, rewrite sugar, and extraction.
+  union-find, rebuild, rules, rewrite sugar, extraction, delta relations, and
+  semi-naive rule scheduling.
 - Compiler-facing Egglog backend for typed pure first-order ANF: integer
   `Add`/`Mul`, boolean and integer `if`, constants, variables, and lets.
 - Backend IR and LLVM backend v0 for closed first-order programs, including
@@ -78,7 +79,8 @@ Not implemented:
 - Long-term heap ownership policy beyond process-lifetime closure allocation.
 - User-facing Hindley-Milner polymorphism and optional top-level signatures.
 - Algebraic data types or pattern matching.
-- Egglog semi-naive evaluation, join planning, and provenance.
+- Richer Egglog join planning, richer lattice merges, and provenance/debug
+  traces.
 - Release packaging beyond basic Cabal metadata.
 
 ## Phase 0 - Project Hygiene And Semantic Stabilization
@@ -493,7 +495,7 @@ Definition of done:
 
 Next recommended task:
 
-- Add semi-naive Egglog evaluation.
+- Add Egglog provenance/debug traces.
 
 ## Phase 8 - Egglog Backend Expansion
 
@@ -541,17 +543,18 @@ Definition of done:
 
 ## Phase 9 - Egglog Engine Authenticity
 
-Status: not started.
+Status: partial.
 
 Motivation: Move the kernel from a correct bounded prototype toward a scalable
 egglog-like engine.
 
 Deliverables:
 
-- Semi-naive evaluation.
-- Delta relations.
-- Rule scheduling.
-- Join planning.
+- Completed: semi-naive evaluation.
+- Completed: delta relations.
+- Completed: rule scheduling over changed lookup/root-match premises.
+- Completed: keep naive evaluation mode for equivalence and debugging.
+- Future: richer join planning and cost-based premise ordering.
 - Richer lattice merges.
 - Provenance/debug traces.
 
@@ -567,9 +570,11 @@ Acceptance criteria:
 Tests required:
 
 - Kernel regression tests.
-- Rule scheduling tests.
-- Delta evaluation equivalence tests.
-- Provenance rendering tests.
+- Completed: kernel regression tests.
+- Completed: delta evaluation equivalence tests.
+- Completed: compiler backend preservation tests.
+- Future: richer rule scheduling tests.
+- Future: provenance rendering tests.
 
 Risks:
 
@@ -578,8 +583,8 @@ Risks:
 
 Definition of done:
 
-- The kernel has scalable evaluation mechanics while remaining frontend
-  independent.
+- The kernel has scalable evaluation mechanics for current rules while
+  remaining frontend independent.
 
 ## Phase 10 - Packaging, CI, And Polish
 
@@ -966,30 +971,35 @@ Add optional lambda inference
 
 ### Task J - Semi-Naive Egglog Evaluation
 
+Status: complete for delta relations, semi-naive scheduling, and naive
+equivalence coverage.
+
 Prerequisite: stable Egglog backend tests.
 
 Implementation scope:
 
-- Add delta relations and semi-naive rule evaluation.
-- Add rule scheduling and join planning.
-- Preserve kernel/frontend separation.
+- Completed: add delta relations and semi-naive rule evaluation.
+- Completed: add rule scheduling over changed lookup/root-match premises.
+- Completed: preserve kernel/frontend separation.
+- Future: add cost-based join planning and richer premise ordering.
 
-Files likely touched:
+Files touched:
 
-- `src/Egglog/*`
+- `src/Egglog/Eval.hs`
 - `test/Main.hs`
 - `docs/egglog-backend.md`
+- `docs/roadmap.md`
 
 Tests required:
 
-- Kernel equivalence tests.
-- Performance/convergence smoke tests.
-- Existing backend preservation tests.
+- Completed: kernel equivalence tests.
+- Completed: convergence/saturation smoke tests.
+- Completed: existing backend preservation tests.
 
 Acceptance criteria:
 
-- Existing rule results match the naive evaluator with better execution
-  mechanics.
+- Completed: existing rule results match the naive evaluator with delta-driven
+  execution mechanics.
 
 Commit message suggestion:
 
@@ -1000,7 +1010,7 @@ Add semi-naive Egglog evaluation
 ## Next Recommended Prompt
 
 ```text
-Add semi-naive Egglog evaluation: introduce delta relations, rule scheduling,
-and join-planning scaffolding while preserving existing kernel equivalence and
-backend semantic-preservation tests.
+Add Egglog provenance/debug traces: record which rules and substitutions create
+function entries or unions, render compact provenance for extracted optimized
+terms, and preserve existing backend semantic-preservation tests.
 ```

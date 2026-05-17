@@ -69,6 +69,24 @@ ruleset includes:
 Distributivity is kept out of the default compiler ruleset because it can grow
 terms. It remains available as an experimental ruleset.
 
+## Evaluation
+
+The Egglog kernel runs rules with semi-naive evaluation by default. Initial
+actions populate a delta database, and each later iteration evaluates a rule
+once for each premise whose root lookup or root match has changed entries. Other
+premises in that planned join still read the full database, so recursive rules
+such as transitive closure see combinations of new and existing facts without
+rescanning every unchanged tuple as the driver.
+
+The older naive mode remains available through `RunNaive` for equivalence tests
+and debugging. Semi-naive and naive runs are checked against each other for
+kernel transitive-closure behavior, and compiler backend tests compare optimized
+ANF results across both modes.
+
+Rules without a delta-eligible lookup or root function match still run naively.
+That keeps equality-only and empty-premise rules correct while the generic join
+planner remains deliberately small.
+
 ## Constants As Facts
 
 Constants are represented inside Egglog as functions:
@@ -151,9 +169,9 @@ For supported closed ANF programs, the backend checks:
 
 ## Remaining Gaps
 
-- semi-naive evaluation
 - richer lattice values
-- generic join planning
+- richer join planning and cost-based premise ordering
+- provenance/debug traces
 - rule language/parser
 - full ANF integration
 - binder-aware higher-order EqSat
