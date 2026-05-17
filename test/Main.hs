@@ -291,12 +291,14 @@ testGroups =
   , TestGroup
       "LLVM"
       [ pureTest "Backend IR validates supported arithmetic" testLLVMBackendValidArithmetic
+      , pureTest "Backend IR validates Int division" testLLVMBackendValidDivision
       , pureTest "Backend IR validation rejects unbound variables" testLLVMBackendValidationRejectsUnbound
       , pureTest "Backend IR validation rejects invalid if conditions" testLLVMBackendValidationRejectsBadIf
+      , pureTest "Backend IR validation rejects Bool division" testLLVMBackendValidationRejectsBoolDivision
       , pureTest "LLVM backend rejects lambdas structurally" testLLVMLowerRejectsLambda
       , pureTest "LLVM backend rejects applications structurally" testLLVMLowerRejectsApplication
       , pureTest "LLVM backend rejects open programs" testLLVMLowerRejectsOpenProgram
-      , pureTest "LLVM backend rejects unsupported division" testLLVMLowerRejectsDivision
+      , pureTest "LLVM compiler lowers checked division" testLLVMLoweringCheckedDivision
       , pureTest "LLVM lowering emits deterministic phi blocks" testLLVMLoweringNestedIf
       , pureTest "LLVM validator rejects duplicate SSA registers" testLLVMValidatorRejectsDuplicateRegisters
       , pureTest "LLVM validator rejects missing block references" testLLVMValidatorRejectsMissingBlock
@@ -310,6 +312,7 @@ testGroups =
       , pureTest "LLVM compiler closure-converts capturing lambdas" testLLVMCompileCapturingLambda
       , pureTest "LLVM compiler closure-converts inferred capturing lambdas" testLLVMCompileInferredCapturingLambda
       , ioTest "LLVM checked Int overflow aborts when tools are available" testLLVMOverflowAborts
+      , ioTest "LLVM checked division runs and aborts when tools are available" testLLVMDivisionExecution
       , ioTest "LLVM arithmetic golden" $
           checkLLVMGolden "examples/llvm/arithmetic.hg" "test/golden/llvm-arithmetic.ll"
       , ioTest "LLVM if comparison golden" $
@@ -1856,6 +1859,13 @@ testLLVMBackendValidArithmetic = do
   expectEqual "backend root type" B.BI64 (B.backendRootType backend)
   mapLeft (showText . BV.renderBackendValidationError) (BV.validateBackendProgram backend)
 
+testLLVMBackendValidDivision :: Either String ()
+testLLVMBackendValidDivision = do
+  parsed <- parseExpr "let x = 20 in let y = 4 in x / y"
+  backend <- mapLeft (showText . BL.renderBackendLowerError) (BL.lowerANFToBackend (toANF parsed))
+  expectEqual "backend division root type" B.BI64 (B.backendRootType backend)
+  mapLeft (showText . BV.renderBackendValidationError) (BV.validateBackendProgram backend)
+
 testLLVMBackendValidationRejectsUnbound :: Either String ()
 testLLVMBackendValidationRejectsUnbound =
   let program =
@@ -1888,6 +1898,24 @@ testLLVMBackendValidationRejectsBadIf =
         Left (BV.BackendIfConditionTypeMismatch B.BI64) -> Right ()
         other -> Left ("expected backend if condition validation error, got " <> show other)
 
+testLLVMBackendValidationRejectsBoolDivision :: Either String ()
+testLLVMBackendValidationRejectsBoolDivision =
+  let program =
+        B.BackendProgram
+          { B.backendRootType = B.BI64
+          , B.backendRoot =
+              B.BEPrim
+                B.BI64
+                B.BPDiv
+                (B.BBool True)
+                (backendInt 1)
+          , B.backendFunctions = []
+          , B.backendProvenance = []
+          }
+   in case BV.validateBackendProgram program of
+        Left (BV.BackendAtomTypeMismatch B.BI64 B.BI1 (B.BBool True)) -> Right ()
+        other -> Left ("expected backend Bool division validation error, got " <> show other)
+
 testLLVMLowerRejectsLambda :: Either String ()
 testLLVMLowerRejectsLambda =
   case BL.lowerANFToBackend (ALam xName TInt (AAtom (AVar xName))) of
@@ -1908,11 +1936,17 @@ testLLVMLowerRejectsOpenProgram =
       | name == xName -> Right ()
     other -> Left ("expected LLVM backend to reject open ANF, got " <> show other)
 
-testLLVMLowerRejectsDivision :: Either String ()
-testLLVMLowerRejectsDivision =
-  case BL.lowerANFToBackend (APrim Div (AInt 4) (AInt 2)) of
-    Left (BL.BackendUnsupportedPrimitive Div) -> Right ()
-    other -> Left ("expected LLVM backend to reject division, got " <> show other)
+testLLVMLoweringCheckedDivision :: Either String ()
+testLLVMLoweringCheckedDivision = do
+  result <- compileLLVMNoEgglog "let x = 20 in let y = 4 in x / y"
+  let llvmText = BC.llvmText result
+      beforeSdiv = fst (Text.breakOn "sdiv i64" llvmText)
+  assertBool "division lowering checks zero divisor" ("icmp eq i64 4, 0" `Text.isInfixOf` llvmText)
+  assertBool "division lowering checks minBound numerator" ("icmp eq i64 20, -9223372036854775808" `Text.isInfixOf` llvmText)
+  assertBool "division lowering checks -1 denominator" ("icmp eq i64 4, -1" `Text.isInfixOf` llvmText)
+  assertBool "division lowering emits sdiv" ("sdiv i64 20, 4" `Text.isInfixOf` llvmText)
+  assertBool "division lowering calls abort for runtime errors" ("@abort()" `Text.isInfixOf` llvmText)
+  assertBool "division checks precede sdiv" ("div_zero_abort" `Text.isInfixOf` beforeSdiv && "div_overflow_abort" `Text.isInfixOf` beforeSdiv)
 
 testLLVMLoweringNestedIf :: Either String ()
 testLLVMLoweringNestedIf = do
@@ -2127,6 +2161,79 @@ expectedInterpreterOverflow path expectedOp source = do
       Left ("expected interpreter checked Int overflow for " <> path <> ", got " <> Text.unpack (renderRuntimeError err))
     Right value ->
       Left ("expected interpreter checked Int overflow for " <> path <> ", got value " <> Text.unpack (renderValue value))
+
+testLLVMDivisionExecution :: IO (Either String ())
+testLLVMDivisionExecution = do
+  tools <- LLVMTools.findLLVMTools
+  successResult <- runDivisionSuccess tools
+  case successResult of
+    Left err -> pure (Left err)
+    Right () -> firstFailureIO (checkError tools) llvmDivisionErrorCases
+ where
+  runDivisionSuccess tools = do
+    source <- Text.IO.readFile "examples/llvm/division.hg"
+    case BC.compileToLLVM BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False} "examples/llvm/division.hg" source of
+      Left err ->
+        pure (Left (Text.unpack (BC.renderCompileLLVMError err)))
+      Right result -> do
+        assemblyResult <- LLVMTools.validateLLVMText tools (BC.llvmText result)
+        runResult <- LLVMTools.runLLVMText tools (BC.llvmText result)
+        pure $
+          checkLLVMAssemblyResult "examples/llvm/division.hg" assemblyResult
+            *> assertBool "division lowering emits sdiv without Egglog" ("sdiv i64" `Text.isInfixOf` BC.llvmText result)
+            *> case runResult of
+              LLVMTools.LLVMRunSkipped {} -> Right ()
+              LLVMTools.LLVMRunFailed stdoutText stderrText ->
+                Left ("LLVM division execution failed\nstdout:\n" <> stdoutText <> "\nstderr:\n" <> stderrText)
+              LLVMTools.LLVMRunSucceeded stdoutText ->
+                expectEqual "LLVM division stdout" "5\n" stdoutText
+
+  checkError tools (name, source, expected) = do
+    case expectedInterpreterDivisionError name expected source of
+      Left err ->
+        pure (Left err)
+      Right () ->
+        case BC.compileToLLVM BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False} ("<llvm-division-" <> Text.unpack name <> ">") source of
+          Left err ->
+            pure (Left (Text.unpack (BC.renderCompileLLVMError err)))
+          Right result -> do
+            assemblyResult <- LLVMTools.validateLLVMText tools (BC.llvmText result)
+            runResult <- LLVMTools.runLLVMText tools (BC.llvmText result)
+            pure $
+              checkLLVMAssemblyResult ("<llvm-division-" <> Text.unpack name <> ">") assemblyResult
+                *> assertBool
+                ("division error lowering emits sdiv for " <> Text.unpack name)
+                ("sdiv i64" `Text.isInfixOf` BC.llvmText result)
+                *> assertBool
+                  ("division error lowering calls abort for " <> Text.unpack name)
+                  ("@abort()" `Text.isInfixOf` BC.llvmText result)
+                *> case runResult of
+                  LLVMTools.LLVMRunSkipped {} -> Right ()
+                  LLVMTools.LLVMRunFailed _ _ -> Right ()
+                  LLVMTools.LLVMRunSucceeded stdoutText ->
+                    Left ("expected LLVM division " <> Text.unpack name <> " execution to fail, got stdout:\n" <> stdoutText)
+
+data ExpectedDivisionError
+  = ExpectDivisionByZero
+  | ExpectDivisionOverflow
+  deriving stock (Show, Eq, Ord)
+
+llvmDivisionErrorCases :: [(Text, Text, ExpectedDivisionError)]
+llvmDivisionErrorCases =
+  [ ("by-zero", "1 / 0", ExpectDivisionByZero)
+  , ("overflow", divisionOverflowSource, ExpectDivisionOverflow)
+  ]
+
+expectedInterpreterDivisionError :: Text -> ExpectedDivisionError -> Text -> Either String ()
+expectedInterpreterDivisionError name expected source = do
+  parsed <- parseExprAt ("<llvm-division-" <> Text.unpack name <> ">") source
+  case (expected, eval parsed) of
+    (ExpectDivisionByZero, Left DivisionByZero) -> Right ()
+    (ExpectDivisionOverflow, Left (RuntimeIntError (IntOverflow Div _ _))) -> Right ()
+    (_, Left err) ->
+      Left ("expected interpreter division " <> Text.unpack name <> " error, got " <> Text.unpack (renderRuntimeError err))
+    (_, Right value) ->
+      Left ("expected interpreter division " <> Text.unpack name <> " error, got value " <> Text.unpack (renderValue value))
 
 checkLLVMGolden :: FilePath -> FilePath -> IO (Either String ())
 checkLLVMGolden sourcePath goldenPath = do
@@ -2867,6 +2974,7 @@ llvmExecutionExamples =
   , ("examples/llvm/let-chain.hg", "21\n")
   , ("examples/llvm/bool-root.hg", "1\n")
   , ("examples/llvm/top-level.hg", "42\n")
+  , ("examples/llvm/division.hg", "5\n")
   ]
 
 llvmDifferentialSources :: [Text]
@@ -2888,6 +2996,9 @@ llvmDifferentialSources =
   , "let b = false == (1 < 0) in if b then 7 else 9"
   , "let x = 5 in if x == 5 then if x < 10 then x * x else 0 else 1"
   , "let x = 9223372036854775807 in x - 7"
+  , "(0 - 3) / 2"
+  , "let x = 20 in let y = 4 in x / y"
+  , "let x = 20 in let f = \\y : Int -> x / y in f 4"
   ]
 
 data LLVMOverflowCase = LLVMOverflowCase
@@ -2942,3 +3053,9 @@ topLevelSource =
   "def inc(x : Int) : Int = x + 1;\n\
   \def double(x : Int) : Int = x * 2;\n\
   \double (inc 20)"
+
+divisionOverflowSource :: Text
+divisionOverflowSource =
+  "let min_int = (0 - 9223372036854775807) - 1 in\n\
+  \let neg_one = 0 - 1 in\n\
+  \min_int / neg_one"

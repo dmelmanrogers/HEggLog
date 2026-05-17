@@ -81,6 +81,7 @@ validateInstruction function labels registers = \case
   IAdd _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   ISub _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IMul _ ty lhs rhs -> validateBinary function registers ty lhs rhs
+  IDiv _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IIcmp _ _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IZext _ value _ -> validateOperand function registers value
   IGetElementPtr _ _ base indices -> do
@@ -190,6 +191,7 @@ instructionResult = \case
   IAdd reg _ _ _ -> Just reg
   ISub reg _ _ _ -> Just reg
   IMul reg _ _ _ -> Just reg
+  IDiv reg _ _ _ -> Just reg
   IIcmp reg _ _ _ _ -> Just reg
   IZext reg _ _ -> Just reg
   IGetElementPtr reg _ _ _ -> Just reg
@@ -204,6 +206,7 @@ instructionResultType = \case
   IAdd _ ty _ _ -> ty
   ISub _ ty _ _ -> ty
   IMul _ ty _ _ -> ty
+  IDiv _ ty _ _ -> ty
   IIcmp {} -> LI1
   IZext _ _ ty -> ty
   IGetElementPtr {} -> LPtr

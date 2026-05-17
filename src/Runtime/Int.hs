@@ -73,7 +73,7 @@ mulHInt =
 
 divHInt :: HInt -> HInt -> Either IntError HInt
 divHInt lhs rhs =
-  checkedBinOp Div div lhs rhs
+  checkedBinOp Div quot lhs rhs
 
 ltHInt :: HInt -> HInt -> Bool
 ltHInt lhs rhs =

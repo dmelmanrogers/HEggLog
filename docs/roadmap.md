@@ -66,7 +66,8 @@ Implemented:
   - simplifier, e-graph prototype, and Egglog constants avoid overflowing folds
   - backend IR stores checked `HInt`
   - LLVM emits checked signed overflow intrinsics for `+`, `-`, and `*`
-  - generated LLVM aborts on overflow
+  - LLVM emits checked signed division with zero and minimum-`Int / -1` guards
+  - generated LLVM aborts on checked arithmetic runtime errors
 - Test coverage across parser, typechecker, interpreter, ANF, simplifier,
   e-graph prototype, Egglog kernel/backend, LLVM lowering, goldens, and
   QuickCheck properties.
@@ -199,7 +200,7 @@ Deliverables:
 - Completed: improve CLI report errors with file/line/column source ranges for
   typechecker failures and root-expression runtime failures.
 - Completed: improve LLVM compile errors with source ranges for unsupported
-  lambdas, applications, and division.
+  lambdas, applications, top-level function values, and function-valued roots.
 - Completed: add `docs/diagnostics-spec.md`.
 
 Non-goals:
@@ -254,10 +255,10 @@ Deliverables:
   closed first-order programs in the supported fragment.
 - Completed: add runtime-error equivalence testing for checked-`Int` overflow
   in LLVM `+`, `-`, and `*`.
+- Completed: add checked LLVM division lowering and runtime-error equivalence
+  testing for division by zero and minimum-`Int / -1`.
 - Completed: add `docs/llvm-backend-spec.md` for the current LLVM semantic
   contract, IR invariants, validation boundaries, and test obligations.
-- Future: add division-by-zero runtime-error equivalence when LLVM division is
-  supported.
 - Ongoing: strengthen Backend IR and LLVM IR validators as new IR forms are
   added.
 

@@ -52,15 +52,14 @@ Rejected source forms:
 - partial or over-applied top-level calls
 - using a top-level function as a first-class value
 - free variables
-- division
 - recursion
 - strings
 - user-defined data
 
 The compile path lambda-lifts eligible lambdas. Programs that still contain
-local function values use closure conversion. Division, top-level function
-values, partial top-level calls, and function-valued roots are rejected before
-LLVM generation when possible. Open programs and malformed internal IR are still
+local function values use closure conversion. Top-level function values,
+partial top-level calls, and function-valued roots are rejected before LLVM
+generation when possible. Open programs and malformed internal IR are still
 defended by ANF and backend validators.
 
 ## Type Mapping
@@ -112,8 +111,8 @@ the generated `main` prints the root value.
 
 ## Runtime Errors
 
-Supported arithmetic operations `+`, `-`, and `*` use checked signed overflow
-lowering. LLVM lowering emits one of:
+Supported arithmetic operations use checked signed `Int64` lowering. For `+`,
+`-`, and `*`, LLVM lowering emits one of:
 
 - `llvm.sadd.with.overflow.i64`
 - `llvm.ssub.with.overflow.i64`
@@ -129,8 +128,10 @@ Runtime-error equivalence for v0 means:
 - generated LLVM contains the matching checked overflow intrinsic for `op`
 - LLVM execution terminates unsuccessfully when an execution tool is available
 
-Division is not part of the LLVM fragment, so division-by-zero equivalence is a
-future contract.
+For `/`, LLVM lowering checks the divisor against zero and checks the
+minimum-`Int / -1` overflow case before emitting `sdiv i64`. Failed checks call
+`abort` and end with `unreachable`; successful division uses signed quotient
+semantics that truncate toward zero, matching LLVM `sdiv`.
 
 ## Backend IR Contract
 

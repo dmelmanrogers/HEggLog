@@ -29,17 +29,16 @@ HeggLog is a credible partial compiler for a well-defined, typed expression lang
 
 The project is not yet a fully working production compiler in the ordinary user-facing sense. The largest gap is artifact production: `hegglog compile file.hg -o program` currently writes LLVM IR text to `program`; it does not produce a native executable. Native execution is available only through `--run-llvm`, using `lli` or a temporary clang path.
 
-The LLVM backend is correct-looking and well tested for its intended subset: closed `Int`/`Bool` roots, `let`, `if`, checked `+`, `-`, `*`, `<`, `==`, top-level first-order calls, lambda lifting, and local closures. Division remains unsupported in LLVM compile mode, even though the interpreter, ANF, runtime semantics, and Egglog backend know about checked division.
+The LLVM backend is correct-looking and well tested for its intended subset: closed `Int`/`Bool` roots, `let`, `if`, checked `+`, `-`, `*`, `/`, `<`, `==`, top-level first-order calls, lambda lifting, and local closures. Checked division was a gap at the original audit time; it is now lowered directly with division-by-zero and minimum-`Int / -1` runtime checks.
 
 The optimizer story is better than the average experimental compiler at this stage. The default compiler path uses the Egglog backend when supported and falls back explicitly when unsupported. The current uncommitted Phase 8 changes also remove several unsafe default rewrites that would otherwise violate strict runtime-error preservation. This materially improves compiler trustworthiness.
 
 The highest-priority readiness gaps are:
 
 1. Add real native executable output mode.
-2. Lower checked division to LLVM.
-3. Normalize CLI commands and stdout/stderr behavior.
-4. Improve source locations for nested runtime errors.
-5. Reconcile docs drift, especially the stale runtime-spec statement about `x * 0`.
+2. Normalize CLI commands and stdout/stderr behavior.
+3. Improve source locations for nested runtime errors.
+4. Reconcile docs drift, especially the stale runtime-spec statement about `x * 0`.
 
 ## 2. Baseline Validation
 
@@ -165,7 +164,7 @@ The implemented language is enough to exercise a real compiler pipeline, but it 
 | `+` | Yes | Yes | Yes | Yes | Yes | Yes, checked | Yes | Yes | LLVM uses checked Int64 behavior. |
 | `-` | Yes | Yes | Yes | Yes | Yes | Yes, checked | Yes | Yes | LLVM checked subtraction is present. |
 | `*` | Yes | Yes | Yes | Yes | Yes | Yes, checked | Yes | Yes | Current Egglog defaults avoid unsafe zero rewrites. |
-| `/` | Yes | Yes | Yes | Yes | Egglog yes | No | Yes | Yes | Compile mode rejects source division before LLVM lowering. |
+| `/` | Yes | Yes | Yes | Yes | Egglog yes | Yes, checked | Yes | Yes | LLVM checks division by zero and minimum `Int / -1` before `sdiv`. |
 | `<` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Integer comparison supported. |
 | Integer `==` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Supported in LLVM and Egglog. |
 | Boolean `==` | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Supported; Phase 8 adds strict-safe boolean Egglog rewrites. |
@@ -229,19 +228,13 @@ The intended runtime model is strict and checked:
 The implementation mostly respects this model:
 
 - Interpreters implement checked arithmetic.
-- LLVM lowering implements checked `+`, `-`, and `*`.
-- LLVM rejects division structurally instead of lowering it unsafely.
+- LLVM lowering implements checked `+`, `-`, `*`, and `/`.
+- LLVM checks division by zero and minimum `Int / -1` before emitting `sdiv`.
 - The Egglog backend now has specific runtime-error preservation checks and avoids the dangerous default rewrites that would drop strict dependencies.
 
 Important consistency gaps:
 
-1. LLVM division is missing.
-   - Source and interpreter support division.
-   - Egglog supports checked division reasoning.
-   - Backend compile mode still rejects source division before LLVM lowering.
-   - This means the full source language is not compilable.
-
-2. Runtime-error source spans are still coarse.
+1. Runtime-error source spans are still coarse.
    - The located parser and type errors have useful source positions.
    - Runtime errors are not yet consistently mapped to the most precise nested source expression.
    - This is a usability and debugging gap rather than a core semantic unsoundness.
@@ -291,15 +284,11 @@ Remaining risks:
    - Top-level definitions and closure-converted programs are currently outside Egglog optimization.
    - This is safe, but leaves optimization potential unused.
 
-2. Compile mode rejects division too early for Egglog to help LLVM.
-   - Even a constant or provably safe division cannot currently be optimized away before the structural LLVM division rejection.
-   - This makes Egglog division support useful in report/backend tests but not yet useful for end-to-end source division compilation.
-
-3. Multiple optimizer implementations increase drift risk.
+2. Multiple optimizer implementations increase drift risk.
    - The simplifier, e-graph prototype, and Egglog rules do not all share one declarative rewrite source.
    - This is manageable while only Egglog is compiler-active, but it should be documented and tested.
 
-4. The e-graph path remains prototype-grade.
+3. The e-graph path remains prototype-grade.
    - It is useful for report/debugging, but should not be marketed as the production optimizer until it has the same strictness and runtime-error preservation discipline as Egglog.
 
 ## 9. LLVM Backend Audit
@@ -322,7 +311,6 @@ Supported:
 
 Unsupported:
 
-- Division lowering.
 - Native executable output as the ordinary `-o` artifact.
 - Function-valued roots.
 - Partial top-level application.
@@ -337,19 +325,18 @@ The most important user-facing finding is the current meaning of `-o`. In compil
 
 The checked-runtime model is well specified and substantially implemented:
 
-- Addition, subtraction, and multiplication are checked in LLVM.
-- Division is checked in interpreters and Egglog reasoning, but not lowered to LLVM.
+- Addition, subtraction, multiplication, and division are checked in LLVM.
+- Division is checked in interpreters, Egglog reasoning, and LLVM lowering.
 - Runtime traps are represented cleanly enough for tests.
 - Closure allocation is intentionally process-lifetime allocation.
 
 Readiness gaps:
 
-- Add checked division lowering.
 - Decide whether Bool roots should print as `true`/`false` or remain `0`/`1`.
 - Add more precise source locations for runtime errors.
 - Decide whether process-lifetime closure allocation is acceptable for v1 or whether explicit ownership/freeing is required.
 
-The current runtime model is good enough for a small language compiler, but division and diagnostics should be completed before claiming full source-language compilation.
+The current runtime model is good enough for a small language compiler, but diagnostics and artifact output should be completed before claiming polished compiler readiness.
 
 ## 11. Diagnostics And User Experience Audit
 
@@ -433,22 +420,19 @@ Strong points:
 Coverage gaps:
 
 1. Native executable output cannot be tested because it does not exist yet.
-2. Source division cannot be compiled to LLVM, so interpreter-vs-LLVM division equivalence is absent.
-3. Actual process-level CLI tests are thinner than library-level tests.
-4. Parser diagnostics are not fully normalized and goldened as compiler diagnostics.
-5. Runtime-error source-span precision is not deeply tested.
-6. Property tests are useful but bounded and do not replace end-to-end fuzzing.
-7. Closure memory ownership is not stress-tested because the current model is process-lifetime allocation.
+2. Actual process-level CLI tests are thinner than library-level tests.
+3. Parser diagnostics are not fully normalized and goldened as compiler diagnostics.
+4. Runtime-error source-span precision is not deeply tested.
+5. Property tests are useful but bounded and do not replace end-to-end fuzzing.
+6. Closure memory ownership is not stress-tested because the current model is process-lifetime allocation.
 
-Overall, the test suite is strong for the implementation stage. The next test investments should follow artifact output, division lowering, and CLI normalization.
+Overall, the test suite is strong for the implementation stage. The next test investments should follow artifact output, CLI normalization, and diagnostics.
 
 ## 14. Architecture Risks
 
 | Risk | Severity | Why It Matters | Recommended Response |
 | --- | --- | --- | --- |
 | No native executable output | High | Users expect `compile -o program` to create an executable. | Add native output mode and make LLVM text explicit. |
-| LLVM division missing | High | The source language supports `/`, but the compiler cannot compile it. | Implement checked LLVM division. |
-| Early division rejection | High | Egglog cannot optimize away even safe or constant divisions before backend rejection. | Move unsupported checks after optimization or add division lowering. |
 | CLI mode confusion | Medium | Report, compile, emit, and run modes are not yet user-clean. | Introduce `check`, `run`, `compile`, `report`. |
 | Docs drift | Medium | Multiple specs can contradict code as semantics evolve. | Add docs consistency checks and resolve stale runtime text. |
 | Optimizer implementation drift | Medium | Simplifier, e-graph, and Egglog rules may diverge. | Keep only one production optimizer active or share rule specs. |
@@ -462,14 +446,12 @@ Overall, the test suite is strong for the implementation stage. The next test in
 To claim HeggLog is a fully working compiler for its current source language, the project still needs:
 
 1. Native executable output.
-2. Checked LLVM division lowering.
-3. A clean CLI contract for checking, running, compiling, reporting, and emitting LLVM.
-4. End-to-end tests that verify native artifacts run outside the compiler process.
-5. Source/LLVM equivalence tests for division success and division runtime failures.
-6. Precise runtime-error diagnostics.
-7. A documented v1 language subset table.
-8. Docs reconciliation for stale optimizer/runtime claims.
-9. A CI lane that actually has `lli`, `llvm-as`, and clang available.
+2. A clean CLI contract for checking, running, compiling, reporting, and emitting LLVM.
+3. End-to-end tests that verify native artifacts run outside the compiler process.
+4. Precise runtime-error diagnostics.
+5. A documented v1 language subset table.
+6. Docs reconciliation for stale optimizer/runtime claims.
+7. A CI lane that actually has `lli`, `llvm-as`, and clang available.
 10. A decision on Bool output format.
 11. A decision on closure lifetime/ownership scope.
 12. A release-oriented README path that teaches normal users the simplest successful workflow.
@@ -508,11 +490,11 @@ Goal: make `/` compile with the same checked semantics as the interpreter.
 
 Tasks:
 
-1. Add backend IR division if not already represented in the backend lowering path.
-2. Lower checked division to LLVM.
-3. Handle division by zero.
-4. Handle `minBound / -1`.
-5. Add interpreter-vs-LLVM tests for successful division and both failure cases.
+1. Completed: add backend IR division.
+2. Completed: lower checked division to LLVM.
+3. Completed: handle division by zero.
+4. Completed: handle `minBound / -1`.
+5. Completed: add interpreter-vs-LLVM tests for successful division and both failure cases.
 
 Exit criteria:
 
@@ -581,22 +563,17 @@ Exit criteria:
    - Acceptance: `hegglog compile file.hg -o program` produces an executable; `--emit-llvm` produces LLVM text.
    - Suggested commit: `Add native executable output mode`
 
-2. Lower checked division to LLVM.
-   - Files likely affected: backend IR, backend lowering, LLVM lowering/emission, validators, runtime docs, tests.
-   - Acceptance: division success, division-by-zero, and `minBound / -1` match interpreter behavior.
-   - Suggested commit: `Lower checked division to LLVM`
-
-3. Normalize the CLI command model.
+2. Normalize the CLI command model.
    - Files likely affected: `src/Main.hs`, `src/CLI/Report.hs`, README, CLI/golden tests.
    - Acceptance: `check`, `run`, `compile`, and `report` have clear stdout/stderr and exit-code behavior.
    - Suggested commit: `Normalize compiler CLI commands`
 
-4. Track precise runtime-error source spans.
+3. Track precise runtime-error source spans.
    - Files likely affected: located syntax, ANF/source mapping, interpreters, compile diagnostics, tests.
    - Acceptance: nested runtime errors report the smallest useful source expression.
    - Suggested commit: `Track runtime error source spans`
 
-5. Finalize v1 docs and CI tooling.
+4. Finalize v1 docs and CI tooling.
    - Files likely affected: docs, README, CI config, examples.
    - Acceptance: docs no longer contradict current strictness rules; CI exercises LLVM tools; v1 language subset is explicit.
    - Suggested commit: `Finalize compiler v1 docs`
@@ -605,6 +582,6 @@ Exit criteria:
 
 HeggLog is ready to be described as an actively working compiler prototype with a real typed frontend, optimizer stack, closure-aware backend path, and LLVM execution path for a defined subset.
 
-It is not yet ready to be described as a complete compiler for its own current source language because source division does not compile to LLVM and because `compile -o` does not produce a native executable.
+It is not yet ready to be described as a complete compiler in the ordinary user-facing sense because `compile -o` does not produce a native executable.
 
-The implementation direction is sound. The next best work is not more abstract architecture; it is closing the concrete artifact and source-language completeness gaps: native executable output, checked LLVM division, CLI normalization, precise runtime diagnostics, and final docs reconciliation.
+The implementation direction is sound. The next best work is not more abstract architecture; it is closing the concrete artifact and usability gaps: native executable output, CLI normalization, precise runtime diagnostics, and final docs reconciliation.

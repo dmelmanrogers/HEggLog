@@ -91,6 +91,8 @@ Overflow:
   outside the signed `Int64` range.
 - `/` returns division by zero when the divisor is zero.
 - `/` returns overflow for cases such as minimum `Int` divided by `-1`.
+- Successful `/` uses signed quotient semantics that truncate toward zero,
+  matching LLVM `sdiv`.
 
 LLVM:
 
@@ -98,7 +100,8 @@ LLVM:
 - `-` lowers to `llvm.ssub.with.overflow.i64`.
 - `*` lowers to `llvm.smul.with.overflow.i64`.
 - The overflow flag branches to an `abort` block.
-- Division is currently outside the LLVM backend fragment.
+- `/` lowers to explicit zero-divisor and minimum-`Int / -1` checks before a
+  plain `sdiv i64`; failed checks branch to `abort`.
 
 ## Printing
 
@@ -180,6 +183,9 @@ declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)
 declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)
 ```
 
+Division does not use an LLVM overflow intrinsic. It emits comparisons and
+branches before `sdiv`, and declares `abort` when division checks are present.
+
 `malloc` is declared only for programs that allocate closures. There is no
 custom HeggLog runtime library yet.
 
@@ -253,6 +259,8 @@ Current checked tests cover:
 - Simplifier overflow preservation.
 - Egglog constant overflow preservation.
 - LLVM checked overflow abort behavior when LLVM execution tools are available.
+- LLVM checked division success, division-by-zero abort, and division-overflow
+  abort behavior when LLVM execution tools are available.
 - LLVM execution matching interpreter output for supported examples.
 - LLVM closure differential examples for captured variables, returned closures,
   and higher-order local function values when execution tools are available.

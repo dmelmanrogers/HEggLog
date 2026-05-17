@@ -47,6 +47,8 @@ Optimizers must preserve these runtime errors:
 
 Constant folding is allowed only when the checked operation succeeds. Failed
 checked operations must not produce constant facts.
+Successful division uses signed quotient semantics that truncate toward zero,
+matching the interpreter and LLVM `sdiv` after explicit runtime checks.
 
 ## Default Egglog Rules
 

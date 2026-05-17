@@ -32,6 +32,7 @@ data BackendPrim
   = BPAdd
   | BPSub
   | BPMul
+  | BPDiv
   | BPLt
   | BPEq BackendType
   deriving stock (Show, Eq, Ord)
@@ -87,6 +88,7 @@ backendPrimOperandType = \case
   BPAdd -> BI64
   BPSub -> BI64
   BPMul -> BI64
+  BPDiv -> BI64
   BPLt -> BI64
   BPEq ty -> ty
 
@@ -95,5 +97,6 @@ backendPrimResultType = \case
   BPAdd -> BI64
   BPSub -> BI64
   BPMul -> BI64
+  BPDiv -> BI64
   BPLt -> BI1
   BPEq {} -> BI1

@@ -161,6 +161,7 @@ emitExpr env = \case
       BPAdd -> emitCheckedIntPrim "llvm.sadd.with.overflow.i64" lhsOperand rhsOperand
       BPSub -> emitCheckedIntPrim "llvm.ssub.with.overflow.i64" lhsOperand rhsOperand
       BPMul -> emitCheckedIntPrim "llvm.smul.with.overflow.i64" lhsOperand rhsOperand
+      BPDiv -> emitCheckedDiv lhsOperand rhsOperand
       BPLt -> do
         reg <- freshRegister "v"
         emit (IIcmp reg ICmpSlt LI64 lhsOperand rhsOperand)
@@ -298,6 +299,40 @@ emitCheckedIntPrim intrinsic lhs rhs = do
   terminateCurrent TUnreachable
 
   startBlock continueLabel
+  pure (OLocal LI64 valueReg)
+
+emitCheckedDiv :: LLVMOperand -> LLVMOperand -> LowerM LLVMOperand
+emitCheckedDiv lhs rhs = do
+  zeroReg <- freshRegister "div_zero"
+  emit (IIcmp zeroReg ICmpEq LI64 rhs (OConstInt LI64 0))
+  zeroLabel <- freshBlockLabel "div_zero_abort"
+  nonZeroLabel <- freshBlockLabel "div_nonzero"
+  terminateCurrent (TCondBr (OLocal LI1 zeroReg) zeroLabel nonZeroLabel)
+
+  startBlock zeroLabel
+  emit (ICall Nothing LVoid (DirectCall "abort") False [])
+  terminateCurrent TUnreachable
+
+  startBlock nonZeroLabel
+  minReg <- freshRegister "div_min_lhs"
+  emit (IIcmp minReg ICmpEq LI64 lhs (OConstInt LI64 minInt64Value))
+  overflowCheckLabel <- freshBlockLabel "div_overflow_check"
+  okLabel <- freshBlockLabel "div_ok"
+  terminateCurrent (TCondBr (OLocal LI1 minReg) overflowCheckLabel okLabel)
+
+  startBlock overflowCheckLabel
+  negOneReg <- freshRegister "div_neg_one"
+  emit (IIcmp negOneReg ICmpEq LI64 rhs (OConstInt LI64 (-1)))
+  overflowLabel <- freshBlockLabel "div_overflow_abort"
+  terminateCurrent (TCondBr (OLocal LI1 negOneReg) overflowLabel okLabel)
+
+  startBlock overflowLabel
+  emit (ICall Nothing LVoid (DirectCall "abort") False [])
+  terminateCurrent TUnreachable
+
+  startBlock okLabel
+  valueReg <- freshRegister "v"
+  emit (IDiv valueReg LI64 lhs rhs)
   pure (OLocal LI64 valueReg)
 
 emitClosureAllocation :: BackendType -> Name -> [(BackendType, LLVMOperand)] -> LowerM LLVMOperand
@@ -442,6 +477,7 @@ runtimeSupportDeclarations program =
           BPAdd -> ["declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)"]
           BPSub -> ["declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)"]
           BPMul -> ["declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)"]
+          BPDiv -> []
           _ -> []
       intrinsicDecls = concatMap intrinsic (Set.toList prims)
       mallocDecls =
@@ -459,6 +495,7 @@ checkedArithmeticPrims = \case
       BPAdd -> Set.singleton prim
       BPSub -> Set.singleton prim
       BPMul -> Set.singleton prim
+      BPDiv -> Set.singleton prim
       _ -> Set.empty
   BEIf _ _ thenBranch elseBranch ->
     checkedArithmeticPrims thenBranch <> checkedArithmeticPrims elseBranch
@@ -499,6 +536,10 @@ intFormatBytes =
 boolFormatBytes :: Text
 boolFormatBytes =
   "%d\n\0"
+
+minInt64Value :: Integer
+minInt64Value =
+  -9223372036854775808
 
 renderLLVMLowerError :: LLVMLowerError -> Text
 renderLLVMLowerError = \case

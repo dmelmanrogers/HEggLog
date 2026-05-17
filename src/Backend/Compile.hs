@@ -25,7 +25,7 @@ import IR.ANF
 import IR.ANF.Validate
 import Optimize.EgglogBackend
 import qualified Egglog.Eval as Egglog
-import Syntax.AST (BinOp (..), Name, Param (..), Program, Type)
+import Syntax.AST (Name, Param (..), Program, Type)
 import Syntax.Located
   ( LocatedExpr
   , LocatedExprNode (..)
@@ -243,12 +243,6 @@ findExprClosureUnsupported arities localNames expr =
         , findExprClosureUnsupported arities localNames thenBranch
         , findExprClosureUnsupported arities localNames elseBranch
         ]
-    LBin Div lhs rhs ->
-      firstJust
-        [ findExprClosureUnsupported arities localNames lhs
-        , findExprClosureUnsupported arities localNames rhs
-        , Just (locatedExprSpan expr, "LLVM backend does not support division")
-        ]
     LBin _ lhs rhs ->
       firstJust [findExprClosureUnsupported arities localNames lhs, findExprClosureUnsupported arities localNames rhs]
     LLam name _ body ->
@@ -297,12 +291,6 @@ findExprUnsupported arities localNames expr =
         [ findExprUnsupported arities localNames cond
         , findExprUnsupported arities localNames thenBranch
         , findExprUnsupported arities localNames elseBranch
-        ]
-    LBin Div lhs rhs ->
-      firstJust
-        [ findExprUnsupported arities localNames lhs
-        , findExprUnsupported arities localNames rhs
-        , Just (locatedExprSpan expr, "LLVM backend does not support division")
         ]
     LBin _ lhs rhs ->
       firstJust [findExprUnsupported arities localNames lhs, findExprUnsupported arities localNames rhs]

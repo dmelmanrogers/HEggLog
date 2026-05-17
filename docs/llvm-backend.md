@@ -23,7 +23,7 @@ Supported in v0:
 - `Bool` literals
 - variables bound by `let`
 - `let` bindings
-- integer `+`, `-`, and `*`
+- integer `+`, `-`, `*`, and checked `/`
 - integer `<`
 - `==` over `Int` or `Bool`
 - `if` expressions with `Bool` conditions and same-typed branches
@@ -42,7 +42,6 @@ Rejected structurally:
 - using a top-level function as a first-class value
 - recursion
 - strings and user-defined data
-- division
 
 The regular interpreter remains the semantic reference for source execution.
 The LLVM backend does not replace it.
@@ -73,7 +72,10 @@ Lowering uses SSA:
 - literals become LLVM constants
 - variables are looked up in the current SSA environment
 - `let` lowers the RHS and binds the source name to the resulting SSA operand
-- arithmetic lowers to the LLVM checked overflow intrinsics for signed `i64`
+- `+`, `-`, and `*` lower to the LLVM checked overflow intrinsics for signed
+  `i64`
+- `/` lowers to explicit zero-divisor and minimum-`Int / -1` checks followed by
+  `sdiv i64`
 - `<` lowers to `icmp slt`
 - `==` lowers to `icmp eq`
 - `if` lowers to then/else/join blocks with a `phi` in the join block
@@ -89,6 +91,8 @@ block label for the enclosing `phi`.
 For `+`, `-`, and `*`, lowering emits `llvm.sadd.with.overflow.i64`,
 `llvm.ssub.with.overflow.i64`, or `llvm.smul.with.overflow.i64`, extracts the
 value and overflow flag, and branches to an `abort` block when the flag is set.
+For `/`, lowering checks the divisor for zero and checks minimum `Int` divided
+by `-1` before emitting `sdiv i64`; either failed check branches to `abort`.
 
 ## Generated Functions
 
@@ -111,9 +115,9 @@ declare i32 @printf(ptr, ...)
 define i32 @main() { ... }
 ```
 
-Programs that contain checked arithmetic declare the corresponding LLVM overflow
-intrinsics and `abort`. Programs that allocate closures declare `malloc` and
-`abort`.
+Programs that contain checked `+`, `-`, or `*` declare the corresponding LLVM
+overflow intrinsics and `abort`. Programs that contain checked `/` declare
+`abort`. Programs that allocate closures declare `malloc` and `abort`.
 
 Top-level source functions emit deterministic LLVM functions named with a
 collision-free escaped form of the source name, prefixed by `hegglog_fun_`.
@@ -198,13 +202,13 @@ source interpreter, ANF interpreter, simplifier, Egglog constant facts, backend
 IR, and LLVM lowering all share the signed `Int64` runtime policy.
 
 Checked `+`, `-`, and `*` either produce an in-range `Int` or report overflow.
-LLVM programs abort on overflow. Division remains outside the LLVM backend
-fragment.
+Checked `/` reports division by zero or minimum-`Int / -1` overflow before the
+generated code reaches `sdiv`. LLVM programs abort on these runtime errors.
 
-Tests cover this runtime-error equivalence for checked `+`, `-`, and `*`: the
-same source program must fail in the interpreter with a checked-`Int` overflow,
-emit the corresponding LLVM overflow intrinsic, and terminate unsuccessfully
-when run through the available LLVM execution toolchain.
+Tests cover this runtime-error equivalence for checked arithmetic: the same
+source program must fail in the interpreter with the corresponding checked
+runtime error, emit guarded LLVM, and terminate unsuccessfully when run through
+the available LLVM execution toolchain.
 
 ## Relationship With Egglog
 

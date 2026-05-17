@@ -85,7 +85,6 @@ Examples:
 
 ```text
 LLVM backend cannot print function-valued root expression of type (Int -> Int)
-<llvm-diagnostic>:1:3-8: LLVM backend unsupported: LLVM backend does not support division
 ```
 
 The current LLVM source-fragment rejections are:
@@ -93,7 +92,6 @@ The current LLVM source-fragment rejections are:
 - function-valued root expressions
 - partial or over-applied top-level calls
 - using a top-level function as a first-class value
-- division
 
 Closed first-order source that passes this check can still fail later backend
 validation if an internal lowering bug constructs invalid ANF, backend IR, or

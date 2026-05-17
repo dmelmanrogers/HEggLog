@@ -144,9 +144,9 @@ lowerPrim env op lhs rhs =
     Add -> intPrim BPAdd
     Sub -> intPrim BPSub
     Mul -> intPrim BPMul
+    Div -> intPrim BPDiv
     Lt -> intPrim BPLt
     Eq -> equalityPrim
-    Div -> Left (BackendUnsupportedPrimitive Div)
  where
   intPrim prim = do
     assertAtomType env BI64 lhs

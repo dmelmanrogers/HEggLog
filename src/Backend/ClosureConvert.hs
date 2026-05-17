@@ -178,14 +178,14 @@ lowerExprWithHint env preferredName = \case
 lowerBinOp :: Env -> BinOp -> Expr -> Expr -> ConvertM BackendExpr
 lowerBinOp env op lhs rhs =
   case op of
-    Div ->
-      throwError (ClosureUnsupportedPrimitive Div)
     Add ->
       intPrim BPAdd
     Sub ->
       intPrim BPSub
     Mul ->
       intPrim BPMul
+    Div ->
+      intPrim BPDiv
     Lt ->
       intPrim BPLt
     Eq ->

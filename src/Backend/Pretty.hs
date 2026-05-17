@@ -80,6 +80,7 @@ renderBackendPrim = \case
   BPAdd -> "+"
   BPSub -> "-"
   BPMul -> "*"
+  BPDiv -> "/"
   BPLt -> "<"
   BPEq {} -> "=="
 

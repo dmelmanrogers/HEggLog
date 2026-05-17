@@ -57,14 +57,14 @@ cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm -o build/ar
 cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm --run-llvm
 ```
 
-The LLVM v0 backend supports `Int`, `Bool`, `let`, `if`, `+`, `-`, `*`, `<`,
-`==`, ordered top-level first-order functions, saturated direct calls, lambda
-lifting for eligible non-capturing lambdas, and closure conversion for local
-function values. Function-valued roots, partial or over-applied top-level calls,
-top-level function values, recursion, free variables, and division are rejected
+The LLVM v0 backend supports `Int`, `Bool`, `let`, `if`, `+`, `-`, `*`, `/`,
+`<`, `==`, ordered top-level first-order functions, saturated direct calls,
+lambda lifting for eligible non-capturing lambdas, and closure conversion for
+local function values. Function-valued roots, partial or over-applied top-level
+calls, top-level function values, recursion, and free variables are rejected
 structurally. `Int` is a checked signed 64-bit value across the interpreter,
-optimizers, backend IR, and LLVM lowering; overflow is reported by interpreters
-and aborts in generated LLVM.
+optimizers, backend IR, and LLVM lowering; overflow and division errors are
+reported by interpreters and abort in generated LLVM.
 
 See `docs/llvm-backend.md` for CLI behavior and LLVM toolchain notes, and
 `docs/llvm-backend-spec.md` for the backend semantic contract.

@@ -76,6 +76,8 @@ emitInstruction = \case
     assign reg ("sub " <> emitTypedOperands ty lhs rhs)
   IMul reg ty lhs rhs ->
     assign reg ("mul " <> emitTypedOperands ty lhs rhs)
+  IDiv reg ty lhs rhs ->
+    assign reg ("sdiv " <> emitTypedOperands ty lhs rhs)
   IIcmp reg predicate ty lhs rhs ->
     assign reg ("icmp " <> emitPredicate predicate <> " " <> emitTypedOperands ty lhs rhs)
   IZext reg value targetType ->

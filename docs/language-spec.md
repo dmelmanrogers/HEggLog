@@ -205,15 +205,15 @@ Implemented primitives:
 | `+` | `Int`, `Int` | `Int` | checked signed 64-bit addition |
 | `-` | `Int`, `Int` | `Int` | checked signed 64-bit subtraction |
 | `*` | `Int`, `Int` | `Int` | checked signed 64-bit multiplication |
-| `/` | `Int`, `Int` | `Int` | checked signed 64-bit integer division; division by zero is a runtime error |
+| `/` | `Int`, `Int` | `Int` | checked signed 64-bit integer division; division by zero and minimum `Int / -1` are runtime errors |
 | `<` | `Int`, `Int` | `Bool` | signed less-than |
 | `==` | `Int`, `Int` | `Bool` | integer equality |
 | `==` | `Bool`, `Bool` | `Bool` | boolean equality |
 
 Equality on function values is rejected by the typechecker.
 
-Division is implemented in the source and ANF interpreters. The LLVM backend
-currently rejects division structurally.
+Division uses signed quotient semantics that truncate toward zero, matching
+LLVM `sdiv` after explicit runtime checks.
 
 ### Lambda
 
