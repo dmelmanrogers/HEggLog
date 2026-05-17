@@ -9,3 +9,8 @@ inc 41
 HasType x Int
 HasType inc (Int -> Int)
 IsPure inc
+== Optimized ANF IR ==
+let inc = \x : Int -> x + 1 in
+inc 41
+== Applied Rewrites ==
+<none>

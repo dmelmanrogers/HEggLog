@@ -8,3 +8,8 @@ if _t0 then 42 else 0
 == Inferred Facts ==
 HasType _t0 Bool
 IsPure _t0
+== Optimized ANF IR ==
+let _t0 = 1 < 2 in
+if _t0 then 42 else 0
+== Applied Rewrites ==
+<none>
