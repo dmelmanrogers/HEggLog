@@ -4,4 +4,3 @@ module Optimize.EgglogBackend.Reconstruct
 where
 
 import Optimize.EgglogBackend
-

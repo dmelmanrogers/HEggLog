@@ -5,4 +5,3 @@ module Optimize.EgglogBackend.Extract
 where
 
 import Optimize.EgglogBackend
-
