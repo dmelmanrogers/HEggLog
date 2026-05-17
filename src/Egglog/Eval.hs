@@ -378,6 +378,8 @@ patternVariables = \case
     foldMap patternVariables args
   PAddInt lhs rhs ->
     patternVariables lhs <> patternVariables rhs
+  PSubInt lhs rhs ->
+    patternVariables lhs <> patternVariables rhs
   PMulInt lhs rhs ->
     patternVariables lhs <> patternVariables rhs
   PIntLt lhs rhs ->
@@ -403,6 +405,8 @@ patternTermRequiredVars = \case
     foldMap patternTermRequiredVars args
   PAddInt lhs rhs ->
     patternTermRequiredVars lhs <> patternTermRequiredVars rhs
+  PSubInt lhs rhs ->
+    patternTermRequiredVars lhs <> patternTermRequiredVars rhs
   PMulInt lhs rhs ->
     patternTermRequiredVars lhs <> patternTermRequiredVars rhs
   PIntLt lhs rhs ->
@@ -427,6 +431,8 @@ patternMatchRequiredVars = \case
   PCall _ args ->
     foldMap patternMatchRequiredVars args
   PAddInt lhs rhs ->
+    patternTermRequiredVars lhs <> patternTermRequiredVars rhs
+  PSubInt lhs rhs ->
     patternTermRequiredVars lhs <> patternTermRequiredVars rhs
   PMulInt lhs rhs ->
     patternTermRequiredVars lhs <> patternTermRequiredVars rhs
@@ -555,6 +561,8 @@ matchPattern db pattern value subst =
                 pure (matches <> substs)
       foldM collect [] (Map.toList table)
     PAddInt {} ->
+      matchComputed
+    PSubInt {} ->
       matchComputed
     PMulInt {} ->
       matchComputed

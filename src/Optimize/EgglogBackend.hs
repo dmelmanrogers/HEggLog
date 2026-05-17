@@ -37,6 +37,7 @@ import Egglog.Rule
 import Egglog.Sort
 import Egglog.Value
 import Eval.ANFInterpreter (ANFValue, evalANF)
+import Eval.Interpreter (RuntimeError, renderRuntimeError)
 import IR.ANF
 import IR.ANF.Resolved
 import IR.ANF.Validate
@@ -164,6 +165,9 @@ data EgglogBackendError
   | ReconstructedTypeError Text
   | OptimizedTypeChanged Type Type
   | SemanticCheckFailed ANFValue ANFValue
+  | SemanticRuntimeErrorChanged RuntimeError RuntimeError
+  | SemanticRuntimeErrorMasked RuntimeError ANFValue
+  | SemanticRuntimeErrorIntroduced ANFValue RuntimeError
   | InvalidIntLiteral IntError
   deriving stock (Show, Eq)
 
@@ -321,6 +325,7 @@ encodeExpr = \case
   TRPrim _ op lhs rhs ->
     case op of
       Add -> call (iAddFn symbols) [encodeAtom lhs, encodeAtom rhs]
+      Sub -> call (iSubFn symbols) [encodeAtom lhs, encodeAtom rhs]
       Mul -> call (iMulFn symbols) [encodeAtom lhs, encodeAtom rhs]
       Lt -> call (iLtFn symbols) [encodeAtom lhs, encodeAtom rhs]
       Eq ->
@@ -328,7 +333,6 @@ encodeExpr = \case
           TInt -> call (iEqFn symbols) [encodeAtom lhs, encodeAtom rhs]
           TBool -> call (bEqFn symbols) [encodeAtom lhs, encodeAtom rhs]
           TFun {} -> throwError (UnsupportedType (typedAtomType lhs))
-      Sub -> throwError (UnsupportedPrimitive Sub)
       Div -> throwError (UnsupportedPrimitive Div)
   TRIf ty cond thenBranch elseBranch -> do
     thenPattern <- encodeExpr thenBranch
@@ -474,6 +478,7 @@ buildExpr encoded term =
       case term of
         ExtractCall name [lhs, rhs]
           | name == iAddFn symbols -> buildBinary encoded Add lhs rhs
+          | name == iSubFn symbols -> buildBinary encoded Sub lhs rhs
           | name == iMulFn symbols -> buildBinary encoded Mul lhs rhs
           | name == iLtFn symbols -> buildBinary encoded Lt lhs rhs
           | name == iEqFn symbols || name == bEqFn symbols -> buildBinary encoded Eq lhs rhs
@@ -680,6 +685,7 @@ inferANFType =
     APrim op lhs rhs ->
       case op of
         Add -> intPrim lhs rhs
+        Sub -> intPrim lhs rhs
         Mul -> intPrim lhs rhs
         Lt -> do
           assertAtomType env TInt lhs
@@ -691,7 +697,6 @@ inferANFType =
           if lhsType == rhsType && (lhsType == TInt || lhsType == TBool)
             then Right TBool
             else Left (FragmentTypeMismatch lhsType rhsType)
-        Sub -> Left (UnsupportedPrimitive Sub)
         Div -> Left (UnsupportedPrimitive Div)
      where
       intPrim leftAtom rightAtom = do
@@ -739,8 +744,13 @@ checkSemantics original optimized =
     (Right originalValue, Right optimizedValue)
       | originalValue == optimizedValue -> Right ()
       | otherwise -> Left (SemanticCheckFailed originalValue optimizedValue)
-    _ ->
-      Right ()
+    (Left originalError, Left optimizedError)
+      | originalError == optimizedError -> Right ()
+      | otherwise -> Left (SemanticRuntimeErrorChanged originalError optimizedError)
+    (Left originalError, Right optimizedValue) ->
+      Left (SemanticRuntimeErrorMasked originalError optimizedValue)
+    (Right originalValue, Left optimizedError) ->
+      Left (SemanticRuntimeErrorIntroduced originalValue optimizedError)
 
 anfCost :: AExpr -> Int
 anfCost = \case
@@ -894,6 +904,21 @@ renderEgglogBackendError = \case
     "optimized type changed: expected " <> renderDoc (prettyType expected) <> ", got " <> renderDoc (prettyType actual)
   SemanticCheckFailed expected actual ->
     "semantic check failed: expected " <> Text.pack (show expected) <> ", got " <> Text.pack (show actual)
+  SemanticRuntimeErrorChanged expected actual ->
+    "semantic check failed: expected runtime error "
+      <> renderRuntimeError expected
+      <> ", got runtime error "
+      <> renderRuntimeError actual
+  SemanticRuntimeErrorMasked expected actual ->
+    "semantic check failed: expected runtime error "
+      <> renderRuntimeError expected
+      <> ", got value "
+      <> Text.pack (show actual)
+  SemanticRuntimeErrorIntroduced expected actual ->
+    "semantic check failed: expected value "
+      <> Text.pack (show expected)
+      <> ", got runtime error "
+      <> renderRuntimeError actual
   InvalidIntLiteral err ->
     renderIntError err
 

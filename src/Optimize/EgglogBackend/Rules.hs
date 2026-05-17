@@ -46,6 +46,15 @@ analysisRules =
       , ruleActions = [ASet (iConstFn symbols) [outI] (PKnownInt (PAddInt intA intB))]
       }
   , Rule
+      { ruleName = FunctionName "egglog-iconst-sub"
+      , rulePremises =
+          [ QLookup (iConstFn symbols) [a] (PKnownInt intA)
+          , QLookup (iConstFn symbols) [b] (PKnownInt intB)
+          , QMatch (iSub a b) outI
+          ]
+      , ruleActions = [ASet (iConstFn symbols) [outI] (PKnownInt (PSubInt intA intB))]
+      }
+  , Rule
       { ruleName = FunctionName "egglog-iconst-mul"
       , rulePremises =
           [ QLookup (iConstFn symbols) [a] (PKnownInt intA)
@@ -118,6 +127,7 @@ integerRules :: [Rule]
 integerRules =
   [ rewrite (FunctionName "egglog-add-zero-right") (iExprSort symbols) (iAdd a (iNum (PValue (VInt 0)))) a
   , rewrite (FunctionName "egglog-add-zero-left") (iExprSort symbols) (iAdd (iNum (PValue (VInt 0))) a) a
+  , rewrite (FunctionName "egglog-sub-zero-right") (iExprSort symbols) (iSub a (iNum (PValue (VInt 0)))) a
   , rewrite (FunctionName "egglog-mul-one-right") (iExprSort symbols) (iMul a (iNum (PValue (VInt 1)))) a
   , rewrite (FunctionName "egglog-mul-one-left") (iExprSort symbols) (iMul (iNum (PValue (VInt 1))) a) a
   , rewrite (FunctionName "egglog-mul-zero-right") (iExprSort symbols) (iMul a (iNum (PValue (VInt 0)))) (iNum (PValue (VInt 0)))
@@ -194,6 +204,10 @@ bBool value =
 iAdd :: Pattern -> Pattern -> Pattern
 iAdd lhs rhs =
   PCall (iAddFn symbols) [lhs, rhs]
+
+iSub :: Pattern -> Pattern -> Pattern
+iSub lhs rhs =
+  PCall (iSubFn symbols) [lhs, rhs]
 
 iMul :: Pattern -> Pattern -> Pattern
 iMul lhs rhs =

@@ -7,7 +7,7 @@ backend, source diagnostics, top-level first-order functions, lambda lifting,
 closure conversion runtime work, and optional monomorphic lambda parameter
 inference, semi-naive Egglog rule evaluation, and Egglog provenance/debug
 traces, relation-size Egglog join planning, the Egglog `ZeroInfo` lattice, and
-Egglog comparison support.
+Egglog comparison and checked subtraction support.
 
 ## Current Baseline
 
@@ -33,7 +33,7 @@ Implemented:
   semi-naive rule scheduling with stable relation-size join planning and opt-in
   rule/substitution debug traces.
 - Compiler-facing Egglog backend for typed pure first-order ANF: integer
-  `Add`/`Mul`, integer `Lt`, integer and boolean `Eq`, boolean and integer
+  `Add`/`Sub`/`Mul`, integer `Lt`, integer and boolean `Eq`, boolean and integer
   `if`, constants, variables, and lets.
 - Egglog lattice facts for integer constants, boolean constants, and integer
   zero/nonzero information with unknown and conflict states.
@@ -502,7 +502,7 @@ Definition of done:
 
 Next recommended task:
 
-- Add checked Egglog subtraction.
+- Add checked Egglog division with explicit nonzero and overflow constraints.
 
 ## Phase 8 - Egglog Backend Expansion
 
@@ -514,7 +514,7 @@ preserving runtime errors.
 Deliverables:
 
 - Completed: add comparison support where safe: `Lt` and `Eq`.
-- Add subtraction with checked `Int64` semantics.
+- Completed: add subtraction with checked `Int64` semantics.
 - Add division only with explicit `NonZero` and overflow constraints.
 - Add richer boolean reasoning.
 - Improve lattices and optimization explanations.
@@ -1163,10 +1163,57 @@ Commit message suggestion:
 Add Egglog zero-info lattice
 ```
 
+### Task N - Egglog Checked Subtraction
+
+Status: complete for typed integer subtraction with checked `Int64` constant
+facts.
+
+Prerequisite: checked `Int64` semantics and current typed Egglog backend.
+
+Implementation scope:
+
+- Completed: add `Sub` support to Egglog fragment classification, encoding,
+  extraction, reconstruction, and reconstructed ANF type inference.
+- Completed: add `ISub : IExpr IExpr -> IExpr` to the backend schema.
+- Completed: derive `IConst` subtraction facts only when `subHInt` succeeds.
+- Completed: reconstruct open subtraction expressions and simplify subtraction
+  by zero without dropping the strict dependency.
+- Completed: strengthen backend semantic checking so optimized ANF must preserve
+  runtime errors as well as successful values.
+
+Files touched:
+
+- `src/Optimize/EgglogBackend/*`
+- `src/Egglog/Pattern.hs`
+- `src/Egglog/Eval.hs`
+- `test/Main.hs`
+- `docs/egglog-backend.md`
+- `docs/roadmap.md`
+
+Tests required:
+
+- Completed: subtraction fragment acceptance tests.
+- Completed: subtraction constant-fact tests.
+- Completed: open subtraction reconstruction tests.
+- Completed: overflowing subtraction non-folding tests.
+- Completed: existing backend semantic-preservation tests.
+
+Acceptance criteria:
+
+- Completed: Egglog can optimize checked subtraction without turning overflow
+  into a successful value.
+
+Commit message suggestion:
+
+```text
+Add checked Egglog subtraction
+```
+
 ## Next Recommended Prompt
 
 ```text
-Add checked Egglog subtraction: encode `Sub` for integer expressions, derive
-checked constant facts without masking overflow, reconstruct open subtraction
-terms, and preserve existing semantic-preservation and overflow tests.
+Add checked Egglog division: encode `Div` only for integer expressions, use
+`IZero`/nonzero facts to fold or rewrite division only when division by zero and
+`minBound / -1` overflow cannot be masked, reconstruct open division terms, and
+preserve successful-result and runtime-error semantics.
 ```

@@ -16,13 +16,14 @@ import qualified Data.Map.Strict as Map
 import Egglog.Database
 import Egglog.Sort
 import Egglog.Value
-import Runtime.Int (HInt, addHInt, hintToInteger, mkHIntLiteral, mulHInt)
+import Runtime.Int (HInt, addHInt, hintToInteger, mkHIntLiteral, mulHInt, subHInt)
 
 data Pattern
   = PVar VarName Sort
   | PValue Value
   | PCall FunctionName [Pattern]
   | PAddInt Pattern Pattern
+  | PSubInt Pattern Pattern
   | PMulInt Pattern Pattern
   | PIntLt Pattern Pattern
   | PIntEq Pattern Pattern
@@ -67,6 +68,8 @@ matchPatternValue db pattern value subst =
         Right _ -> Left (QueryTypeError "function pattern did not match value")
         Left err -> Left err
     PAddInt {} ->
+      matchComputed
+    PSubInt {} ->
       matchComputed
     PMulInt {} ->
       matchComputed
@@ -123,6 +126,13 @@ evalExistingPattern db subst = \case
       (Just (VInt a), Just (VInt b)) -> pure (VInt <$> checkedInteger addHInt a b)
       (Just _, Just _) -> Left (QueryTypeError "expected Int operands for addition")
       _ -> pure Nothing
+  PSubInt lhs rhs -> do
+    lhsValue <- evalExistingPattern db subst lhs
+    rhsValue <- evalExistingPattern db subst rhs
+    case (lhsValue, rhsValue) of
+      (Just (VInt a), Just (VInt b)) -> pure (VInt <$> checkedInteger subHInt a b)
+      (Just _, Just _) -> Left (QueryTypeError "expected Int operands for subtraction")
+      _ -> pure Nothing
   PMulInt lhs rhs -> do
     lhsValue <- evalExistingPattern db subst lhs
     rhsValue <- evalExistingPattern db subst rhs
@@ -173,6 +183,15 @@ evalTerm db subst = \case
           Just result -> Right (db2, VInt result)
           Nothing -> Left (QueryTypeError "Int addition overflow")
       _ -> Left (QueryTypeError "expected Int operands for addition")
+  PSubInt lhs rhs -> do
+    (db1, lhsValue) <- evalTerm db subst lhs
+    (db2, rhsValue) <- evalTerm db1 subst rhs
+    case (lhsValue, rhsValue) of
+      (VInt a, VInt b) ->
+        case checkedInteger subHInt a b of
+          Just result -> Right (db2, VInt result)
+          Nothing -> Left (QueryTypeError "Int subtraction overflow")
+      _ -> Left (QueryTypeError "expected Int operands for subtraction")
   PMulInt lhs rhs -> do
     (db1, lhsValue) <- evalTerm db subst lhs
     (db2, rhsValue) <- evalTerm db1 subst rhs
@@ -249,6 +268,8 @@ evalExistingKnownInt :: Database -> Substitution -> Pattern -> Either EgglogErro
 evalExistingKnownInt db subst = \case
   PAddInt lhs rhs ->
     evalExistingCheckedKnownInt db subst addHInt lhs rhs
+  PSubInt lhs rhs ->
+    evalExistingCheckedKnownInt db subst subHInt lhs rhs
   PMulInt lhs rhs ->
     evalExistingCheckedKnownInt db subst mulHInt lhs rhs
   pattern -> do
@@ -276,6 +297,8 @@ evalTermKnownInt :: Database -> Substitution -> Pattern -> Either EgglogError (D
 evalTermKnownInt db subst = \case
   PAddInt lhs rhs ->
     evalTermCheckedKnownInt db subst addHInt lhs rhs
+  PSubInt lhs rhs ->
+    evalTermCheckedKnownInt db subst subHInt lhs rhs
   PMulInt lhs rhs ->
     evalTermCheckedKnownInt db subst mulHInt lhs rhs
   pattern -> do
@@ -315,6 +338,8 @@ renderPattern = \case
     renderFunctionName name <> renderArgs args
   PAddInt lhs rhs ->
     "(" <> renderPattern lhs <> " + " <> renderPattern rhs <> ")"
+  PSubInt lhs rhs ->
+    "(" <> renderPattern lhs <> " - " <> renderPattern rhs <> ")"
   PMulInt lhs rhs ->
     "(" <> renderPattern lhs <> " * " <> renderPattern rhs <> ")"
   PIntLt lhs rhs ->

@@ -43,7 +43,7 @@ import Optimize.Rewrite
   , matchRewriteRule
   )
 import Optimize.Simplify
-import Runtime.Int (HInt, IntError (IntOverflow), hintToInteger, maxHIntInteger, unsafeHIntLiteral)
+import Runtime.Int (HInt, IntError (IntOverflow), hintToInteger, maxHIntInteger, minHIntInteger, unsafeHIntLiteral)
 import Syntax.AST
 import Syntax.Parser (parseProgram, parseSourceProgram)
 import Syntax.Span (SourceSpan (..))
@@ -243,6 +243,7 @@ testGroups =
       , pureTest "resolved ANF renderer shows binder ids" testResolvedANFRenderer
       , pureTest "Egglog fragment accepts if expressions" testEgglogFragmentAcceptsIf
       , pureTest "Egglog fragment accepts comparisons" testEgglogFragmentAcceptsComparisons
+      , pureTest "Egglog fragment accepts subtraction" testEgglogFragmentAcceptsSubtraction
       , pureTest "Egglog fragment rejects mismatched if branches" testEgglogFragmentRejectsIfMismatch
       , pureTest "Egglog fragment rejects inconsistent free variable types" testEgglogFragmentRejectsInconsistentFreeVariableTypes
       , pureTest "Egglog encoding uses distinct typed sorts" testEgglogEncodingDistinctTypedSorts
@@ -257,6 +258,7 @@ testGroups =
       , pureTest "Egglog rules simplify fact-driven if" testEgglogRulesFactDrivenIf
       , pureTest "Egglog rules derive zero information" testEgglogRulesDeriveZeroInfo
       , pureTest "Egglog rules derive comparison facts" testEgglogRulesDeriveComparisonFacts
+      , pureTest "Egglog rules derive subtraction facts" testEgglogRulesDeriveSubtractionFacts
       , pureTest "Egglog default rules exclude distributivity" testEgglogRulesExcludeDistributivity
       , pureTest "Egglog backend preserves shadowing semantics" testEgglogBackendShadowing
       , pureTest "Egglog backend preserves retained let dependencies" testEgglogBackendLetRetention
@@ -266,6 +268,8 @@ testGroups =
       , pureTest "Egglog backend folds constants through Egglog facts" testEgglogBackendConstFacts
       , pureTest "Egglog backend folds comparison constants" testEgglogBackendComparisonConstFacts
       , pureTest "Egglog backend optimizes open comparisons" testEgglogBackendOpenComparisonFragment
+      , pureTest "Egglog backend folds checked subtraction constants" testEgglogBackendSubtractionConstFacts
+      , pureTest "Egglog backend reconstructs open subtraction" testEgglogBackendOpenSubtractionFragment
       , pureTest "Egglog Int constants do not fold overflow" testEgglogDoesNotFoldOverflowingInt
       , pureTest "Egglog backend optimizes open free-variable fragments" testEgglogBackendOpenFreeVariableFragment
       , pureTest "Egglog backend rejects applications structurally" testEgglogBackendUnsupportedApplication
@@ -1404,6 +1408,13 @@ testEgglogFragmentAcceptsComparisons = do
     (ltResult, eqResult) ->
       Left ("expected comparisons to be accepted, got " <> show (ltResult, eqResult))
 
+testEgglogFragmentAcceptsSubtraction :: Either String ()
+testEgglogFragmentAcceptsSubtraction = do
+  resolved <- resolvedFor "5 - 2"
+  case OEB.classifyEgglogFragment resolved of
+    Right {} -> Right ()
+    Left err -> Left ("expected subtraction to be accepted, got " <> Text.unpack (OEB.renderEgglogBackendError err))
+
 testEgglogFragmentRejectsIfMismatch :: Either String ()
 testEgglogFragmentRejectsIfMismatch =
   let malformed =
@@ -1537,6 +1548,13 @@ testEgglogRulesDeriveComparisonFacts = do
   boolEqFound <- egg (EDB.lookupFunction (OES.bConstFn OES.symbols) [boolEqRoot] (OEB.encodedRunDatabase boolEqRun))
   expectEqual "bool equality constant fact" (Just (EV.VConstBool (EV.KnownBool False))) boolEqFound
 
+testEgglogRulesDeriveSubtractionFacts :: Either String ()
+testEgglogRulesDeriveSubtractionFacts = do
+  (encoded, run) <- runEncodedSource "7 - 2"
+  root <- canonicalRoot encoded run
+  found <- egg (EDB.lookupFunction (OES.iConstFn OES.symbols) [root] (OEB.encodedRunDatabase run))
+  expectEqual "subtraction constant fact" (Just (EV.VConstInt (knownInt 5))) found
+
 testEgglogRulesExcludeDistributivity :: Either String ()
 testEgglogRulesExcludeDistributivity = do
   let compilerRuleNames = map ER.ruleName OER.compilerRules
@@ -1590,6 +1608,18 @@ testEgglogBackendOpenComparisonFragment = do
   expectEqual "open int equality type" TBool (OEB.optimizedType eqResult)
   mapLeft (showText . renderANFValidationError) (validateANFWithFreeVars (Set.singleton xName) (OEB.optimizedANF eqResult))
 
+testEgglogBackendSubtractionConstFacts :: Either String ()
+testEgglogBackendSubtractionConstFacts = do
+  result <- assertEgglogPreservesSemantics "let x = 10 - 3 in x + 1" (anfInt 8)
+  expectEqual "subtraction folds through int facts" (AAtom (AInt 8)) (OEB.optimizedANF result)
+
+testEgglogBackendOpenSubtractionFragment :: Either String ()
+testEgglogBackendOpenSubtractionFragment = do
+  result <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (APrim Sub (AVar xName) (AInt 0)))
+  expectEqual "open subtraction by zero expression" (AAtom (AVar xName)) (OEB.optimizedANF result)
+  expectEqual "open subtraction type" TInt (OEB.optimizedType result)
+  mapLeft (showText . renderANFValidationError) (validateANFWithFreeVars (Set.singleton xName) (OEB.optimizedANF result))
+
 testEgglogDoesNotFoldOverflowingInt :: Either String ()
 testEgglogDoesNotFoldOverflowingInt = do
   let expression = APrim Add (AInt maxHIntInteger) (AInt 1)
@@ -1603,6 +1633,27 @@ testEgglogDoesNotFoldOverflowingInt = do
       Right ()
   result <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig expression)
   expectEqual "overflowing add is not materialized as a constant" expression (OEB.optimizedANF result)
+  let subExpression = APrim Sub (AInt minHIntInteger) (AInt 1)
+  (subEncoded, subRun) <- runEncodedANF subExpression
+  subRoot <- canonicalRoot subEncoded subRun
+  subFound <- egg (EDB.lookupFunction (OES.iConstFn OES.symbols) [subRoot] (OEB.encodedRunDatabase subRun))
+  case subFound of
+    Just (EV.VConstInt (EV.KnownInt n)) ->
+      Left ("overflowing sub derived false KnownInt " <> show (hintToInteger n))
+    _ ->
+      Right ()
+  subResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig subExpression)
+  expectEqual "overflowing sub is not materialized as a constant" subExpression (OEB.optimizedANF subResult)
+  let strictSub =
+        ALet
+          xName
+          subExpression
+          (APrim Sub (AVar xName) (AInt 0))
+  strictResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig strictSub)
+  expectEqual "subtraction identity preserves the original runtime error" (evalANF strictSub) (evalANF (OEB.optimizedANF strictResult))
+  case OEB.optimizedANF strictResult of
+    ALet {} -> Right ()
+    other -> Left ("subtraction identity dropped strict overflow dependency: " <> show other)
 
 testEgglogBackendOpenFreeVariableFragment :: Either String ()
 testEgglogBackendOpenFreeVariableFragment = do
@@ -1803,7 +1854,7 @@ testLLVMValidatorRejectsMissingBlock =
 
 testLLVMCompileEgglogFallback :: Either String ()
 testLLVMCompileEgglogFallback = do
-  result <- compileLLVMDefault "let x = 3 in x - 1"
+  result <- compileLLVMDefault "let inc = \\x : Int -> x + 1 in inc 41"
   case BC.llvmOptimizationStatus result of
     BC.LLVMOptimizationUnsupported {} -> Right ()
     other -> Left ("expected Egglog unsupported fallback, got " <> show other)
@@ -2446,7 +2497,7 @@ genSupportedIf ty size env next = do
 
 genIntPrim :: Int -> [TypedName] -> Gen AExpr
 genIntPrim _ env = do
-  op <- elements [Add, Mul]
+  op <- elements [Add, Sub, Mul]
   lhs <- genSupportedAtom TInt env
   rhs <- genSupportedAtom TInt env
   pure (APrim op lhs rhs)
@@ -2675,6 +2726,7 @@ supportedEgglogSources =
   , "0 * 99"
   , "if true then 1 + 0 else 2 * 0"
   , "let x = 2 + 3 in x * 4"
+  , "let x = 10 - 3 in x + 1"
   , "let b = true in if b then 10 else 20"
   ]
 

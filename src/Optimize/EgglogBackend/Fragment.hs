@@ -135,7 +135,7 @@ inferPrim env op lhs rhs =
   case op of
     Add -> intPrim
     Mul -> intPrim
-    Sub -> Left (UnsupportedPrimitive Sub)
+    Sub -> intPrim
     Div -> Left (UnsupportedPrimitive Div)
     Eq -> equalityPrim
     Lt -> intComparisonPrim
