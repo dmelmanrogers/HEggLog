@@ -20,6 +20,8 @@ data Pattern
   | PCall FunctionName [Pattern]
   | PAddInt Pattern Pattern
   | PMulInt Pattern Pattern
+  | PKnownInt Pattern
+  | PKnownBool Pattern
   deriving stock (Show, Eq, Ord)
 
 type Substitution = Map.Map VarName Value
@@ -60,6 +62,14 @@ matchPatternValue db pattern value subst =
       matchComputed
     PMulInt {} ->
       matchComputed
+    PKnownInt inner ->
+      case canonicalValue db value of
+        VConstInt (KnownInt n) -> matchPatternValue db inner (VInt n) subst
+        _ -> Left (QueryTypeError "KnownInt pattern did not match value")
+    PKnownBool inner ->
+      case canonicalValue db value of
+        VConstBool (KnownBool b) -> matchPatternValue db inner (VBool b) subst
+        _ -> Left (QueryTypeError "KnownBool pattern did not match value")
  where
   matchComputed =
     case evalExistingPattern db subst pattern of
@@ -93,6 +103,18 @@ evalExistingPattern db subst = \case
       (Just (VInt a), Just (VInt b)) -> pure (Just (VInt (a * b)))
       (Just _, Just _) -> Left (QueryTypeError "expected Int operands for multiplication")
       _ -> pure Nothing
+  PKnownInt inner -> do
+    innerValue <- evalExistingPattern db subst inner
+    case innerValue of
+      Just (VInt n) -> pure (Just (VConstInt (KnownInt n)))
+      Just _ -> Left (QueryTypeError "expected Int operand for KnownInt")
+      Nothing -> pure Nothing
+  PKnownBool inner -> do
+    innerValue <- evalExistingPattern db subst inner
+    case innerValue of
+      Just (VBool b) -> pure (Just (VConstBool (KnownBool b)))
+      Just _ -> Left (QueryTypeError "expected Bool operand for KnownBool")
+      Nothing -> pure Nothing
 
 evalTerm :: Database -> Substitution -> Pattern -> Either EgglogError (Database, Value)
 evalTerm db subst = \case
@@ -118,6 +140,16 @@ evalTerm db subst = \case
     case (lhsValue, rhsValue) of
       (VInt a, VInt b) -> Right (db2, VInt (a * b))
       _ -> Left (QueryTypeError "expected Int operands for multiplication")
+  PKnownInt inner -> do
+    (db1, value) <- evalTerm db subst inner
+    case value of
+      VInt n -> Right (db1, VConstInt (KnownInt n))
+      _ -> Left (QueryTypeError "expected Int operand for KnownInt")
+  PKnownBool inner -> do
+    (db1, value) <- evalTerm db subst inner
+    case value of
+      VBool b -> Right (db1, VConstBool (KnownBool b))
+      _ -> Left (QueryTypeError "expected Bool operand for KnownBool")
 
 evalTerms :: Database -> Substitution -> [Pattern] -> Either EgglogError (Database, [Value])
 evalTerms db subst = \case
@@ -127,4 +159,3 @@ evalTerms db subst = \case
     (db1, value) <- evalTerm db subst pattern
     (db2, values) <- evalTerms db1 subst rest
     Right (db2, value : values)
-

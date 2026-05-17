@@ -29,6 +29,8 @@ data Sort
   = SUser SortName
   | SInt
   | SBool
+  | SConstInt
+  | SConstBool
   | SUnit
   | SString
   deriving stock (Show, Eq, Ord)
@@ -50,5 +52,7 @@ renderSort = \case
   SUser name -> renderSortName name
   SInt -> "Int"
   SBool -> "Bool"
+  SConstInt -> "ConstInt"
+  SConstBool -> "ConstBool"
   SUnit -> "Unit"
   SString -> "String"

@@ -222,6 +222,20 @@ mergeValues decl key oldValue newValue db
                in pure (db, merged, merged /= oldValue, False)
             _ ->
               Left (InvalidMerge (functionName decl) MergeMaxInt oldValue newValue)
+        MergeConstInt ->
+          case (oldValue, newValue) of
+            (VConstInt lhs, VConstInt rhs) ->
+              let merged = VConstInt (joinConstInt lhs rhs)
+               in pure (db, merged, merged /= oldValue, False)
+            _ ->
+              Left (InvalidMerge (functionName decl) MergeConstInt oldValue newValue)
+        MergeConstBool ->
+          case (oldValue, newValue) of
+            (VConstBool lhs, VConstBool rhs) ->
+              let merged = VConstBool (joinConstBool lhs rhs)
+               in pure (db, merged, merged /= oldValue, False)
+            _ ->
+              Left (InvalidMerge (functionName decl) MergeConstBool oldValue newValue)
         MergeError ->
           Left (FunctionalDependencyConflict (functionName decl) key oldValue newValue MergeError)
 

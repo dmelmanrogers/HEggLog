@@ -37,6 +37,7 @@ data RunResult = RunResult
   , resultIterations :: Int
   , resultSaturated :: Bool
   , resultRebuildStats :: RebuildStats
+  , resultAppliedRules :: [FunctionName]
   }
   deriving stock (Show, Eq)
 
@@ -53,9 +54,9 @@ runProgram config program = do
   let db0 = databaseFromDecls (programDecls program)
   (db1, _) <- applyActions emptySubstitution db0 (programInitialActions program)
   (db2, initialStats, _) <- rebuild db1
-  loop 0 initialStats (clearDebugIfNeeded db2)
+  loop 0 initialStats [] (clearDebugIfNeeded db2)
  where
-  loop iteration stats db
+  loop iteration stats applied db
     | iteration >= maxIterations config =
         if stopOnSaturation config
           then Left (RunDidNotConverge (maxIterations config))
@@ -66,13 +67,15 @@ runProgram config program = do
                 , resultIterations = iteration
                 , resultSaturated = False
                 , resultRebuildStats = stats
+                , resultAppliedRules = reverse applied
                 }
     | otherwise = do
-        (dbAfterRules, ruleChanged) <- applyRules db (programRules program)
+        (dbAfterRules, ruleChanged, appliedThisIteration) <- applyRules db (programRules program)
         (dbAfterRebuild, passStats, rebuildChanged) <- rebuild dbAfterRules
         let stats' = addRebuildStats stats passStats
             changed = ruleChanged || rebuildChanged
             db' = clearDebugIfNeeded dbAfterRebuild
+            applied' = reverse appliedThisIteration <> applied
         if stopOnSaturation config && not changed
           then
             Right
@@ -81,21 +84,26 @@ runProgram config program = do
                 , resultIterations = iteration + 1
                 , resultSaturated = True
                 , resultRebuildStats = stats'
+                , resultAppliedRules = reverse applied'
                 }
-          else loop (iteration + 1) stats' db'
+          else loop (iteration + 1) stats' applied' db'
 
   clearDebugIfNeeded db
     | collectDebugLog config = db
     | otherwise = db {debugLog = []}
 
-applyRules :: Database -> [Rule] -> Either EgglogError (Database, Bool)
+applyRules :: Database -> [Rule] -> Either EgglogError (Database, Bool, [FunctionName])
 applyRules startDb =
-  foldM applyRule (startDb, False)
+  foldM applyRule (startDb, False, [])
  where
-  applyRule (currentDb, alreadyChanged) rule = do
+  applyRule (currentDb, alreadyChanged, applied) rule = do
     substitutions <- evalRule currentDb rule
     (nextDb, ruleChanged) <- foldM applySubstitution (currentDb, False) substitutions
-    pure (nextDb, alreadyChanged || ruleChanged)
+    pure
+      ( nextDb
+      , alreadyChanged || ruleChanged
+      , if ruleChanged then ruleName rule : applied else applied
+      )
    where
     applySubstitution (actionDb, substitutionChanged) subst = do
       (nextDb, actionChanged) <- applyActions subst actionDb (ruleActions rule)
@@ -189,6 +197,14 @@ matchPattern db pattern value subst =
       matchComputed
     PMulInt {} ->
       matchComputed
+    PKnownInt inner ->
+      case canonical of
+        VConstInt (KnownInt n) -> matchPattern db inner (VInt n) subst
+        _ -> pure []
+    PKnownBool inner ->
+      case canonical of
+        VConstBool (KnownBool b) -> matchPattern db inner (VBool b) subst
+        _ -> pure []
  where
   canonical = canonicalValue db value
 
