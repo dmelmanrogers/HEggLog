@@ -13,3 +13,9 @@ IsConst x 3
 NonZero x
 HasType y Int
 IsPure y
+== Optimized ANF IR ==
+let x = 3 in
+let y = x + 4 in
+y * 2
+== Applied Rewrites ==
+<none>

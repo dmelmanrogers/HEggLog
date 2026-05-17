@@ -43,6 +43,7 @@ executable hegglog
       IR.Core
       Optimize.Placeholder
       Optimize.Rewrite
+      Optimize.Simplify
       Syntax.AST
       Syntax.Parser
       Syntax.Pretty
@@ -78,6 +79,7 @@ test-suite hegglog-test
       IR.Core
       Optimize.Placeholder
       Optimize.Rewrite
+      Optimize.Simplify
       Syntax.AST
       Syntax.Parser
       Syntax.Pretty

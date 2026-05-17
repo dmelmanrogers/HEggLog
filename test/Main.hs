@@ -13,6 +13,14 @@ import Eval.Interpreter (Value (..), eval, renderRuntimeError)
 import IR.ANF
 import IR.ANF.Validate
 import IR.Core (CoreNode (..), CoreProgram (..), lower)
+import Optimize.Rewrite
+  ( RewriteDiagnostic (..)
+  , RewriteRule (rewriteConditions)
+  , checkRewriteConditions
+  , divideSelfNonZero
+  , matchRewriteRule
+  )
+import Optimize.Simplify
 import Syntax.AST
 import Syntax.Parser (parseProgram)
 import System.Exit (exitFailure)
@@ -82,6 +90,31 @@ testGroups =
       [ pureTest "constant facts are inferred" testConstantFacts
       , pureTest "nonzero facts are inferred" testNonZeroFacts
       , pureTest "purity facts are inferred" testPurityFacts
+      ]
+  , TestGroup
+      "Optimizer"
+      [ pureTest "x + 0 simplifies to x" $
+          checkSimplifies "let x = 7 in x + 0" (ALet xName (AAtom (AInt 7)) (AAtom (AVar xName))) "add-right-zero"
+      , pureTest "0 + x simplifies to x" $
+          checkSimplifies "let x = 7 in 0 + x" (ALet xName (AAtom (AInt 7)) (AAtom (AVar xName))) "add-left-zero"
+      , pureTest "x * 1 simplifies to x" $
+          checkSimplifies "let x = 7 in x * 1" (ALet xName (AAtom (AInt 7)) (AAtom (AVar xName))) "mul-right-one"
+      , pureTest "1 * x simplifies to x" $
+          checkSimplifies "let x = 7 in 1 * x" (ALet xName (AAtom (AInt 7)) (AAtom (AVar xName))) "mul-left-one"
+      , pureTest "x * 0 simplifies to 0" $
+          checkSimplifies "let x = 7 in x * 0" (ALet xName (AAtom (AInt 7)) (AAtom (AInt 0))) "mul-right-zero"
+      , pureTest "0 * x simplifies to 0" $
+          checkSimplifies "let x = 7 in 0 * x" (ALet xName (AAtom (AInt 7)) (AAtom (AInt 0))) "mul-left-zero"
+      , pureTest "constant folding simplifies integer arithmetic" $
+          checkSimplifies "1 + 2" (AAtom (AInt 3)) "constant-fold-add"
+      , pureTest "if true selects then branch" $
+          checkSimplifies "if true then 1 else 2" (AAtom (AInt 1)) "if-true"
+      , pureTest "if false selects else branch" $
+          checkSimplifies "if false then 1 else 2" (AAtom (AInt 2)) "if-false"
+      , pureTest "fixpoint keeps simplifying rewrite results" testFixpointSimplification
+      , pureTest "rewrite conditions are checked" testRewriteConditions
+      , ioTest "optimized ANF validates for examples" testOptimizedANFValidates
+      , ioTest "optimized ANF preserves semantics for examples" testOptimizedSemanticPreservation
       ]
   , TestGroup
       "Golden"
@@ -279,6 +312,78 @@ checkExampleSemanticPreservation path = do
     anfObserved <- observeANFValue anfValue
     expectEqual ("semantic preservation for " <> path) sourceObserved anfObserved
 
+testOptimizedANFValidates :: IO (Either String ())
+testOptimizedANFValidates =
+  firstFailure validateOptimizedExample examplePaths
+
+validateOptimizedExample :: FilePath -> IO (Either String ())
+validateOptimizedExample path = do
+  source <- Text.IO.readFile path
+  pure $ do
+    parsed <- parseExprAt path source
+    optimized <- mapLeft show (simplifyFixpoint (toANF parsed))
+    mapLeft (showText . renderANFValidationError) (validateANF (simplifiedANF optimized))
+
+testOptimizedSemanticPreservation :: IO (Either String ())
+testOptimizedSemanticPreservation =
+  firstFailure checkOptimizedSemanticPreservation examplePaths
+
+checkOptimizedSemanticPreservation :: FilePath -> IO (Either String ())
+checkOptimizedSemanticPreservation path = do
+  source <- Text.IO.readFile path
+  pure $ do
+    parsed <- parseExprAt path source
+    let anf = toANF parsed
+    optimized <- mapLeft show (simplifyFixpoint anf)
+    originalValue <- mapLeft (showText . renderRuntimeError) (evalANF anf)
+    optimizedValue <- mapLeft (showText . renderRuntimeError) (evalANF (simplifiedANF optimized))
+    originalObserved <- observeANFValue originalValue
+    optimizedObserved <- observeANFValue optimizedValue
+    expectEqual ("optimized semantic preservation for " <> path) originalObserved optimizedObserved
+
+checkSimplifies :: Text -> AExpr -> Text -> Either String ()
+checkSimplifies source expected ruleName = do
+  parsed <- parseExpr source
+  let original = toANF parsed
+  optimized <- mapLeft show (simplifyFixpoint original)
+  mapLeft (showText . renderANFValidationError) (validateANF (simplifiedANF optimized))
+  originalValue <- mapLeft (showText . renderRuntimeError) (evalANF original)
+  optimizedValue <- mapLeft (showText . renderRuntimeError) (evalANF (simplifiedANF optimized))
+  originalObserved <- observeANFValue originalValue
+  optimizedObserved <- observeANFValue optimizedValue
+  expectEqual "optimized ANF" expected (simplifiedANF optimized)
+  assertBool
+    ("expected rewrite " <> Text.unpack ruleName)
+    (any ((== ruleName) . appliedRuleName) (appliedRewrites optimized))
+  expectEqual "optimization preserves ANF semantics" originalObserved optimizedObserved
+
+testFixpointSimplification :: Either String ()
+testFixpointSimplification = do
+  parsed <- parseExpr "if true then 1 + 2 else 0"
+  onePass <- mapLeft show (simplifyOnePass (toANF parsed))
+  fixpoint <- mapLeft show (simplifyFixpoint (toANF parsed))
+  expectEqual "one-pass result" (APrim Add (AInt 1) (AInt 2)) (simplifiedANF onePass)
+  expectEqual "fixpoint result" (AAtom (AInt 3)) (simplifiedANF fixpoint)
+
+testRewriteConditions :: Either String ()
+testRewriteConditions =
+  case matchRewriteRule divideSelfNonZero (APrim Div (AVar xName) (AVar xName)) of
+    Nothing ->
+      Left "divide-self-nonzero did not match x / x"
+    Just binding ->
+      case rewriteConditions divideSelfNonZero of
+        [condition] -> do
+          expectEqual
+            "missing NonZero condition"
+            (Left (ConditionNotSatisfied condition))
+            (checkRewriteConditions [] binding divideSelfNonZero)
+          expectEqual
+            "satisfied NonZero condition"
+            (Right ())
+            (checkRewriteConditions [NonZero xName] binding divideSelfNonZero)
+        conditions ->
+          Left ("expected exactly one rewrite condition, got " <> show conditions)
+
 checkGolden :: FilePath -> FilePath -> IO (Either String ())
 checkGolden sourcePath goldenPath = do
   source <- Text.IO.readFile sourcePath
@@ -474,6 +579,10 @@ showText =
 mkName :: Text -> Name
 mkName =
   Name
+
+xName :: Name
+xName =
+  mkName "x"
 
 examplePaths :: [FilePath]
 examplePaths =

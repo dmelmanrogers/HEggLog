@@ -22,6 +22,8 @@ The CLI prints:
 - result
 - ANF IR
 - inferred analysis facts
+- optimized ANF IR
+- applied rewrite trace
 - lowered Core IR
 
 ## Language MVP
@@ -60,6 +62,9 @@ generalization are intentionally out of scope for this slice.
 - `Optimize.Rewrite` describes future conditional rewrites. Guards such as
   `NonZero x` are preferable to globally unsound rules like unconditional
   `x / x => 1`.
+- `Optimize.Simplify` is a small fact-aware ANF rewrite engine. It validates
+  optimizer input and output, records applied rules, and is intentionally
+  replaceable by a future e-graph or egglog backend.
 
 Binder-aware equality saturation remains future work. Lambda rewrites require
 alpha equivalence, capture avoidance, beta-reduction discipline, and extraction
@@ -74,6 +79,7 @@ The test suite is grouped by compiler concern:
 - source-vs-ANF semantic preservation
 - ANF validation and invariants
 - relational fact inference
+- fact-aware simplification and semantic preservation
 - selected golden CLI output sections
 - QuickCheck property skeleton for ANF validation after lowering
 
