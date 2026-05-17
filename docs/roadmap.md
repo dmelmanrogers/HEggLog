@@ -33,6 +33,9 @@ Implemented:
 - Test coverage across parser, typechecker, interpreter, ANF, simplifier,
   e-graph prototype, Egglog kernel/backend, LLVM lowering, goldens, and
   QuickCheck properties.
+- MIT license metadata.
+- Minimal GitHub Actions CI for build, test, package metadata, and whitespace
+  checks.
 
 Not implemented:
 
@@ -46,25 +49,24 @@ Not implemented:
 - Hindley-Milner inference.
 - Algebraic data types or pattern matching.
 - Egglog semi-naive evaluation, join planning, and provenance.
-- CI workflow and release packaging.
-- Project license and polished Cabal metadata.
+- Release packaging beyond basic Cabal metadata.
 
 ## Phase 0 - Project Hygiene And Semantic Stabilization
 
-Status: partial.
+Status: mostly complete.
 
 Motivation: Make the current compiler checkpoint explicit, reproducible, and
 semantically coherent before expanding the language.
 
 Deliverables:
 
-- Commit the current checked-`Int64` LLVM/Egglog checkpoint.
-- Choose a license and replace `license: NONE` in `hegglog.cabal`.
-- Run and fix `cabal check`.
-- Add a minimal CI workflow for `cabal build all`, `cabal test`, and
-  `git diff --check`.
-- Keep `HInt` as the single language integer policy.
-- Keep docs synchronized with implementation boundaries.
+- Completed: commit the current checked-`Int64` LLVM/Egglog checkpoint.
+- Completed: choose MIT and replace `license: NONE` in `hegglog.cabal`.
+- Completed: run and fix `cabal check`.
+- Completed: add a minimal CI workflow for `cabal build all`, `cabal test all`,
+  `cabal check`, and `git diff --check`.
+- Ongoing: keep `HInt` as the single language integer policy.
+- Ongoing: keep docs synchronized with implementation boundaries.
 
 Non-goals:
 
@@ -92,7 +94,7 @@ Risks:
 
 Definition of done:
 
-- The baseline is committed, licensed, and continuously tested.
+- The baseline is committed, licensed, and covered by CI.
 
 ## Phase 1 - Precise Language Semantics
 
@@ -531,6 +533,8 @@ Definition of done:
 
 ### Task A - Commit Current Semantic Checkpoint
 
+Status: complete.
+
 Prerequisite: current workspace validation passes.
 
 Implementation scope:
@@ -559,6 +563,8 @@ Enforce checked Int64 semantics
 
 ### Task B - Project Metadata And CI
 
+Status: complete.
+
 Prerequisite: Task A.
 
 Implementation scope:
@@ -579,6 +585,7 @@ Tests required:
 - `cabal check`
 - `cabal build all`
 - `cabal test`
+- `git diff --check`
 
 Acceptance criteria:
 
@@ -856,8 +863,8 @@ Add semi-naive Egglog evaluation
 ## Next Recommended Prompt
 
 ```text
-Commit the current checked Int64 semantic checkpoint, then add project metadata
-and CI: choose a license, fix cabal check warnings, add a GitHub Actions workflow
-for cabal build all, cabal test, and git diff --check, and do not change language
-semantics.
+Write docs/language-spec.md and docs/runtime-spec.md from the current codebase:
+document source syntax, checked signed Int64 runtime semantics, runtime errors,
+evaluation order, scoping, current unsigned literal syntax, and decision points
+for unary negative literals. Do not change language semantics.
 ```

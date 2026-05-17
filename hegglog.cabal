@@ -2,10 +2,14 @@ cabal-version:      3.0
 name:               hegglog
 version:            0.1.0.0
 build-type:         Simple
-license:            NONE
+license:            MIT
+license-file:       LICENSE
 author:             Drew Melman-Rogers
-maintainer:         drew@example.com
+maintainer:         dmelmanrogers@uchicago.edu
 synopsis:           Initial compiler skeleton for HeggLog
+description:
+    HeggLog is a small typed functional language compiler in Haskell with
+    interpreter, ANF, optimization, Egglog, and LLVM backend experiments.
 category:           Language
 
 common warnings

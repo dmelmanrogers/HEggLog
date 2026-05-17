@@ -15,6 +15,9 @@ cabal build
 cabal test
 ```
 
+CI runs `cabal build all`, `cabal test all`, `cabal check`, and
+`git diff --check` on pushes to `main`/`develop` and on pull requests.
+
 ## Run
 
 ```bash
@@ -140,3 +143,7 @@ The test suite is grouped by compiler concern:
 
 Negative type fixtures live in `examples/type-errors/`. Golden fixtures live in
 `test/golden/`.
+
+## License
+
+HeggLog is licensed under the MIT License. See [LICENSE](LICENSE).
