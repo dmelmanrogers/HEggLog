@@ -502,11 +502,12 @@ Definition of done:
 
 Next recommended task:
 
-- Add richer Egglog boolean reasoning.
+- Continue Phase 9 by adding indexed/adaptive Egglog joins.
 
 ## Phase 8 - Egglog Backend Expansion
 
-Status: partial.
+Status: complete for the current first-order arithmetic and boolean ANF
+fragment.
 
 Motivation: Make Egglog the main optimizing backend for the ANF fragment while
 preserving runtime errors.
@@ -517,9 +518,15 @@ Deliverables:
 - Completed: add subtraction with checked `Int64` semantics.
 - Completed: add division only with explicit `NonZero` and overflow
   constraints.
-- Add richer boolean reasoning.
-- Improve lattices and optimization explanations.
-- Strengthen extraction and cost model.
+- Completed: add richer boolean reasoning without dropping strict
+  runtime-error-producing expressions.
+- Completed: improve lattices and optimization explanations for the current
+  backend through `ConstInt`, `ConstBool`, `ZeroInfo`, extraction stats, and
+  provenance traces.
+- Completed: strengthen extraction and cost checks for the current fragment
+  through deterministic extraction, validated reconstruction, type preservation,
+  cost nonincrease checks after saturation, and successful-result/runtime-error
+  semantic checks.
 
 Non-goals:
 
@@ -534,10 +541,10 @@ Acceptance criteria:
 
 Tests required:
 
-- Closed semantic preservation tests.
-- Open-fragment type consistency tests.
-- Overflow and division-by-zero preservation tests.
-- Extraction determinism tests.
+- Completed: closed semantic preservation tests.
+- Completed: open-fragment type consistency tests.
+- Completed: overflow and division-by-zero preservation tests.
+- Completed: extraction determinism tests.
 
 Risks:
 
@@ -546,8 +553,8 @@ Risks:
 
 Definition of done:
 
-- The Egglog backend covers the same first-order arithmetic and boolean
-  fragment as the LLVM backend where semantic preservation is proven.
+- Completed: the Egglog backend covers the current pure first-order arithmetic
+  and boolean ANF optimization fragment with proven semantic preservation.
 
 ## Phase 9 - Egglog Engine Authenticity
 
@@ -1261,12 +1268,63 @@ Commit message suggestion:
 Add checked Egglog division
 ```
 
+### Task P - Egglog Boolean Reasoning
+
+Status: complete for strict-safe boolean simplification and comparison-derived
+boolean facts.
+
+Prerequisite: checked Egglog arithmetic, comparisons, and runtime-error
+semantic checks.
+
+Implementation scope:
+
+- Completed: add boolean `== true` simplification rules that preserve the
+  evaluated boolean expression.
+- Completed: add boolean `if c then true else false = c` and
+  `if c then false else true = c == false` rules.
+- Completed: add zero-info-driven boolean facts for integer comparisons against
+  zero.
+- Completed: remove unsafe default rewrites that can erase strict evaluation:
+  open multiplication by zero, same-expression comparisons, and same-branch
+  `if`.
+- Completed: keep constant/fact-driven folding for arithmetic, comparisons, and
+  known-condition `if` expressions.
+
+Files touched:
+
+- `src/Optimize/EgglogBackend/Rules.hs`
+- `test/Main.hs`
+- `docs/egglog-backend.md`
+- `docs/optimizer-spec.md`
+- `docs/runtime-spec.md`
+- `docs/roadmap.md`
+
+Tests required:
+
+- Completed: strict-safe boolean rule tests.
+- Completed: strict runtime-error preservation tests for removed unsafe
+  identities.
+- Completed: runtime and optimizer docs for checked strict semantics.
+- Completed: closed semantic preservation tests.
+- Completed: open-fragment type consistency tests.
+- Completed: full package checks.
+
+Acceptance criteria:
+
+- Completed: Phase 8 rules optimize the supported arithmetic and boolean ANF
+  fragment without masking checked integer runtime errors.
+
+Commit message suggestion:
+
+```text
+Finish Egglog backend expansion
+```
+
 ## Next Recommended Prompt
 
 ```text
-Add richer Egglog boolean reasoning: introduce safe boolean simplification rules
-for `Eq`, boolean `if`, and comparison-derived boolean facts without adding
-rewrites that duplicate or drop runtime-error-producing integer expressions;
-check closed semantic preservation, open-fragment type consistency, and
-extraction determinism.
+Add indexed/adaptive Egglog joins: introduce per-function lookup indexes or an
+adaptive join path for large relation tables, preserve naive/semi-naive
+equivalence and stable traces, and keep compiler backend semantic-preservation
+tests green.
 ```

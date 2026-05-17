@@ -254,9 +254,10 @@ testGroups =
       , pureTest "Egglog encoding asserts let equality" testEgglogEncodingLetEquality
       , pureTest "Egglog rules derive constant facts in kernel" testEgglogRulesDeriveConstFacts
       , pureTest "Egglog rules make constant fold equality" testEgglogRulesConstantFoldEquality
-      , pureTest "Egglog rules handle multiplication identities" testEgglogRulesMultiplicationIdentities
+      , pureTest "Egglog rules handle strict-safe multiplication identities" testEgglogRulesMultiplicationIdentities
       , pureTest "Egglog rules simplify if true" testEgglogRulesIfTrue
       , pureTest "Egglog rules simplify fact-driven if" testEgglogRulesFactDrivenIf
+      , pureTest "Egglog rules simplify strict-safe booleans" testEgglogRulesStrictSafeBooleans
       , pureTest "Egglog rules derive zero information" testEgglogRulesDeriveZeroInfo
       , pureTest "Egglog rules derive comparison facts" testEgglogRulesDeriveComparisonFacts
       , pureTest "Egglog rules derive subtraction facts" testEgglogRulesDeriveSubtractionFacts
@@ -267,7 +268,7 @@ testGroups =
       , pureTest "Egglog backend preserves retained let dependencies" testEgglogBackendLetRetention
       , pureTest "Egglog backend can drop dead lets" testEgglogBackendDeadLet
       , pureTest "Egglog backend simplifies if true" testEgglogBackendIfTrue
-      , pureTest "Egglog backend simplifies same branches" testEgglogBackendIfSameBranches
+      , pureTest "Egglog backend preserves same branches" testEgglogBackendIfSameBranches
       , pureTest "Egglog backend folds constants through Egglog facts" testEgglogBackendConstFacts
       , pureTest "Egglog backend folds comparison constants" testEgglogBackendComparisonConstFacts
       , pureTest "Egglog backend optimizes open comparisons" testEgglogBackendOpenComparisonFragment
@@ -275,6 +276,8 @@ testGroups =
       , pureTest "Egglog backend reconstructs open subtraction" testEgglogBackendOpenSubtractionFragment
       , pureTest "Egglog backend folds checked division constants" testEgglogBackendDivisionConstFacts
       , pureTest "Egglog backend reconstructs open division" testEgglogBackendOpenDivisionFragment
+      , pureTest "Egglog backend optimizes strict-safe booleans" testEgglogBackendStrictSafeBooleans
+      , pureTest "Egglog backend preserves strict runtime-error dependencies" testEgglogBackendPreservesStrictRuntimeErrors
       , pureTest "Egglog Int constants do not fold overflow" testEgglogDoesNotFoldOverflowingInt
       , pureTest "Egglog backend optimizes open free-variable fragments" testEgglogBackendOpenFreeVariableFragment
       , pureTest "Egglog backend rejects applications structurally" testEgglogBackendUnsupportedApplication
@@ -1517,12 +1520,17 @@ testEgglogRulesMultiplicationIdentities :: Either String ()
 testEgglogRulesMultiplicationIdentities = do
   checkMul (APrim Mul (AVar xName) (AInt 1)) (EP.PCall (OES.iVarFn OES.symbols) [EP.PValue (EV.VString "free:x")])
   checkMul (APrim Mul (AInt 1) (AVar xName)) (EP.PCall (OES.iVarFn OES.symbols) [EP.PValue (EV.VString "free:x")])
-  checkMul (APrim Mul (AVar xName) (AInt 0)) (EP.PCall (OES.iNumFn OES.symbols) [EP.PValue (EV.VInt 0)])
-  checkMul (APrim Mul (AInt 0) (AVar xName)) (EP.PCall (OES.iNumFn OES.symbols) [EP.PValue (EV.VInt 0)])
+  checkMulNotZero (APrim Mul (AVar xName) (AInt 0))
+  checkMulNotZero (APrim Mul (AInt 0) (AVar xName))
  where
   checkMul expression expectedPattern = do
     (encoded, run) <- runEncodedANF expression
     assertEquivalentToPattern encoded run expectedPattern
+  checkMulNotZero expression = do
+    (encoded, run) <- runEncodedANF expression
+    root <- canonicalRoot encoded run
+    zero <- lookupPatternValue (OEB.encodedRunDatabase run) (EP.PCall (OES.iNumFn OES.symbols) [EP.PValue (EV.VInt 0)])
+    assertBool "open multiplication by zero is not folded because it may hide strict local errors" (root /= EDB.canonicalValue (OEB.encodedRunDatabase run) zero)
 
 testEgglogRulesIfTrue :: Either String ()
 testEgglogRulesIfTrue = do
@@ -1533,6 +1541,16 @@ testEgglogRulesFactDrivenIf :: Either String ()
 testEgglogRulesFactDrivenIf = do
   (encoded, run) <- runEncodedSource "let b = true in if b then 10 else 20"
   assertEquivalentToPattern encoded run (EP.PCall (OES.iNumFn OES.symbols) [EP.PValue (EV.VInt 10)])
+
+testEgglogRulesStrictSafeBooleans :: Either String ()
+testEgglogRulesStrictSafeBooleans = do
+  checkBool (APrim Eq (AVar xName) (ABool True)) (EP.PCall (OES.bVarFn OES.symbols) [EP.PValue (EV.VString "free:x")])
+  checkBool (APrim Eq (ABool True) (AVar xName)) (EP.PCall (OES.bVarFn OES.symbols) [EP.PValue (EV.VString "free:x")])
+  checkBool (AIf (AVar xName) (AAtom (ABool True)) (AAtom (ABool False))) (EP.PCall (OES.bVarFn OES.symbols) [EP.PValue (EV.VString "free:x")])
+ where
+  checkBool expression expectedPattern = do
+    (encoded, run) <- runEncodedANF expression
+    assertEquivalentToPattern encoded run expectedPattern
 
 testEgglogRulesDeriveZeroInfo :: Either String ()
 testEgglogRulesDeriveZeroInfo = do
@@ -1615,12 +1633,18 @@ testEgglogBackendIfTrue =
   assertEgglogPreservesSemantics "if true then 10 else 20" (anfInt 10) >> Right ()
 
 testEgglogBackendIfSameBranches :: Either String ()
-testEgglogBackendIfSameBranches =
+testEgglogBackendIfSameBranches = do
+  knownCondition <- assertEgglogPreservesSemantics "if true then 5 else 5" (anfInt 5)
+  expectEqual "known same-branch if selects the branch" (AAtom (AInt 5)) (OEB.optimizedANF knownCondition)
   assertEgglogPreservesSemantics "let someBool = true in let x = 3 in if someBool then x else x" (anfInt 3) >> Right ()
 
 testEgglogBackendConstFacts :: Either String ()
-testEgglogBackendConstFacts =
+testEgglogBackendConstFacts = do
   assertEgglogPreservesSemantics "let x = 2 + 3 in x * 4" (anfInt 20) >> Right ()
+  zeroRight <- assertEgglogPreservesSemantics "3 * 0" (anfInt 0)
+  expectEqual "checked constant multiplication by zero folds on the right" (AAtom (AInt 0)) (OEB.optimizedANF zeroRight)
+  zeroLeft <- assertEgglogPreservesSemantics "0 * 3" (anfInt 0)
+  expectEqual "checked constant multiplication by zero folds on the left" (AAtom (AInt 0)) (OEB.optimizedANF zeroLeft)
 
 testEgglogBackendComparisonConstFacts :: Either String ()
 testEgglogBackendComparisonConstFacts = do
@@ -1669,6 +1693,41 @@ testEgglogBackendOpenDivisionFragment = do
   mapLeft (showText . renderANFValidationError) (validateANFWithFreeVars (Set.singleton xName) (OEB.optimizedANF divResult))
   divOneResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (APrim Div (AVar xName) (AInt 1)))
   expectEqual "open division by one expression" (AAtom (AVar xName)) (OEB.optimizedANF divOneResult)
+
+testEgglogBackendStrictSafeBooleans :: Either String ()
+testEgglogBackendStrictSafeBooleans = do
+  eqTrue <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (APrim Eq (AVar xName) (ABool True)))
+  expectEqual "bool equality with true preserves the bool expression" (AAtom (AVar xName)) (OEB.optimizedANF eqTrue)
+  expectEqual "bool equality with true type" TBool (OEB.optimizedType eqTrue)
+  mapLeft (showText . renderANFValidationError) (validateANFWithFreeVars (Set.singleton xName) (OEB.optimizedANF eqTrue))
+  ifTrueFalse <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (AIf (AVar xName) (AAtom (ABool True)) (AAtom (ABool False))))
+  expectEqual "boolean if true false preserves the condition" (AAtom (AVar xName)) (OEB.optimizedANF ifTrueFalse)
+  zeroComparison <- assertEgglogPreservesSemantics "let x = 2 - 2 in if x == 0 then 10 else 20" (anfInt 10)
+  expectEqual "zero-info equality feeds bool facts" (AAtom (AInt 10)) (OEB.optimizedANF zeroComparison)
+
+testEgglogBackendPreservesStrictRuntimeErrors :: Either String ()
+testEgglogBackendPreservesStrictRuntimeErrors = do
+  let dName = mkName "d"
+      cName = mkName "c"
+      bName = mkName "b"
+      erroringDiv = APrim Div (AInt 8) (AInt 0)
+      overflowingAdd = APrim Add (AInt maxHIntInteger) (AInt 1)
+  assertRuntimePreserved "multiplication by zero" (ALet xName (APrim Div (AInt 8) (AInt 0)) (APrim Mul (AVar xName) (AInt 0)))
+  assertRuntimePreservedNotExpression "overflowing expression times zero" (AAtom (AInt 0)) (ALet xName overflowingAdd (APrim Mul (AVar xName) (AInt 0)))
+  assertRuntimePreservedNotExpression "zero times division by zero" (AAtom (AInt 0)) (ALet xName (APrim Div (AInt 1) (AInt 0)) (APrim Mul (AInt 0) (AVar xName)))
+  assertRuntimePreserved "integer equality with itself" (ALet xName (APrim Div (AInt 8) (AInt 0)) (APrim Eq (AVar xName) (AVar xName)))
+  assertRuntimePreserved "integer less-than with itself" (ALet xName (APrim Div (AInt 8) (AInt 0)) (APrim Lt (AVar xName) (AVar xName)))
+  assertRuntimePreservedNotExpression "same branch if with erroring condition" (AAtom (AInt 5)) (ALet dName (APrim Div (AInt 1) (AInt 0)) (ALet cName (APrim Eq (AVar dName) (AInt 0)) (AIf (AVar cName) (AAtom (AInt 5)) (AAtom (AInt 5)))))
+  assertRuntimePreserved "same int if branches" (ALet dName erroringDiv (ALet cName (APrim Lt (AInt 0) (AVar dName)) (AIf (AVar cName) (AAtom (AInt 1)) (AAtom (AInt 1)))))
+  assertRuntimePreserved "boolean equality with itself" (ALet dName erroringDiv (ALet bName (APrim Lt (AInt 0) (AVar dName)) (APrim Eq (AVar bName) (AVar bName))))
+ where
+  assertRuntimePreserved label expression = do
+    result <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig expression)
+    expectEqual (label <> " runtime behavior") (evalANF expression) (evalANF (OEB.optimizedANF result))
+  assertRuntimePreservedNotExpression label forbidden expression = do
+    assertRuntimePreserved label expression
+    result <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig expression)
+    assertBool (label <> " was not rewritten to " <> show forbidden) (OEB.optimizedANF result /= forbidden)
 
 testEgglogDoesNotFoldOverflowingInt :: Either String ()
 testEgglogDoesNotFoldOverflowingInt = do

@@ -393,9 +393,9 @@ Documentation is generally in good shape for an active compiler project:
 - `docs/egglog-backend.md` documents the current Egglog backend and, in the dirty working tree, Phase 8 strictness improvements.
 - `docs/roadmap.md` is being actively updated with phase status.
 
-Known inconsistency:
+Known inconsistency at audit time:
 
-- `docs/runtime-spec.md` still contains an outdated claim that `x * 0 -> 0` is safe in ANF because `x` has already been evaluated. The current Egglog backend correctly treats this as unsafe in the presence of strict local bindings whose right-hand side may fail. This stale text should be corrected.
+- `docs/runtime-spec.md` contained an outdated claim that `x * 0 -> 0` is safe in ANF because `x` has already been evaluated. The current Egglog backend correctly treats open multiplication by zero as unsafe in the presence of strict local bindings whose right-hand side may fail. The Phase 8 strictness follow-up fixes this documentation drift.
 
 Other docs gaps:
 

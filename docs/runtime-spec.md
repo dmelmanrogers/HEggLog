@@ -124,6 +124,10 @@ Decision needed:
 ## Optimization Runtime Contract
 
 Optimizers must preserve both successful results and runtime-error behavior.
+HeggLog is strict: evaluating an expression includes evaluating every enclosing
+`let` right-hand side and every condition needed to choose a branch. An
+optimization is unsound if it removes an evaluation that would have raised a
+checked integer runtime error.
 
 Required preservation:
 
@@ -132,14 +136,28 @@ Required preservation:
 - A successful arithmetic expression must not be rewritten into one that
   overflows.
 - Division by zero must not be hidden.
+- Division overflow, such as minimum `Int` divided by `-1`, must not be hidden.
+- An erroring `if` condition must not be hidden even when both branches are
+  syntactically equal.
 - Unsupported backend features must fail structurally rather than being
   miscompiled.
 
 Examples:
 
 - `x + 0 -> x` is safe for checked integers.
-- `x * 0 -> 0` is safe for checked integers because `x` is an already evaluated
-  atom in ANF.
+- `x * 1 -> x`, `1 * x -> x`, `x - 0 -> x`, and `x / 1 -> x` are safe because
+  they preserve evaluation of `x`.
+- Open multiplication-by-zero identities such as `x * 0 -> 0` and `0 * x -> 0`
+  are not default Egglog compiler rules. In ANF, `x` may be a local binding
+  whose right-hand side overflows or divides by zero; replacing the whole
+  expression with `0` would erase that strict runtime error.
+- Constant multiplication by zero, such as `3 * 0 -> 0` and `0 * 3 -> 0`, is
+  allowed when the optimizer has derived checked constant facts for the
+  operands. Checked facts are not produced for overflowing arithmetic, division
+  by zero, or division overflow.
+- `if true then a else b -> a` and `if false then a else b -> b` are safe.
+- `if c then a else a -> a` is not a default Egglog compiler rule because it
+  can erase evaluation of an erroring condition `c`.
 - Distributivity is not generally safe under checked overflow and is not in the
   default compiler rules.
 - Constant folding is allowed only when the checked operation succeeds.

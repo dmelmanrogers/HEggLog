@@ -59,8 +59,6 @@ ruleset includes:
 - `0 + x = x`
 - `x * 1 = x`
 - `1 * x = x`
-- `x * 0 = 0`
-- `0 * x = 0`
 - integer constant facts for `INum`, `IAdd`, `ISub`, `IMul`, and checked
   `IDiv`
 - boolean constant facts for `BBool`, integer `<`, integer `==`, and boolean
@@ -68,13 +66,25 @@ ruleset includes:
 - checked subtraction by zero
 - checked division by one
 - checked zero numerator division when the denominator is known nonzero
-- same-expression rewrites for integer/boolean `==` and integer `<`
+- boolean `== true` simplification
+- boolean `if c then true else false = c`
+- boolean `if c then false else true = c == false`
+- zero-info-driven boolean facts for comparisons against zero
 - `if true then a else b = a`
 - `if false then a else b = b`
-- `if c then a else a = a`
 
 Distributivity is kept out of the default compiler ruleset because it can grow
 terms. It remains available as an experimental ruleset.
+
+The default compiler rules intentionally avoid open identities such as
+`x * 0 = 0`, `0 * x = 0`, `x == x = true`, `x < x = false`, and
+`if c then a else a = a` because those rewrites can erase strict evaluation of
+a local binding or condition that would otherwise raise an integer runtime
+error. Constant multiplication by zero can still fold through checked constant
+facts, for example `3 * 0 = 0`, because those facts are not produced for
+overflowing arithmetic, division by zero, or division overflow.
+
+The optimizer runtime contract is specified in `docs/optimizer-spec.md`.
 
 ## Evaluation
 
@@ -202,7 +212,7 @@ For supported closed ANF programs, the backend checks:
 
 - optimized ANF validates
 - optimized type equals original type
-- evaluation result is preserved
+- successful results and runtime errors are preserved
 - extraction is deterministic in tests
 - optimized cost does not exceed original cost after saturation
 
@@ -213,4 +223,4 @@ For supported closed ANF programs, the backend checks:
 - rule language/parser
 - full ANF integration
 - binder-aware higher-order EqSat
-- cost model improvements
+- deeper cost model tuning
