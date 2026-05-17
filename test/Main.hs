@@ -5,6 +5,7 @@ import Analysis.InferFacts (inferFacts)
 import CLI.Report (compileReport, renderGoldenReport)
 import Control.Monad (unless)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
@@ -20,9 +21,12 @@ import qualified Egglog.Value as EV
 import Eval.ANFInterpreter (ANFValue (..), evalANF)
 import Eval.Interpreter (Value (..), eval, renderRuntimeError)
 import IR.ANF
+import qualified IR.ANF.Resolved as RANF
 import IR.ANF.Validate
 import IR.Core (CoreNode (..), CoreProgram (..), lower)
 import qualified Optimize.EgglogBackend as OEB
+import qualified Optimize.EgglogBackend.Rules as OER
+import qualified Optimize.EgglogBackend.Schema as OES
 import qualified Optimize.EGraph as EG
 import Optimize.Rewrite
   ( RewriteDiagnostic (..)
@@ -183,6 +187,41 @@ testGroups =
       , pureTest "extractor fails structurally when impossible" testEgglogExtractionImpossible
       , pureTest "Egglog backend optimizes supported arithmetic" testEgglogBackendSupportedArithmetic
       , pureTest "Egglog backend rejects unsupported lambdas" testEgglogBackendUnsupportedLambda
+      , pureTest "ConstInt lattice merges same constants" testEgglogConstIntMergeSame
+      , pureTest "ConstInt lattice detects conflicts" testEgglogConstIntMergeConflict
+      , pureTest "resolved ANF simple let binds locally" testResolvedANFSimpleLet
+      , pureTest "resolved ANF distinguishes shadowed binders" testResolvedANFShadowing
+      , pureTest "resolved ANF final shadowed reference is inner" testResolvedANFInnerShadowReference
+      , pureTest "resolved ANF exposes free variables" testResolvedANFFreeVariable
+      , pureTest "resolved ANF dependency graph tracks let RHS references" testResolvedANFDependencyGraph
+      , pureTest "resolved ANF renderer shows binder ids" testResolvedANFRenderer
+      , pureTest "Egglog fragment accepts if expressions" testEgglogFragmentAcceptsIf
+      , pureTest "Egglog fragment rejects mismatched if branches" testEgglogFragmentRejectsIfMismatch
+      , pureTest "Egglog fragment rejects inconsistent free variable types" testEgglogFragmentRejectsInconsistentFreeVariableTypes
+      , pureTest "Egglog encoding uses distinct typed sorts" testEgglogEncodingDistinctTypedSorts
+      , pureTest "Egglog encoding rejects invalid cross-sort construction" testEgglogEncodingRejectsCrossSort
+      , pureTest "Egglog encoding keeps shadowed BinderKeys distinct" testEgglogEncodingBinderKeys
+      , pureTest "Egglog encoding keeps free variables explicit" testEgglogEncodingFreeVariable
+      , pureTest "Egglog encoding asserts let equality" testEgglogEncodingLetEquality
+      , pureTest "Egglog rules derive constant facts in kernel" testEgglogRulesDeriveConstFacts
+      , pureTest "Egglog rules make constant fold equality" testEgglogRulesConstantFoldEquality
+      , pureTest "Egglog rules handle multiplication identities" testEgglogRulesMultiplicationIdentities
+      , pureTest "Egglog rules simplify if true" testEgglogRulesIfTrue
+      , pureTest "Egglog rules simplify fact-driven if" testEgglogRulesFactDrivenIf
+      , pureTest "Egglog default rules exclude distributivity" testEgglogRulesExcludeDistributivity
+      , pureTest "Egglog backend preserves shadowing semantics" testEgglogBackendShadowing
+      , pureTest "Egglog backend preserves retained let dependencies" testEgglogBackendLetRetention
+      , pureTest "Egglog backend can drop dead lets" testEgglogBackendDeadLet
+      , pureTest "Egglog backend simplifies if true" testEgglogBackendIfTrue
+      , pureTest "Egglog backend simplifies same branches" testEgglogBackendIfSameBranches
+      , pureTest "Egglog backend folds constants through Egglog facts" testEgglogBackendConstFacts
+      , pureTest "Egglog backend optimizes open free-variable fragments" testEgglogBackendOpenFreeVariableFragment
+      , pureTest "Egglog backend rejects applications structurally" testEgglogBackendUnsupportedApplication
+      , pureTest "Egglog backend extraction is deterministic" testEgglogBackendDeterministic
+      , pureTest "Egglog backend preserves boolean branches" testEgglogBackendBooleanBranchPreservation
+      , pureTest "Egglog tryOptimize reports unsupported lambdas" testEgglogTryOptimizeUnsupportedLambda
+      , pureTest "ordinary compiler still handles unsupported lambdas" testOrdinaryPipelineHandlesUnsupportedLambda
+      , pureTest "simplifier and Egglog agree semantically on supported examples" testEgglogAgreesWithSimplifierSemantically
       ]
   , TestGroup
       "Golden"
@@ -197,6 +236,8 @@ testGroups =
       "Properties"
       [ ioTest "ANF validates after lowering" $
           checkProperty propANFValidationAfterLowering
+      , ioTest "Egglog backend preserves generated supported programs" $
+          checkProperty propEgglogSupportedSemanticPreservation
       ]
   , TestGroup
       "Core"
@@ -806,12 +847,361 @@ testEgglogBackendSupportedArithmetic = do
 testEgglogBackendUnsupportedLambda :: Either String ()
 testEgglogBackendUnsupportedLambda =
   case OEB.optimizeANFWithEgglog (ALam xName TInt (AAtom (AVar xName))) of
-    Left (OEB.UnsupportedFeature _) -> Right ()
+    Left (OEB.UnsupportedLambda _) -> Right ()
     other -> Left ("expected unsupported lambda error, got " <> show other)
+
+testEgglogConstIntMergeSame :: Either String ()
+testEgglogConstIntMergeSame = do
+  let decl = EF.FunctionDecl (fn "const") [ES.SInt] ES.SConstInt EF.DefaultNone EF.MergeConstInt
+      db0 = EDB.databaseFromDecls [decl]
+  (db1, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (EV.KnownInt 3)) db0)
+  (db2, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (EV.KnownInt 3)) db1)
+  found <- egg (EDB.lookupFunction (fn "const") [EV.VInt 0] db2)
+  expectEqual "same constants merge unchanged" (Just (EV.VConstInt (EV.KnownInt 3))) found
+
+testEgglogConstIntMergeConflict :: Either String ()
+testEgglogConstIntMergeConflict = do
+  let decl = EF.FunctionDecl (fn "const") [ES.SInt] ES.SConstInt EF.DefaultNone EF.MergeConstInt
+      db0 = EDB.databaseFromDecls [decl]
+  (db1, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (EV.KnownInt 3)) db0)
+  (db2, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (EV.KnownInt 4)) db1)
+  found <- egg (EDB.lookupFunction (fn "const") [EV.VInt 0] db2)
+  expectEqual "conflicting constants merge to conflict" (Just (EV.VConstInt EV.ConflictInt)) found
+
+testResolvedANFSimpleLet :: Either String ()
+testResolvedANFSimpleLet = do
+  resolved <- resolvedFor "let x = 1 in x"
+  expectEqual "one binder" 1 (Set.size (RANF.boundVarsResolved resolved))
+  assertBool "no free variables" (Set.null (RANF.freeVarsResolved resolved))
+  case resolved of
+    RANF.RLet binder _ (RANF.RAtom (RANF.RVar (RANF.BoundVar ref))) ->
+      expectEqual "body points to let binder" (RANF.binderId binder) (RANF.binderId ref)
+    other ->
+      Left ("unexpected resolved simple let shape: " <> show other)
+
+testResolvedANFShadowing :: Either String ()
+testResolvedANFShadowing = do
+  parsed <- parseExpr "let x = 1 in let y = let x = 2 in x in x + y"
+  resolved <- mapLeft show (RANF.resolveANF (toANF parsed))
+  let binders = Map.elems (RANF.boundVariables resolved)
+      binderIds = map RANF.binderId binders
+  expectEqual "three let binders" 3 (length binders)
+  expectEqual "unique binder ids" (length binderIds) (length (unique binderIds))
+  assertBool "no free variables in closed shadowing program" (null (RANF.freeVariables resolved))
+
+testResolvedANFInnerShadowReference :: Either String ()
+testResolvedANFInnerShadowReference = do
+  resolved <- resolvedFor "let x = 1 in let x = 2 in x"
+  case resolved of
+    RANF.RLet outer _ (RANF.RLet inner _ (RANF.RAtom (RANF.RVar (RANF.BoundVar ref)))) -> do
+      assertBool "shadowed binders are distinct" (RANF.binderId outer /= RANF.binderId inner)
+      expectEqual "final x points to inner binder" (RANF.binderId inner) (RANF.binderId ref)
+    other ->
+      Left ("unexpected resolved shadowing shape: " <> show other)
+
+testResolvedANFFreeVariable :: Either String ()
+testResolvedANFFreeVariable = do
+  resolved <- mapLeft show (RANF.resolveANF (APrim Add (AVar xName) (AInt 1)))
+  expectEqual "free variables" (Set.singleton xName) (RANF.freeVarsResolved resolved)
+  expectEqual "no binders invented" Set.empty (RANF.boundVarsResolved resolved)
+
+testResolvedANFDependencyGraph :: Either String ()
+testResolvedANFDependencyGraph = do
+  resolved <- resolvedFor "let x = 1 in let y = let x = 2 in x in x + y"
+  case resolved of
+    RANF.RLet outer _ (RANF.RLet yBinder (RANF.RLet inner _ _) _) -> do
+      let graph = RANF.binderDependencyGraph resolved
+      expectEqual "outer x has no RHS deps" (Just Set.empty) (Map.lookup (RANF.binderId outer) graph)
+      expectEqual "inner x has no RHS deps" (Just Set.empty) (Map.lookup (RANF.binderId inner) graph)
+      expectEqual "y depends on inner x RHS" (Just (Set.singleton (RANF.binderId inner))) (Map.lookup (RANF.binderId yBinder) graph)
+    other ->
+      Left ("unexpected resolved dependency shape: " <> show other)
+
+testResolvedANFRenderer :: Either String ()
+testResolvedANFRenderer = do
+  resolved <- resolvedFor "let x = 1 in let x = 2 in x"
+  let rendered = RANF.renderResolvedANF resolved
+  assertBool "renderer includes x#0" ("x#0" `Text.isInfixOf` rendered)
+  assertBool "renderer includes x#1" ("x#1" `Text.isInfixOf` rendered)
+
+testEgglogFragmentAcceptsIf :: Either String ()
+testEgglogFragmentAcceptsIf = do
+  resolved <- resolvedFor "if true then 1 else 2"
+  case OEB.classifyEgglogFragment resolved of
+    Right {} -> Right ()
+    Left err -> Left ("expected if expression to be accepted, got " <> Text.unpack (OEB.renderEgglogBackendError err))
+
+testEgglogFragmentRejectsIfMismatch :: Either String ()
+testEgglogFragmentRejectsIfMismatch =
+  let malformed =
+        RANF.RIf
+          (RANF.RBool True)
+          (RANF.RAtom (RANF.RInt 1))
+          (RANF.RAtom (RANF.RBool False))
+   in case OEB.classifyEgglogFragment malformed of
+        Left (OEB.FragmentTypeMismatch TInt TBool) -> Right ()
+        other -> Left ("expected if branch mismatch, got " <> show other)
+
+testEgglogFragmentRejectsInconsistentFreeVariableTypes :: Either String ()
+testEgglogFragmentRejectsInconsistentFreeVariableTypes = do
+  resolved <-
+    mapLeft show $
+      RANF.resolveANF
+        (AIf (AVar xName) (AAtom (AInt 1)) (APrim Add (AVar xName) (AInt 1)))
+  case OEB.classifyEgglogFragment resolved of
+    Left (OEB.FragmentTypeMismatch TBool TInt) -> Right ()
+    other -> Left ("expected free variable type mismatch, got " <> show other)
+
+testEgglogEncodingDistinctTypedSorts :: Either String ()
+testEgglogEncodingDistinctTypedSorts = do
+  intEncoded <- encodeSource "1 + 2"
+  boolEncoded <- encodeSource "if true then false else true"
+  expectEqual "int root type" TInt (OEB.encodedRootType intEncoded)
+  expectEqual "bool root type" TBool (OEB.encodedRootType boolEncoded)
+  expectEqual "int root function" (OES.iRootFn OES.symbols) (OEB.encodedRootFunction intEncoded)
+  expectEqual "bool root function" (OES.bRootFn OES.symbols) (OEB.encodedRootFunction boolEncoded)
+
+testEgglogEncodingRejectsCrossSort :: Either String ()
+testEgglogEncodingRejectsCrossSort =
+  let db = EDB.databaseFromDecls OES.backendDecls
+   in case EDB.callFunction (OES.iAddFn OES.symbols) [EV.VId (OES.bExprSortName OES.symbols) (ES.Id 0), EV.VId (OES.iExprSortName OES.symbols) (ES.Id 0)] db of
+        Left (EDB.SortMismatch _ _) -> Right ()
+        other -> Left ("expected cross-sort construction to fail, got " <> show other)
+
+testEgglogEncodingBinderKeys :: Either String ()
+testEgglogEncodingBinderKeys = do
+  encoded <- encodeSource "let x = 1 in let x = 2 in x"
+  let keys =
+        [ key
+        | EP.PCall _ [EP.PValue (EV.VString key)] <- Map.elems (OEB.encodedBinderTerms encoded)
+        ]
+  expectEqual "two local binder keys" 2 (length keys)
+  expectEqual "keys are distinct" (length keys) (length (unique keys))
+  assertBool "local binder keys are tagged" (all ("local:" `Text.isPrefixOf`) keys)
+
+testEgglogEncodingFreeVariable :: Either String ()
+testEgglogEncodingFreeVariable = do
+  encoded <- encodeSourceANF (APrim Add (AVar xName) (AInt 1))
+  case Map.lookup xName (OEB.encodedFreeVariables encoded) of
+    Just (EP.PCall name [EP.PValue (EV.VString key)]) -> do
+      expectEqual "free variable function" (OES.iVarFn OES.symbols) name
+      expectEqual "free key" "free:x" key
+    other ->
+      Left ("expected explicit free variable term, got " <> show other)
+
+testEgglogEncodingLetEquality :: Either String ()
+testEgglogEncodingLetEquality = do
+  encoded <- encodeSource "let x = 1 + 2 in x"
+  binding <-
+    case Map.elems (OEB.encodedBindings encoded) of
+      [value] -> Right value
+      other -> Left ("expected one encoded binding, got " <> show other)
+  let hasUnion =
+        any
+          ( \case
+              ER.AUnion lhs _ -> lhs == OEB.encodedBinderPattern binding
+              _ -> False
+          )
+          (ER.programInitialActions (OEB.encodedProgram encoded))
+  assertBool "let binder is equated with RHS via Egglog union" hasUnion
+
+testEgglogRulesDeriveConstFacts :: Either String ()
+testEgglogRulesDeriveConstFacts = do
+  (encoded, run) <- runEncodedSource "2 + 3"
+  root <- canonicalRoot encoded run
+  found <- egg (EDB.lookupFunction (OES.iConstFn OES.symbols) [root] (OEB.encodedRunDatabase run))
+  expectEqual "IConst root" (Just (EV.VConstInt (EV.KnownInt 5))) found
+
+testEgglogRulesConstantFoldEquality :: Either String ()
+testEgglogRulesConstantFoldEquality = do
+  (encoded, run) <- runEncodedSource "2 + 3"
+  assertEquivalentToPattern encoded run (EP.PCall (OES.iNumFn OES.symbols) [EP.PValue (EV.VInt 5)])
+
+testEgglogRulesMultiplicationIdentities :: Either String ()
+testEgglogRulesMultiplicationIdentities = do
+  checkMul (APrim Mul (AVar xName) (AInt 1)) (EP.PCall (OES.iVarFn OES.symbols) [EP.PValue (EV.VString "free:x")])
+  checkMul (APrim Mul (AInt 1) (AVar xName)) (EP.PCall (OES.iVarFn OES.symbols) [EP.PValue (EV.VString "free:x")])
+  checkMul (APrim Mul (AVar xName) (AInt 0)) (EP.PCall (OES.iNumFn OES.symbols) [EP.PValue (EV.VInt 0)])
+  checkMul (APrim Mul (AInt 0) (AVar xName)) (EP.PCall (OES.iNumFn OES.symbols) [EP.PValue (EV.VInt 0)])
+ where
+  checkMul expression expectedPattern = do
+    (encoded, run) <- runEncodedANF expression
+    assertEquivalentToPattern encoded run expectedPattern
+
+testEgglogRulesIfTrue :: Either String ()
+testEgglogRulesIfTrue = do
+  (encoded, run) <- runEncodedSource "if true then 10 else 20"
+  assertEquivalentToPattern encoded run (EP.PCall (OES.iNumFn OES.symbols) [EP.PValue (EV.VInt 10)])
+
+testEgglogRulesFactDrivenIf :: Either String ()
+testEgglogRulesFactDrivenIf = do
+  (encoded, run) <- runEncodedSource "let b = true in if b then 10 else 20"
+  assertEquivalentToPattern encoded run (EP.PCall (OES.iNumFn OES.symbols) [EP.PValue (EV.VInt 10)])
+
+testEgglogRulesExcludeDistributivity :: Either String ()
+testEgglogRulesExcludeDistributivity = do
+  let compilerRuleNames = map ER.ruleName OER.compilerRules
+      experimentalRuleNames = map ER.ruleName OER.experimentalEqSatRules
+      distribute = fn "egglog-distribute-mul-add"
+  assertBool "compiler rules should not include distributivity" (distribute `notElem` compilerRuleNames)
+  assertBool "experimental rules keep distributivity available" (distribute `elem` experimentalRuleNames)
+
+testEgglogBackendShadowing :: Either String ()
+testEgglogBackendShadowing =
+  assertEgglogPreservesSemantics "let x = 1 in let y = let x = 2 in x in x + y" (ANFVInt 3) >> Right ()
+
+testEgglogBackendLetRetention :: Either String ()
+testEgglogBackendLetRetention = do
+  result <- assertEgglogPreservesSemantics "let x = 1 + 2 in x * 10" (ANFVInt 30)
+  mapLeft (showText . renderANFValidationError) (validateANF (OEB.optimizedANF result))
+
+testEgglogBackendDeadLet :: Either String ()
+testEgglogBackendDeadLet =
+  assertEgglogPreservesSemantics "let x = 1 + 2 in 4" (ANFVInt 4) >> Right ()
+
+testEgglogBackendIfTrue :: Either String ()
+testEgglogBackendIfTrue =
+  assertEgglogPreservesSemantics "if true then 10 else 20" (ANFVInt 10) >> Right ()
+
+testEgglogBackendIfSameBranches :: Either String ()
+testEgglogBackendIfSameBranches =
+  assertEgglogPreservesSemantics "let someBool = true in let x = 3 in if someBool then x else x" (ANFVInt 3) >> Right ()
+
+testEgglogBackendConstFacts :: Either String ()
+testEgglogBackendConstFacts =
+  assertEgglogPreservesSemantics "let x = 2 + 3 in x * 4" (ANFVInt 20) >> Right ()
+
+testEgglogBackendOpenFreeVariableFragment :: Either String ()
+testEgglogBackendOpenFreeVariableFragment = do
+  result <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (APrim Mul (AVar xName) (AInt 1)))
+  expectEqual "optimized open expression" (AAtom (AVar xName)) (OEB.optimizedANF result)
+  expectEqual "open optimized type" TInt (OEB.optimizedType result)
+  mapLeft (showText . renderANFValidationError) (validateANFWithFreeVars (Set.singleton xName) (OEB.optimizedANF result))
+
+testEgglogBackendUnsupportedApplication :: Either String ()
+testEgglogBackendUnsupportedApplication =
+  case OEB.optimizeANFWithEgglog (AApp (AInt 1) (AInt 2)) of
+    Left (OEB.UnsupportedApplication _ _) -> Right ()
+    other -> Left ("expected unsupported application error, got " <> show other)
+
+testEgglogBackendDeterministic :: Either String ()
+testEgglogBackendDeterministic = do
+  parsed <- parseExpr "let x = 2 + 3 in x * 4"
+  first <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (toANF parsed))
+  second <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (toANF parsed))
+  expectEqual "deterministic optimized ANF" (OEB.optimizedANF first) (OEB.optimizedANF second)
+
+testEgglogBackendBooleanBranchPreservation :: Either String ()
+testEgglogBackendBooleanBranchPreservation =
+  assertEgglogPreservesSemantics "let b = if true then false else true in if b then 1 else 2" (ANFVInt 2) >> Right ()
+
+testEgglogTryOptimizeUnsupportedLambda :: Either String ()
+testEgglogTryOptimizeUnsupportedLambda =
+  case OEB.tryOptimizeWithEgglog EEV.defaultRunConfig (ALam xName TInt (AAtom (AVar xName))) of
+    OEB.EgglogUnsupported OEB.UnsupportedLambda {} -> Right ()
+    other -> Left ("expected unsupported lambda attempt, got " <> show other)
+
+testOrdinaryPipelineHandlesUnsupportedLambda :: Either String ()
+testOrdinaryPipelineHandlesUnsupportedLambda = do
+  parsed <- parseExpr "let inc = \\x : Int -> x + 1 in inc 41"
+  value <- mapLeft (showText . renderRuntimeError) (eval parsed)
+  expectEqual "ordinary pipeline value" (VInt 42) value
+  case OEB.tryOptimizeWithEgglog EEV.defaultRunConfig (toANF parsed) of
+    OEB.EgglogUnsupported {} -> Right ()
+    other -> Left ("expected Egglog backend to be unsupported, got " <> show other)
+
+testEgglogAgreesWithSimplifierSemantically :: Either String ()
+testEgglogAgreesWithSimplifierSemantically =
+  firstFailurePure check supportedEgglogSources
+ where
+  check source = do
+    parsed <- parseExpr source
+    let original = toANF parsed
+    simplified <- mapLeft show (simplifyFixpoint original)
+    egglog <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig original)
+    simplifiedValue <- mapLeft (showText . renderRuntimeError) (evalANF (simplifiedANF simplified))
+    egglogValue <- mapLeft (showText . renderRuntimeError) (evalANF (OEB.optimizedANF egglog))
+    expectEqual ("semantic agreement for " <> Text.unpack source) simplifiedValue egglogValue
+
+assertEgglogPreservesSemantics :: Text -> ANFValue -> Either String OEB.EgglogOptimizationResult
+assertEgglogPreservesSemantics source expectedValue = do
+  parsed <- parseExpr source
+  let original = toANF parsed
+  originalValue <- mapLeft (showText . renderRuntimeError) (evalANF original)
+  expectEqual "original value" expectedValue originalValue
+  result <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig original)
+  mapLeft (showText . renderANFValidationError) (validateANF (OEB.optimizedANF result))
+  optimizedValue <- mapLeft (showText . renderRuntimeError) (evalANF (OEB.optimizedANF result))
+  expectEqual "optimized value" expectedValue optimizedValue
+  expectEqual "optimized type" (OEB.originalType result) (OEB.optimizedType result)
+  assertBool
+    "optimized cost should not exceed original cost after saturation"
+    ( not (OEB.runSaturated (OEB.runStats result))
+        || OEB.optimizedCost (OEB.extractionStats result) <= OEB.originalCost (OEB.extractionStats result)
+    )
+  pure result
 
 egg :: Either EDB.EgglogError a -> Either String a
 egg =
   mapLeft show
+
+resolvedFor :: Text -> Either String RANF.ResolvedAExpr
+resolvedFor source = do
+  parsed <- parseExpr source
+  resolved <- mapLeft show (RANF.resolveANF (toANF parsed))
+  mapLeft show (RANF.validateResolvedANF resolved)
+  pure resolved
+
+encodeSource :: Text -> Either String OEB.EncodedProgram
+encodeSource source = do
+  parsed <- parseExpr source
+  encodeSourceANF (toANF parsed)
+
+encodeSourceANF :: AExpr -> Either String OEB.EncodedProgram
+encodeSourceANF expression = do
+  resolved <- mapLeft show (RANF.resolveANF expression)
+  fragment <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.classifyEgglogFragment resolved)
+  mapLeft (showText . OEB.renderEgglogBackendError) (OEB.encodeResolvedANF fragment)
+
+runEncodedSource :: Text -> Either String (OEB.EncodedProgram, OEB.EncodedRun)
+runEncodedSource source = do
+  encoded <- encodeSource source
+  run <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.runEgglogCompilerRules EEV.defaultRunConfig encoded)
+  pure (encoded, run)
+
+runEncodedANF :: AExpr -> Either String (OEB.EncodedProgram, OEB.EncodedRun)
+runEncodedANF expression = do
+  encoded <- encodeSourceANF expression
+  run <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.runEgglogCompilerRules EEV.defaultRunConfig encoded)
+  pure (encoded, run)
+
+canonicalRoot :: OEB.EncodedProgram -> OEB.EncodedRun -> Either String EV.Value
+canonicalRoot _ run =
+  Right (EDB.canonicalValue (OEB.encodedRunDatabase run) (OEB.encodedRunRootValue run))
+
+assertEquivalentToPattern :: OEB.EncodedProgram -> OEB.EncodedRun -> EP.Pattern -> Either String ()
+assertEquivalentToPattern encoded run pattern = do
+  root <- canonicalRoot encoded run
+  expected <- lookupPatternValue (OEB.encodedRunDatabase run) pattern
+  expectEqual
+    "root equivalence"
+    root
+    (EDB.canonicalValue (OEB.encodedRunDatabase run) expected)
+
+lookupPatternValue :: EDB.Database -> EP.Pattern -> Either String EV.Value
+lookupPatternValue db = \case
+  EP.PCall name args -> do
+    values <- traverse literalValue args
+    found <- egg (EDB.lookupFunction name values db)
+    case found of
+      Just value -> Right value
+      Nothing -> Left ("missing encoded function value for " <> show name <> " " <> show values)
+  other ->
+    Left ("expected first-order function pattern, got " <> show other)
+ where
+  literalValue = \case
+    EP.PValue value -> Right value
+    other -> Left ("expected literal argument pattern, got " <> show other)
 
 eggRun :: [ER.Rule] -> [ER.Action] -> [EF.FunctionDecl] -> Either String EEV.RunResult
 eggRun rules initialActions decls =
@@ -1005,7 +1395,33 @@ propANFValidationAfterLowering (ClosedExpr expression) =
   counterexample (show expression) $
     validateANF (toANF expression) === Right ()
 
+propEgglogSupportedSemanticPreservation :: SupportedANF -> Property
+propEgglogSupportedSemanticPreservation (SupportedANF expression) =
+  counterexample (show expression) $
+    case RANF.resolveANF expression of
+      Left err ->
+        counterexample (show err) False
+      Right resolved ->
+        case OEB.classifyEgglogFragment resolved of
+          Left err ->
+            counterexample (Text.unpack (OEB.renderEgglogBackendError err)) False
+          Right {} ->
+            case OEB.optimizeWithEgglog EEV.defaultRunConfig expression of
+              Left err ->
+                counterexample (Text.unpack (OEB.renderEgglogBackendError err)) False
+              Right result ->
+                conjoin
+                  [ RANF.validateResolvedANF resolved === Right ()
+                  , validateANF (OEB.optimizedANF result) === Right ()
+                  , OEB.optimizedType result === OEB.originalType result
+                  , evalANF (OEB.optimizedANF result) === evalANF expression
+                  , OEB.optimizeWithEgglog EEV.defaultRunConfig expression === Right result
+                  ]
+
 newtype ClosedExpr = ClosedExpr Expr
+  deriving stock (Show)
+
+newtype SupportedANF = SupportedANF AExpr
   deriving stock (Show)
 
 instance Arbitrary ClosedExpr where
@@ -1013,6 +1429,62 @@ instance Arbitrary ClosedExpr where
     sized (fmap ClosedExpr . genClosedExpr)
   shrink (ClosedExpr expression) =
     ClosedExpr <$> shrinkClosedExpr expression
+
+instance Arbitrary SupportedANF where
+  arbitrary =
+    sized $ \size -> do
+      ty <- elements [TInt, TBool]
+      SupportedANF <$> genSupportedANF ty (min 5 size) [] 0
+  shrink _ =
+    []
+
+type TypedName = (Name, Type)
+
+genSupportedANF :: Type -> Int -> [TypedName] -> Int -> Gen AExpr
+genSupportedANF ty size env next
+  | size <= 0 = AAtom <$> genSupportedAtom ty env
+  | otherwise =
+      frequency
+        [ (4, AAtom <$> genSupportedAtom ty env)
+        , (3, genLet ty size env next)
+        , (2, genSupportedIf ty size env next)
+        , (if ty == TInt then 4 else 0, genIntPrim size env)
+        ]
+
+genSupportedAtom :: Type -> [TypedName] -> Gen Atom
+genSupportedAtom ty env =
+  frequency $
+    literal ++ vars
+ where
+  literal =
+    case ty of
+      TInt -> [(4, AInt <$> chooseInteger (0, 20))]
+      TBool -> [(4, ABool <$> arbitrary)]
+      TFun {} -> []
+  vars =
+    [(2, pure (AVar name)) | (name, nameType) <- env, nameType == ty]
+
+genLet :: Type -> Int -> [TypedName] -> Int -> Gen AExpr
+genLet bodyType size env next = do
+  rhsType <- elements [TInt, TBool]
+  let name = Name ("p" <> Text.pack (show next))
+  rhs <- genSupportedANF rhsType (size `div` 2) env (next + 1)
+  body <- genSupportedANF bodyType (size `div` 2) ((name, rhsType) : env) (next + 2)
+  pure (ALet name rhs body)
+
+genSupportedIf :: Type -> Int -> [TypedName] -> Int -> Gen AExpr
+genSupportedIf ty size env next = do
+  cond <- genSupportedAtom TBool env
+  thenBranch <- genSupportedANF ty (size `div` 2) env (next + 1)
+  elseBranch <- genSupportedANF ty (size `div` 2) env (next + 2)
+  pure (AIf cond thenBranch elseBranch)
+
+genIntPrim :: Int -> [TypedName] -> Gen AExpr
+genIntPrim _ env = do
+  op <- elements [Add, Mul]
+  lhs <- genSupportedAtom TInt env
+  rhs <- genSupportedAtom TInt env
+  pure (APrim op lhs rhs)
 
 genClosedExpr :: Int -> Gen Expr
 genClosedExpr size
@@ -1150,6 +1622,10 @@ assertBool label condition =
     then Right ()
     else Left label
 
+unique :: Ord a => [a] -> [a]
+unique =
+  Map.keys . foldr (`Map.insert` ()) Map.empty
+
 isLam :: CoreNode -> Bool
 isLam = \case
   CLam {} -> True
@@ -1195,6 +1671,17 @@ supportedEGraphSources =
   , "0 * 99"
   , "if true then 1 + 0 else 2 * 0"
   , "let x = 7 in x * 1"
+  ]
+
+supportedEgglogSources :: [Text]
+supportedEgglogSources =
+  [ "1 + 0"
+  , "0 + 4"
+  , "3 * 1"
+  , "0 * 99"
+  , "if true then 1 + 0 else 2 * 0"
+  , "let x = 2 + 3 in x * 4"
+  , "let b = true in if b then 10 else 20"
   ]
 
 incSource :: Text
