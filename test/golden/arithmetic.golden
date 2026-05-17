@@ -1,0 +1,15 @@
+== Type ==
+Int
+== Result ==
+14
+== ANF IR ==
+let x = 3 in
+let y = x + 4 in
+y * 2
+== Inferred Facts ==
+HasType x Int
+IsPure x
+IsConst x 3
+NonZero x
+HasType y Int
+IsPure y

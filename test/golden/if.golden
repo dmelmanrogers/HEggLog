@@ -1,0 +1,10 @@
+== Type ==
+Int
+== Result ==
+42
+== ANF IR ==
+let _t0 = 1 < 2 in
+if _t0 then 42 else 0
+== Inferred Facts ==
+HasType _t0 Bool
+IsPure _t0
