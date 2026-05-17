@@ -29,6 +29,8 @@ Implemented:
   source programs when `lli` or `clang` is available.
 - Runtime-error equivalence tests for checked-`Int` overflow in LLVM `+`, `-`,
   and `*` lowering.
+- Dedicated LLVM backend specification for the current supported fragment,
+  runtime behavior, IR invariants, validation boundaries, and toolchain checks.
 - Parallel located source AST used by parser, typechecker, runtime report, and
   LLVM unsupported-feature diagnostics.
 - Stable diagnostics specification with golden negative diagnostics for
@@ -212,8 +214,7 @@ Next recommended task:
 
 ## Phase 3 - LLVM Backend Correctness
 
-Status: partial, with textual IR validation, executable workflow, successful
-differential tests, and checked-overflow runtime-error equivalence documented.
+Status: complete for the current LLVM v0 fragment.
 
 Motivation: LLVM must be a semantic implementation of the language fragment, not
 just a printer for simple examples.
@@ -229,11 +230,12 @@ Deliverables:
   closed first-order programs in the supported fragment.
 - Completed: add runtime-error equivalence testing for checked-`Int` overflow
   in LLVM `+`, `-`, and `*`.
+- Completed: add `docs/llvm-backend-spec.md` for the current LLVM semantic
+  contract, IR invariants, validation boundaries, and test obligations.
 - Future: add division-by-zero runtime-error equivalence when LLVM division is
   supported.
-- Strengthen Backend IR and LLVM IR validators as new IR forms are added.
-- Add `docs/llvm-backend-spec.md` or fold the same precision into
-  `docs/llvm-backend.md`.
+- Ongoing: strengthen Backend IR and LLVM IR validators as new IR forms are
+  added.
 
 Non-goals:
 
@@ -265,13 +267,13 @@ Risks:
 
 Definition of done:
 
-- The LLVM fragment has a documented semantic contract and differential tests.
+- The current LLVM fragment has a documented semantic contract and differential
+  tests.
 
 Next recommended task:
 
-- Fold the current LLVM semantic contract into a dedicated
-  `docs/llvm-backend-spec.md` or expand `docs/llvm-backend.md` with equivalent
-  spec-level precision.
+- Start Phase 4 by designing and implementing top-level first-order source
+  definitions.
 
 ## Phase 4 - Top-Level First-Order Functions
 

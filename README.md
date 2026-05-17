@@ -13,6 +13,7 @@ Current semantic specs:
 - [Language specification](docs/language-spec.md)
 - [Runtime specification](docs/runtime-spec.md)
 - [Diagnostics specification](docs/diagnostics-spec.md)
+- [LLVM backend specification](docs/llvm-backend-spec.md)
 
 ## Build
 
@@ -62,8 +63,8 @@ structurally. `Int` is a checked signed 64-bit value across the interpreter,
 optimizers, backend IR, and LLVM lowering; overflow is reported by interpreters
 and aborts in generated LLVM.
 
-See `docs/llvm-backend.md` for the supported fragment, lowering strategy, CLI
-behavior, and LLVM toolchain notes.
+See `docs/llvm-backend.md` for CLI behavior and LLVM toolchain notes, and
+`docs/llvm-backend-spec.md` for the backend semantic contract.
 
 ## Language MVP
 

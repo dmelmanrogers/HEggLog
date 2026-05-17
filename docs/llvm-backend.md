@@ -5,6 +5,9 @@ intentionally narrow: it compiles closed, pure, first-order ANF programs into a
 small typed backend IR, lowers that IR into structured LLVM IR, and emits textual
 LLVM.
 
+For the normative semantic contract, see
+[`docs/llvm-backend-spec.md`](llvm-backend-spec.md).
+
 ```text
 source -> typecheck -> ANF -> optional Egglog -> Backend IR -> LLVM IR
 ```
