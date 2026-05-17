@@ -19,3 +19,9 @@ let y = x + 4 in
 y * 2
 == Applied Rewrites ==
 <none>
+== EGraph Optimized ANF IR ==
+let x = 3 in
+let y = x + 4 in
+y * 2
+classes: 7
+rewrites: 0

@@ -14,3 +14,5 @@ let inc = \x : Int -> x + 1 in
 inc 41
 == Applied Rewrites ==
 <none>
+== EGraph Optimized ANF IR ==
+unsupported e-graph fragment: lambda binding x
