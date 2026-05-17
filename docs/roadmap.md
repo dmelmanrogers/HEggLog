@@ -23,6 +23,8 @@ Implemented:
   `Add`/`Mul`, boolean and integer `if`, constants, variables, and lets.
 - Backend IR and LLVM backend v0 for closed first-order programs.
 - CLI report mode and LLVM compile mode, including optional LLVM execution.
+- LLVM toolchain checks that assemble selected emitted goldens with `llvm-as`
+  when available, plus documented `llvm-as`/`lli`/`clang` executable workflow.
 - Parallel located source AST used by parser, typechecker, runtime report, and
   LLVM unsupported-feature diagnostics.
 - Stable diagnostics specification with golden negative diagnostics for
@@ -206,18 +208,21 @@ Next recommended task:
 
 ## Phase 3 - LLVM Backend Correctness
 
-Status: partial.
+Status: partial, with textual IR validation and executable workflow documented.
 
 Motivation: LLVM must be a semantic implementation of the language fragment, not
 just a printer for simple examples.
 
 Deliverables:
 
-- Keep checked arithmetic lowering for `+`, `-`, and `*`.
-- Add runtime-error equivalence testing for overflow and, when division is
-  supported, division by zero.
+- Completed: keep checked arithmetic lowering for `+`, `-`, and `*`.
+- Completed: assemble selected emitted LLVM goldens with `llvm-as` when the tool
+  is available.
+- Completed: document `llvm-as`, `lli`, and `clang` workflows for validating,
+  interpreting, and compiling emitted LLVM.
+- Partial: add runtime-error equivalence testing for overflow and, when
+  division is supported, division by zero.
 - Strengthen Backend IR and LLVM IR validators as new IR forms are added.
-- Add compile-to-executable workflow documentation.
 - Add `docs/llvm-backend-spec.md` or fold the same precision into
   `docs/llvm-backend.md`.
 
@@ -237,9 +242,9 @@ Acceptance criteria:
 
 Tests required:
 
-- LLVM golden tests.
-- `llvm-as` validation for emitted goldens.
-- Optional `lli`/`clang` execution tests.
+- Completed: LLVM golden tests.
+- Completed: `llvm-as` validation for emitted goldens when available.
+- Completed: optional `lli`/`clang` execution tests.
 - Interpreter-vs-LLVM differential tests.
 
 Risks:
@@ -250,6 +255,12 @@ Risks:
 Definition of done:
 
 - The LLVM fragment has a documented semantic contract and differential tests.
+
+Next recommended task:
+
+- Add a small interpreter-vs-LLVM differential corpus that compiles generated or
+  fixture-based supported programs, runs them through `lli` or `clang` when
+  available, and compares stdout against interpreter results.
 
 ## Phase 4 - Top-Level First-Order Functions
 

@@ -1382,16 +1382,30 @@ checkLLVMGolden :: FilePath -> FilePath -> IO (Either String ())
 checkLLVMGolden sourcePath goldenPath = do
   source <- Text.IO.readFile sourcePath
   expected <- Text.IO.readFile goldenPath
-  pure $ do
-    result <-
-      mapLeft
-        (showText . BC.renderCompileLLVMError)
-        ( BC.compileToLLVM
-            BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
-            sourcePath
-            source
-        )
-    expectEqualText "LLVM golden output" expected (BC.llvmText result)
+  tools <- LLVMTools.findLLVMTools
+  case
+    mapLeft
+      (showText . BC.renderCompileLLVMError)
+      ( BC.compileToLLVM
+          BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
+          sourcePath
+          source
+      ) of
+    Left err ->
+      pure (Left err)
+    Right result -> do
+      assemblyResult <- LLVMTools.validateLLVMText tools (BC.llvmText result)
+      pure $
+        expectEqualText "LLVM golden output" expected (BC.llvmText result)
+          *> checkLLVMAssemblyResult sourcePath assemblyResult
+
+checkLLVMAssemblyResult :: FilePath -> LLVMTools.LLVMAssemblyResult -> Either String ()
+checkLLVMAssemblyResult _ LLVMTools.LLVMAssemblySucceeded =
+  Right ()
+checkLLVMAssemblyResult _ (LLVMTools.LLVMAssemblySkipped _) =
+  Right ()
+checkLLVMAssemblyResult sourcePath (LLVMTools.LLVMAssemblyFailed stdoutText stderrText) =
+  Left ("llvm-as rejected emitted LLVM for " <> sourcePath <> "\nstdout:\n" <> stdoutText <> "\nstderr:\n" <> stderrText)
 
 testLLVMExecutionMatchesInterpreter :: IO (Either String ())
 testLLVMExecutionMatchesInterpreter = do

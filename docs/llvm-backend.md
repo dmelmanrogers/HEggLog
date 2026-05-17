@@ -128,15 +128,38 @@ When Egglog optimization is enabled and unsupported, compile mode reports the
 reason and continues with unoptimized ANF. Backend unsupported constructs still
 produce structured compile errors.
 
+## Assembly And Executable Workflow
+
+The compiler emits textual LLVM IR. A local LLVM toolchain can validate,
+interpret, or compile that IR:
+
+```bash
+cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm -o build/arithmetic.ll
+llvm-as build/arithmetic.ll -o build/arithmetic.bc
+lli build/arithmetic.ll
+clang build/arithmetic.ll -o build/arithmetic
+./build/arithmetic
+```
+
+`llvm-as` checks that emitted text is accepted by LLVM's parser and assembler.
+`lli` is useful for fast interpretation. `clang` produces a native executable
+and links against the platform C runtime for `printf` and `abort`.
+
+The test suite validates selected LLVM golden outputs against checked-in text.
+When `llvm-as` is available, those same emitted modules are also assembled to
+bitcode.
+
 ## External Tools
 
 Textual IR and structural tests do not require LLVM tools. Execution tests detect
 available tools:
 
+- `llvm-as`, if available, for assembly validation
 - `lli`, if available
 - otherwise `clang`, if available
 
-If neither is available, execution checks are skipped gracefully.
+If the relevant external tool is unavailable, that external-tool check is
+skipped gracefully. Pure Haskell validation and textual golden tests still run.
 
 ## Integer Semantics
 
@@ -165,6 +188,8 @@ The LLVM pipeline can lower either original ANF or Egglog-optimized ANF:
 8. validate Backend IR
 9. lower to LLVM IR
 10. validate and emit LLVM IR
+11. optionally validate emitted text with `llvm-as`
+12. optionally run with `lli` or compile and run with `clang`
 
 Egglog remains an optimizer. LLVM remains a code generation backend.
 

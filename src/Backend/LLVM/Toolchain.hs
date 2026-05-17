@@ -1,9 +1,11 @@
 module Backend.LLVM.Toolchain
-  ( LLVMRunResult (..)
+  ( LLVMAssemblyResult (..)
+  , LLVMRunResult (..)
   , LLVMTools (..)
   , findLLVMTools
   , renderLLVMTools
   , runLLVMText
+  , validateLLVMText
   )
 where
 
@@ -24,6 +26,12 @@ data LLVMRunResult
   = LLVMRunSkipped String
   | LLVMRunFailed String String
   | LLVMRunSucceeded String
+  deriving stock (Show, Eq, Ord)
+
+data LLVMAssemblyResult
+  = LLVMAssemblySkipped String
+  | LLVMAssemblyFailed String String
+  | LLVMAssemblySucceeded
   deriving stock (Show, Eq, Ord)
 
 findLLVMTools :: IO LLVMTools
@@ -57,6 +65,24 @@ runLLVMText tools llvmText =
           runWithClang clang llvmText
         Nothing ->
           pure (LLVMRunSkipped ("LLVM execution tools unavailable: " <> renderLLVMTools tools))
+
+validateLLVMText :: LLVMTools -> Text.Text -> IO LLVMAssemblyResult
+validateLLVMText tools llvmText =
+  case llvmAs tools of
+    Just llvmAsPath ->
+      runWithLlvmAs llvmAsPath llvmText
+    Nothing ->
+      pure (LLVMAssemblySkipped ("llvm-as unavailable: " <> renderLLVMTools tools))
+
+runWithLlvmAs :: FilePath -> Text.Text -> IO LLVMAssemblyResult
+runWithLlvmAs llvmAsPath llvmText = do
+  path <- writeLLVMText llvmText
+  let bitcodePath = ".context/llvm/latest.bc"
+  (code, stdoutText, stderrText) <- readProcessWithExitCode llvmAsPath [path, "-o", bitcodePath] ""
+  pure $
+    case code of
+      ExitSuccess -> LLVMAssemblySucceeded
+      ExitFailure {} -> LLVMAssemblyFailed stdoutText stderrText
 
 runWithLli :: FilePath -> Text.Text -> IO LLVMRunResult
 runWithLli lli llvmText = do
