@@ -22,6 +22,7 @@ module Optimize.EgglogBackend
   )
 where
 
+import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.State.Strict (State, evalState, get, modify', runState)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -231,7 +232,8 @@ tryOptimizeWithEgglog config expression =
 encodeResolvedANF :: SupportedFragment -> Either EgglogBackendError EncodedProgram
 encodeResolvedANF typed = do
   freeTypes <- mapLeft fragmentToBackendError (typedFreeVariableTypes typed)
-  let (rootPattern, state) = runEncode (encodeExpr typed)
+  (rootPattern, state) <- runEncode (encodeExpr typed)
+  let
       rootFn = rootFunction (typedExprType typed)
       initialActions = reverse (encodeActions state) <> [ASet rootFn [] rootPattern]
       program =
@@ -298,7 +300,9 @@ data EncodeState = EncodeState
   }
   deriving stock (Show, Eq)
 
-runEncode :: State EncodeState a -> (a, EncodeState)
+type EncodeM = ExceptT EgglogBackendError (State EncodeState)
+
+runEncode :: EncodeM a -> Either EgglogBackendError (a, EncodeState)
 runEncode action =
   let state =
         EncodeState
@@ -306,9 +310,11 @@ runEncode action =
           , encodeBindings = Map.empty
           , encodeBindingOrder = []
           }
-   in runState action state
+   in case runState (runExceptT action) state of
+        (Left err, _) -> Left err
+        (Right value, state') -> Right (value, state')
 
-encodeExpr :: TypedResolvedAExpr -> State EncodeState Pattern
+encodeExpr :: TypedResolvedAExpr -> EncodeM Pattern
 encodeExpr = \case
   TRAtom atom ->
     pure (encodeAtom atom)
@@ -316,7 +322,14 @@ encodeExpr = \case
     case op of
       Add -> call (iAddFn symbols) [encodeAtom lhs, encodeAtom rhs]
       Mul -> call (iMulFn symbols) [encodeAtom lhs, encodeAtom rhs]
-      _ -> call (iAddFn symbols) [encodeAtom lhs, encodeAtom rhs]
+      Lt -> call (iLtFn symbols) [encodeAtom lhs, encodeAtom rhs]
+      Eq ->
+        case typedAtomType lhs of
+          TInt -> call (iEqFn symbols) [encodeAtom lhs, encodeAtom rhs]
+          TBool -> call (bEqFn symbols) [encodeAtom lhs, encodeAtom rhs]
+          TFun {} -> throwError (UnsupportedType (typedAtomType lhs))
+      Sub -> throwError (UnsupportedPrimitive Sub)
+      Div -> throwError (UnsupportedPrimitive Div)
   TRIf ty cond thenBranch elseBranch -> do
     thenPattern <- encodeExpr thenBranch
     elsePattern <- encodeExpr elseBranch
@@ -462,6 +475,8 @@ buildExpr encoded term =
         ExtractCall name [lhs, rhs]
           | name == iAddFn symbols -> buildBinary encoded Add lhs rhs
           | name == iMulFn symbols -> buildBinary encoded Mul lhs rhs
+          | name == iLtFn symbols -> buildBinary encoded Lt lhs rhs
+          | name == iEqFn symbols || name == bEqFn symbols -> buildBinary encoded Eq lhs rhs
         ExtractCall name [cond, thenTerm, elseTerm]
           | name == iIfFn symbols || name == bIfFn symbols -> buildIf encoded cond thenTerm elseTerm
         _ ->
@@ -666,10 +681,18 @@ inferANFType =
       case op of
         Add -> intPrim lhs rhs
         Mul -> intPrim lhs rhs
+        Lt -> do
+          assertAtomType env TInt lhs
+          assertAtomType env TInt rhs
+          Right TBool
+        Eq -> do
+          lhsType <- inferAtom env lhs
+          rhsType <- inferAtom env rhs
+          if lhsType == rhsType && (lhsType == TInt || lhsType == TBool)
+            then Right TBool
+            else Left (FragmentTypeMismatch lhsType rhsType)
         Sub -> Left (UnsupportedPrimitive Sub)
         Div -> Left (UnsupportedPrimitive Div)
-        Eq -> Left (UnsupportedPrimitive Eq)
-        Lt -> Left (UnsupportedPrimitive Lt)
      where
       intPrim leftAtom rightAtom = do
         assertAtomType env TInt leftAtom

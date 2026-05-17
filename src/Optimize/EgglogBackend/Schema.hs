@@ -17,9 +17,12 @@ data BackendSymbols = BackendSymbols
   , iVarFn :: FunctionName
   , iAddFn :: FunctionName
   , iMulFn :: FunctionName
+  , iLtFn :: FunctionName
+  , iEqFn :: FunctionName
   , iIfFn :: FunctionName
   , bBoolFn :: FunctionName
   , bVarFn :: FunctionName
+  , bEqFn :: FunctionName
   , bIfFn :: FunctionName
   , iConstFn :: FunctionName
   , bConstFn :: FunctionName
@@ -40,9 +43,12 @@ symbols =
     , iVarFn = FunctionName "IVar"
     , iAddFn = FunctionName "IAdd"
     , iMulFn = FunctionName "IMul"
+    , iLtFn = FunctionName "ILt"
+    , iEqFn = FunctionName "IEq"
     , iIfFn = FunctionName "IIf"
     , bBoolFn = FunctionName "BBool"
     , bVarFn = FunctionName "BVar"
+    , bEqFn = FunctionName "BEq"
     , bIfFn = FunctionName "BIf"
     , iConstFn = FunctionName "IConst"
     , bConstFn = FunctionName "BConst"
@@ -57,9 +63,12 @@ backendDecls =
   , FunctionDecl (iVarFn symbols) [SString] (iExprSort symbols) DefaultFreshId MergeUnion
   , FunctionDecl (iAddFn symbols) [iExprSort symbols, iExprSort symbols] (iExprSort symbols) DefaultFreshId MergeUnion
   , FunctionDecl (iMulFn symbols) [iExprSort symbols, iExprSort symbols] (iExprSort symbols) DefaultFreshId MergeUnion
+  , FunctionDecl (iLtFn symbols) [iExprSort symbols, iExprSort symbols] (bExprSort symbols) DefaultFreshId MergeUnion
+  , FunctionDecl (iEqFn symbols) [iExprSort symbols, iExprSort symbols] (bExprSort symbols) DefaultFreshId MergeUnion
   , FunctionDecl (iIfFn symbols) [bExprSort symbols, iExprSort symbols, iExprSort symbols] (iExprSort symbols) DefaultFreshId MergeUnion
   , FunctionDecl (bBoolFn symbols) [SBool] (bExprSort symbols) DefaultFreshId MergeUnion
   , FunctionDecl (bVarFn symbols) [SString] (bExprSort symbols) DefaultFreshId MergeUnion
+  , FunctionDecl (bEqFn symbols) [bExprSort symbols, bExprSort symbols] (bExprSort symbols) DefaultFreshId MergeUnion
   , FunctionDecl (bIfFn symbols) [bExprSort symbols, bExprSort symbols, bExprSort symbols] (bExprSort symbols) DefaultFreshId MergeUnion
   , FunctionDecl (iConstFn symbols) [iExprSort symbols] SConstInt DefaultNone MergeConstInt
   , FunctionDecl (bConstFn symbols) [bExprSort symbols] SConstBool DefaultNone MergeConstBool

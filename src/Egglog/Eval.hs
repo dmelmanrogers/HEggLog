@@ -380,6 +380,12 @@ patternVariables = \case
     patternVariables lhs <> patternVariables rhs
   PMulInt lhs rhs ->
     patternVariables lhs <> patternVariables rhs
+  PIntLt lhs rhs ->
+    patternVariables lhs <> patternVariables rhs
+  PIntEq lhs rhs ->
+    patternVariables lhs <> patternVariables rhs
+  PBoolEq lhs rhs ->
+    patternVariables lhs <> patternVariables rhs
   PKnownInt inner ->
     patternVariables inner
   PKnownBool inner ->
@@ -399,6 +405,12 @@ patternTermRequiredVars = \case
     patternTermRequiredVars lhs <> patternTermRequiredVars rhs
   PMulInt lhs rhs ->
     patternTermRequiredVars lhs <> patternTermRequiredVars rhs
+  PIntLt lhs rhs ->
+    patternTermRequiredVars lhs <> patternTermRequiredVars rhs
+  PIntEq lhs rhs ->
+    patternTermRequiredVars lhs <> patternTermRequiredVars rhs
+  PBoolEq lhs rhs ->
+    patternTermRequiredVars lhs <> patternTermRequiredVars rhs
   PKnownInt inner ->
     patternTermRequiredVars inner
   PKnownBool inner ->
@@ -417,6 +429,12 @@ patternMatchRequiredVars = \case
   PAddInt lhs rhs ->
     patternTermRequiredVars lhs <> patternTermRequiredVars rhs
   PMulInt lhs rhs ->
+    patternTermRequiredVars lhs <> patternTermRequiredVars rhs
+  PIntLt lhs rhs ->
+    patternTermRequiredVars lhs <> patternTermRequiredVars rhs
+  PIntEq lhs rhs ->
+    patternTermRequiredVars lhs <> patternTermRequiredVars rhs
+  PBoolEq lhs rhs ->
     patternTermRequiredVars lhs <> patternTermRequiredVars rhs
   PKnownInt inner ->
     patternMatchRequiredVars inner
@@ -539,6 +557,12 @@ matchPattern db pattern value subst =
     PAddInt {} ->
       matchComputed
     PMulInt {} ->
+      matchComputed
+    PIntLt {} ->
+      matchComputed
+    PIntEq {} ->
+      matchComputed
+    PBoolEq {} ->
       matchComputed
     PKnownInt inner ->
       case canonical of

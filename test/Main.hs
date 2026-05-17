@@ -242,6 +242,7 @@ testGroups =
       , pureTest "resolved ANF dependency graph tracks let RHS references" testResolvedANFDependencyGraph
       , pureTest "resolved ANF renderer shows binder ids" testResolvedANFRenderer
       , pureTest "Egglog fragment accepts if expressions" testEgglogFragmentAcceptsIf
+      , pureTest "Egglog fragment accepts comparisons" testEgglogFragmentAcceptsComparisons
       , pureTest "Egglog fragment rejects mismatched if branches" testEgglogFragmentRejectsIfMismatch
       , pureTest "Egglog fragment rejects inconsistent free variable types" testEgglogFragmentRejectsInconsistentFreeVariableTypes
       , pureTest "Egglog encoding uses distinct typed sorts" testEgglogEncodingDistinctTypedSorts
@@ -255,6 +256,7 @@ testGroups =
       , pureTest "Egglog rules simplify if true" testEgglogRulesIfTrue
       , pureTest "Egglog rules simplify fact-driven if" testEgglogRulesFactDrivenIf
       , pureTest "Egglog rules derive zero information" testEgglogRulesDeriveZeroInfo
+      , pureTest "Egglog rules derive comparison facts" testEgglogRulesDeriveComparisonFacts
       , pureTest "Egglog default rules exclude distributivity" testEgglogRulesExcludeDistributivity
       , pureTest "Egglog backend preserves shadowing semantics" testEgglogBackendShadowing
       , pureTest "Egglog backend preserves retained let dependencies" testEgglogBackendLetRetention
@@ -262,6 +264,8 @@ testGroups =
       , pureTest "Egglog backend simplifies if true" testEgglogBackendIfTrue
       , pureTest "Egglog backend simplifies same branches" testEgglogBackendIfSameBranches
       , pureTest "Egglog backend folds constants through Egglog facts" testEgglogBackendConstFacts
+      , pureTest "Egglog backend folds comparison constants" testEgglogBackendComparisonConstFacts
+      , pureTest "Egglog backend optimizes open comparisons" testEgglogBackendOpenComparisonFragment
       , pureTest "Egglog Int constants do not fold overflow" testEgglogDoesNotFoldOverflowingInt
       , pureTest "Egglog backend optimizes open free-variable fragments" testEgglogBackendOpenFreeVariableFragment
       , pureTest "Egglog backend rejects applications structurally" testEgglogBackendUnsupportedApplication
@@ -1391,6 +1395,15 @@ testEgglogFragmentAcceptsIf = do
     Right {} -> Right ()
     Left err -> Left ("expected if expression to be accepted, got " <> Text.unpack (OEB.renderEgglogBackendError err))
 
+testEgglogFragmentAcceptsComparisons :: Either String ()
+testEgglogFragmentAcceptsComparisons = do
+  ltResolved <- resolvedFor "1 < 2"
+  eqResolved <- resolvedFor "true == false"
+  case (OEB.classifyEgglogFragment ltResolved, OEB.classifyEgglogFragment eqResolved) of
+    (Right {}, Right {}) -> Right ()
+    (ltResult, eqResult) ->
+      Left ("expected comparisons to be accepted, got " <> show (ltResult, eqResult))
+
 testEgglogFragmentRejectsIfMismatch :: Either String ()
 testEgglogFragmentRejectsIfMismatch =
   let malformed =
@@ -1509,6 +1522,21 @@ testEgglogRulesDeriveZeroInfo = do
   nonZeroFound <- egg (EDB.lookupFunction (OES.iZeroFn OES.symbols) [nonZeroRoot] (OEB.encodedRunDatabase nonZeroRun))
   expectEqual "folded nonzero expression has KnownNonZero info" (Just (EV.VZeroInfo EV.KnownNonZero)) nonZeroFound
 
+testEgglogRulesDeriveComparisonFacts :: Either String ()
+testEgglogRulesDeriveComparisonFacts = do
+  (ltEncoded, ltRun) <- runEncodedSource "2 < 3"
+  ltRoot <- canonicalRoot ltEncoded ltRun
+  ltFound <- egg (EDB.lookupFunction (OES.bConstFn OES.symbols) [ltRoot] (OEB.encodedRunDatabase ltRun))
+  expectEqual "lt constant fact" (Just (EV.VConstBool (EV.KnownBool True))) ltFound
+  (intEqEncoded, intEqRun) <- runEncodedSource "2 == 3"
+  intEqRoot <- canonicalRoot intEqEncoded intEqRun
+  intEqFound <- egg (EDB.lookupFunction (OES.bConstFn OES.symbols) [intEqRoot] (OEB.encodedRunDatabase intEqRun))
+  expectEqual "int equality constant fact" (Just (EV.VConstBool (EV.KnownBool False))) intEqFound
+  (boolEqEncoded, boolEqRun) <- runEncodedSource "true == false"
+  boolEqRoot <- canonicalRoot boolEqEncoded boolEqRun
+  boolEqFound <- egg (EDB.lookupFunction (OES.bConstFn OES.symbols) [boolEqRoot] (OEB.encodedRunDatabase boolEqRun))
+  expectEqual "bool equality constant fact" (Just (EV.VConstBool (EV.KnownBool False))) boolEqFound
+
 testEgglogRulesExcludeDistributivity :: Either String ()
 testEgglogRulesExcludeDistributivity = do
   let compilerRuleNames = map ER.ruleName OER.compilerRules
@@ -1541,6 +1569,26 @@ testEgglogBackendIfSameBranches =
 testEgglogBackendConstFacts :: Either String ()
 testEgglogBackendConstFacts =
   assertEgglogPreservesSemantics "let x = 2 + 3 in x * 4" (anfInt 20) >> Right ()
+
+testEgglogBackendComparisonConstFacts :: Either String ()
+testEgglogBackendComparisonConstFacts = do
+  ltResult <- assertEgglogPreservesSemantics "if 2 < 3 then 10 else 20" (anfInt 10)
+  expectEqual "lt comparison folds through bool facts" (AAtom (AInt 10)) (OEB.optimizedANF ltResult)
+  intEqResult <- assertEgglogPreservesSemantics "if 2 == 3 then 10 else 20" (anfInt 20)
+  expectEqual "int equality folds through bool facts" (AAtom (AInt 20)) (OEB.optimizedANF intEqResult)
+  boolEqResult <- assertEgglogPreservesSemantics "if true == false then 10 else 20" (anfInt 20)
+  expectEqual "bool equality folds through bool facts" (AAtom (AInt 20)) (OEB.optimizedANF boolEqResult)
+
+testEgglogBackendOpenComparisonFragment :: Either String ()
+testEgglogBackendOpenComparisonFragment = do
+  ltResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (APrim Lt (AVar xName) (AInt 10)))
+  expectEqual "open lt expression" (APrim Lt (AVar xName) (AInt 10)) (OEB.optimizedANF ltResult)
+  expectEqual "open lt type" TBool (OEB.optimizedType ltResult)
+  mapLeft (showText . renderANFValidationError) (validateANFWithFreeVars (Set.singleton xName) (OEB.optimizedANF ltResult))
+  eqResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (APrim Eq (AVar xName) (AInt 10)))
+  expectEqual "open int equality expression" (APrim Eq (AVar xName) (AInt 10)) (OEB.optimizedANF eqResult)
+  expectEqual "open int equality type" TBool (OEB.optimizedType eqResult)
+  mapLeft (showText . renderANFValidationError) (validateANFWithFreeVars (Set.singleton xName) (OEB.optimizedANF eqResult))
 
 testEgglogDoesNotFoldOverflowingInt :: Either String ()
 testEgglogDoesNotFoldOverflowingInt = do
@@ -1755,7 +1803,7 @@ testLLVMValidatorRejectsMissingBlock =
 
 testLLVMCompileEgglogFallback :: Either String ()
 testLLVMCompileEgglogFallback = do
-  result <- compileLLVMDefault "let x = 3 in if x < 5 then x * 2 else x * 3"
+  result <- compileLLVMDefault "let x = 3 in x - 1"
   case BC.llvmOptimizationStatus result of
     BC.LLVMOptimizationUnsupported {} -> Right ()
     other -> Left ("expected Egglog unsupported fallback, got " <> show other)

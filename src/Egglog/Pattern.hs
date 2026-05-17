@@ -24,6 +24,9 @@ data Pattern
   | PCall FunctionName [Pattern]
   | PAddInt Pattern Pattern
   | PMulInt Pattern Pattern
+  | PIntLt Pattern Pattern
+  | PIntEq Pattern Pattern
+  | PBoolEq Pattern Pattern
   | PKnownInt Pattern
   | PKnownBool Pattern
   | PZeroInfo Pattern
@@ -66,6 +69,12 @@ matchPatternValue db pattern value subst =
     PAddInt {} ->
       matchComputed
     PMulInt {} ->
+      matchComputed
+    PIntLt {} ->
+      matchComputed
+    PIntEq {} ->
+      matchComputed
+    PBoolEq {} ->
       matchComputed
     PKnownInt inner ->
       case canonicalValue db value of
@@ -121,6 +130,12 @@ evalExistingPattern db subst = \case
       (Just (VInt a), Just (VInt b)) -> pure (VInt <$> checkedInteger mulHInt a b)
       (Just _, Just _) -> Left (QueryTypeError "expected Int operands for multiplication")
       _ -> pure Nothing
+  PIntLt lhs rhs ->
+    evalExistingIntComparison db subst (<) lhs rhs
+  PIntEq lhs rhs ->
+    evalExistingIntComparison db subst (==) lhs rhs
+  PBoolEq lhs rhs ->
+    evalExistingBoolComparison db subst (==) lhs rhs
   PKnownInt inner -> do
     maybeKnown <- evalExistingKnownInt db subst inner
     pure (VConstInt . KnownInt <$> maybeKnown)
@@ -167,6 +182,12 @@ evalTerm db subst = \case
           Just result -> Right (db2, VInt result)
           Nothing -> Left (QueryTypeError "Int multiplication overflow")
       _ -> Left (QueryTypeError "expected Int operands for multiplication")
+  PIntLt lhs rhs ->
+    evalTermIntComparison db subst (<) lhs rhs
+  PIntEq lhs rhs ->
+    evalTermIntComparison db subst (==) lhs rhs
+  PBoolEq lhs rhs ->
+    evalTermBoolComparison db subst (==) lhs rhs
   PKnownInt inner -> do
     (db1, maybeKnown) <- evalTermKnownInt db subst inner
     Right (db1, VConstInt (maybe UnknownInt KnownInt maybeKnown))
@@ -189,6 +210,40 @@ evalTerms db subst = \case
     (db1, value) <- evalTerm db subst pattern
     (db2, values) <- evalTerms db1 subst rest
     Right (db2, value : values)
+
+evalExistingIntComparison :: Database -> Substitution -> (Integer -> Integer -> Bool) -> Pattern -> Pattern -> Either EgglogError (Maybe Value)
+evalExistingIntComparison db subst op lhs rhs = do
+  lhsValue <- evalExistingPattern db subst lhs
+  rhsValue <- evalExistingPattern db subst rhs
+  case (lhsValue, rhsValue) of
+    (Just (VInt a), Just (VInt b)) -> pure (Just (VBool (op a b)))
+    (Just _, Just _) -> Left (QueryTypeError "expected Int operands for comparison")
+    _ -> pure Nothing
+
+evalExistingBoolComparison :: Database -> Substitution -> (Bool -> Bool -> Bool) -> Pattern -> Pattern -> Either EgglogError (Maybe Value)
+evalExistingBoolComparison db subst op lhs rhs = do
+  lhsValue <- evalExistingPattern db subst lhs
+  rhsValue <- evalExistingPattern db subst rhs
+  case (lhsValue, rhsValue) of
+    (Just (VBool a), Just (VBool b)) -> pure (Just (VBool (op a b)))
+    (Just _, Just _) -> Left (QueryTypeError "expected Bool operands for comparison")
+    _ -> pure Nothing
+
+evalTermIntComparison :: Database -> Substitution -> (Integer -> Integer -> Bool) -> Pattern -> Pattern -> Either EgglogError (Database, Value)
+evalTermIntComparison db subst op lhs rhs = do
+  (db1, lhsValue) <- evalTerm db subst lhs
+  (db2, rhsValue) <- evalTerm db1 subst rhs
+  case (lhsValue, rhsValue) of
+    (VInt a, VInt b) -> Right (db2, VBool (op a b))
+    _ -> Left (QueryTypeError "expected Int operands for comparison")
+
+evalTermBoolComparison :: Database -> Substitution -> (Bool -> Bool -> Bool) -> Pattern -> Pattern -> Either EgglogError (Database, Value)
+evalTermBoolComparison db subst op lhs rhs = do
+  (db1, lhsValue) <- evalTerm db subst lhs
+  (db2, rhsValue) <- evalTerm db1 subst rhs
+  case (lhsValue, rhsValue) of
+    (VBool a, VBool b) -> Right (db2, VBool (op a b))
+    _ -> Left (QueryTypeError "expected Bool operands for comparison")
 
 evalExistingKnownInt :: Database -> Substitution -> Pattern -> Either EgglogError (Maybe HInt)
 evalExistingKnownInt db subst = \case
@@ -262,6 +317,12 @@ renderPattern = \case
     "(" <> renderPattern lhs <> " + " <> renderPattern rhs <> ")"
   PMulInt lhs rhs ->
     "(" <> renderPattern lhs <> " * " <> renderPattern rhs <> ")"
+  PIntLt lhs rhs ->
+    "(" <> renderPattern lhs <> " < " <> renderPattern rhs <> ")"
+  PIntEq lhs rhs ->
+    "(" <> renderPattern lhs <> " == " <> renderPattern rhs <> ")"
+  PBoolEq lhs rhs ->
+    "(" <> renderPattern lhs <> " == " <> renderPattern rhs <> ")"
   PKnownInt inner ->
     "KnownInt(" <> renderPattern inner <> ")"
   PKnownBool inner ->

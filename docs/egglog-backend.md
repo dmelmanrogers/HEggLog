@@ -17,7 +17,7 @@ uses separate Egglog sorts:
 - `BExpr` for boolean expressions
 
 Integer constructors include `INum`, `IVar`, `IAdd`, `IMul`, and `IIf`.
-Boolean constructors include `BBool`, `BVar`, and `BIf`.
+Boolean constructors include `BBool`, `BVar`, `ILt`, `IEq`, `BEq`, and `BIf`.
 
 This keeps ill-typed terms out of the Egglog database. The extracted root must
 have the same compiler type as the original ANF root.
@@ -61,7 +61,9 @@ ruleset includes:
 - `x * 0 = 0`
 - `0 * x = 0`
 - integer constant facts for `INum`, `IAdd`, and `IMul`
-- boolean constant facts for `BBool`
+- boolean constant facts for `BBool`, integer `<`, integer `==`, and boolean
+  `==`
+- same-expression rewrites for integer/boolean `==` and integer `<`
 - `if true then a else b = a`
 - `if false then a else b = b`
 - `if c then a else a = a`
@@ -163,6 +165,9 @@ Supported:
 - `let` bindings
 - integer `Add`
 - integer `Mul`
+- integer `Lt`
+- integer `Eq`
+- boolean `Eq`
 - `if` expressions with a `Bool` condition and branches of the same supported
   type
 
@@ -175,7 +180,6 @@ Unsupported:
 - effects
 - division
 - subtraction
-- equality and ordering primitives
 - ill-typed or ambiguous terms
 
 Unsupported terms return structured backend errors. The backend does not

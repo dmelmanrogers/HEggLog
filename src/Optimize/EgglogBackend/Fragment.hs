@@ -137,13 +137,62 @@ inferPrim env op lhs rhs =
     Mul -> intPrim
     Sub -> Left (UnsupportedPrimitive Sub)
     Div -> Left (UnsupportedPrimitive Div)
-    Eq -> Left (UnsupportedPrimitive Eq)
-    Lt -> Left (UnsupportedPrimitive Lt)
+    Eq -> equalityPrim
+    Lt -> intComparisonPrim
  where
   intPrim = do
     lhsTyped <- inferAtom env (Just TInt) lhs
     rhsTyped <- inferAtom env (Just TInt) rhs
     pure (TRPrim TInt op lhsTyped rhsTyped)
+
+  intComparisonPrim = do
+    lhsTyped <- inferAtom env (Just TInt) lhs
+    rhsTyped <- inferAtom env (Just TInt) rhs
+    pure (TRPrim TBool op lhsTyped rhsTyped)
+
+  equalityPrim = do
+    lhsKnown <- inferAtomKnownType env lhs
+    rhsKnown <- inferAtomKnownType env rhs
+    ty <-
+      case (lhsKnown, rhsKnown) of
+        (Just lhsTy, Just rhsTy) -> do
+          assertType lhsTy rhsTy
+          pure lhsTy
+        (Just lhsTy, Nothing) ->
+          pure lhsTy
+        (Nothing, Just rhsTy) ->
+          pure rhsTy
+        (Nothing, Nothing) ->
+          Left (AmbiguousFreeVariable (firstFreeVariable lhs rhs))
+    case ty of
+      TInt -> pure ()
+      TBool -> pure ()
+      TFun {} -> Left (UnsupportedType ty)
+    lhsTyped <- inferAtom env (Just ty) lhs
+    rhsTyped <- inferAtom env (Just ty) rhs
+    pure (TRPrim TBool op lhsTyped rhsTyped)
+
+inferAtomKnownType :: TypeEnv -> ResolvedAtom -> Either FragmentError (Maybe Type)
+inferAtomKnownType env = \case
+  RInt n ->
+    case mkHIntLiteral n of
+      Right _ -> Right (Just TInt)
+      Left err -> Left (InvalidIntLiteral err)
+  RBool {} ->
+    Right (Just TBool)
+  RVar (BoundVar binder) ->
+    case Map.lookup (binderId binder) env of
+      Just ty -> Right (Just ty)
+      Nothing -> Left (UnboundResolvedBinder binder)
+  RVar (FreeVar {}) ->
+    Right Nothing
+
+firstFreeVariable :: ResolvedAtom -> ResolvedAtom -> Name
+firstFreeVariable lhs rhs =
+  case (lhs, rhs) of
+    (RVar (FreeVar name), _) -> name
+    (_, RVar (FreeVar name)) -> name
+    _ -> Name "<unknown>"
 
 inferAtom :: TypeEnv -> Maybe Type -> ResolvedAtom -> Either FragmentError TypedResolvedAtom
 inferAtom env expected atom =

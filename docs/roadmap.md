@@ -6,7 +6,8 @@ current codebase as of the checked `Int64` semantics, Egglog backend, LLVM
 backend, source diagnostics, top-level first-order functions, lambda lifting,
 closure conversion runtime work, and optional monomorphic lambda parameter
 inference, semi-naive Egglog rule evaluation, and Egglog provenance/debug
-traces, relation-size Egglog join planning, and the Egglog `ZeroInfo` lattice.
+traces, relation-size Egglog join planning, the Egglog `ZeroInfo` lattice, and
+Egglog comparison support.
 
 ## Current Baseline
 
@@ -32,7 +33,8 @@ Implemented:
   semi-naive rule scheduling with stable relation-size join planning and opt-in
   rule/substitution debug traces.
 - Compiler-facing Egglog backend for typed pure first-order ANF: integer
-  `Add`/`Mul`, boolean and integer `if`, constants, variables, and lets.
+  `Add`/`Mul`, integer `Lt`, integer and boolean `Eq`, boolean and integer
+  `if`, constants, variables, and lets.
 - Egglog lattice facts for integer constants, boolean constants, and integer
   zero/nonzero information with unknown and conflict states.
 - Compact Egglog backend provenance traces covering encoded actions, applied
@@ -500,7 +502,7 @@ Definition of done:
 
 Next recommended task:
 
-- Extend Egglog backend to comparisons.
+- Add checked Egglog subtraction.
 
 ## Phase 8 - Egglog Backend Expansion
 
@@ -511,7 +513,7 @@ preserving runtime errors.
 
 Deliverables:
 
-- Add comparison support where safe: `Lt` and `Eq`.
+- Completed: add comparison support where safe: `Lt` and `Eq`.
 - Add subtraction with checked `Int64` semantics.
 - Add division only with explicit `NonZero` and overflow constraints.
 - Add richer boolean reasoning.
@@ -792,29 +794,37 @@ Add source spans to diagnostics
 
 ### Task E - Egglog Comparisons
 
+Status: complete for typed integer `<`, integer `==`, and boolean `==`.
+
 Prerequisite: checked `Int64` semantics and current Egglog backend.
 
 Implementation scope:
 
-- Add `Lt` and safe `Eq` support to the typed Egglog backend.
-- Add bool constant facts where useful.
-- Preserve checked integer and runtime-error semantics.
+- Completed: add `Lt` and safe `Eq` support to the typed Egglog backend.
+- Completed: add boolean constant facts for integer `<`, integer `==`, and
+  boolean `==`.
+- Completed: reconstruct open comparison expressions from extracted Egglog
+  terms.
+- Completed: preserve checked integer and runtime-error semantics.
 
-Files likely touched:
+Files touched:
 
 - `src/Optimize/EgglogBackend/*`
 - `src/Egglog/Pattern.hs`
+- `src/Egglog/Eval.hs`
 - `test/Main.hs`
+- `docs/egglog-backend.md`
+- `docs/roadmap.md`
 
 Tests required:
 
-- Egglog semantic preservation tests.
-- Open-fragment type consistency tests.
-- Comparison constant folding tests.
+- Completed: Egglog semantic preservation tests.
+- Completed: open-fragment type consistency tests.
+- Completed: comparison constant folding tests.
 
 Acceptance criteria:
 
-- Egglog can optimize comparison-heavy first-order ANF without changing
+- Completed: Egglog can optimize comparison-heavy first-order ANF without changing
   successful results or runtime errors.
 
 Commit message suggestion:
@@ -1156,7 +1166,7 @@ Add Egglog zero-info lattice
 ## Next Recommended Prompt
 
 ```text
-Extend Egglog backend to comparisons: add typed `Lt` and safe `Eq` support,
-derive boolean constant facts for comparison results, and preserve existing
-semantic-preservation and overflow tests.
+Add checked Egglog subtraction: encode `Sub` for integer expressions, derive
+checked constant facts without masking overflow, reconstruct open subtraction
+terms, and preserve existing semantic-preservation and overflow tests.
 ```
