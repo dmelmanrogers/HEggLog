@@ -26,7 +26,29 @@ The CLI prints:
 - applied rewrite trace
 - report-only e-graph optimized ANF IR, or a structured unsupported-fragment
   message
+- Egglog optimizer status, optimized ANF, costs, bounded run/rebuild stats, and
+  structured unsupported/failure reasons
 - lowered Core IR
+
+## LLVM Backend
+
+Closed first-order programs can be compiled to textual LLVM IR:
+
+```bash
+cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm
+cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm -o build/arithmetic.ll
+cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm --run-llvm
+```
+
+The LLVM v0 backend supports `Int`, `Bool`, `let`, `if`, `+`, `-`, `*`, `<`,
+and `==` over closed first-order programs. Lambdas, applications, closures,
+recursion, heap allocation, free variables, and division are rejected
+structurally. `Int` lowers to LLVM `i64`, so the LLVM backend currently has a
+documented integer-width gap with the interpreter's arbitrary-precision
+`Integer` semantics.
+
+See `docs/llvm-backend.md` for the supported fragment, lowering strategy, CLI
+behavior, and LLVM toolchain notes.
 
 ## Language MVP
 
@@ -71,6 +93,18 @@ generalization are intentionally out of scope for this slice.
   first-order ANF fragment. It supports arithmetic, boolean literals,
   variables, and simple `if` terms; lambdas and applications return structured
   unsupported-fragment diagnostics.
+- `IR.ANF.Resolved` alpha-resolves ANF binders into deterministic binder ids and
+  explicit free variables. It is generic ANF infrastructure, not tied to the
+  Egglog backend.
+- `Egglog.*` is a standalone typed equality-saturation kernel with user sorts,
+  function declarations, merge behavior, rebuild, rule evaluation, and
+  extraction.
+- `Optimize.EgglogBackend` is the compiler adapter from resolved ANF into the
+  Egglog kernel. It classifies a typed first-order fragment, encodes integer and
+  boolean terms into separate Egglog sorts, runs compiler rules as `Rule` data,
+  extracts back to valid ANF, and reports structured unsupported/failure states.
+- `Backend.*` lowers closed first-order ANF into a typed backend IR and then into
+  deterministic textual LLVM IR with a small C-compatible printing `main`.
 
 Binder-aware equality saturation remains future work. Lambda rewrites require
 alpha equivalence, capture avoidance, beta-reduction discipline, and extraction
@@ -88,8 +122,15 @@ The test suite is grouped by compiler concern:
 - fact-aware simplification and semantic preservation
 - e-graph insertion, union/find, extraction, rewrite behavior, unsupported
   fragments, and semantic preservation on the supported fragment
+- Egglog kernel invariants, resolved ANF binding behavior, backend encoding,
+  compiler rules, extraction/reconstruction, structured unsupported reporting,
+  deterministic optimization, and semantic preservation on supported programs
+- LLVM backend validation, structured unsupported cases, deterministic SSA/phi
+  lowering, selected LLVM golden files, and optional execution checks against
+  the interpreter when LLVM tools are available
 - selected golden CLI output sections
-- QuickCheck property skeleton for ANF validation after lowering
+- QuickCheck properties for ANF validation after lowering and Egglog semantic
+  preservation on generated supported ANF fragments
 
 Negative type fixtures live in `examples/type-errors/`. Golden fixtures live in
 `test/golden/`.

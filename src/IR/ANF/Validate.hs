@@ -2,6 +2,7 @@ module IR.ANF.Validate
   ( ANFValidationError (..)
   , renderANFValidationError
   , validateANF
+  , validateANFWithFreeVars
   )
 where
 
@@ -24,9 +25,13 @@ data ANFValidationError
 -- level. This validator checks the remaining semantic invariants: lexical
 -- binding and the compiler-reserved temporary namespace used by lowering.
 validateANF :: AExpr -> Either ANFValidationError ()
-validateANF expression = do
+validateANF =
+  validateANFWithFreeVars Set.empty
+
+validateANFWithFreeVars :: Set.Set Name -> AExpr -> Either ANFValidationError ()
+validateANFWithFreeVars allowedFreeVars expression = do
   validateGeneratedTemps expression
-  validateExpr Set.empty expression
+  validateExpr allowedFreeVars expression
 
 validateExpr :: Set.Set Name -> AExpr -> Either ANFValidationError ()
 validateExpr bound = \case

@@ -1,0 +1,194 @@
+module Backend.LLVM.Emit
+  ( emitLLVMModule
+  )
+where
+
+import Data.Char (ord)
+import Data.Text (Text)
+import qualified Data.Text as Text
+import Backend.LLVM.IR
+
+emitLLVMModule :: LLVMModule -> Text
+emitLLVMModule llvmModule =
+  Text.intercalate
+    "\n"
+    ( filter
+        (not . Text.null)
+        [ emitComments (moduleComments llvmModule)
+        , emitGlobals (moduleGlobals llvmModule)
+        , emitDeclarations (moduleDeclarations llvmModule)
+        , emitFunctions (moduleFunctions llvmModule)
+        ]
+    )
+    <> "\n"
+
+emitComments :: [Text] -> Text
+emitComments comments =
+  Text.unlines ["; " <> comment | comment <- comments]
+
+emitGlobals :: [LLVMGlobal] -> Text
+emitGlobals =
+  Text.intercalate "\n" . map emitGlobal
+
+emitGlobal :: LLVMGlobal -> Text
+emitGlobal (LLVMStringGlobal name bytes) =
+  "@"
+    <> name
+    <> " = private unnamed_addr constant ["
+    <> Text.pack (show (Text.length bytes))
+    <> " x i8] c\""
+    <> escapeCString bytes
+    <> "\""
+
+emitDeclarations :: [Text] -> Text
+emitDeclarations =
+  Text.intercalate "\n"
+
+emitFunctions :: [LLVMFunction] -> Text
+emitFunctions =
+  Text.intercalate "\n\n" . map emitFunction
+
+emitFunction :: LLVMFunction -> Text
+emitFunction function =
+  "define "
+    <> emitType (functionReturnType function)
+    <> " @"
+    <> functionName function
+    <> "() {\n"
+    <> Text.concat (map emitBlock (functionBlocks function))
+    <> "}"
+
+emitBlock :: LLVMBlock -> Text
+emitBlock block =
+  blockLabel block
+    <> ":\n"
+    <> Text.concat [emitInstruction instruction <> "\n" | instruction <- blockInstructions block]
+    <> emitTerminator (blockTerminator block)
+    <> "\n"
+
+emitInstruction :: LLVMInstruction -> Text
+emitInstruction = \case
+  IAdd reg ty lhs rhs ->
+    assign reg ("add " <> emitTypedOperands ty lhs rhs)
+  ISub reg ty lhs rhs ->
+    assign reg ("sub " <> emitTypedOperands ty lhs rhs)
+  IMul reg ty lhs rhs ->
+    assign reg ("mul " <> emitTypedOperands ty lhs rhs)
+  IIcmp reg predicate ty lhs rhs ->
+    assign reg ("icmp " <> emitPredicate predicate <> " " <> emitTypedOperands ty lhs rhs)
+  IZext reg value targetType ->
+    assign reg ("zext " <> emitType (operandType value) <> " " <> emitOperand value <> " to " <> emitType targetType)
+  IGetElementPtr reg elementType base indices ->
+    assign reg $
+      "getelementptr inbounds "
+        <> emitType elementType
+        <> ", "
+        <> emitType (operandType base)
+        <> " "
+        <> emitOperand base
+        <> Text.concat [", " <> emitType ty <> " " <> emitOperand operand | (ty, operand) <- indices]
+  ICall maybeReg returnType callee varArg args ->
+    maybe id assign maybeReg (emitCall returnType callee varArg args)
+  IPhi reg ty incoming ->
+    assign reg $
+      "phi "
+        <> emitType ty
+        <> " "
+        <> Text.intercalate
+          ", "
+          [ "[ " <> emitOperand operand <> ", %" <> label <> " ]"
+          | (operand, label) <- incoming
+          ]
+
+emitCall :: LLVMType -> Text -> Bool -> [(LLVMType, LLVMOperand)] -> Text
+emitCall returnType callee varArg args =
+  "call "
+    <> emitCallType returnType varArg args
+    <> " @"
+    <> callee
+    <> "("
+    <> Text.intercalate ", " [emitType ty <> " " <> emitOperand operand | (ty, operand) <- args]
+    <> ")"
+
+emitCallType :: LLVMType -> Bool -> [(LLVMType, LLVMOperand)] -> Text
+emitCallType returnType varArg args
+  | varArg =
+      emitType returnType
+        <> " ("
+        <> Text.intercalate ", " (map (emitType . fst) fixedArgs)
+        <> ", ...)"
+  | otherwise =
+      emitType returnType
+ where
+  fixedArgs =
+    take 1 args
+
+emitTypedOperands :: LLVMType -> LLVMOperand -> LLVMOperand -> Text
+emitTypedOperands ty lhs rhs =
+  emitType ty <> " " <> emitOperand lhs <> ", " <> emitOperand rhs
+
+emitTerminator :: LLVMTerminator -> Text
+emitTerminator = \case
+  TRet ty operand ->
+    "  ret " <> emitType ty <> " " <> emitOperand operand
+  TBr label ->
+    "  br label %" <> label
+  TCondBr cond thenLabel elseLabel ->
+    "  br i1 "
+      <> emitOperand cond
+      <> ", label %"
+      <> thenLabel
+      <> ", label %"
+      <> elseLabel
+
+assign :: Register -> Text -> Text
+assign reg rhs =
+  "  %" <> registerName reg <> " = " <> rhs
+
+emitOperand :: LLVMOperand -> Text
+emitOperand = \case
+  OLocal _ reg ->
+    "%" <> registerName reg
+  OGlobal _ name ->
+    "@" <> name
+  OConstInt LI1 0 ->
+    "false"
+  OConstInt LI1 1 ->
+    "true"
+  OConstInt _ n ->
+    Text.pack (show n)
+
+emitType :: LLVMType -> Text
+emitType = \case
+  LI64 -> "i64"
+  LI32 -> "i32"
+  LI1 -> "i1"
+  LI8 -> "i8"
+  LPtr -> "ptr"
+  LArray count ty -> "[" <> Text.pack (show count) <> " x " <> emitType ty <> "]"
+  LVoid -> "void"
+
+emitPredicate :: LLVMPredicate -> Text
+emitPredicate = \case
+  ICmpEq -> "eq"
+  ICmpSlt -> "slt"
+
+escapeCString :: Text -> Text
+escapeCString =
+  Text.concatMap escapeChar
+ where
+  escapeChar char =
+    case char of
+      '\n' -> "\\0A"
+      '\0' -> "\\00"
+      '"' -> "\\22"
+      '\\' -> "\\5C"
+      _ | ord char >= 32 && ord char <= 126 -> Text.singleton char
+      _ -> "\\" <> hex2 (ord char)
+
+hex2 :: Int -> Text
+hex2 value =
+  let digits = "0123456789ABCDEF" :: String
+      hi = value `div` 16
+      lo = value `mod` 16
+   in Text.pack [digits !! hi, digits !! lo]

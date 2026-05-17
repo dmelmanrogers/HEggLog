@@ -10,9 +10,21 @@ where
 
 import Analysis.Facts (Fact, renderFacts)
 import Analysis.InferFacts (inferFacts)
+import Egglog.Eval (defaultRunConfig)
+import Egglog.Rebuild (canonicalizedEntries, mergeConflicts, rebuildIterations, unionsCreated)
+import Egglog.Sort (renderFunctionName)
 import Eval.Interpreter (RuntimeError, Value, eval, renderRuntimeError, renderValue)
 import IR.ANF (AExpr, renderANF, toANF)
 import IR.Core (CoreProgram, lower, renderCore)
+import Optimize.EgglogBackend
+  ( AppliedRuleSummary (..)
+  , EgglogOptimizationAttempt (..)
+  , EgglogOptimizationResult (..)
+  , ExtractionStats (..)
+  , RunStats (..)
+  , renderEgglogBackendError
+  , tryOptimizeWithEgglog
+  )
 import Optimize.EGraph
   ( EGraphError
   , EGraphResult (..)
@@ -47,6 +59,7 @@ data CompileReport = CompileReport
   , reportOptimizedANF :: AExpr
   , reportAppliedRewrites :: [AppliedRewrite]
   , reportEGraph :: Either EGraphError EGraphResult
+  , reportEgglog :: EgglogOptimizationAttempt
   , reportCore :: CoreProgram
   }
   deriving stock (Show, Eq)
@@ -87,6 +100,7 @@ compileReport path source = do
       , reportOptimizedANF = simplifiedANF simplified
       , reportAppliedRewrites = appliedRewrites simplified
       , reportEGraph = optimizeANF anf
+      , reportEgglog = tryOptimizeWithEgglog defaultRunConfig anf
       , reportCore = optimize (lower parsed)
       }
 
@@ -101,6 +115,7 @@ renderFullReport report =
     , section "Optimized ANF IR" (renderANF (reportOptimizedANF report))
     , section "Applied Rewrites" (renderAppliedRewrites (reportAppliedRewrites report))
     , section "EGraph Optimized ANF IR" (renderEGraphReport (reportEGraph report))
+    , section "Egglog Optimizer" (renderEgglogReport (reportEgglog report))
     , section "Core IR" (renderCore (reportCore report))
     ]
 
@@ -141,3 +156,42 @@ renderEGraphReport = \case
       ]
   Left err ->
     renderEGraphError err
+
+renderEgglogReport :: EgglogOptimizationAttempt -> Text
+renderEgglogReport = \case
+  EgglogOptimized result ->
+    Text.unlines
+      [ "status: optimized"
+      , "optimized ANF:"
+      , renderANF (optimizedANF result)
+      , "original cost: " <> Text.pack (show (originalCost (extractionStats result)))
+      , "optimized cost: " <> Text.pack (show (optimizedCost (extractionStats result)))
+      , "run iterations: " <> Text.pack (show (runIterations (runStats result)))
+      , "rebuild iterations: " <> Text.pack (show (rebuildIterations (rebuildStats result)))
+      , "unions: " <> Text.pack (show (unionsCreated (rebuildStats result)))
+      , "function entries: " <> Text.pack (show (functionEntries result))
+      , "saturation: " <> yesNo (runSaturated (runStats result))
+      , "canonicalized entries: " <> Text.pack (show (canonicalizedEntries (rebuildStats result)))
+      , "merge conflicts: " <> Text.pack (show (mergeConflicts (rebuildStats result)))
+      , "rules: " <> renderAppliedRuleSummary (appliedRules result)
+      ]
+  EgglogUnsupported err ->
+    Text.unlines
+      [ "status: unsupported"
+      , "reason: " <> renderEgglogBackendError err
+      ]
+  EgglogFailed err ->
+    Text.unlines
+      [ "status: failed"
+      , "reason: " <> renderEgglogBackendError err
+      ]
+
+renderAppliedRuleSummary :: [AppliedRuleSummary] -> Text
+renderAppliedRuleSummary rules =
+  case map (renderFunctionName . appliedRuleName) rules of
+    [] -> "none"
+    names -> Text.intercalate ", " names
+
+yesNo :: Bool -> Text
+yesNo True = "yes"
+yesNo False = "no"

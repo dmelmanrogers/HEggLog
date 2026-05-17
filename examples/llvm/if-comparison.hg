@@ -1,0 +1,2 @@
+let x = 3 in
+if x < 5 then x * 2 else x * 3
