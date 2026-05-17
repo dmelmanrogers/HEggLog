@@ -9,7 +9,7 @@ import qualified Backend.LLVM.Toolchain as LLVMTools
 import qualified Backend.LLVM.Validate as LV
 import qualified Backend.Lower as BL
 import qualified Backend.Validate as BV
-import CLI.Report (compileReport, renderGoldenReport)
+import CLI.Report (compileReport, renderCompileError, renderGoldenReport)
 import Control.Monad (unless)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -91,6 +91,14 @@ testGroups =
       , ioTest "let Bool arithmetic fails" $
           checkTypeError "examples/type-errors/let-bool-arithmetic.hg" (ExpectedIntOperand Add TBool)
       , pureTest "out-of-range Int literal fails" testOutOfRangeIntLiteralTypeError
+      ]
+  , TestGroup
+      "Diagnostics"
+      [ pureTest "parser diagnostics include source location" testParserDiagnosticIncludesLocation
+      , ioTest "type error diagnostic golden" $
+          checkDiagnosticGolden "examples/type-errors/add-bool.hg" "test/golden/diagnostic-type-add-bool.golden"
+      , ioTest "LLVM unsupported diagnostic golden" $
+          checkLLVMDiagnosticGolden "\\x : Int -> x" "test/golden/diagnostic-llvm-lambda.golden"
       ]
   , TestGroup
       "Interpreter"
@@ -349,6 +357,16 @@ checkTypeError path expectedTypeError = do
         expectEqual "type error" expectedTypeError actualTypeError
       Right actualType ->
         Left ("expected typechecking to fail, got " <> show actualType)
+
+testParserDiagnosticIncludesLocation :: Either String ()
+testParserDiagnosticIncludesLocation =
+  case parseProgram "examples/bad.hg" "let" of
+    Left parseError ->
+      assertBool
+        "parse diagnostic should include file, line, and column"
+        ("examples/bad.hg:1:4:" `Text.isInfixOf` Text.pack (errorBundlePretty parseError))
+    Right parsed ->
+      Left ("expected parser to fail, got " <> show parsed)
 
 testANFNestedArithmetic :: Either String ()
 testANFNestedArithmetic = do
@@ -1672,6 +1690,27 @@ checkGolden sourcePath goldenPath = do
   pure $ do
     report <- mapLeft show (compileReport sourcePath source)
     expectEqualText "golden output" expected (renderGoldenReport report)
+
+checkDiagnosticGolden :: FilePath -> FilePath -> IO (Either String ())
+checkDiagnosticGolden sourcePath goldenPath = do
+  source <- Text.IO.readFile sourcePath
+  expected <- Text.IO.readFile goldenPath
+  pure $
+    case compileReport sourcePath source of
+      Left err ->
+        expectEqualText "diagnostic golden output" expected (renderCompileError err)
+      Right report ->
+        Left ("expected diagnostic failure, got report:\n" <> Text.unpack (renderGoldenReport report))
+
+checkLLVMDiagnosticGolden :: Text -> FilePath -> IO (Either String ())
+checkLLVMDiagnosticGolden source goldenPath = do
+  expected <- Text.IO.readFile goldenPath
+  pure $
+    case BC.compileToLLVM BC.defaultCompileLLVMOptions "<llvm-diagnostic>" source of
+      Left err ->
+        expectEqualText "LLVM diagnostic golden output" (Text.stripEnd expected) (BC.renderCompileLLVMError err)
+      Right result ->
+        Left ("expected LLVM diagnostic failure, got LLVM:\n" <> Text.unpack (BC.llvmText result))
 
 checkProperty :: Testable prop => prop -> IO (Either String ())
 checkProperty prop = do

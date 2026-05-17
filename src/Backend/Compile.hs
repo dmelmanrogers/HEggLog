@@ -21,12 +21,20 @@ import IR.ANF
 import IR.ANF.Validate
 import Optimize.EgglogBackend
 import qualified Egglog.Eval as Egglog
-import Syntax.AST (Expr, Type)
-import Syntax.Parser (parseProgram)
+import Syntax.AST (BinOp (..), Expr, Type)
+import Syntax.Located
+  ( LocatedExpr
+  , LocatedExprNode (..)
+  , locatedExprNode
+  , locatedExprSpan
+  , stripLocatedExpr
+  )
+import Syntax.Parser (parseLocatedProgram)
 import Syntax.Pretty (prettyType, renderDoc)
+import Syntax.Span (SourceSpan, renderSourceDiagnostic)
 import Text.Megaparsec (errorBundlePretty)
-import Typecheck.Infer (infer)
-import Typecheck.Types (TypeError, renderTypeError)
+import Typecheck.Infer (inferLocated)
+import Typecheck.Types (LocatedTypeError, renderLocatedTypeError)
 
 data CompileLLVMOptions = CompileLLVMOptions
   { compileUseEgglog :: Bool
@@ -59,7 +67,8 @@ data LLVMCompileResult = LLVMCompileResult
 
 data CompileLLVMError
   = LLVMCompileParseError Text
-  | LLVMCompileTypeError TypeError
+  | LLVMCompileTypeError LocatedTypeError
+  | LLVMCompileUnsupportedSource SourceSpan Text
   | LLVMCompileInvalidANF ANFValidationError
   | LLVMCompileEgglogFailed EgglogBackendError
   | LLVMCompileBackendLowerError BackendLowerError
@@ -69,11 +78,15 @@ data CompileLLVMError
 compileToLLVM :: CompileLLVMOptions -> FilePath -> Text -> Either CompileLLVMError LLVMCompileResult
 compileToLLVM options path source = do
   parsed <-
-    case parseProgram path source of
+    case parseLocatedProgram path source of
       Left parseError -> Left (LLVMCompileParseError (Text.pack (errorBundlePretty parseError)))
       Right expr -> Right expr
-  inferredType <- mapLeft LLVMCompileTypeError (infer parsed)
-  let anf = toANF parsed
+  inferredType <- mapLeft LLVMCompileTypeError (inferLocated parsed)
+  case findLLVMUnsupported parsed of
+    Just (sourceRange, message) -> Left (LLVMCompileUnsupportedSource sourceRange message)
+    Nothing -> Right ()
+  let stripped = stripLocatedExpr parsed
+      anf = toANF stripped
   mapLeft LLVMCompileInvalidANF (validateANF anf)
   (selectedANF, optimizationStatus) <- selectANF options anf
   mapLeft LLVMCompileInvalidANF (validateANF selectedANF)
@@ -90,7 +103,7 @@ compileToLLVM options path source = do
       emitted = emitLLVMModule llvmModule1
   pure
     LLVMCompileResult
-      { llvmParsed = parsed
+      { llvmParsed = stripped
       , llvmSourceType = inferredType
       , llvmOriginalANF = anf
       , llvmSelectedANF = selectedANF
@@ -118,7 +131,9 @@ renderCompileLLVMError = \case
   LLVMCompileParseError parseError ->
     "parse error:\n" <> parseError
   LLVMCompileTypeError typeError ->
-    "type error: " <> renderTypeError typeError
+    renderLocatedTypeError typeError
+  LLVMCompileUnsupportedSource sourceRange message ->
+    renderSourceDiagnostic sourceRange "LLVM backend unsupported" message
   LLVMCompileInvalidANF err ->
     "invalid ANF before LLVM compilation: " <> renderANFValidationError err
   LLVMCompileEgglogFailed err ->
@@ -141,3 +156,39 @@ mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = \case
   Left value -> Left (f value)
   Right value -> Right value
+
+findLLVMUnsupported :: LocatedExpr -> Maybe (SourceSpan, Text)
+findLLVMUnsupported expr =
+  case locatedExprNode expr of
+    LInt _ ->
+      Nothing
+    LBool _ ->
+      Nothing
+    LVar _ ->
+      Nothing
+    LLet _ rhs body ->
+      firstJust [findLLVMUnsupported rhs, findLLVMUnsupported body]
+    LIf cond thenBranch elseBranch ->
+      firstJust [findLLVMUnsupported cond, findLLVMUnsupported thenBranch, findLLVMUnsupported elseBranch]
+    LBin Div lhs rhs ->
+      firstJust
+        [ findLLVMUnsupported lhs
+        , findLLVMUnsupported rhs
+        , Just (locatedExprSpan expr, "LLVM backend does not support division")
+        ]
+    LBin _ lhs rhs ->
+      firstJust [findLLVMUnsupported lhs, findLLVMUnsupported rhs]
+    LLam {} ->
+      Just (locatedExprSpan expr, "LLVM backend does not support lambda expressions")
+    LApp fn arg ->
+      firstJust
+        [ findLLVMUnsupported fn
+        , findLLVMUnsupported arg
+        , Just (locatedExprSpan expr, "LLVM backend does not support function application")
+        ]
+
+firstJust :: [Maybe a] -> Maybe a
+firstJust = \case
+  [] -> Nothing
+  Nothing : rest -> firstJust rest
+  Just value : _ -> Just value

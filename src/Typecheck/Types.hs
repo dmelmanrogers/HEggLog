@@ -1,7 +1,9 @@
 module Typecheck.Types
   ( TypeEnv
+  , LocatedTypeError (..)
   , TypeError (..)
   , emptyTypeEnv
+  , renderLocatedTypeError
   , renderTypeError
   )
 where
@@ -13,6 +15,7 @@ import Prettyprinter ((<+>))
 import qualified Runtime.Int as HInt
 import Syntax.AST
 import Syntax.Pretty (prettyBinOp, prettyName, prettyType, renderDoc)
+import Syntax.Span (SourceSpan, renderSourceDiagnostic)
 
 type TypeEnv = Map.Map Name Type
 
@@ -28,6 +31,19 @@ data TypeError
   | EqualityNotSupported Type
   | IntLiteralOutOfRange Integer
   deriving stock (Show, Eq)
+
+data LocatedTypeError = LocatedTypeError
+  { locatedTypeErrorSpan :: SourceSpan
+  , locatedTypeErrorDetail :: TypeError
+  }
+  deriving stock (Show, Eq)
+
+renderLocatedTypeError :: LocatedTypeError -> Text
+renderLocatedTypeError err =
+  renderSourceDiagnostic
+    (locatedTypeErrorSpan err)
+    "type error"
+    (renderTypeError (locatedTypeErrorDetail err))
 
 renderTypeError :: TypeError -> Text
 renderTypeError = \case

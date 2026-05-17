@@ -82,8 +82,10 @@ executable hegglog
       Optimize.Simplify
       Runtime.Int
       Syntax.AST
+      Syntax.Located
       Syntax.Parser
       Syntax.Pretty
+      Syntax.Span
       Typecheck.Infer
       Typecheck.Types
 
@@ -151,7 +153,9 @@ test-suite hegglog-test
       Optimize.Simplify
       Runtime.Int
       Syntax.AST
+      Syntax.Located
       Syntax.Parser
       Syntax.Pretty
+      Syntax.Span
       Typecheck.Infer
       Typecheck.Types

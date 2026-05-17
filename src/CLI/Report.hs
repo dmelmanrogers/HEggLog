@@ -44,11 +44,13 @@ import Optimize.Simplify
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Syntax.AST (Expr, Type)
-import Syntax.Parser (parseProgram)
+import Syntax.Located (locatedExprSpan, stripLocatedExpr)
+import Syntax.Parser (parseLocatedProgram)
 import Syntax.Pretty (prettyExpr, prettyType, renderDoc)
+import Syntax.Span (SourceSpan, renderSourceDiagnostic)
 import Text.Megaparsec (errorBundlePretty)
-import Typecheck.Infer (infer)
-import Typecheck.Types (TypeError, renderTypeError)
+import Typecheck.Infer (inferLocated)
+import Typecheck.Types (LocatedTypeError, renderLocatedTypeError)
 
 data CompileReport = CompileReport
   { reportParsed :: Expr
@@ -66,33 +68,34 @@ data CompileReport = CompileReport
 
 data CompileError
   = CompileParseError Text
-  | CompileTypeError TypeError
-  | CompileRuntimeError RuntimeError
+  | CompileTypeError LocatedTypeError
+  | CompileRuntimeError SourceSpan RuntimeError
   | CompileSimplifyError SimplifyError
   deriving stock (Show, Eq)
 
 compileReport :: FilePath -> Text -> Either CompileError CompileReport
 compileReport path source = do
   parsed <-
-    case parseProgram path source of
+    case parseLocatedProgram path source of
       Left parseError -> Left (CompileParseError (Text.pack (errorBundlePretty parseError)))
       Right expr -> Right expr
+  let stripped = stripLocatedExpr parsed
   inferredType <-
-    case infer parsed of
+    case inferLocated parsed of
       Left typeError -> Left (CompileTypeError typeError)
       Right ty -> Right ty
   value <-
-    case eval parsed of
-      Left runtimeError -> Left (CompileRuntimeError runtimeError)
+    case eval stripped of
+      Left runtimeError -> Left (CompileRuntimeError (locatedExprSpan parsed) runtimeError)
       Right result -> Right result
-  let anf = toANF parsed
+  let anf = toANF stripped
   simplified <-
     case simplifyFixpoint anf of
       Left simplifyError -> Left (CompileSimplifyError simplifyError)
       Right result -> Right result
   pure
     CompileReport
-      { reportParsed = parsed
+      { reportParsed = stripped
       , reportType = inferredType
       , reportValue = value
       , reportANF = anf
@@ -101,7 +104,7 @@ compileReport path source = do
       , reportAppliedRewrites = appliedRewrites simplified
       , reportEGraph = optimizeANF anf
       , reportEgglog = tryOptimizeWithEgglog defaultRunConfig anf
-      , reportCore = optimize (lower parsed)
+      , reportCore = optimize (lower stripped)
       }
 
 renderFullReport :: CompileReport -> Text
@@ -136,9 +139,9 @@ renderCompileError = \case
   CompileParseError parseError ->
     section "Parse error" parseError
   CompileTypeError typeError ->
-    section "Type error" (renderTypeError typeError)
-  CompileRuntimeError runtimeError ->
-    section "Runtime error" (renderRuntimeError runtimeError)
+    section "Type error" (renderLocatedTypeError typeError)
+  CompileRuntimeError sourceRange runtimeError ->
+    section "Runtime error" (renderSourceDiagnostic sourceRange "runtime error" (renderRuntimeError runtimeError))
   CompileSimplifyError simplifyError ->
     section "Simplify error" (renderSimplifyError simplifyError)
 

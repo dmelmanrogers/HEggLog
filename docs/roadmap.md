@@ -2,8 +2,8 @@
 
 This roadmap is the project-level source of truth for what exists now, what is
 being stabilized, and what should be built next. It is synchronized with the
-current codebase as of the checked `Int64` semantics, Egglog backend, and LLVM
-backend work.
+current codebase as of the checked `Int64` semantics, Egglog backend, LLVM
+backend, and source diagnostics work.
 
 ## Current Baseline
 
@@ -23,6 +23,10 @@ Implemented:
   `Add`/`Mul`, boolean and integer `if`, constants, variables, and lets.
 - Backend IR and LLVM backend v0 for closed first-order programs.
 - CLI report mode and LLVM compile mode, including optional LLVM execution.
+- Parallel located source AST used by parser, typechecker, runtime report, and
+  LLVM unsupported-feature diagnostics.
+- Stable diagnostics specification with golden negative diagnostics for
+  typechecker and LLVM unsupported-source errors.
 - HeggLog `Int` semantics as checked signed 64-bit values:
   - source and ANF interpreters use `HInt`
   - out-of-range literals are rejected
@@ -42,8 +46,8 @@ Implemented:
 
 Not implemented:
 
-- Source spans in the AST.
-- Rich diagnostics with file/line/column ranges.
+- Normalized one-line parser diagnostics beyond Megaparsec's built-in bundles.
+- Exact subexpression runtime spans beyond the root source expression.
 - Top-level definitions.
 - Backend support for first-order function calls beyond the current root.
 - Lambda lifting.
@@ -151,35 +155,40 @@ Definition of done:
 
 ## Phase 2 - Diagnostics And Source Spans
 
-Status: not started.
+Status: complete for the current compile/report surfaces.
 
 Motivation: Structured errors are necessary before larger language features make
 failures harder to inspect.
 
 Deliverables:
 
-- Add source spans to AST nodes or a parallel located AST.
-- Preserve useful spans through typechecking and core diagnostics.
-- Improve parser/typechecker/runtime/backend error rendering.
-- Add `docs/diagnostics-spec.md`.
+- Completed: add a parallel located AST for parsed expressions.
+- Completed: preserve useful spans through typechecking diagnostics.
+- Completed: improve CLI report errors with file/line/column source ranges for
+  typechecker failures and root-expression runtime failures.
+- Completed: improve LLVM compile errors with source ranges for unsupported
+  lambdas, applications, and division.
+- Completed: add `docs/diagnostics-spec.md`.
 
 Non-goals:
 
 - IDE protocol support.
 - Full recovery parsing.
+- Precise nested runtime source traces.
+- Parser diagnostic normalization beyond Megaparsec output.
 
 Acceptance criteria:
 
-- Parser and typechecker errors include file, line, column, and a useful
-  message.
+- Parser errors include file, line, and column through Megaparsec.
+- Typechecker errors include file, line, column range, and a useful message.
 - Backend unsupported-feature errors identify the source construct when
   possible.
 
 Tests required:
 
-- Golden negative diagnostics.
-- Parser and typechecker fixture coverage.
-- Backend unsupported diagnostics.
+- Completed: golden negative diagnostics.
+- Completed: parser and typechecker fixture coverage.
+- Completed: backend unsupported diagnostics.
 
 Risks:
 
@@ -187,7 +196,13 @@ Risks:
 
 Definition of done:
 
-- All user-facing compile errors have stable structured formatting.
+- Current user-facing compile errors have stable formatting, with documented
+  precision limits for parser and runtime diagnostics.
+
+Next recommended task:
+
+- Start Phase 3 by strengthening LLVM backend correctness around runtime-error
+  equivalence and executable workflow documentation.
 
 ## Phase 3 - LLVM Backend Correctness
 

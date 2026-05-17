@@ -1,5 +1,6 @@
 module Syntax.Parser
   ( Parser
+  , parseLocatedProgram
   , parseProgram
   )
 where
@@ -11,6 +12,13 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Void (Void)
 import Syntax.AST
+import Syntax.Located
+import Syntax.Span
+  ( SourceSpan
+  , mergeSourceSpans
+  , sourceSpan
+  , sourceSpanFromStart
+  )
 import Text.Megaparsec
   ( MonadParsec (eof, notFollowedBy, try)
   , Parsec
@@ -18,6 +26,7 @@ import Text.Megaparsec
   , between
   , chunk
   , choice
+  , getSourcePos
   , parse
   , satisfy
   )
@@ -28,9 +37,13 @@ type Parser = Parsec Void Text
 
 parseProgram :: FilePath -> Text -> Either (ParseErrorBundle Text Void) Expr
 parseProgram path =
+  fmap stripLocatedExpr . parseLocatedProgram path
+
+parseLocatedProgram :: FilePath -> Text -> Either (ParseErrorBundle Text Void) LocatedExpr
+parseLocatedProgram path =
   parse (spaceConsumer *> expr <* eof) path
 
-expr :: Parser Expr
+expr :: Parser LocatedExpr
 expr =
   choice
     [ letExpr
@@ -39,65 +52,71 @@ expr =
     , equalityExpr
     ]
 
-letExpr :: Parser Expr
+letExpr :: Parser LocatedExpr
 letExpr = do
+  start <- getSourcePos
   reserved "let"
   name <- identifier
   voidSymbol "="
   rhs <- expr
   reserved "in"
-  ELet name rhs <$> expr
+  body <- expr
+  pure (LocatedExpr (sourceSpanFromStart start (locatedExprSpan body)) (LLet name rhs body))
 
-ifExpr :: Parser Expr
+ifExpr :: Parser LocatedExpr
 ifExpr = do
+  start <- getSourcePos
   reserved "if"
   cond <- expr
   reserved "then"
   thenBranch <- expr
   reserved "else"
-  EIf cond thenBranch <$> expr
+  elseBranch <- expr
+  pure (LocatedExpr (sourceSpanFromStart start (locatedExprSpan elseBranch)) (LIf cond thenBranch elseBranch))
 
-lambdaExpr :: Parser Expr
+lambdaExpr :: Parser LocatedExpr
 lambdaExpr = do
+  start <- getSourcePos
   void (symbol "\\")
   name <- identifier
   voidSymbol ":"
   argType <- typeExpr
   voidSymbol "->"
-  ELam name argType <$> expr
+  body <- expr
+  pure (LocatedExpr (sourceSpanFromStart start (locatedExprSpan body)) (LLam name argType body))
 
-equalityExpr :: Parser Expr
+equalityExpr :: Parser LocatedExpr
 equalityExpr =
   comparisonExpr `chainLeft` [("==", Eq)]
 
-comparisonExpr :: Parser Expr
+comparisonExpr :: Parser LocatedExpr
 comparisonExpr =
   additiveExpr `chainLeft` [("<", Lt)]
 
-additiveExpr :: Parser Expr
+additiveExpr :: Parser LocatedExpr
 additiveExpr =
   multiplicativeExpr `chainLeft` [("+", Add), ("-", Sub)]
 
-multiplicativeExpr :: Parser Expr
+multiplicativeExpr :: Parser LocatedExpr
 multiplicativeExpr =
   applicationExpr `chainLeft` [("*", Mul), ("/", Div)]
 
-applicationExpr :: Parser Expr
+applicationExpr :: Parser LocatedExpr
 applicationExpr = do
   atoms <- some atom
-  pure (foldl1 EApp atoms)
+  pure (foldl1 locatedApp atoms)
 
-atom :: Parser Expr
+atom :: Parser LocatedExpr
 atom =
   choice
-    [ parens expr
-    , EBool True <$ reserved "true"
-    , EBool False <$ reserved "false"
-    , EInt <$> integer
-    , EVar <$> identifier
+    [ parensExpr
+    , locatedReserved "true" (LBool True)
+    , locatedReserved "false" (LBool False)
+    , locatedInt
+    , locatedVar
     ]
 
-chainLeft :: Parser Expr -> [(Text, BinOp)] -> Parser Expr
+chainLeft :: Parser LocatedExpr -> [(Text, BinOp)] -> Parser LocatedExpr
 chainLeft operand ops = do
   firstOperand <- operand
   rest firstOperand
@@ -106,20 +125,51 @@ chainLeft operand ops = do
     ( do
         op <- choice [operator symbolText binOp | (symbolText, binOp) <- ops]
         rhs <- operand
-        rest (EBin op lhs rhs)
+        rest (locatedBin op lhs rhs)
     )
       <|> pure lhs
+
+locatedApp :: LocatedExpr -> LocatedExpr -> LocatedExpr
+locatedApp fn arg =
+  LocatedExpr (mergeSourceSpans (locatedExprSpan fn) (locatedExprSpan arg)) (LApp fn arg)
+
+locatedBin :: BinOp -> LocatedExpr -> LocatedExpr -> LocatedExpr
+locatedBin op lhs rhs =
+  LocatedExpr (mergeSourceSpans (locatedExprSpan lhs) (locatedExprSpan rhs)) (LBin op lhs rhs)
 
 operator :: Text -> BinOp -> Parser BinOp
 operator symbolText binOp =
   binOp <$ symbol symbolText
 
-integer :: Parser Integer
-integer =
-  lexeme L.decimal
+locatedInt :: Parser LocatedExpr
+locatedInt = do
+  (value, sourceRange) <- lexemeSpanned L.decimal
+  pure (LocatedExpr sourceRange (LInt value))
+
+locatedVar :: Parser LocatedExpr
+locatedVar = do
+  (name, sourceRange) <- lexemeSpanned identifierRaw
+  pure (LocatedExpr sourceRange (LVar name))
+
+locatedReserved :: Text -> LocatedExprNode -> Parser LocatedExpr
+locatedReserved word node = do
+  ((), sourceRange) <- lexemeSpanned (reservedRaw word)
+  pure (LocatedExpr sourceRange node)
+
+parensExpr :: Parser LocatedExpr
+parensExpr = do
+  start <- getSourcePos
+  voidSymbol "("
+  inner <- expr
+  (_, closeSpan) <- lexemeSpanned (chunk ")")
+  pure (LocatedExpr (sourceSpanFromStart start closeSpan) (locatedExprNode inner))
 
 identifier :: Parser Name
-identifier = lexeme . try $ do
+identifier =
+  lexeme identifierRaw
+
+identifierRaw :: Parser Name
+identifierRaw = try $ do
   firstChar <- satisfy isIdentStart
   restChars <- many (satisfy isIdentRest)
   let ident = Text.pack (firstChar : restChars)
@@ -129,7 +179,10 @@ identifier = lexeme . try $ do
 
 reserved :: Text -> Parser ()
 reserved word =
-  lexeme . try $ do
+  lexeme (reservedRaw word)
+
+reservedRaw :: Text -> Parser ()
+reservedRaw word = try $ do
     voidText word
     notFollowedBy (satisfy isIdentRest)
 
@@ -168,7 +221,7 @@ parens =
 
 symbol :: Text -> Parser Text
 symbol =
-  L.symbol spaceConsumer
+  lexeme . chunk
 
 voidSymbol :: Text -> Parser ()
 voidSymbol symbolText =
@@ -181,6 +234,14 @@ voidText text =
 lexeme :: Parser a -> Parser a
 lexeme =
   L.lexeme spaceConsumer
+
+lexemeSpanned :: Parser a -> Parser (a, SourceSpan)
+lexemeSpanned parser = do
+  start <- getSourcePos
+  result <- parser
+  end <- getSourcePos
+  spaceConsumer
+  pure (result, sourceSpan start end)
 
 spaceConsumer :: Parser ()
 spaceConsumer =

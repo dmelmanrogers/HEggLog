@@ -12,6 +12,7 @@ Current semantic specs:
 
 - [Language specification](docs/language-spec.md)
 - [Runtime specification](docs/runtime-spec.md)
+- [Diagnostics specification](docs/diagnostics-spec.md)
 
 ## Build
 
@@ -85,6 +86,8 @@ generalization are intentionally out of scope for this slice.
 ## Architecture
 
 - `Syntax.*` owns parsed source syntax and pretty-printing.
+- `Syntax.Located` carries source ranges for diagnostics while preserving the
+  unspanned AST used by semantic passes.
 - `Typecheck.*` performs a simple environment-based typecheck with no
   Hindley-Milner generalization.
 - `Eval.*` interprets checked expressions into runtime values.
@@ -130,6 +133,7 @@ The test suite is grouped by compiler concern:
 
 - parser precedence and grouping
 - structured negative typechecking cases
+- parser/typechecker/backend diagnostic location and golden formatting
 - source-vs-ANF semantic preservation
 - ANF validation and invariants
 - relational fact inference
