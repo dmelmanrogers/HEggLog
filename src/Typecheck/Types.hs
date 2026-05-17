@@ -31,6 +31,10 @@ data TypeError
   | ExpectedBoolCondition Type
   | ExpectedFunction Type
   | EqualityNotSupported Type
+  | AmbiguousLambdaParameter Name
+  | AmbiguousExpressionType
+  | AmbiguousEqualityOperand
+  | RecursiveType
   | TopLevelFunctionTypeUnsupported Name Type
   | IntLiteralOutOfRange Integer
   deriving stock (Show, Eq)
@@ -66,6 +70,14 @@ renderTypeError = \case
     renderDoc ("expected a function, got" <+> prettyType actual)
   EqualityNotSupported actual ->
     renderDoc ("equality is only supported for Int and Bool, got" <+> prettyType actual)
+  AmbiguousLambdaParameter name ->
+    renderDoc ("cannot infer a monomorphic type for lambda parameter:" <+> prettyName name)
+  AmbiguousExpressionType ->
+    "cannot infer a monomorphic type for this expression"
+  AmbiguousEqualityOperand ->
+    "cannot infer whether equality operands are Int or Bool"
+  RecursiveType ->
+    "recursive function types are not supported"
   TopLevelFunctionTypeUnsupported name ty ->
     renderDoc ("top-level first-order function" <+> prettyName name <+> "cannot use function type" <+> prettyType ty)
   IntLiteralOutOfRange value ->

@@ -67,7 +67,7 @@ expr        ::= letExpr
 
 letExpr     ::= "let" name "=" expr "in" expr
 ifExpr      ::= "if" expr "then" expr "else" expr
-lambdaExpr  ::= "\" name ":" type "->" expr
+lambdaExpr  ::= "\" name (":" type)? "->" expr
 
 equality    ::= comparison ("==" comparison)*
 comparison  ::= additive ("<" additive)*
@@ -110,9 +110,10 @@ Bool
 T1 -> T2
 ```
 
-Function parameters require annotations in source syntax. The compiler now has
-a separate principal-type inference engine for the current annotated language,
-but optional annotations, user-facing Hindley-Milner generalization,
+Top-level function parameters and returns require annotations in source syntax.
+Lambda parameter annotations are optional when the compiler can infer a concrete
+monomorphic type from local use and surrounding context. Ambiguous lambda
+parameters, ambiguous equality operands, user-facing Hindley-Milner
 polymorphism, algebraic data types, and pattern matching are not source features
 yet. The staged inference direction is documented in `docs/type-inference.md`.
 
@@ -218,10 +219,14 @@ currently rejects division structurally.
 
 ```text
 \x : Type -> body
+\x -> body
 ```
 
 Lambdas capture their lexical environment in the interpreter and have function
-type `Type -> BodyType`.
+type `Type -> BodyType`. When the annotation is omitted, source elaboration
+infers the parameter type before interpretation, ANF lowering, lambda lifting,
+closure conversion, or LLVM lowering. The backend only sees explicit
+monomorphic function types.
 
 The LLVM backend lambda-lifts non-capturing lambdas when they are let-bound or
 used directly in function position. Lifted lambdas become generated top-level
@@ -315,5 +320,5 @@ though negative source literals are not syntax yet.
 
 ## Planned Features
 
-- Optional annotation syntax and user-facing Hindley-Milner inference.
+- User-facing Hindley-Milner polymorphism and optional top-level signatures.
 - Algebraic data types and pattern matching, later.

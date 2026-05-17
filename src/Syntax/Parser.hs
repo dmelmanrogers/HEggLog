@@ -7,7 +7,7 @@ module Syntax.Parser
   )
 where
 
-import Control.Applicative (empty, many, some, (<|>))
+import Control.Applicative (empty, many, optional, some, (<|>))
 import Control.Monad (void)
 import Data.Char (isAlphaNum, isLetter)
 import Data.Text (Text)
@@ -38,29 +38,37 @@ import qualified Text.Megaparsec.Char.Lexer as L
 
 type Parser = Parsec Void Text
 
+data LambdaAnnotationMode
+  = RequireLambdaAnnotation
+  | AllowInferredLambdaAnnotation
+
 parseProgram :: FilePath -> Text -> Either (ParseErrorBundle Text Void) Expr
 parseProgram path =
   fmap stripLocatedExpr . parseLocatedProgram path
 
 parseSourceProgram :: FilePath -> Text -> Either (ParseErrorBundle Text Void) Program
 parseSourceProgram path =
-  fmap stripLocatedProgram . parseLocatedSourceProgram path
+  fmap stripLocatedProgram . parseTypedLocatedSourceProgram path
 
 parseLocatedProgram :: FilePath -> Text -> Either (ParseErrorBundle Text Void) LocatedExpr
 parseLocatedProgram path =
-  parse (spaceConsumer *> expr <* eof) path
+  parse (spaceConsumer *> expr RequireLambdaAnnotation <* eof) path
 
 parseLocatedSourceProgram :: FilePath -> Text -> Either (ParseErrorBundle Text Void) LocatedProgram
 parseLocatedSourceProgram path =
-  parse (spaceConsumer *> sourceProgram <* eof) path
+  parse (spaceConsumer *> sourceProgram AllowInferredLambdaAnnotation <* eof) path
 
-sourceProgram :: Parser LocatedProgram
-sourceProgram = do
-  defs <- many topDef
-  LocatedProgram defs <$> expr
+parseTypedLocatedSourceProgram :: FilePath -> Text -> Either (ParseErrorBundle Text Void) LocatedProgram
+parseTypedLocatedSourceProgram path =
+  parse (spaceConsumer *> sourceProgram RequireLambdaAnnotation <* eof) path
 
-topDef :: Parser LocatedTopDef
-topDef = do
+sourceProgram :: LambdaAnnotationMode -> Parser LocatedProgram
+sourceProgram mode = do
+  defs <- many (topDef mode)
+  LocatedProgram defs <$> expr mode
+
+topDef :: LambdaAnnotationMode -> Parser LocatedTopDef
+topDef mode = do
   start <- getSourcePos
   reserved "def"
   name <- identifier
@@ -68,7 +76,7 @@ topDef = do
   voidSymbol ":"
   returnType <- typeExpr
   voidSymbol "="
-  body <- expr
+  body <- expr mode
   (_, closeSpan) <- lexemeSpanned (chunk ";")
   pure
     LocatedTopDef
@@ -88,73 +96,77 @@ topParam = do
   end <- getSourcePos
   pure (LocatedParam (sourceSpan start end) (Param name ty))
 
-expr :: Parser LocatedExpr
-expr =
+expr :: LambdaAnnotationMode -> Parser LocatedExpr
+expr mode =
   choice
-    [ letExpr
-    , ifExpr
-    , lambdaExpr
-    , equalityExpr
+    [ letExpr mode
+    , ifExpr mode
+    , lambdaExpr mode
+    , equalityExpr mode
     ]
 
-letExpr :: Parser LocatedExpr
-letExpr = do
+letExpr :: LambdaAnnotationMode -> Parser LocatedExpr
+letExpr mode = do
   start <- getSourcePos
   reserved "let"
   name <- identifier
   voidSymbol "="
-  rhs <- expr
+  rhs <- expr mode
   reserved "in"
-  body <- expr
+  body <- expr mode
   pure (LocatedExpr (sourceSpanFromStart start (locatedExprSpan body)) (LLet name rhs body))
 
-ifExpr :: Parser LocatedExpr
-ifExpr = do
+ifExpr :: LambdaAnnotationMode -> Parser LocatedExpr
+ifExpr mode = do
   start <- getSourcePos
   reserved "if"
-  cond <- expr
+  cond <- expr mode
   reserved "then"
-  thenBranch <- expr
+  thenBranch <- expr mode
   reserved "else"
-  elseBranch <- expr
+  elseBranch <- expr mode
   pure (LocatedExpr (sourceSpanFromStart start (locatedExprSpan elseBranch)) (LIf cond thenBranch elseBranch))
 
-lambdaExpr :: Parser LocatedExpr
-lambdaExpr = do
+lambdaExpr :: LambdaAnnotationMode -> Parser LocatedExpr
+lambdaExpr mode = do
   start <- getSourcePos
   void (symbol "\\")
   name <- identifier
-  voidSymbol ":"
-  argType <- typeExpr
+  argType <-
+    case mode of
+      RequireLambdaAnnotation ->
+        Just <$> (voidSymbol ":" *> typeExpr)
+      AllowInferredLambdaAnnotation ->
+        optional (voidSymbol ":" *> typeExpr)
   voidSymbol "->"
-  body <- expr
+  body <- expr mode
   pure (LocatedExpr (sourceSpanFromStart start (locatedExprSpan body)) (LLam name argType body))
 
-equalityExpr :: Parser LocatedExpr
-equalityExpr =
-  comparisonExpr `chainLeft` [("==", Eq)]
+equalityExpr :: LambdaAnnotationMode -> Parser LocatedExpr
+equalityExpr mode =
+  comparisonExpr mode `chainLeft` [("==", Eq)]
 
-comparisonExpr :: Parser LocatedExpr
-comparisonExpr =
-  additiveExpr `chainLeft` [("<", Lt)]
+comparisonExpr :: LambdaAnnotationMode -> Parser LocatedExpr
+comparisonExpr mode =
+  additiveExpr mode `chainLeft` [("<", Lt)]
 
-additiveExpr :: Parser LocatedExpr
-additiveExpr =
-  multiplicativeExpr `chainLeft` [("+", Add), ("-", Sub)]
+additiveExpr :: LambdaAnnotationMode -> Parser LocatedExpr
+additiveExpr mode =
+  multiplicativeExpr mode `chainLeft` [("+", Add), ("-", Sub)]
 
-multiplicativeExpr :: Parser LocatedExpr
-multiplicativeExpr =
-  applicationExpr `chainLeft` [("*", Mul), ("/", Div)]
+multiplicativeExpr :: LambdaAnnotationMode -> Parser LocatedExpr
+multiplicativeExpr mode =
+  applicationExpr mode `chainLeft` [("*", Mul), ("/", Div)]
 
-applicationExpr :: Parser LocatedExpr
-applicationExpr = do
-  atoms <- some atom
+applicationExpr :: LambdaAnnotationMode -> Parser LocatedExpr
+applicationExpr mode = do
+  atoms <- some (atom mode)
   pure (foldl1 locatedApp atoms)
 
-atom :: Parser LocatedExpr
-atom =
+atom :: LambdaAnnotationMode -> Parser LocatedExpr
+atom mode =
   choice
-    [ parensExpr
+    [ parensExpr mode
     , locatedReserved "true" (LBool True)
     , locatedReserved "false" (LBool False)
     , locatedInt
@@ -201,11 +213,11 @@ locatedReserved word node = do
   ((), sourceRange) <- lexemeSpanned (reservedRaw word)
   pure (LocatedExpr sourceRange node)
 
-parensExpr :: Parser LocatedExpr
-parensExpr = do
+parensExpr :: LambdaAnnotationMode -> Parser LocatedExpr
+parensExpr mode = do
   start <- getSourcePos
   voidSymbol "("
-  inner <- expr
+  inner <- expr mode
   (_, closeSpan) <- lexemeSpanned (chunk ")")
   pure (LocatedExpr (sourceSpanFromStart start closeSpan) (locatedExprNode inner))
 

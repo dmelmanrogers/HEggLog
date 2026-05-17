@@ -9,7 +9,7 @@ import qualified Backend.LLVM.Toolchain as LLVMTools
 import qualified Backend.LLVM.Validate as LV
 import qualified Backend.Lower as BL
 import qualified Backend.Validate as BV
-import CLI.Report (compileReport, renderCompileError, renderGoldenReport)
+import CLI.Report (CompileError (..), CompileReport (..), compileReport, renderCompileError, renderGoldenReport)
 import Control.Monad (unless)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -46,12 +46,13 @@ import Optimize.Simplify
 import Runtime.Int (HInt, IntError (IntOverflow), hintToInteger, maxHIntInteger, unsafeHIntLiteral)
 import Syntax.AST
 import Syntax.Parser (parseProgram, parseSourceProgram)
+import Syntax.Span (SourceSpan (..))
 import System.Exit (exitFailure)
 import Test.QuickCheck hiding (NonZero, label)
 import Text.Megaparsec (errorBundlePretty)
 import Typecheck.Infer (infer, inferProgram)
 import qualified Typecheck.Principal as Principal
-import Typecheck.Types (TypeError (..), renderTypeError)
+import Typecheck.Types (LocatedTypeError (..), TypeError (..), renderTypeError)
 
 data TestGroup = TestGroup String [Test]
 
@@ -82,6 +83,11 @@ testGroups =
   , TestGroup
       "Typechecker"
       [ pureTest "higher-order lambda annotation parses and types" testHigherOrderType
+      , pureTest "optional lambda parameter infers Int" testOptionalLambdaParameterInference
+      , pureTest "optional lambda equality waits for context" testOptionalLambdaEqualityContext
+      , pureTest "optional lambda parameter resolves through let use" testOptionalLambdaLetUse
+      , pureTest "optional lambda let remains monomorphic" testOptionalLambdaLetMonomorphic
+      , pureTest "optional lambda ambiguity is source-spanned" testOptionalLambdaAmbiguity
       , pureTest "principal type engine infers annotated identity" testPrincipalIdentityType
       , pureTest "principal type engine infers higher-order closures" testPrincipalHigherOrderType
       , pureTest "principal type engine preserves monomorphic lets" testPrincipalMonomorphicLet
@@ -277,6 +283,7 @@ testGroups =
       , pureTest "LLVM compiler lambda lifts non-capturing lets" testLLVMCompileLiftedLetLambda
       , pureTest "LLVM compiler lambda lifts immediate lambdas" testLLVMCompileImmediateLambda
       , pureTest "LLVM compiler closure-converts capturing lambdas" testLLVMCompileCapturingLambda
+      , pureTest "LLVM compiler closure-converts inferred capturing lambdas" testLLVMCompileInferredCapturingLambda
       , ioTest "LLVM checked Int overflow aborts when tools are available" testLLVMOverflowAborts
       , ioTest "LLVM arithmetic golden" $
           checkLLVMGolden "examples/llvm/arithmetic.hg" "test/golden/llvm-arithmetic.ll"
@@ -379,6 +386,47 @@ testHigherOrderType = do
   parsed <- parseExpr "\\f : (Int -> Int) -> f 1"
   actualType <- mapLeft (showText . renderTypeError) (infer parsed)
   expectEqual "higher-order lambda type" (TFun (TFun TInt TInt) TInt) actualType
+
+testOptionalLambdaParameterInference :: Either String ()
+testOptionalLambdaParameterInference = do
+  report <- mapLeft (showText . renderCompileError) (compileReport "<test>" "(\\x -> x + 1) 41")
+  expectEqual "optional lambda source type" TInt (reportType report)
+  expectEqual "optional lambda value" (sourceInt 42) (reportValue report)
+  expectEqual
+    "elaborated lambda parameter type"
+    (EApp (ELam (mkName "x") TInt (EBin Add (EVar (mkName "x")) (EInt 1))) (EInt 41))
+    (programMain (reportParsed report))
+
+testOptionalLambdaEqualityContext :: Either String ()
+testOptionalLambdaEqualityContext = do
+  report <- mapLeft (showText . renderCompileError) (compileReport "<test>" "(\\x -> x == x) true")
+  expectEqual "optional equality source type" TBool (reportType report)
+  expectEqual "optional equality value" (VBool True) (reportValue report)
+
+testOptionalLambdaLetUse :: Either String ()
+testOptionalLambdaLetUse = do
+  report <- mapLeft (showText . renderCompileError) (compileReport "<test>" "let id = \\x -> x in id 41")
+  expectEqual "let-constrained optional lambda source type" TInt (reportType report)
+  expectEqual "let-constrained optional lambda value" (sourceInt 41) (reportValue report)
+
+testOptionalLambdaLetMonomorphic :: Either String ()
+testOptionalLambdaLetMonomorphic =
+  case compileReport "<test>" "let id = \\x -> x in let a = id 1 in id true" of
+    Left (CompileTypeError (LocatedTypeError _ (TypeMismatch TInt TBool))) -> Right ()
+    other -> Left ("expected monomorphic optional lambda let mismatch, got " <> show other)
+
+testOptionalLambdaAmbiguity :: Either String ()
+testOptionalLambdaAmbiguity =
+  case compileReport "<test>" "\\x -> x" of
+    Left err@(CompileTypeError (LocatedTypeError sourceRange (AmbiguousLambdaParameter name)))
+      | name == mkName "x" ->
+          expectEqual "ambiguity diagnostic file" "<test>" (spanFile sourceRange)
+            *> expectEqual "ambiguity diagnostic line" 1 (spanStartLine sourceRange)
+            *> expectEqual "ambiguity diagnostic column" 1 (spanStartColumn sourceRange)
+            *> assertBool
+              "ambiguity diagnostic includes parameter message"
+              ("cannot infer a monomorphic type for lambda parameter: x" `Text.isInfixOf` renderCompileError err)
+    other -> Left ("expected source-spanned lambda ambiguity, got " <> show other)
 
 testPrincipalIdentityType :: Either String ()
 testPrincipalIdentityType = do
@@ -1604,6 +1652,16 @@ testLLVMCompileCapturingLambda = do
     ("store ptr @hegglog_fun__uclosure_uf_u0" `Text.isInfixOf` llvmText)
   assertBool
     "closure call dispatches through loaded code pointer"
+    ("call i64 %closure_code" `Text.isInfixOf` llvmText)
+
+testLLVMCompileInferredCapturingLambda :: Either String ()
+testLLVMCompileInferredCapturingLambda = do
+  llvmText <- compileLLVMTextNoEgglog "let x = 1 in let f = \\y -> x + y in f 2"
+  assertBool
+    "inferred capturing lambda gets typed closure code function"
+    ("define i64 @hegglog_fun__uclosure_uf_u0(ptr %arg__uenv0, i64 %arg_y)" `Text.isInfixOf` llvmText)
+  assertBool
+    "inferred closure call dispatches through loaded code pointer"
     ("call i64 %closure_code" `Text.isInfixOf` llvmText)
 
 testLLVMOverflowAborts :: IO (Either String ())

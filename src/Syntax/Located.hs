@@ -42,7 +42,7 @@ data LocatedExprNode
   | LLet Name LocatedExpr LocatedExpr
   | LIf LocatedExpr LocatedExpr LocatedExpr
   | LBin BinOp LocatedExpr LocatedExpr
-  | LLam Name Type LocatedExpr
+  | LLam Name (Maybe Type) LocatedExpr
   | LApp LocatedExpr LocatedExpr
   deriving stock (Show, Eq)
 
@@ -69,8 +69,10 @@ stripLocatedExpr (LocatedExpr _ node) =
       EIf (stripLocatedExpr cond) (stripLocatedExpr thenBranch) (stripLocatedExpr elseBranch)
     LBin op lhs rhs ->
       EBin op (stripLocatedExpr lhs) (stripLocatedExpr rhs)
-    LLam name argType body ->
+    LLam name (Just argType) body ->
       ELam name argType (stripLocatedExpr body)
+    LLam {} ->
+      error "cannot strip located program before lambda parameter annotations are inferred"
     LApp fn arg ->
       EApp (stripLocatedExpr fn) (stripLocatedExpr arg)
 

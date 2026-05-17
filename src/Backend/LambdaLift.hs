@@ -167,8 +167,10 @@ lambdaChain =
  where
   go params (LocatedExpr sourceRange node) =
     case node of
-      LLam name ty body ->
+      LLam name (Just ty) body ->
         go (params <> [LocatedParam sourceRange (Param name ty)]) body
+      LLam _ Nothing _ ->
+        Nothing
       _ | null params -> Nothing
       _ -> Just LambdaChain {chainParams = params, chainBody = LocatedExpr sourceRange node}
 

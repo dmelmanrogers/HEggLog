@@ -4,7 +4,8 @@ This roadmap is the project-level source of truth for what exists now, what is
 being stabilized, and what should be built next. It is synchronized with the
 current codebase as of the checked `Int64` semantics, Egglog backend, LLVM
 backend, source diagnostics, top-level first-order functions, lambda lifting,
-closure conversion runtime work, and the first type-inference direction step.
+closure conversion runtime work, and optional monomorphic lambda parameter
+inference.
 
 ## Current Baseline
 
@@ -12,9 +13,10 @@ Implemented:
 
 - Parser and pretty-printer for expression-level HeggLog plus ordered top-level
   first-order definitions.
-- Production typechecker with explicit function parameter annotations.
-- Separate Algorithm W-style principal-type engine for the current annotated
-  source language.
+- Production typechecker with explicit top-level signatures and optional lambda
+  parameter annotation elaboration.
+- Separate Algorithm W-style principal-type engine and located source
+  elaborator for monomorphic lambda inference.
 - Typechecking and source interpretation for ordered nonrecursive top-level
   definitions.
 - Source interpreter and ANF interpreter.
@@ -67,14 +69,14 @@ Implemented:
   definitions, lambda lifting, closure runtime layout, and current decision
   points.
 - Type inference direction document covering principal-type infrastructure,
-  optional annotation sequencing, and polymorphism deferral.
+  completed optional lambda annotations, and polymorphism deferral.
 
 Not implemented:
 
 - Normalized one-line parser diagnostics beyond Megaparsec's built-in bundles.
 - Exact subexpression runtime spans beyond the root source expression.
 - Long-term heap ownership policy beyond process-lifetime closure allocation.
-- User-facing optional annotations and Hindley-Milner polymorphism.
+- User-facing Hindley-Milner polymorphism and optional top-level signatures.
 - Algebraic data types or pattern matching.
 - Egglog semi-naive evaluation, join planning, and provenance.
 - Release packaging beyond basic Cabal metadata.
@@ -434,12 +436,12 @@ Definition of done:
 
 Next recommended task:
 
-- Start Phase 7 by defining the type-inference direction while preserving the
-  explicit backend representation for monomorphic closures.
+- Start Phase 8 by expanding the Egglog backend evaluation strategy.
 
 ## Phase 7 - Type System Improvements
 
-Status: direction complete; principal-type infrastructure started.
+Status: complete for monomorphic optional lambda parameter inference;
+polymorphism deferred.
 
 Motivation: Improve ergonomics without weakening the compiler's invariants.
 
@@ -449,9 +451,12 @@ Deliverables:
   backend monomorphism.
 - Completed: add `docs/type-inference.md`.
 - Completed: add an Algorithm W-style principal-type engine for the current
-  annotated language.
-- Future: improve function annotation syntax with optional lambda parameter
+  core language.
+- Completed: improve function annotation syntax with optional lambda parameter
   annotations.
+- Completed: elaborate omitted lambda parameter annotations to explicit
+  monomorphic backend-facing types before interpretation, ANF, lambda lifting,
+  closure conversion, and LLVM lowering.
 - Future: define and implement polymorphism scope after monomorphization is
   specified.
 - Keep a roadmap for ADTs and pattern matching.
@@ -463,16 +468,19 @@ Non-goals:
 
 Acceptance criteria:
 
-- Completed for the first step: principal-type tests cover annotated identity,
-  higher-order closures, and a monomorphic-let negative case.
-- Future inference syntax must have source-spanned diagnostics and backend
+- Completed: principal-type tests cover annotated identity, higher-order
+  closures, and a monomorphic-let negative case.
+- Completed: optional lambda syntax has source-spanned diagnostics and backend
   compatibility tests.
+- Future polymorphism syntax must have a backend monomorphization plan.
 
 Tests required:
 
 - Completed: principal-type unit tests.
 - Completed: negative monomorphic-let test.
 - Completed: existing annotated programs continue to typecheck.
+- Completed: optional lambda inference tests, delayed equality context test, and
+  inferred closure-conversion LLVM test.
 
 Risks:
 
@@ -480,13 +488,12 @@ Risks:
 
 Definition of done:
 
-- The chosen type-system direction is specified and the first infrastructure
-  increment is implemented.
+- The chosen monomorphic inference direction is specified and implemented
+  through optional lambda parameter annotations.
 
 Next recommended task:
 
-- Add optional lambda parameter annotations backed by the principal-type engine,
-  with ambiguity diagnostics and closure-conversion compatibility tests.
+- Add semi-naive Egglog evaluation.
 
 ## Phase 8 - Egglog Backend Expansion
 
@@ -912,7 +919,8 @@ Add closure conversion runtime
 
 ### Task I - Hindley-Milner Direction
 
-Status: complete for the direction decision and first infrastructure increment.
+Status: complete for the direction decision, principal-type infrastructure, and
+optional monomorphic lambda parameter annotations.
 
 Prerequisite: diagnostics and top-level function decisions.
 
@@ -920,15 +928,21 @@ Implementation scope:
 
 - Completed: decide and document inference scope.
 - Completed: add Algorithm W-style principal-type infrastructure for the
-  current annotated language.
-- Future: expose optional lambda parameter annotations once ambiguity
-  diagnostics and backend type propagation are implemented.
+  current core language.
+- Completed: expose optional lambda parameter annotations with source-spanned
+  ambiguity diagnostics.
+- Completed: propagate inferred lambda parameter types into the backend-facing
+  located AST before closure conversion and LLVM lowering.
 
 Files touched:
 
 - `docs/type-inference.md`
 - `docs/language-spec.md`
+- `README.md`
 - `src/Typecheck/*`
+- `src/Syntax/*`
+- `src/Backend/*`
+- `src/CLI/Report.hs`
 - `test/Main.hs`
 
 Tests required:
@@ -936,16 +950,18 @@ Tests required:
 - Completed: principal type tests.
 - Completed: negative monomorphic-let/generalization boundary test.
 - Completed: existing annotated programs remain valid.
+- Completed: optional lambda parameter inference and ambiguity tests.
+- Completed: inferred captured lambda closure-conversion test.
 
 Acceptance criteria:
 
-- Completed: the type-system direction improves inference infrastructure
-  without creating backend ambiguity.
+- Completed: optional lambda inference improves ergonomics without creating
+  backend ambiguity.
 
 Commit message suggestion:
 
 ```text
-Define type inference roadmap
+Add optional lambda inference
 ```
 
 ### Task J - Semi-Naive Egglog Evaluation
@@ -984,8 +1000,7 @@ Add semi-naive Egglog evaluation
 ## Next Recommended Prompt
 
 ```text
-Add optional lambda parameter annotations backed by the principal-type engine:
-infer monomorphic parameter types where possible, report source-spanned
-ambiguity diagnostics, preserve existing annotations, and verify closure
-conversion receives explicit backend types.
+Add semi-naive Egglog evaluation: introduce delta relations, rule scheduling,
+and join-planning scaffolding while preserving existing kernel equivalence and
+backend semantic-preservation tests.
 ```

@@ -79,25 +79,28 @@ Supported source forms:
 - `if` / `then` / `else`
 - arithmetic operators: `+`, `-`, `*`, `/`
 - comparison operators: `<`, `==`
-- lambda expressions: `\x : Int -> x + 1`
+- lambda expressions: `\x : Int -> x + 1` or `\x -> x + 1`
 - function application: `f x`
 - top-level first-order functions: `def inc(x : Int) : Int = x + 1; inc 41`
 - function types: `Int -> Int`
 - parentheses
 
-Function parameter annotations are required in source syntax. The first
-Hindley-Milner step is implemented as a tested principal-type engine for the
-current annotated language; exposing optional annotations and polymorphism is
-tracked in `docs/type-inference.md`.
+Top-level function parameter and return annotations are required. Lambda
+parameter annotations are optional when the compiler can infer a concrete
+monomorphic type; ambiguous lambdas are rejected with source-spanned
+diagnostics. Polymorphic lets and optional top-level signatures are tracked in
+`docs/type-inference.md`.
 
 ## Architecture
 
 - `Syntax.*` owns parsed source syntax and pretty-printing.
 - `Syntax.Located` carries source ranges for diagnostics while preserving the
   unspanned AST used by semantic passes.
-- `Typecheck.Infer` performs the production environment-based typecheck.
+- `Typecheck.Infer` performs the production environment-based typecheck and
+  exposes source elaboration for optional lambda annotations.
 - `Typecheck.Principal` contains the Algorithm W-style principal-type engine
-  used to stage future inference work without changing the compile path yet.
+  and the located elaborator that resolves source lambdas to explicit backend
+  types.
 - `Eval.*` interprets checked expressions into runtime values.
 - `IR.ANF` makes evaluation order explicit by atomizing primitive and
   application operands, and represents top-level functions/direct calls for the

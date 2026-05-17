@@ -40,7 +40,7 @@ import Syntax.Parser (parseLocatedSourceProgram)
 import Syntax.Pretty (prettyName, prettyType, renderDoc)
 import Syntax.Span (SourceSpan, renderSourceDiagnostic)
 import Text.Megaparsec (errorBundlePretty)
-import Typecheck.Infer (inferLocatedProgram)
+import Typecheck.Infer (elaborateLocatedProgram, inferLocatedProgram)
 import Typecheck.Types (LocatedTypeError, renderLocatedTypeError)
 
 data CompileLLVMOptions = CompileLLVMOptions
@@ -89,9 +89,9 @@ compileToLLVM options path source = do
     case parseLocatedSourceProgram path source of
       Left parseError -> Left (LLVMCompileParseError (Text.pack (errorBundlePretty parseError)))
       Right expr -> Right expr
-  inferredType <- mapLeft LLVMCompileTypeError (inferLocatedProgram parsed)
+  (inferredType, typedParsed) <- mapLeft LLVMCompileTypeError (elaborateLocatedProgram parsed)
   lifted <-
-    case lambdaLiftLocatedProgram parsed of
+    case lambdaLiftLocatedProgram typedParsed of
       Left err ->
         let (sourceRange, message) = lambdaLiftErrorDiagnostic err
          in Left (LLVMCompileUnsupportedSource sourceRange message)

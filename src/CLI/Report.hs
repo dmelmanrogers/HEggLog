@@ -50,7 +50,7 @@ import Syntax.Parser (parseLocatedSourceProgram)
 import Syntax.Pretty (prettyProgram, prettyType, renderDoc)
 import Syntax.Span (SourceSpan, renderSourceDiagnostic)
 import Text.Megaparsec (errorBundlePretty)
-import Typecheck.Infer (inferLocatedProgram)
+import Typecheck.Infer (elaborateLocatedProgram)
 import Typecheck.Types (LocatedTypeError, renderLocatedTypeError)
 
 data CompileReport = CompileReport
@@ -80,14 +80,14 @@ compileReport path source = do
     case parseLocatedSourceProgram path source of
       Left parseError -> Left (CompileParseError (Text.pack (errorBundlePretty parseError)))
       Right expr -> Right expr
-  let stripped = stripLocatedProgram parsed
-  inferredType <-
-    case inferLocatedProgram parsed of
+  (inferredType, typedParsed) <-
+    case elaborateLocatedProgram parsed of
       Left typeError -> Left (CompileTypeError typeError)
-      Right ty -> Right ty
+      Right result -> Right result
+  let stripped = stripLocatedProgram typedParsed
   value <-
     case evalProgram stripped of
-      Left runtimeError -> Left (CompileRuntimeError (locatedExprSpan (locatedProgramMain parsed)) runtimeError)
+      Left runtimeError -> Left (CompileRuntimeError (locatedExprSpan (locatedProgramMain typedParsed)) runtimeError)
       Right result -> Right result
   let anf = toANFProgram stripped
       mainANF = programMainANF anf
