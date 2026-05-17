@@ -1,6 +1,7 @@
 module Backend.IR
   ( BackendAtom (..)
   , BackendExpr (..)
+  , BackendFunction (..)
   , BackendPrim (..)
   , BackendProgram (..)
   , BackendType (..)
@@ -37,12 +38,22 @@ data BackendExpr
   = BEAtom BackendType BackendAtom
   | BEPrim BackendType BackendPrim BackendAtom BackendAtom
   | BEIf BackendType BackendAtom BackendExpr BackendExpr
+  | BECall BackendType Name [BackendAtom]
   | BELet BackendType Name BackendExpr BackendExpr
+  deriving stock (Show, Eq, Ord)
+
+data BackendFunction = BackendFunction
+  { backendFunctionName :: Name
+  , backendFunctionParams :: [(Name, BackendType)]
+  , backendFunctionReturnType :: BackendType
+  , backendFunctionBody :: BackendExpr
+  }
   deriving stock (Show, Eq, Ord)
 
 data BackendProgram = BackendProgram
   { backendRootType :: BackendType
   , backendRoot :: BackendExpr
+  , backendFunctions :: [BackendFunction]
   , backendProvenance :: [Text]
   }
   deriving stock (Show, Eq, Ord)
@@ -54,6 +65,8 @@ backendExprType = \case
   BEPrim ty _ _ _ ->
     ty
   BEIf ty _ _ _ ->
+    ty
+  BECall ty _ _ ->
     ty
   BELet ty _ _ _ ->
     ty

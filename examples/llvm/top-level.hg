@@ -1,0 +1,3 @@
+def inc(x : Int) : Int = x + 1;
+def double(x : Int) : Int = x * 2;
+double (inc 20)

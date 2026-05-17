@@ -147,6 +147,7 @@ data EgglogBackendError
   = ResolveFailed ResolveError
   | UnsupportedLambda Binder
   | UnsupportedApplication TypedResolvedAtom TypedResolvedAtom
+  | UnsupportedDirectCall Name
   | UnsupportedPrimitive BinOp
   | UnsupportedType Type
   | AmbiguousFreeVariable Name
@@ -630,6 +631,8 @@ inferANFType =
       Left (UnsupportedType (TFun ty ty))
     AApp {} ->
       Left (ReconstructedTypeError "applications are outside the Egglog backend fragment")
+    ACall {} ->
+      Left (ReconstructedTypeError "direct calls are outside the Egglog backend fragment")
     ALet name rhs body -> do
       rhsType <- infer env rhs
       infer (Map.insert name rhsType env) body
@@ -668,6 +671,7 @@ anfCost = \case
   AIf _ thenBranch elseBranch -> 1 + anfCost thenBranch + anfCost elseBranch
   ALam _ _ body -> 1 + anfCost body
   AApp {} -> 3
+  ACall _ args -> 1 + length args
   ALet _ rhs body -> 1 + anfCost rhs + anfCost body
 
 rootFunction :: Type -> FunctionName
@@ -710,6 +714,8 @@ fragmentToBackendError = \case
     UnsupportedLambda binder
   Fragment.UnsupportedApplication fn arg ->
     UnsupportedApplication fn arg
+  Fragment.UnsupportedDirectCall name ->
+    UnsupportedDirectCall name
   Fragment.UnsupportedPrimitive op ->
     UnsupportedPrimitive op
   Fragment.UnsupportedType ty ->
@@ -727,6 +733,7 @@ isUnsupported :: EgglogBackendError -> Bool
 isUnsupported = \case
   UnsupportedLambda {} -> True
   UnsupportedApplication {} -> True
+  UnsupportedDirectCall {} -> True
   UnsupportedPrimitive {} -> True
   UnsupportedType {} -> True
   AmbiguousFreeVariable {} -> True
@@ -746,6 +753,8 @@ resolvedToANF = \case
     ALam (binderName binder) ty (resolvedToANF body)
   RApp fn arg ->
     AApp (resolvedAtomToAtom fn) (resolvedAtomToAtom arg)
+  RCall callee args ->
+    ACall callee (map resolvedAtomToAtom args)
   RLet binder rhs body ->
     ALet (binderName binder) (resolvedToANF rhs) (resolvedToANF body)
 
@@ -779,6 +788,8 @@ renderEgglogBackendError = \case
     "unsupported lambda binder: " <> renderBinderKey binder
   UnsupportedApplication fn arg ->
     "unsupported application: " <> Text.pack (show fn) <> " " <> Text.pack (show arg)
+  UnsupportedDirectCall name ->
+    "unsupported direct function call: " <> renderDoc (prettyName name)
   UnsupportedPrimitive op ->
     "unsupported primitive: " <> renderDoc (prettyBinOp op)
   UnsupportedType ty ->

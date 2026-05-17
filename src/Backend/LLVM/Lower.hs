@@ -38,7 +38,8 @@ data FunctionState = FunctionState
 lowerBackendToLLVM :: BackendProgram -> Either LLVMLowerError LLVMModule
 lowerBackendToLLVM program = do
   mapLeft LLVMBackendValidationFailed (validateBackendProgram program)
-  let rootFunction = lowerRootFunction program
+  let topFunctions = map lowerBackendFunction (backendFunctions program)
+      rootFunction = lowerRootFunction program
       mainFunction = lowerMainFunction (backendRootType program)
       llvmModule =
         LLVMModule
@@ -49,7 +50,7 @@ lowerBackendToLLVM program = do
                 <> backendProvenance program
           , moduleGlobals = formatGlobals
           , moduleDeclarations = runtimeDeclarations program
-          , moduleFunctions = [rootFunction, mainFunction]
+          , moduleFunctions = topFunctions <> [rootFunction, mainFunction]
           }
   mapLeft LLVMValidationFailed (validateLLVMModule llvmModule)
   pure llvmModule
@@ -75,6 +76,41 @@ lowerRootFunction program =
    in LLVMFunction
         { functionName = rootFunctionName (backendRootType program)
         , functionReturnType = returnType
+        , functionParams = []
+        , functionBlocks = blocks
+        }
+
+lowerBackendFunction :: BackendFunction -> LLVMFunction
+lowerBackendFunction function =
+  let state0 =
+        FunctionState
+          { nextRegister = 0
+          , nextBlock = 0
+          , completedBlocks = []
+          , currentLabel = "entry"
+          , currentInstructions = []
+          }
+      params =
+        [ (llvmType ty, paramRegister name)
+        | (name, ty) <- backendFunctionParams function
+        ]
+      env =
+        Map.fromList
+          [ (name, OLocal (llvmType ty) (paramRegister name))
+          | (name, ty) <- backendFunctionParams function
+          ]
+      returnType = llvmType (backendFunctionReturnType function)
+      blocks =
+        evalState
+          ( do
+              value <- emitExpr env (backendFunctionBody function)
+              terminate (TRet returnType value)
+          )
+          state0
+   in LLVMFunction
+        { functionName = topFunctionName (backendFunctionName function)
+        , functionReturnType = returnType
+        , functionParams = params
         , functionBlocks = blocks
         }
 
@@ -104,6 +140,7 @@ lowerMainFunction rootType =
    in LLVMFunction
         { functionName = "main"
         , functionReturnType = LI32
+        , functionParams = []
         , functionBlocks = blocks
         }
 
@@ -151,6 +188,12 @@ emitExpr env = \case
   BELet _ name rhs body -> do
     rhsValue <- emitExpr env rhs
     emitExpr (Map.insert name rhsValue env) body
+  BECall ty callee args -> do
+    argOperands <- traverse (emitAtom env) args
+    reg <- freshRegister "call"
+    let returnType = llvmType ty
+    emit (ICall (Just reg) returnType (topFunctionName callee) False [(operandType arg, arg) | arg <- argOperands])
+    pure (OLocal returnType reg)
 
 emitAtom :: ValueEnv -> BackendAtom -> State FunctionState LLVMOperand
 emitAtom env = \case
@@ -284,11 +327,13 @@ formatGlobals =
 
 runtimeDeclarations :: BackendProgram -> [Text]
 runtimeDeclarations program =
-  "declare i32 @printf(ptr, ...)" : checkedArithmeticDeclarations (backendRoot program)
+  "declare i32 @printf(ptr, ...)" : checkedArithmeticDeclarations program
 
-checkedArithmeticDeclarations :: BackendExpr -> [Text]
-checkedArithmeticDeclarations expression =
-  let prims = checkedArithmeticPrims expression
+checkedArithmeticDeclarations :: BackendProgram -> [Text]
+checkedArithmeticDeclarations program =
+  let prims =
+        checkedArithmeticPrims (backendRoot program)
+          <> foldMap (checkedArithmeticPrims . backendFunctionBody) (backendFunctions program)
       intrinsic prim =
         case prim of
           BPAdd -> ["declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)"]
@@ -312,6 +357,8 @@ checkedArithmeticPrims = \case
       _ -> Set.empty
   BEIf _ _ thenBranch elseBranch ->
     checkedArithmeticPrims thenBranch <> checkedArithmeticPrims elseBranch
+  BECall {} ->
+    Set.empty
   BELet _ _ rhs body ->
     checkedArithmeticPrims rhs <> checkedArithmeticPrims body
 
@@ -341,6 +388,14 @@ sanitizeName =
     | c >= 'A' && c <= 'Z' = c
     | c >= '0' && c <= '9' = c
     | otherwise = '_'
+
+topFunctionName :: Name -> Text
+topFunctionName name =
+  "hegglog_fun_" <> sanitizeName (renderDoc (prettyName name))
+
+paramRegister :: Name -> Register
+paramRegister name =
+  Register ("arg_" <> sanitizeName (renderDoc (prettyName name)))
 
 mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = \case

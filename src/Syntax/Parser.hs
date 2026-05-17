@@ -1,7 +1,9 @@
 module Syntax.Parser
   ( Parser
   , parseLocatedProgram
+  , parseLocatedSourceProgram
   , parseProgram
+  , parseSourceProgram
   )
 where
 
@@ -28,6 +30,7 @@ import Text.Megaparsec
   , choice
   , getSourcePos
   , parse
+  , sepBy1
   , satisfy
   )
 import qualified Text.Megaparsec.Char as C
@@ -39,9 +42,51 @@ parseProgram :: FilePath -> Text -> Either (ParseErrorBundle Text Void) Expr
 parseProgram path =
   fmap stripLocatedExpr . parseLocatedProgram path
 
+parseSourceProgram :: FilePath -> Text -> Either (ParseErrorBundle Text Void) Program
+parseSourceProgram path =
+  fmap stripLocatedProgram . parseLocatedSourceProgram path
+
 parseLocatedProgram :: FilePath -> Text -> Either (ParseErrorBundle Text Void) LocatedExpr
 parseLocatedProgram path =
   parse (spaceConsumer *> expr <* eof) path
+
+parseLocatedSourceProgram :: FilePath -> Text -> Either (ParseErrorBundle Text Void) LocatedProgram
+parseLocatedSourceProgram path =
+  parse (spaceConsumer *> sourceProgram <* eof) path
+
+sourceProgram :: Parser LocatedProgram
+sourceProgram = do
+  defs <- many topDef
+  LocatedProgram defs <$> expr
+
+topDef :: Parser LocatedTopDef
+topDef = do
+  start <- getSourcePos
+  reserved "def"
+  name <- identifier
+  params <- parens (topParam `sepBy1` voidSymbol ",")
+  voidSymbol ":"
+  returnType <- typeExpr
+  voidSymbol "="
+  body <- expr
+  (_, closeSpan) <- lexemeSpanned (chunk ";")
+  pure
+    LocatedTopDef
+      { locatedTopDefSpan = sourceSpanFromStart start closeSpan
+      , locatedTopDefName = name
+      , locatedTopDefParams = params
+      , locatedTopDefReturnType = returnType
+      , locatedTopDefBody = body
+      }
+
+topParam :: Parser LocatedParam
+topParam = do
+  start <- getSourcePos
+  name <- identifier
+  voidSymbol ":"
+  ty <- typeExpr
+  end <- getSourcePos
+  pure (LocatedParam (sourceSpan start end) (Param name ty))
 
 expr :: Parser LocatedExpr
 expr =
@@ -188,7 +233,7 @@ reservedRaw word = try $ do
 
 reservedWords :: [Text]
 reservedWords =
-  ["let", "in", "if", "then", "else", "true", "false", "Int", "Bool"]
+  ["def", "let", "in", "if", "then", "else", "true", "false", "Int", "Bool"]
 
 typeExpr :: Parser Type
 typeExpr = do

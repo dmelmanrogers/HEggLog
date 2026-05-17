@@ -22,6 +22,7 @@ import Syntax.Pretty (prettyBinOp, prettyName, prettyType, renderDoc)
 data FragmentError
   = UnsupportedLambda Binder
   | UnsupportedApplication TypedResolvedAtom TypedResolvedAtom
+  | UnsupportedDirectCall Name
   | UnsupportedPrimitive BinOp
   | UnsupportedType Type
   | AmbiguousFreeVariable Name
@@ -121,6 +122,8 @@ inferExpr env expected = \case
     fnTyped <- inferAtom env Nothing fn
     argTyped <- inferAtom env Nothing arg
     Left (UnsupportedApplication fnTyped argTyped)
+  RCall callee _ ->
+    Left (UnsupportedDirectCall callee)
   RLet binder rhs body -> do
     rhsTyped <- inferExpr env Nothing rhs
     let env' = Map.insert (binderId binder) (typedExprType rhsTyped) env
@@ -189,6 +192,8 @@ renderFragmentError = \case
     "unsupported lambda binder " <> renderBinderKey binder
   UnsupportedApplication fn arg ->
     "unsupported application: " <> Text.pack (show fn) <> " " <> Text.pack (show arg)
+  UnsupportedDirectCall name ->
+    "unsupported direct function call " <> renderDoc (prettyName name)
   UnsupportedPrimitive op ->
     "unsupported primitive " <> renderDoc (prettyBinOp op)
   UnsupportedType ty ->

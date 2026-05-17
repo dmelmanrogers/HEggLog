@@ -69,6 +69,7 @@ data LLVMBlock = LLVMBlock
 data LLVMFunction = LLVMFunction
   { functionName :: Text
   , functionReturnType :: LLVMType
+  , functionParams :: [(LLVMType, Register)]
   , functionBlocks :: [LLVMBlock]
   }
   deriving stock (Show, Eq, Ord)

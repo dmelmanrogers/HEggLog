@@ -57,6 +57,7 @@ data ResolvedAExpr
   | RIf ResolvedAtom ResolvedAExpr ResolvedAExpr
   | RLam Binder Type ResolvedAExpr
   | RApp ResolvedAtom ResolvedAtom
+  | RCall Name [ResolvedAtom]
   | RLet Binder ResolvedAExpr ResolvedAExpr
   deriving stock (Show, Eq, Ord)
 
@@ -101,6 +102,8 @@ resolveExpr env = \case
     RLam binder argType <$> resolveExpr (Map.insert name binder env) body
   AApp fn arg ->
     RApp <$> resolveAtom env fn <*> resolveAtom env arg
+  ACall callee args ->
+    RCall callee <$> traverse (resolveAtom env) args
   ALet name rhs body -> do
     rhsResolved <- resolveExpr env rhs
     binder <- freshBinder name
@@ -139,6 +142,8 @@ freeVariables = \case
     freeVariables body
   RApp fn arg ->
     freeAtom fn <> freeAtom arg
+  RCall _ args ->
+    foldMap freeAtom args
   RLet _ rhs body ->
     freeVariables rhs <> freeVariables body
 
@@ -168,6 +173,8 @@ boundVariables =
       go (Map.insert (binderId binder) binder acc) body
     RApp {} ->
       acc
+    RCall {} ->
+      acc
     RLet binder rhs body ->
       go (go (Map.insert (binderId binder) binder acc) rhs) body
 
@@ -190,6 +197,8 @@ binderDependencyGraph =
       Map.insert (binderId binder) (boundRefs body) (go graph body)
     RApp {} ->
       graph
+    RCall {} ->
+      graph
     RLet binder rhs body ->
       go (Map.insert (binderId binder) (boundRefs rhs) (go graph rhs)) body
 
@@ -205,6 +214,8 @@ boundRefs = \case
     Set.delete (binderId binder) (boundRefs body)
   RApp fn arg ->
     boundRefsAtom fn <> boundRefsAtom arg
+  RCall _ args ->
+    foldMap boundRefsAtom args
   RLet _ rhs body ->
     boundRefs rhs <> boundRefs body
 
@@ -229,6 +240,8 @@ validateUniqueBinders expression =
     RLam binder _ body ->
       insertBinder seen binder >>= \seen' -> go seen' body
     RApp {} ->
+      Right seen
+    RCall {} ->
       Right seen
     RLet binder rhs body ->
       insertBinder seen binder >>= \seen' -> go seen' rhs >>= \seen'' -> go seen'' body
@@ -259,6 +272,9 @@ validateResolvedANF expression =
     RApp fn arg -> do
       validateAtom scope fn
       validateAtom scope arg
+      Right seen
+    RCall _ args -> do
+      mapM_ (validateAtom scope) args
       Right seen
     RLet binder rhs body -> do
       seenAfterRhs <- go seen scope rhs
@@ -309,6 +325,8 @@ renderResolvedANF =
         "\\" <> renderBinderKey binder <> " -> " <> renderExpr 0 body
     RApp fn arg ->
       Text.unwords [renderAtom fn, renderAtom arg]
+    RCall callee args ->
+      Text.unwords (renderDoc (prettyName callee) : map renderAtom args)
     RLet binder rhs body ->
       parenthesize (outerPrec > 0) $
         "let "

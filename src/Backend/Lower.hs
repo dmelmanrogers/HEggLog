@@ -1,6 +1,7 @@
 module Backend.Lower
   ( BackendLowerError (..)
   , lowerANFToBackend
+  , lowerANFProgramToBackend
   , renderBackendLowerError
   )
 where
@@ -22,6 +23,7 @@ data BackendLowerError
   | BackendUnsupportedApplication Atom Atom
   | BackendUnsupportedPrimitive BinOp
   | BackendUnboundANFVariable Name
+  | BackendUnknownANFFunction Name
   | BackendTypeMismatch BackendType BackendType
   | BackendCannotLowerFunctionType Type
   | BackendIntError IntError
@@ -30,21 +32,78 @@ data BackendLowerError
 
 type TypeEnv = Map.Map Name BackendType
 
+type FunctionEnv = Map.Map Name ([BackendType], BackendType)
+
 lowerANFToBackend :: AExpr -> Either BackendLowerError BackendProgram
 lowerANFToBackend expression = do
   mapLeft BackendInvalidANF (validateANF expression)
-  root <- lowerExpr Map.empty expression
+  root <- lowerExpr Map.empty Map.empty expression
   let program =
         BackendProgram
           { backendRootType = backendExprType root
           , backendRoot = root
+          , backendFunctions = []
           , backendProvenance = ["lowered from ANF"]
           }
   mapLeft BackendValidationFailed (validateBackendProgram program)
   pure program
 
-lowerExpr :: TypeEnv -> AExpr -> Either BackendLowerError BackendExpr
-lowerExpr env = \case
+lowerANFProgramToBackend :: AProgram -> Either BackendLowerError BackendProgram
+lowerANFProgramToBackend program@(AProgram defs mainExpr) = do
+  mapLeft BackendInvalidANF (validateANFProgram program)
+  functionEnv <- buildFunctionEnv defs
+  functions <- traverse (lowerFunction functionEnv) defs
+  root <- lowerExpr functionEnv Map.empty mainExpr
+  let backend =
+        BackendProgram
+          { backendRootType = backendExprType root
+          , backendRoot = root
+          , backendFunctions = functions
+          , backendProvenance =
+              if null defs
+                then ["lowered from ANF"]
+                else ["lowered from ANF program"]
+          }
+  mapLeft BackendValidationFailed (validateBackendProgram backend)
+  pure backend
+
+buildFunctionEnv :: [AFun] -> Either BackendLowerError FunctionEnv
+buildFunctionEnv =
+  foldr addFunction (Right Map.empty)
+ where
+  addFunction (AFun name params returnType _) envResult = do
+    env <- envResult
+    paramTypes <- traverse (lowerType . paramType) params
+    loweredReturn <- lowerType returnType
+    pure (Map.insert name (paramTypes, loweredReturn) env)
+
+lowerFunction :: FunctionEnv -> AFun -> Either BackendLowerError BackendFunction
+lowerFunction functionEnv (AFun name params returnType body) = do
+  loweredParams <- traverse lowerParam params
+  loweredReturn <- lowerType returnType
+  loweredBody <- lowerExpr functionEnv (Map.fromList loweredParams) body
+  assertType loweredReturn (backendExprType loweredBody)
+  pure
+    BackendFunction
+      { backendFunctionName = name
+      , backendFunctionParams = loweredParams
+      , backendFunctionReturnType = loweredReturn
+      , backendFunctionBody = loweredBody
+      }
+
+lowerParam :: Param -> Either BackendLowerError (Name, BackendType)
+lowerParam param = do
+  ty <- lowerType (paramType param)
+  pure (paramName param, ty)
+
+lowerType :: Type -> Either BackendLowerError BackendType
+lowerType = \case
+  TInt -> Right BI64
+  TBool -> Right BI1
+  ty@TFun {} -> Left (BackendCannotLowerFunctionType ty)
+
+lowerExpr :: FunctionEnv -> TypeEnv -> AExpr -> Either BackendLowerError BackendExpr
+lowerExpr functionEnv env = \case
   AAtom atom -> do
     ty <- lowerAtomType env atom
     BEAtom ty <$> lowerAtom atom
@@ -53,8 +112,8 @@ lowerExpr env = \case
   AIf cond thenBranch elseBranch -> do
     condType <- lowerAtomType env cond
     assertType BI1 condType
-    thenLowered <- lowerExpr env thenBranch
-    elseLowered <- lowerExpr env elseBranch
+    thenLowered <- lowerExpr functionEnv env thenBranch
+    elseLowered <- lowerExpr functionEnv env elseBranch
     assertType (backendExprType thenLowered) (backendExprType elseLowered)
     loweredCond <- lowerAtom cond
     pure (BEIf (backendExprType thenLowered) loweredCond thenLowered elseLowered)
@@ -62,10 +121,21 @@ lowerExpr env = \case
     Left (BackendUnsupportedLambda name ty)
   AApp fn arg ->
     Left (BackendUnsupportedApplication fn arg)
+  ACall callee args -> do
+    case Map.lookup callee functionEnv of
+      Nothing ->
+        Left (BackendUnknownANFFunction callee)
+      Just (paramTypes, returnType) -> do
+        if length paramTypes == length args
+          then Right ()
+          else Left (BackendValidationFailed (BackendCallArityMismatch callee (length paramTypes) (length args)))
+        mapM_ (uncurry (assertAtomType env)) (zip paramTypes args)
+        loweredArgs <- traverse lowerAtom args
+        pure (BECall returnType callee loweredArgs)
   ALet name rhs body -> do
-    rhsLowered <- lowerExpr env rhs
+    rhsLowered <- lowerExpr functionEnv env rhs
     let env' = Map.insert name (backendExprType rhsLowered) env
-    bodyLowered <- lowerExpr env' body
+    bodyLowered <- lowerExpr functionEnv env' body
     pure (BELet (backendExprType bodyLowered) name rhsLowered bodyLowered)
 
 lowerPrim :: TypeEnv -> BinOp -> Atom -> Atom -> Either BackendLowerError BackendExpr
@@ -137,6 +207,8 @@ renderBackendLowerError = \case
     "LLVM backend does not support primitive " <> renderDoc (prettyBinOp op)
   BackendUnboundANFVariable name ->
     "LLVM backend cannot lower open variable " <> renderDoc (prettyName name)
+  BackendUnknownANFFunction name ->
+    "LLVM backend cannot lower unknown function " <> renderDoc (prettyName name)
   BackendTypeMismatch expected actual ->
     "backend type mismatch: expected " <> renderBackendType expected <> ", got " <> renderBackendType actual
   BackendCannotLowerFunctionType ty ->

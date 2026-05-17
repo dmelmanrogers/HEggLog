@@ -89,6 +89,8 @@ simplifyChildren facts = \case
     pure (ALam name argType bodyOptimized, trace)
   AApp fn arg ->
     pure (AApp fn arg, [])
+  ACall callee args ->
+    pure (ACall callee args, [])
   ALet name rhs body -> do
     (rhsOptimized, rhsTrace) <- simplifyExpr facts rhs
     (bodyOptimized, bodyTrace) <- simplifyExpr facts body

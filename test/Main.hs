@@ -26,7 +26,7 @@ import qualified Egglog.Rule as ER
 import qualified Egglog.Sort as ES
 import qualified Egglog.Value as EV
 import Eval.ANFInterpreter (ANFValue (..), evalANF)
-import Eval.Interpreter (RuntimeError (..), Value (..), eval, renderRuntimeError, renderValue)
+import Eval.Interpreter (RuntimeError (..), Value (..), eval, evalProgram, renderRuntimeError, renderValue)
 import IR.ANF
 import qualified IR.ANF.Resolved as RANF
 import IR.ANF.Validate
@@ -45,11 +45,11 @@ import Optimize.Rewrite
 import Optimize.Simplify
 import Runtime.Int (HInt, IntError (IntOverflow), hintToInteger, maxHIntInteger, unsafeHIntLiteral)
 import Syntax.AST
-import Syntax.Parser (parseProgram)
+import Syntax.Parser (parseProgram, parseSourceProgram)
 import System.Exit (exitFailure)
 import Test.QuickCheck hiding (NonZero, label)
 import Text.Megaparsec (errorBundlePretty)
-import Typecheck.Infer (infer)
+import Typecheck.Infer (infer, inferProgram)
 import Typecheck.Types (TypeError (..), renderTypeError)
 
 data TestGroup = TestGroup String [Test]
@@ -76,10 +76,16 @@ testGroups =
       "Parser"
       [ pureTest "application binds tighter than addition" testApplicationPrecedence
       , pureTest "parentheses group application arguments" testParenthesizedArgument
+      , pureTest "top-level function program parses" testTopLevelFunctionParsing
       ]
   , TestGroup
       "Typechecker"
       [ pureTest "higher-order lambda annotation parses and types" testHigherOrderType
+      , pureTest "top-level function program types" testTopLevelFunctionTypecheck
+      , pureTest "top-level duplicate function names fail" testTopLevelDuplicateFunctionName
+      , pureTest "top-level duplicate parameters fail" testTopLevelDuplicateParameter
+      , pureTest "top-level forward calls fail" testTopLevelForwardCall
+      , pureTest "top-level function-typed parameters fail" testTopLevelFunctionParameter
       , ioTest "addition rejects Bool" $
           checkTypeError "examples/type-errors/add-bool.hg" (ExpectedIntOperand Add TBool)
       , ioTest "if condition rejects Int" $
@@ -105,6 +111,7 @@ testGroups =
       [ pureTest "inc example evaluates" (checkProgram incSource TInt (sourceInt 42))
       , pureTest "add example evaluates" (checkProgram addSource TInt (sourceInt 7))
       , pureTest "higher-order example evaluates" (checkProgram higherOrderSource TInt (sourceInt 42))
+      , pureTest "top-level direct calls evaluate" testTopLevelFunctionEvaluation
       , pureTest "checked Int addition overflow fails" testInterpreterIntOverflow
       , ioTest "source and ANF evaluation agree for examples" testExampleSemanticPreservation
       ]
@@ -113,6 +120,7 @@ testGroups =
       [ pureTest "atomizes nested arithmetic" testANFNestedArithmetic
       , pureTest "fresh names are deterministic" testDeterministicFreshNames
       , pureTest "atomizes application arguments" testApplicationAtomization
+      , pureTest "lowers top-level calls as direct calls" testTopLevelDirectCallANF
       , pureTest "preserves lambdas" testLambdaPreservation
       , ioTest "validator accepts lowered examples" testValidateLoweredExamples
       , pureTest "validator reports unbound variables" testValidatorUnboundVariable
@@ -257,6 +265,7 @@ testGroups =
       , pureTest "LLVM validator rejects missing block references" testLLVMValidatorRejectsMissingBlock
       , pureTest "LLVM compiler falls back when Egglog is unsupported" testLLVMCompileEgglogFallback
       , pureTest "LLVM compiler can use Egglog optimized ANF" testLLVMCompileUsesEgglog
+      , pureTest "LLVM compiler emits top-level direct calls" testLLVMCompileTopLevelFunctions
       , ioTest "LLVM checked Int overflow aborts when tools are available" testLLVMOverflowAborts
       , ioTest "LLVM arithmetic golden" $
           checkLLVMGolden "examples/llvm/arithmetic.hg" "test/golden/llvm-arithmetic.ll"
@@ -333,11 +342,70 @@ testParenthesizedArgument = do
     (EApp (EVar (mkName "f")) (EBin Add (EVar (mkName "x")) (EInt 1)))
     parsed
 
+testTopLevelFunctionParsing :: Either String ()
+testTopLevelFunctionParsing = do
+  parsed <- parseSource topLevelSource
+  expectEqual
+    "top-level program"
+    ( Program
+        [ TopDef
+            (mkName "inc")
+            [Param (mkName "x") TInt]
+            TInt
+            (EBin Add (EVar (mkName "x")) (EInt 1))
+        , TopDef
+            (mkName "double")
+            [Param (mkName "x") TInt]
+            TInt
+            (EBin Mul (EVar (mkName "x")) (EInt 2))
+        ]
+        (EApp (EVar (mkName "double")) (EApp (EVar (mkName "inc")) (EInt 20)))
+    )
+    parsed
+
 testHigherOrderType :: Either String ()
 testHigherOrderType = do
   parsed <- parseExpr "\\f : (Int -> Int) -> f 1"
   actualType <- mapLeft (showText . renderTypeError) (infer parsed)
   expectEqual "higher-order lambda type" (TFun (TFun TInt TInt) TInt) actualType
+
+testTopLevelFunctionTypecheck :: Either String ()
+testTopLevelFunctionTypecheck = do
+  parsed <- parseSource topLevelSource
+  actualType <- mapLeft (showText . renderTypeError) (inferProgram parsed)
+  expectEqual "top-level program type" TInt actualType
+
+testTopLevelDuplicateFunctionName :: Either String ()
+testTopLevelDuplicateFunctionName = do
+  parsed <- parseSource "def f(x : Int) : Int = x; def f(y : Int) : Int = y; f 1"
+  case inferProgram parsed of
+    Left (DuplicateTopLevelName name)
+      | name == mkName "f" -> Right ()
+    other -> Left ("expected duplicate top-level function name, got " <> show other)
+
+testTopLevelDuplicateParameter :: Either String ()
+testTopLevelDuplicateParameter = do
+  parsed <- parseSource "def f(x : Int, x : Int) : Int = x; f 1 2"
+  case inferProgram parsed of
+    Left (DuplicateParameter name)
+      | name == mkName "x" -> Right ()
+    other -> Left ("expected duplicate top-level parameter, got " <> show other)
+
+testTopLevelForwardCall :: Either String ()
+testTopLevelForwardCall = do
+  parsed <- parseSource "def f(x : Int) : Int = g x; def g(x : Int) : Int = x; f 1"
+  case inferProgram parsed of
+    Left (UnknownVariable name)
+      | name == mkName "g" -> Right ()
+    other -> Left ("expected forward call to be rejected, got " <> show other)
+
+testTopLevelFunctionParameter :: Either String ()
+testTopLevelFunctionParameter = do
+  parsed <- parseSource "def apply(f : Int -> Int) : Int = 0; 0"
+  case inferProgram parsed of
+    Left (TopLevelFunctionTypeUnsupported name ty)
+      | name == mkName "apply" && ty == TFun TInt TInt -> Right ()
+    other -> Left ("expected top-level function-typed parameter rejection, got " <> show other)
 
 testOutOfRangeIntLiteralTypeError :: Either String ()
 testOutOfRangeIntLiteralTypeError = do
@@ -405,6 +473,31 @@ testApplicationAtomization = do
     )
     (toANF parsed)
 
+testTopLevelDirectCallANF :: Either String ()
+testTopLevelDirectCallANF = do
+  parsed <- parseSource topLevelSource
+  expectEqual
+    "top-level direct-call ANF"
+    ( AProgram
+        [ AFun
+            (mkName "inc")
+            [Param (mkName "x") TInt]
+            TInt
+            (APrim Add (AVar (mkName "x")) (AInt 1))
+        , AFun
+            (mkName "double")
+            [Param (mkName "x") TInt]
+            TInt
+            (APrim Mul (AVar (mkName "x")) (AInt 2))
+        ]
+        ( ALet
+            (mkName "_t0")
+            (ACall (mkName "inc") [AInt 20])
+            (ACall (mkName "double") [AVar (mkName "_t0")])
+        )
+    )
+    (toANFProgram parsed)
+
 testLambdaPreservation :: Either String ()
 testLambdaPreservation = do
   parsed <- parseExpr "\\x : Int -> x + 1"
@@ -458,6 +551,12 @@ testCoreFunctions = do
   let nodeValues = Map.elems (coreNodes (lower parsed))
   assertBool "expected a Core lambda node" (any isLam nodeValues)
   assertBool "expected a Core application node" (any isApp nodeValues)
+
+testTopLevelFunctionEvaluation :: Either String ()
+testTopLevelFunctionEvaluation = do
+  parsed <- parseSource topLevelSource
+  actualValue <- mapLeft (showText . renderRuntimeError) (evalProgram parsed)
+  expectEqual "top-level program value" (sourceInt 42) actualValue
 
 testExampleSemanticPreservation :: IO (Either String ())
 testExampleSemanticPreservation =
@@ -1229,6 +1328,7 @@ testLLVMBackendValidationRejectsUnbound =
         B.BackendProgram
           { B.backendRootType = B.BI64
           , B.backendRoot = B.BEAtom B.BI64 (B.BVar xName)
+          , B.backendFunctions = []
           , B.backendProvenance = []
           }
    in case BV.validateBackendProgram program of
@@ -1247,6 +1347,7 @@ testLLVMBackendValidationRejectsBadIf =
                 (backendInt 1)
                 (B.BEAtom B.BI64 (backendInt 10))
                 (B.BEAtom B.BI64 (backendInt 20))
+          , B.backendFunctions = []
           , B.backendProvenance = []
           }
    in case BV.validateBackendProgram program of
@@ -1299,6 +1400,7 @@ testLLVMValidatorRejectsDuplicateRegisters =
               [ LIR.LLVMFunction
                   { LIR.functionName = "bad"
                   , LIR.functionReturnType = LIR.LI64
+                  , LIR.functionParams = []
                   , LIR.functionBlocks =
                       [ LIR.LLVMBlock
                           { LIR.blockLabel = "entry"
@@ -1328,6 +1430,7 @@ testLLVMValidatorRejectsMissingBlock =
               [ LIR.LLVMFunction
                   { LIR.functionName = "bad"
                   , LIR.functionReturnType = LIR.LI64
+                  , LIR.functionParams = []
                   , LIR.functionBlocks =
                       [ LIR.LLVMBlock
                           { LIR.blockLabel = "entry"
@@ -1357,6 +1460,19 @@ testLLVMCompileUsesEgglog = do
     BC.LLVMOptimizationApplied {} -> Right ()
     other -> Left ("expected Egglog optimization, got " <> show other)
   assertBool "optimized LLVM returns constant" ("ret i64 14" `Text.isInfixOf` BC.llvmText result)
+
+testLLVMCompileTopLevelFunctions :: Either String ()
+testLLVMCompileTopLevelFunctions = do
+  llvmText <- compileLLVMTextNoEgglog topLevelSource
+  assertBool
+    "LLVM defines inc with an Int parameter"
+    ("define i64 @hegglog_fun_inc(i64 %arg_x)" `Text.isInfixOf` llvmText)
+  assertBool
+    "LLVM calls inc directly"
+    ("call i64 @hegglog_fun_inc(i64 20)" `Text.isInfixOf` llvmText)
+  assertBool
+    "LLVM calls double directly"
+    ("call i64 @hegglog_fun_double(i64 %call0)" `Text.isInfixOf` llvmText)
 
 testLLVMOverflowAborts :: IO (Either String ())
 testLLVMOverflowAborts = do
@@ -1982,6 +2098,14 @@ parseExprAt :: FilePath -> Text -> Either String Expr
 parseExprAt path source =
   mapLeft errorBundlePretty (parseProgram path source)
 
+parseSource :: Text -> Either String Program
+parseSource =
+  parseSourceAt "<test>"
+
+parseSourceAt :: FilePath -> Text -> Either String Program
+parseSourceAt path source =
+  mapLeft errorBundlePretty (parseSourceProgram path source)
+
 factsFor :: Text -> Either String [Fact]
 factsFor source =
   inferFacts . toANF <$> parseExpr source
@@ -1993,6 +2117,7 @@ letNames = \case
   AIf _ thenBranch elseBranch -> letNames thenBranch <> letNames elseBranch
   ALam _ _ body -> letNames body
   AApp {} -> []
+  ACall {} -> []
   ALet letName rhs body -> letName : letNames rhs <> letNames body
 
 observeSourceValue :: Value -> Either String ObservedValue
@@ -2130,6 +2255,7 @@ llvmExecutionExamples =
   , ("examples/llvm/nested-if.hg", "2\n")
   , ("examples/llvm/let-chain.hg", "21\n")
   , ("examples/llvm/bool-root.hg", "1\n")
+  , ("examples/llvm/top-level.hg", "42\n")
   ]
 
 llvmDifferentialSources :: [Text]
@@ -2189,3 +2315,9 @@ higherOrderSource =
   "let applyTwice = \\f : (Int -> Int) -> \\x : Int -> f (f x) in\n\
   \let inc = \\n : Int -> n + 1 in\n\
   \applyTwice inc 40"
+
+topLevelSource :: Text
+topLevelSource =
+  "def inc(x : Int) : Int = x + 1;\n\
+  \def double(x : Int) : Int = x * 2;\n\
+  \double (inc 20)"

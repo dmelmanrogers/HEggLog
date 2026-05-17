@@ -2,6 +2,7 @@ module Eval.Interpreter
   ( RuntimeError (..)
   , Value (..)
   , eval
+  , evalProgram
   , renderRuntimeError
   , renderValue
   )
@@ -48,7 +49,28 @@ eval :: Expr -> Either RuntimeError Value
 eval expression =
   runReader (runExceptT (evalExpr expression)) Map.empty
 
+evalProgram :: Program -> Either RuntimeError Value
+evalProgram program =
+  runReader (runExceptT (evalProgramM program)) Map.empty
+
 type EvalM = ExceptT RuntimeError (Reader Env)
+
+evalProgramM :: Program -> EvalM Value
+evalProgramM program = do
+  env <- buildTopEnv Map.empty (programDefs program)
+  local (const env) (evalExpr (programMain program))
+
+buildTopEnv :: Env -> [TopDef] -> EvalM Env
+buildTopEnv env = \case
+  [] ->
+    pure env
+  def : rest -> do
+    value <- local (const env) (evalExpr (topDefAsExpr def))
+    buildTopEnv (Map.insert (topDefName def) value env) rest
+
+topDefAsExpr :: TopDef -> Expr
+topDefAsExpr def =
+  foldr (\(Param name ty) body -> ELam name ty body) (topDefBody def) (topDefParams def)
 
 evalExpr :: Expr -> EvalM Value
 evalExpr = \case

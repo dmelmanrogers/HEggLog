@@ -24,7 +24,7 @@ import Runtime.Int
   , subHInt
   )
 import Syntax.AST
-import Syntax.Pretty (prettyBinOp, renderDoc)
+import Syntax.Pretty (prettyBinOp, prettyName, renderDoc)
 
 data ANFValue
   = ANFVInt HInt
@@ -66,6 +66,8 @@ evalExpr = \case
         local (const (Map.insert name argValue closureEnv)) (evalExpr body)
       other ->
         throwError (RuntimeTypeError ("expected a function, got " <> renderANFValue other))
+  ACall callee _ ->
+    throwError (RuntimeTypeError ("ANF direct call requires top-level program evaluator for " <> renderDoc (prettyName callee)))
   ALet name rhs body -> do
     value <- evalExpr rhs
     local (Map.insert name value) (evalExpr body)

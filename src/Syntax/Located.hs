@@ -1,9 +1,13 @@
 module Syntax.Located
   ( LocatedExpr (..)
   , LocatedExprNode (..)
+  , LocatedParam (..)
+  , LocatedProgram (..)
+  , LocatedTopDef (..)
   , locatedExprSpan
   , locatedExprNode
   , stripLocatedExpr
+  , stripLocatedProgram
   )
 where
 
@@ -11,6 +15,24 @@ import Syntax.AST
 import Syntax.Span (SourceSpan)
 
 data LocatedExpr = LocatedExpr SourceSpan LocatedExprNode
+  deriving stock (Show, Eq)
+
+data LocatedParam = LocatedParam SourceSpan Param
+  deriving stock (Show, Eq)
+
+data LocatedTopDef = LocatedTopDef
+  { locatedTopDefSpan :: SourceSpan
+  , locatedTopDefName :: Name
+  , locatedTopDefParams :: [LocatedParam]
+  , locatedTopDefReturnType :: Type
+  , locatedTopDefBody :: LocatedExpr
+  }
+  deriving stock (Show, Eq)
+
+data LocatedProgram = LocatedProgram
+  { locatedProgramDefs :: [LocatedTopDef]
+  , locatedProgramMain :: LocatedExpr
+  }
   deriving stock (Show, Eq)
 
 data LocatedExprNode
@@ -51,3 +73,23 @@ stripLocatedExpr (LocatedExpr _ node) =
       ELam name argType (stripLocatedExpr body)
     LApp fn arg ->
       EApp (stripLocatedExpr fn) (stripLocatedExpr arg)
+
+stripLocatedProgram :: LocatedProgram -> Program
+stripLocatedProgram program =
+  Program
+    { programDefs = map stripLocatedTopDef (locatedProgramDefs program)
+    , programMain = stripLocatedExpr (locatedProgramMain program)
+    }
+
+stripLocatedTopDef :: LocatedTopDef -> TopDef
+stripLocatedTopDef topDef =
+  TopDef
+    { topDefName = locatedTopDefName topDef
+    , topDefParams = map stripLocatedParam (locatedTopDefParams topDef)
+    , topDefReturnType = locatedTopDefReturnType topDef
+    , topDefBody = stripLocatedExpr (locatedTopDefBody topDef)
+    }
+
+stripLocatedParam :: LocatedParam -> Param
+stripLocatedParam (LocatedParam _ param) =
+  param

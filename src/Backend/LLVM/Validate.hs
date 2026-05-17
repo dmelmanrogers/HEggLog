@@ -44,9 +44,9 @@ checkUniqueFunctions functions =
 validateFunction :: LLVMFunction -> Either LLVMValidationError ()
 validateFunction function = do
   checkUniqueBlocks (functionName function) (functionBlocks function)
-  checkRegisters (functionName function) (functionBlocks function)
+  checkRegisters (functionName function) function
   let labels = Set.fromList (map blockLabel (functionBlocks function))
-      registers = registerTypes (functionBlocks function)
+      registers = registerTypes function
   mapM_ (validateBlock function labels registers) (functionBlocks function)
 
 checkUniqueBlocks :: Text -> [LLVMBlock] -> Either LLVMValidationError ()
@@ -59,9 +59,9 @@ checkUniqueBlocks function blocks =
     | blockLabel block `Set.member` seen = Left (DuplicateLLVMBlock function (blockLabel block))
     | otherwise = go (Set.insert (blockLabel block) seen) rest
 
-checkRegisters :: Text -> [LLVMBlock] -> Either LLVMValidationError ()
-checkRegisters function blocks =
-  go Set.empty [reg | block <- blocks, instruction <- blockInstructions block, reg <- maybeToList (instructionResult instruction)]
+checkRegisters :: Text -> LLVMFunction -> Either LLVMValidationError ()
+checkRegisters function llvmFunction =
+  go Set.empty (map snd (functionParams llvmFunction) <> [reg | block <- functionBlocks llvmFunction, instruction <- blockInstructions block, reg <- maybeToList (instructionResult instruction)])
  where
   go _ [] =
     Right ()
@@ -157,14 +157,16 @@ validateOperand function registers = \case
   OConstInt {} ->
     Right ()
 
-registerTypes :: [LLVMBlock] -> Map.Map Register LLVMType
-registerTypes blocks =
+registerTypes :: LLVMFunction -> Map.Map Register LLVMType
+registerTypes function =
   Map.fromList
-    [ (reg, instructionResultType instruction)
-    | block <- blocks
-    , instruction <- blockInstructions block
-    , reg <- maybeToList (instructionResult instruction)
-    ]
+    ( [(reg, ty) | (ty, reg) <- functionParams function]
+        <> [ (reg, instructionResultType instruction)
+           | block <- functionBlocks function
+           , instruction <- blockInstructions block
+           , reg <- maybeToList (instructionResult instruction)
+           ]
+    )
 
 instructionResult :: LLVMInstruction -> Maybe Register
 instructionResult = \case

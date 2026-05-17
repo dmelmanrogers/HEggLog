@@ -12,10 +12,23 @@ import Syntax.Pretty (prettyName, renderDoc)
 
 renderBackendProgram :: BackendProgram -> Text
 renderBackendProgram program =
-  "root : "
+  Text.concat [renderBackendFunction function <> "\n" | function <- backendFunctions program]
+    <> "root : "
     <> renderBackendType (backendRootType program)
     <> "\n"
     <> renderBackendExpr 0 (backendRoot program)
+
+renderBackendFunction :: BackendFunction -> Text
+renderBackendFunction function =
+  "def "
+    <> renderDoc (prettyName (backendFunctionName function))
+    <> "("
+    <> Text.intercalate ", " [renderDoc (prettyName name) <> " : " <> renderBackendType ty | (name, ty) <- backendFunctionParams function]
+    <> ") : "
+    <> renderBackendType (backendFunctionReturnType function)
+    <> " = "
+    <> renderBackendExpr 0 (backendFunctionBody function)
+    <> ";"
 
 renderBackendExpr :: Int -> BackendExpr -> Text
 renderBackendExpr outerPrec = \case
@@ -34,6 +47,8 @@ renderBackendExpr outerPrec = \case
         , "else"
         , renderBackendExpr 0 elseBranch
         ]
+  BECall _ callee args ->
+    Text.unwords (renderDoc (prettyName callee) : map renderBackendAtom args)
   BELet _ name rhs body ->
     parenthesize (outerPrec > 0) $
       "let "

@@ -1,12 +1,15 @@
 module Typecheck.Infer
   ( infer
   , inferLocated
+  , inferLocatedProgram
+  , inferProgram
   )
 where
 
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.Reader (Reader, asks, local, runReader)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Runtime.Int (mkHIntLiteral)
 import Syntax.AST
 import Syntax.Located
@@ -20,6 +23,14 @@ infer expression =
 inferLocated :: LocatedExpr -> Either LocatedTypeError Type
 inferLocated expression =
   runReader (runExceptT (inferLocatedExpr expression)) emptyTypeEnv
+
+inferProgram :: Program -> Either TypeError Type
+inferProgram program =
+  runReader (runExceptT (inferProgramM program)) emptyTypeEnv
+
+inferLocatedProgram :: LocatedProgram -> Either LocatedTypeError Type
+inferLocatedProgram program =
+  runReader (runExceptT (inferLocatedProgramM program)) emptyTypeEnv
 
 type InferM = ExceptT TypeError (Reader TypeEnv)
 
@@ -107,6 +118,51 @@ orThrow condition err =
     then pure ()
     else throwError err
 
+inferProgramM :: Program -> InferM Type
+inferProgramM program = do
+  env <- inferTopDefs emptyTypeEnv (programDefs program)
+  local (const env) (inferExpr (programMain program))
+
+inferTopDefs :: TypeEnv -> [TopDef] -> InferM TypeEnv
+inferTopDefs env = \case
+  [] ->
+    pure env
+  def : rest -> do
+    if topDefName def `Map.member` env
+      then throwError (DuplicateTopLevelName (topDefName def))
+      else pure ()
+    validateTopDefTypes (topDefName def) (map paramType (topDefParams def)) (topDefReturnType def)
+    checkDuplicateParams (map paramName (topDefParams def))
+    let paramEnv = Map.fromList [(paramName param, paramType param) | param <- topDefParams def]
+    bodyType <- local (const (paramEnv <> env)) (inferExpr (topDefBody def))
+    expect (topDefReturnType def) bodyType
+      `orThrow` TypeMismatch (topDefReturnType def) bodyType
+    inferTopDefs (Map.insert (topDefName def) (topDefType def) env) rest
+
+validateTopDefTypes :: Name -> [Type] -> Type -> InferM ()
+validateTopDefTypes name paramTypes returnType =
+  mapM_ rejectFunctionType (paramTypes <> [returnType])
+ where
+  rejectFunctionType ty =
+    case ty of
+      TFun {} -> throwError (TopLevelFunctionTypeUnsupported name ty)
+      TInt -> pure ()
+      TBool -> pure ()
+
+checkDuplicateParams :: [Name] -> InferM ()
+checkDuplicateParams =
+  go Set.empty
+ where
+  go _ [] =
+    pure ()
+  go seen (name : rest)
+    | name `Set.member` seen = throwError (DuplicateParameter name)
+    | otherwise = go (Set.insert name seen) rest
+
+topDefType :: TopDef -> Type
+topDefType def =
+  foldr TFun (topDefReturnType def) (map paramType (topDefParams def))
+
 inferLocatedExpr :: LocatedExpr -> LocatedInferM Type
 inferLocatedExpr (LocatedExpr sourceRange node) =
   case node of
@@ -190,3 +246,55 @@ orThrowLocated condition (sourceRange, err) =
 throwLocated :: SourceSpan -> TypeError -> LocatedInferM a
 throwLocated sourceRange err =
   throwError (LocatedTypeError sourceRange err)
+
+inferLocatedProgramM :: LocatedProgram -> LocatedInferM Type
+inferLocatedProgramM program = do
+  env <- inferLocatedTopDefs emptyTypeEnv (locatedProgramDefs program)
+  local (const env) (inferLocatedExpr (locatedProgramMain program))
+
+inferLocatedTopDefs :: TypeEnv -> [LocatedTopDef] -> LocatedInferM TypeEnv
+inferLocatedTopDefs env = \case
+  [] ->
+    pure env
+  def : rest -> do
+    if locatedTopDefName def `Map.member` env
+      then throwLocated (locatedTopDefSpan def) (DuplicateTopLevelName (locatedTopDefName def))
+      else pure ()
+    validateLocatedTopDefTypes def
+    checkDuplicateLocatedParams (locatedTopDefParams def)
+    let params = [param | LocatedParam _ param <- locatedTopDefParams def]
+        paramEnv = Map.fromList [(paramName param, paramType param) | param <- params]
+    bodyType <- local (const (paramEnv <> env)) (inferLocatedExpr (locatedTopDefBody def))
+    expect (locatedTopDefReturnType def) bodyType
+      `orThrowLocated` (locatedTopDefSpan def, TypeMismatch (locatedTopDefReturnType def) bodyType)
+    inferLocatedTopDefs (Map.insert (locatedTopDefName def) (locatedTopDefType def) env) rest
+
+validateLocatedTopDefTypes :: LocatedTopDef -> LocatedInferM ()
+validateLocatedTopDefTypes def = do
+  mapM_ rejectParam (locatedTopDefParams def)
+  rejectReturn (locatedTopDefReturnType def)
+ where
+  rejectParam (LocatedParam sourceRange param) =
+    case paramType param of
+      TFun {} -> throwLocated sourceRange (TopLevelFunctionTypeUnsupported (locatedTopDefName def) (paramType param))
+      TInt -> pure ()
+      TBool -> pure ()
+  rejectReturn ty =
+    case ty of
+      TFun {} -> throwLocated (locatedTopDefSpan def) (TopLevelFunctionTypeUnsupported (locatedTopDefName def) ty)
+      TInt -> pure ()
+      TBool -> pure ()
+
+checkDuplicateLocatedParams :: [LocatedParam] -> LocatedInferM ()
+checkDuplicateLocatedParams =
+  go Set.empty
+ where
+  go _ [] =
+    pure ()
+  go seen (LocatedParam sourceRange param : rest)
+    | paramName param `Set.member` seen = throwLocated sourceRange (DuplicateParameter (paramName param))
+    | otherwise = go (Set.insert (paramName param) seen) rest
+
+locatedTopDefType :: LocatedTopDef -> Type
+locatedTopDefType def =
+  foldr TFun (locatedTopDefReturnType def) [paramType param | LocatedParam _ param <- locatedTopDefParams def]

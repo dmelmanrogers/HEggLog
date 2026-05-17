@@ -50,6 +50,7 @@ data EGraph = EGraph
 data EGraphError
   = UnsupportedLambda Name
   | UnsupportedApplication Atom Atom
+  | UnsupportedDirectCall Name
   | UnsupportedPrimitive BinOp
   | UnsupportedLetBinding Name
   | MissingEClass EClassId
@@ -110,6 +111,8 @@ optimizeExpr = \case
     Left (UnsupportedLambda name)
   AApp fn arg ->
     Left (UnsupportedApplication fn arg)
+  ACall callee _ ->
+    Left (UnsupportedDirectCall callee)
   expression -> do
     ensureSupported expression
     optimizeFirstOrder expression
@@ -151,6 +154,8 @@ insertANF expression graph =
         AVar name -> addENode (EVar name) graph
         AInt n -> addENode (EInt n) graph
         ABool b -> addENode (EBool b) graph
+    ACall callee _ ->
+      addENode (EVar callee) graph
 
 insertAtom :: Atom -> EGraph -> (EClassId, EGraph)
 insertAtom atom =
@@ -479,6 +484,8 @@ renderEGraphError = \case
     "unsupported e-graph fragment: lambda binding " <> renderDoc (prettyName name)
   UnsupportedApplication fn arg ->
     "unsupported e-graph fragment: application " <> Text.pack (show (fn, arg))
+  UnsupportedDirectCall name ->
+    "unsupported e-graph fragment: direct function call " <> renderDoc (prettyName name)
   UnsupportedPrimitive op ->
     "unsupported e-graph primitive: " <> Text.pack (show op)
   UnsupportedLetBinding name ->
@@ -511,3 +518,5 @@ ensureSupported = \case
     Left (UnsupportedLambda name)
   AApp fn arg ->
     Left (UnsupportedApplication fn arg)
+  ACall callee _ ->
+    Left (UnsupportedDirectCall callee)

@@ -24,11 +24,14 @@ emptyTypeEnv = Map.empty
 
 data TypeError
   = UnknownVariable Name
+  | DuplicateTopLevelName Name
+  | DuplicateParameter Name
   | TypeMismatch Type Type
   | ExpectedIntOperand BinOp Type
   | ExpectedBoolCondition Type
   | ExpectedFunction Type
   | EqualityNotSupported Type
+  | TopLevelFunctionTypeUnsupported Name Type
   | IntLiteralOutOfRange Integer
   deriving stock (Show, Eq)
 
@@ -49,6 +52,10 @@ renderTypeError :: TypeError -> Text
 renderTypeError = \case
   UnknownVariable name ->
     renderDoc ("unknown variable:" <+> prettyName name)
+  DuplicateTopLevelName name ->
+    renderDoc ("duplicate top-level definition:" <+> prettyName name)
+  DuplicateParameter name ->
+    renderDoc ("duplicate function parameter:" <+> prettyName name)
   TypeMismatch expected actual ->
     renderDoc ("type mismatch: expected" <+> prettyType expected <> ", got" <+> prettyType actual)
   ExpectedIntOperand op actual ->
@@ -59,6 +66,8 @@ renderTypeError = \case
     renderDoc ("expected a function, got" <+> prettyType actual)
   EqualityNotSupported actual ->
     renderDoc ("equality is only supported for Int and Bool, got" <+> prettyType actual)
+  TopLevelFunctionTypeUnsupported name ty ->
+    renderDoc ("top-level first-order function" <+> prettyName name <+> "cannot use function type" <+> prettyType ty)
   IntLiteralOutOfRange value ->
     "integer literal "
       <> Text.pack (show value)

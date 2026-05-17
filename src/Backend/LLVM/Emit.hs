@@ -54,7 +54,9 @@ emitFunction function =
     <> emitType (functionReturnType function)
     <> " @"
     <> functionName function
-    <> "() {\n"
+    <> "("
+    <> Text.intercalate ", " [emitType ty <> " %" <> registerName reg | (ty, reg) <- functionParams function]
+    <> ") {\n"
     <> Text.concat (map emitBlock (functionBlocks function))
     <> "}"
 
