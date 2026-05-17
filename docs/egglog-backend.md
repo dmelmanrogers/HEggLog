@@ -100,15 +100,21 @@ Constants are represented inside Egglog as functions:
 
 - `IConst : IExpr -> ConstInt`
 - `BConst : BExpr -> ConstBool`
+- `IZero : IExpr -> ZeroInfo`
 
-`ConstInt` and `ConstBool` are typed lattice values. Merging the same known
-constant is stable, while conflicting known constants produce a conflict value.
-No function entry still means "no fact"; it is not confused with unknown or
-conflict.
+`ConstInt`, `ConstBool`, and `ZeroInfo` are typed lattice values. Merging the
+same known fact is stable, unknown values refine to known values, while
+conflicting known facts produce a conflict value. No function entry still means
+"no fact"; it is not confused with unknown or conflict.
 
 `ConstInt` known values use the language `Int` policy: signed 64-bit literals
 and checked `+`/`*` facts. If a constant rule would overflow, it does not derive
 a false known constant, so extraction cannot mask a runtime overflow.
+
+`ZeroInfo` records whether a known integer expression is zero, nonzero,
+unknown, or conflicted. It is derived from integer literals and folded integer
+constants, and is kept separate from rewrites until operations such as checked
+division can consume it without changing runtime-error behavior.
 
 Constant folding is driven by Egglog rules over these facts, not by a Haskell
 pre-pass.
@@ -192,7 +198,7 @@ For supported closed ANF programs, the backend checks:
 
 ## Remaining Gaps
 
-- richer lattice values
+- additional domain-specific lattice values
 - indexed/adaptive join execution beyond relation-size estimates
 - rule language/parser
 - full ANF integration

@@ -6,7 +6,7 @@ current codebase as of the checked `Int64` semantics, Egglog backend, LLVM
 backend, source diagnostics, top-level first-order functions, lambda lifting,
 closure conversion runtime work, and optional monomorphic lambda parameter
 inference, semi-naive Egglog rule evaluation, and Egglog provenance/debug
-traces, plus relation-size Egglog join planning.
+traces, relation-size Egglog join planning, and the Egglog `ZeroInfo` lattice.
 
 ## Current Baseline
 
@@ -33,6 +33,8 @@ Implemented:
   rule/substitution debug traces.
 - Compiler-facing Egglog backend for typed pure first-order ANF: integer
   `Add`/`Mul`, boolean and integer `if`, constants, variables, and lets.
+- Egglog lattice facts for integer constants, boolean constants, and integer
+  zero/nonzero information with unknown and conflict states.
 - Compact Egglog backend provenance traces covering encoded actions, applied
   rules, extracted root terms, optimized ANF, and rule-action debug lines.
 - Backend IR and LLVM backend v0 for closed first-order programs, including
@@ -83,7 +85,7 @@ Not implemented:
 - Long-term heap ownership policy beyond process-lifetime closure allocation.
 - User-facing Hindley-Milner polymorphism and optional top-level signatures.
 - Algebraic data types or pattern matching.
-- Indexed/adaptive Egglog joins and richer lattice merges.
+- Indexed/adaptive Egglog joins and additional domain-specific lattice values.
 - Release packaging beyond basic Cabal metadata.
 
 ## Phase 0 - Project Hygiene And Semantic Stabilization
@@ -498,7 +500,7 @@ Definition of done:
 
 Next recommended task:
 
-- Add richer Egglog lattice merges.
+- Extend Egglog backend to comparisons.
 
 ## Phase 8 - Egglog Backend Expansion
 
@@ -561,8 +563,9 @@ Deliverables:
   terms.
 - Completed: relation-size join planning and stable dependency-aware premise
   ordering.
+- Completed: zero/nonzero lattice merges with unknown/conflict states.
 - Future: indexed/adaptive join execution beyond relation-size estimates.
-- Richer lattice merges.
+- Future: additional domain-specific lattice values.
 
 Non-goals:
 
@@ -581,6 +584,7 @@ Tests required:
 - Completed: compiler backend preservation tests.
 - Completed: provenance rendering tests.
 - Completed: join-planner dependency and stable ordering tests.
+- Completed: zero-info unknown/conflict lattice tests.
 - Future: indexed/adaptive join execution tests.
 
 Risks:
@@ -1100,10 +1104,59 @@ Commit message suggestion:
 Add Egglog join planning
 ```
 
+### Task M - Egglog ZeroInfo Lattice
+
+Status: complete for integer zero/nonzero facts with unknown/conflict merge
+states.
+
+Prerequisite: stable Egglog backend rules and semantic-preservation tests.
+
+Implementation scope:
+
+- Completed: add a `ZeroInfo` lattice value and `SZeroInfo` sort.
+- Completed: add `MergeZeroInfo` with unknown refinement and conflict
+  detection.
+- Completed: add `PZeroInfo` pattern evaluation for integer-derived facts.
+- Completed: add `IZero : IExpr -> ZeroInfo` to the backend schema.
+- Completed: derive zero/nonzero facts from integer literals and folded
+  constants.
+
+Files touched:
+
+- `src/Egglog/Sort.hs`
+- `src/Egglog/Value.hs`
+- `src/Egglog/Function.hs`
+- `src/Egglog/Database.hs`
+- `src/Egglog/Pattern.hs`
+- `src/Egglog/Eval.hs`
+- `src/Optimize/EgglogBackend/Schema.hs`
+- `src/Optimize/EgglogBackend/Rules.hs`
+- `test/Main.hs`
+- `docs/egglog-backend.md`
+- `docs/roadmap.md`
+
+Tests required:
+
+- Completed: unknown-refinement lattice test.
+- Completed: conflict lattice test.
+- Completed: backend zero-info derivation test.
+- Completed: existing backend semantic checks.
+
+Acceptance criteria:
+
+- Completed: zero/nonzero facts are available to future checked-division rules
+  without changing current optimization semantics.
+
+Commit message suggestion:
+
+```text
+Add Egglog zero-info lattice
+```
+
 ## Next Recommended Prompt
 
 ```text
-Add richer Egglog lattice merges: extend merge coverage beyond current int and
-bool facts where semantically justified, add conflict/unknown regression tests,
-and preserve backend semantic checks.
+Extend Egglog backend to comparisons: add typed `Lt` and safe `Eq` support,
+derive boolean constant facts for comparison results, and preserve existing
+semantic-preservation and overflow tests.
 ```

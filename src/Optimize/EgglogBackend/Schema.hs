@@ -23,6 +23,7 @@ data BackendSymbols = BackendSymbols
   , bIfFn :: FunctionName
   , iConstFn :: FunctionName
   , bConstFn :: FunctionName
+  , iZeroFn :: FunctionName
   , iRootFn :: FunctionName
   , bRootFn :: FunctionName
   }
@@ -45,6 +46,7 @@ symbols =
     , bIfFn = FunctionName "BIf"
     , iConstFn = FunctionName "IConst"
     , bConstFn = FunctionName "BConst"
+    , iZeroFn = FunctionName "IZero"
     , iRootFn = FunctionName "__IRoot"
     , bRootFn = FunctionName "__BRoot"
     }
@@ -61,6 +63,7 @@ backendDecls =
   , FunctionDecl (bIfFn symbols) [bExprSort symbols, bExprSort symbols, bExprSort symbols] (bExprSort symbols) DefaultFreshId MergeUnion
   , FunctionDecl (iConstFn symbols) [iExprSort symbols] SConstInt DefaultNone MergeConstInt
   , FunctionDecl (bConstFn symbols) [bExprSort symbols] SConstBool DefaultNone MergeConstBool
+  , FunctionDecl (iZeroFn symbols) [iExprSort symbols] SZeroInfo DefaultNone MergeZeroInfo
   , FunctionDecl (iRootFn symbols) [] (iExprSort symbols) DefaultNone MergeKeepOld
   , FunctionDecl (bRootFn symbols) [] (bExprSort symbols) DefaultNone MergeKeepOld
   ]

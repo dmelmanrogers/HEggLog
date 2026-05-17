@@ -384,6 +384,8 @@ patternVariables = \case
     patternVariables inner
   PKnownBool inner ->
     patternVariables inner
+  PZeroInfo inner ->
+    patternVariables inner
 
 patternTermRequiredVars :: Pattern -> Set.Set VarName
 patternTermRequiredVars = \case
@@ -401,6 +403,8 @@ patternTermRequiredVars = \case
     patternTermRequiredVars inner
   PKnownBool inner ->
     patternTermRequiredVars inner
+  PZeroInfo inner ->
+    patternTermRequiredVars inner
 
 patternMatchRequiredVars :: Pattern -> Set.Set VarName
 patternMatchRequiredVars = \case
@@ -417,6 +421,8 @@ patternMatchRequiredVars = \case
   PKnownInt inner ->
     patternMatchRequiredVars inner
   PKnownBool inner ->
+    patternMatchRequiredVars inner
+  PZeroInfo inner ->
     patternMatchRequiredVars inner
 
 isDeltaEligible :: QueryAtom -> Bool
@@ -542,6 +548,10 @@ matchPattern db pattern value subst =
       case canonical of
         VConstBool (KnownBool b) -> matchPattern db inner (VBool b) subst
         _ -> pure []
+    PZeroInfo inner ->
+      case canonical of
+        VZeroInfo info -> matchZeroInfo inner info
+        _ -> pure []
  where
   canonical = canonicalValue db value
 
@@ -561,6 +571,15 @@ matchPattern db pattern value subst =
       Just computed
         | computed == canonical -> pure [subst]
         | otherwise -> pure []
+      Nothing -> pure []
+
+  matchZeroInfo inner info = do
+    maybeValue <- evalExistingPattern db subst inner
+    case maybeValue of
+      Just (VInt n)
+        | zeroInfoFromInteger n == info -> pure [subst]
+        | otherwise -> pure []
+      Just _ -> Left (QueryTypeError "expected Int operand for ZeroInfo")
       Nothing -> pure []
 
 data ActionTraceContext

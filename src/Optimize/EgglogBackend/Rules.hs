@@ -55,6 +55,16 @@ analysisRules =
       , ruleActions = [ASet (iConstFn symbols) [outI] (PKnownInt (PMulInt intA intB))]
       }
   , Rule
+      { ruleName = FunctionName "egglog-izero-num"
+      , rulePremises = [QMatch (iNum intA) outI]
+      , ruleActions = [ASet (iZeroFn symbols) [outI] (PZeroInfo intA)]
+      }
+  , Rule
+      { ruleName = FunctionName "egglog-izero-from-iconst"
+      , rulePremises = [QLookup (iConstFn symbols) [outI] (PKnownInt intA)]
+      , ruleActions = [ASet (iZeroFn symbols) [outI] (PZeroInfo intA)]
+      }
+  , Rule
       { ruleName = FunctionName "egglog-materialize-int-const"
       , rulePremises = [QLookup (iConstFn symbols) [outI] (PKnownInt intA)]
       , ruleActions = [AUnion outI (iNum intA)]

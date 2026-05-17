@@ -26,6 +26,7 @@ data Pattern
   | PMulInt Pattern Pattern
   | PKnownInt Pattern
   | PKnownBool Pattern
+  | PZeroInfo Pattern
   deriving stock (Show, Eq, Ord)
 
 type Substitution = Map.Map VarName Value
@@ -74,12 +75,25 @@ matchPatternValue db pattern value subst =
       case canonicalValue db value of
         VConstBool (KnownBool b) -> matchPatternValue db inner (VBool b) subst
         _ -> Left (QueryTypeError "KnownBool pattern did not match value")
+    PZeroInfo inner ->
+      case canonicalValue db value of
+        VZeroInfo info -> matchZeroInfo inner info
+        _ -> Left (QueryTypeError "ZeroInfo pattern did not match value")
  where
   matchComputed =
     case evalExistingPattern db subst pattern of
       Right (Just existing)
         | existing == canonicalValue db value -> Right subst
       Right _ -> Left (QueryTypeError "computed pattern did not match value")
+      Left err -> Left err
+
+  matchZeroInfo inner info =
+    case evalExistingPattern db subst inner of
+      Right (Just (VInt n))
+        | zeroInfoFromInteger n == info -> Right subst
+        | otherwise -> Left (QueryTypeError "ZeroInfo pattern did not match value")
+      Right (Just _) -> Left (QueryTypeError "expected Int operand for ZeroInfo")
+      Right Nothing -> Left (QueryTypeError "ZeroInfo pattern could not be computed")
       Left err -> Left err
 
 evalExistingPattern :: Database -> Substitution -> Pattern -> Either EgglogError (Maybe Value)
@@ -115,6 +129,12 @@ evalExistingPattern db subst = \case
     case innerValue of
       Just (VBool b) -> pure (Just (VConstBool (KnownBool b)))
       Just _ -> Left (QueryTypeError "expected Bool operand for KnownBool")
+      Nothing -> pure Nothing
+  PZeroInfo inner -> do
+    innerValue <- evalExistingPattern db subst inner
+    case innerValue of
+      Just (VInt n) -> pure (Just (VZeroInfo (zeroInfoFromInteger n)))
+      Just _ -> Left (QueryTypeError "expected Int operand for ZeroInfo")
       Nothing -> pure Nothing
 
 evalTerm :: Database -> Substitution -> Pattern -> Either EgglogError (Database, Value)
@@ -155,6 +175,11 @@ evalTerm db subst = \case
     case value of
       VBool b -> Right (db1, VConstBool (KnownBool b))
       _ -> Left (QueryTypeError "expected Bool operand for KnownBool")
+  PZeroInfo inner -> do
+    (db1, value) <- evalTerm db subst inner
+    case value of
+      VInt n -> Right (db1, VZeroInfo (zeroInfoFromInteger n))
+      _ -> Left (QueryTypeError "expected Int operand for ZeroInfo")
 
 evalTerms :: Database -> Substitution -> [Pattern] -> Either EgglogError (Database, [Value])
 evalTerms db subst = \case
@@ -241,6 +266,8 @@ renderPattern = \case
     "KnownInt(" <> renderPattern inner <> ")"
   PKnownBool inner ->
     "KnownBool(" <> renderPattern inner <> ")"
+  PZeroInfo inner ->
+    "ZeroInfo(" <> renderPattern inner <> ")"
 
 renderArgs :: [Pattern] -> Text
 renderArgs args =

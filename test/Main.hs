@@ -233,6 +233,8 @@ testGroups =
       , pureTest "Egglog backend rejects unsupported lambdas" testEgglogBackendUnsupportedLambda
       , pureTest "ConstInt lattice merges same constants" testEgglogConstIntMergeSame
       , pureTest "ConstInt lattice detects conflicts" testEgglogConstIntMergeConflict
+      , pureTest "ZeroInfo lattice refines unknown values" testEgglogZeroInfoMergeUnknown
+      , pureTest "ZeroInfo lattice detects conflicts" testEgglogZeroInfoMergeConflict
       , pureTest "resolved ANF simple let binds locally" testResolvedANFSimpleLet
       , pureTest "resolved ANF distinguishes shadowed binders" testResolvedANFShadowing
       , pureTest "resolved ANF final shadowed reference is inner" testResolvedANFInnerShadowReference
@@ -252,6 +254,7 @@ testGroups =
       , pureTest "Egglog rules handle multiplication identities" testEgglogRulesMultiplicationIdentities
       , pureTest "Egglog rules simplify if true" testEgglogRulesIfTrue
       , pureTest "Egglog rules simplify fact-driven if" testEgglogRulesFactDrivenIf
+      , pureTest "Egglog rules derive zero information" testEgglogRulesDeriveZeroInfo
       , pureTest "Egglog default rules exclude distributivity" testEgglogRulesExcludeDistributivity
       , pureTest "Egglog backend preserves shadowing semantics" testEgglogBackendShadowing
       , pureTest "Egglog backend preserves retained let dependencies" testEgglogBackendLetRetention
@@ -1306,6 +1309,25 @@ testEgglogConstIntMergeConflict = do
   found <- egg (EDB.lookupFunction (fn "const") [EV.VInt 0] db2)
   expectEqual "conflicting constants merge to conflict" (Just (EV.VConstInt EV.ConflictInt)) found
 
+testEgglogZeroInfoMergeUnknown :: Either String ()
+testEgglogZeroInfoMergeUnknown = do
+  let decl = EF.FunctionDecl (fn "zero-info") [ES.SInt] ES.SZeroInfo EF.DefaultNone EF.MergeZeroInfo
+      db0 = EDB.databaseFromDecls [decl]
+  (db1, _) <- egg (EDB.setFunction (fn "zero-info") [EV.VInt 0] (EV.VZeroInfo EV.UnknownZeroInfo) db0)
+  (db2, changed) <- egg (EDB.setFunction (fn "zero-info") [EV.VInt 0] (EV.VZeroInfo EV.KnownNonZero) db1)
+  assertBool "unknown zero info should refine to known nonzero" changed
+  found <- egg (EDB.lookupFunction (fn "zero-info") [EV.VInt 0] db2)
+  expectEqual "refined zero info" (Just (EV.VZeroInfo EV.KnownNonZero)) found
+
+testEgglogZeroInfoMergeConflict :: Either String ()
+testEgglogZeroInfoMergeConflict = do
+  let decl = EF.FunctionDecl (fn "zero-info") [ES.SInt] ES.SZeroInfo EF.DefaultNone EF.MergeZeroInfo
+      db0 = EDB.databaseFromDecls [decl]
+  (db1, _) <- egg (EDB.setFunction (fn "zero-info") [EV.VInt 0] (EV.VZeroInfo EV.KnownZero) db0)
+  (db2, _) <- egg (EDB.setFunction (fn "zero-info") [EV.VInt 0] (EV.VZeroInfo EV.KnownNonZero) db1)
+  found <- egg (EDB.lookupFunction (fn "zero-info") [EV.VInt 0] db2)
+  expectEqual "conflicting zero info" (Just (EV.VZeroInfo EV.ConflictZeroInfo)) found
+
 testResolvedANFSimpleLet :: Either String ()
 testResolvedANFSimpleLet = do
   resolved <- resolvedFor "let x = 1 in x"
@@ -1475,6 +1497,17 @@ testEgglogRulesFactDrivenIf :: Either String ()
 testEgglogRulesFactDrivenIf = do
   (encoded, run) <- runEncodedSource "let b = true in if b then 10 else 20"
   assertEquivalentToPattern encoded run (EP.PCall (OES.iNumFn OES.symbols) [EP.PValue (EV.VInt 10)])
+
+testEgglogRulesDeriveZeroInfo :: Either String ()
+testEgglogRulesDeriveZeroInfo = do
+  (zeroEncoded, zeroRun) <- runEncodedSource "0"
+  zeroRoot <- canonicalRoot zeroEncoded zeroRun
+  zeroFound <- egg (EDB.lookupFunction (OES.iZeroFn OES.symbols) [zeroRoot] (OEB.encodedRunDatabase zeroRun))
+  expectEqual "zero literal has KnownZero info" (Just (EV.VZeroInfo EV.KnownZero)) zeroFound
+  (nonZeroEncoded, nonZeroRun) <- runEncodedSource "2 + 3"
+  nonZeroRoot <- canonicalRoot nonZeroEncoded nonZeroRun
+  nonZeroFound <- egg (EDB.lookupFunction (OES.iZeroFn OES.symbols) [nonZeroRoot] (OEB.encodedRunDatabase nonZeroRun))
+  expectEqual "folded nonzero expression has KnownNonZero info" (Just (EV.VZeroInfo EV.KnownNonZero)) nonZeroFound
 
 testEgglogRulesExcludeDistributivity :: Either String ()
 testEgglogRulesExcludeDistributivity = do
