@@ -213,6 +213,8 @@ testGroups =
       , pureTest "MergeUnion can trigger additional rebuild work" testEgglogRebuildMergeUnion
       , pureTest "single-premise rule" testEgglogSinglePremiseRule
       , pureTest "multi-premise join" testEgglogMultiPremiseJoin
+      , pureTest "join planner respects computed dependencies" testEgglogJoinPlannerRespectsDependencies
+      , pureTest "join planner uses stable relation-size order" testEgglogJoinPlannerUsesStableCostOrder
       , pureTest "semi-naive matches naive transitive closure" testEgglogSemiNaiveMatchesNaiveTransitiveClosure
       , pureTest "semi-naive preserves compiler backend result" testEgglogSemiNaivePreservesCompilerBackend
       , pureTest "debug log records rule action provenance" testEgglogDebugTraceRecordsRuleAction
@@ -984,6 +986,83 @@ testEgglogMultiPremiseJoin = do
       [edgeRelDecl, pathRelDecl]
   found <- egg (EDB.lookupFunction pathFn [EV.VInt 1, EV.VInt 3] (EEV.resultDatabase result))
   expectEqual "join derives transitive path" (Just EV.VUnit) found
+
+testEgglogJoinPlannerRespectsDependencies :: Either String ()
+testEgglogJoinPlannerRespectsDependencies = do
+  let filteredPathFn = fn "filtered-path"
+      filteredPathDecl = EF.relation filteredPathFn [ES.SInt, ES.SInt]
+      x = intVar "x"
+      y = intVar "y"
+      rule =
+        ER.Rule
+          { ER.ruleName = fn "computed-filter"
+          , ER.rulePremises =
+              [ ER.QEq (EP.PAddInt x (EP.PValue (EV.VInt 1))) (EP.PValue (EV.VInt 3))
+              , ER.QLookup edgeFn [x, y] (EP.PValue EV.VUnit)
+              ]
+          , ER.ruleActions = [ER.AAssert filteredPathFn [x, y]]
+          }
+  result <-
+    eggRun
+      [rule]
+      [ ER.relationFact edgeFn [EV.VInt 2, EV.VInt 9]
+      , ER.relationFact edgeFn [EV.VInt 4, EV.VInt 9]
+      ]
+      [edgeRelDecl, filteredPathDecl]
+  kept <- egg (EDB.lookupFunction filteredPathFn [EV.VInt 2, EV.VInt 9] (EEV.resultDatabase result))
+  rejected <- egg (EDB.lookupFunction filteredPathFn [EV.VInt 4, EV.VInt 9] (EEV.resultDatabase result))
+  expectEqual "computed equality filters after x is bound" (Just EV.VUnit) kept
+  expectEqual "nonmatching edge is not derived" Nothing rejected
+
+testEgglogJoinPlannerUsesStableCostOrder :: Either String ()
+testEgglogJoinPlannerUsesStableCostOrder = do
+  let bigFn = fn "big"
+      smallFn = fn "small"
+      joinedFn = fn "joined"
+      bigDecl = EF.relation bigFn [ES.SInt]
+      smallDecl = EF.relation smallFn [ES.SInt]
+      joinedDecl = EF.relation joinedFn [ES.SInt, ES.SInt]
+      x = intVar "x"
+      y = intVar "y"
+      rule =
+        ER.Rule
+          { ER.ruleName = fn "join-cost"
+          , ER.rulePremises =
+              [ ER.QLookup bigFn [x] (EP.PValue EV.VUnit)
+              , ER.QLookup smallFn [y] (EP.PValue EV.VUnit)
+              ]
+          , ER.ruleActions = [ER.AAssert joinedFn [x, y]]
+          }
+  result <-
+    egg
+      ( EEV.runProgram
+          EEV.defaultRunConfig
+            { EEV.collectDebugLog = True
+            , EEV.maxIterations = 8
+            , EEV.runMode = EEV.RunNaive
+            }
+          ER.Program
+            { ER.programDecls = [bigDecl, smallDecl, joinedDecl]
+            , ER.programInitialActions =
+                [ ER.relationFact bigFn [EV.VInt 1]
+                , ER.relationFact bigFn [EV.VInt 2]
+                , ER.relationFact bigFn [EV.VInt 3]
+                , ER.relationFact smallFn [EV.VInt 10]
+                , ER.relationFact smallFn [EV.VInt 20]
+                ]
+            , ER.programRules = [rule]
+            }
+      )
+  let ruleTraces =
+        filter ("rule join-cost" `Text.isPrefixOf`) (reverse (EDB.debugLog (EEV.resultDatabase result)))
+  case ruleTraces of
+    _first : second : _ -> do
+      assertBool
+        "second substitution should keep the smaller relation fixed before advancing it"
+        ("{x=2, y=10}" `Text.isInfixOf` second)
+      expectEqual "six joined facts should be derived" 6 (length ruleTraces)
+    other ->
+      Left ("expected join-cost rule traces, got " <> show other)
 
 testEgglogSemiNaiveMatchesNaiveTransitiveClosure :: Either String ()
 testEgglogSemiNaiveMatchesNaiveTransitiveClosure = do

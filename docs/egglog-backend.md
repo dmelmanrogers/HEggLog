@@ -78,14 +78,21 @@ premises in that planned join still read the full database, so recursive rules
 such as transitive closure see combinations of new and existing facts without
 rescanning every unchanged tuple as the driver.
 
+Rule evaluation uses a stable join planner in both naive and semi-naive modes.
+The planner estimates relation sizes from the current function tables, treats a
+semi-naive delta premise as the size of its delta table, prefers smaller ready
+premises, and delays computed/equality premises until the variables needed to
+evaluate them are bound. Ties fall back to original premise order so traces and
+extraction remain deterministic.
+
 The older naive mode remains available through `RunNaive` for equivalence tests
 and debugging. Semi-naive and naive runs are checked against each other for
 kernel transitive-closure behavior, and compiler backend tests compare optimized
 ANF results across both modes.
 
 Rules without a delta-eligible lookup or root function match still run naively.
-That keeps equality-only and empty-premise rules correct while the generic join
-planner remains deliberately small.
+That keeps equality-only and empty-premise rules correct while preserving the
+same dependency-aware premise ordering.
 
 ## Constants As Facts
 
@@ -186,7 +193,7 @@ For supported closed ANF programs, the backend checks:
 ## Remaining Gaps
 
 - richer lattice values
-- richer join planning and cost-based premise ordering
+- indexed/adaptive join execution beyond relation-size estimates
 - rule language/parser
 - full ANF integration
 - binder-aware higher-order EqSat

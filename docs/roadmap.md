@@ -6,7 +6,7 @@ current codebase as of the checked `Int64` semantics, Egglog backend, LLVM
 backend, source diagnostics, top-level first-order functions, lambda lifting,
 closure conversion runtime work, and optional monomorphic lambda parameter
 inference, semi-naive Egglog rule evaluation, and Egglog provenance/debug
-traces.
+traces, plus relation-size Egglog join planning.
 
 ## Current Baseline
 
@@ -29,7 +29,8 @@ Implemented:
 - Prototype e-graph optimizer for a narrow ANF fragment.
 - Standalone Egglog-style kernel with sorts, values, functions, merge behavior,
   union-find, rebuild, rules, rewrite sugar, extraction, delta relations, and
-  semi-naive rule scheduling with opt-in rule/substitution debug traces.
+  semi-naive rule scheduling with stable relation-size join planning and opt-in
+  rule/substitution debug traces.
 - Compiler-facing Egglog backend for typed pure first-order ANF: integer
   `Add`/`Mul`, boolean and integer `if`, constants, variables, and lets.
 - Compact Egglog backend provenance traces covering encoded actions, applied
@@ -82,7 +83,7 @@ Not implemented:
 - Long-term heap ownership policy beyond process-lifetime closure allocation.
 - User-facing Hindley-Milner polymorphism and optional top-level signatures.
 - Algebraic data types or pattern matching.
-- Richer Egglog join planning and richer lattice merges.
+- Indexed/adaptive Egglog joins and richer lattice merges.
 - Release packaging beyond basic Cabal metadata.
 
 ## Phase 0 - Project Hygiene And Semantic Stabilization
@@ -497,7 +498,7 @@ Definition of done:
 
 Next recommended task:
 
-- Add cost-based Egglog join planning and richer premise ordering.
+- Add richer Egglog lattice merges.
 
 ## Phase 8 - Egglog Backend Expansion
 
@@ -558,7 +559,9 @@ Deliverables:
 - Completed: keep naive evaluation mode for equivalence and debugging.
 - Completed: provenance/debug traces for changed actions and extracted backend
   terms.
-- Future: richer join planning and cost-based premise ordering.
+- Completed: relation-size join planning and stable dependency-aware premise
+  ordering.
+- Future: indexed/adaptive join execution beyond relation-size estimates.
 - Richer lattice merges.
 
 Non-goals:
@@ -577,7 +580,8 @@ Tests required:
 - Completed: delta evaluation equivalence tests.
 - Completed: compiler backend preservation tests.
 - Completed: provenance rendering tests.
-- Future: richer rule scheduling tests.
+- Completed: join-planner dependency and stable ordering tests.
+- Future: indexed/adaptive join execution tests.
 
 Risks:
 
@@ -642,7 +646,7 @@ Definition of done:
 | 6 | Closure conversion tests, runtime layout tests, higher-order LLVM examples |
 | 7 | Type inference tests, negative ambiguity tests, annotation compatibility |
 | 8 | Egglog semantic preservation, overflow preservation, extraction determinism |
-| 9 | Kernel equivalence tests, delta/semi-naive scheduling tests, provenance tests |
+| 9 | Kernel equivalence tests, delta/semi-naive scheduling tests, provenance tests, join-planner tests |
 | 10 | CI matrix, docs/examples smoke tests, packaging checks |
 
 ## Implementation Queue
@@ -984,7 +988,7 @@ Implementation scope:
 - Completed: add delta relations and semi-naive rule evaluation.
 - Completed: add rule scheduling over changed lookup/root-match premises.
 - Completed: preserve kernel/frontend separation.
-- Future: add cost-based join planning and richer premise ordering.
+- Completed: add cost-based join planning and richer premise ordering.
 
 Files touched:
 
@@ -1055,10 +1059,51 @@ Commit message suggestion:
 Add Egglog provenance traces
 ```
 
+### Task L - Egglog Join Planning
+
+Status: complete for relation-size estimates and stable dependency-aware premise
+ordering.
+
+Prerequisite: stable semi-naive evaluation and provenance/debug traces.
+
+Implementation scope:
+
+- Completed: estimate relation sizes from current function tables.
+- Completed: estimate semi-naive delta premise sizes from delta tables.
+- Completed: choose smaller ready premises before larger ones.
+- Completed: delay computed and equality premises until required variables are
+  bound.
+- Completed: preserve deterministic ties with original premise order.
+
+Files touched:
+
+- `src/Egglog/Eval.hs`
+- `test/Main.hs`
+- `docs/egglog-backend.md`
+- `docs/roadmap.md`
+
+Tests required:
+
+- Completed: dependency-sensitive computed premise test.
+- Completed: stable relation-size ordering test.
+- Completed: existing naive/semi-naive equivalence tests.
+- Completed: existing compiler backend preservation tests.
+
+Acceptance criteria:
+
+- Completed: naive and semi-naive rule evaluation use the same planner without
+  changing existing compiler backend behavior.
+
+Commit message suggestion:
+
+```text
+Add Egglog join planning
+```
+
 ## Next Recommended Prompt
 
 ```text
-Add cost-based Egglog join planning and richer premise ordering: estimate
-relation sizes for rule premises, choose stable join orders for naive and
-semi-naive evaluation, and preserve existing kernel equivalence tests.
+Add richer Egglog lattice merges: extend merge coverage beyond current int and
+bool facts where semantically justified, add conflict/unknown regression tests,
+and preserve backend semantic checks.
 ```

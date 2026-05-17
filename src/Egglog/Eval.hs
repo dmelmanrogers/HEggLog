@@ -12,6 +12,7 @@ module Egglog.Eval
 where
 
 import Control.Monad (foldM)
+import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -189,10 +190,7 @@ applyRulesSemiNaive delta startDb =
 
 evalRule :: Database -> Rule -> Either EgglogError [Substitution]
 evalRule db rule =
-  foldM extend [emptySubstitution] (rulePremises rule)
- where
-  extend substitutions atom =
-    concat <$> traverse (evalQueryAtom db atom) substitutions
+  evalPlannedRule Nothing db (planRulePremises Nothing db Nothing rule)
 
 evalRuleSemiNaive :: DeltaDatabase -> Database -> Rule -> Either EgglogError [Substitution]
 evalRuleSemiNaive delta db rule =
@@ -235,14 +233,191 @@ semiNaivePlans delta rule
 
 evalRuleWithDeltaPremise :: DeltaDatabase -> Database -> Rule -> Int -> Either EgglogError [Substitution]
 evalRuleWithDeltaPremise delta db rule deltaIndex =
-  foldM extend [emptySubstitution] (zip [0 ..] (rulePremises rule))
- where
-  extend substitutions (index, atom) =
-    concat <$> traverse (evalWithPlan index atom) substitutions
+  evalPlannedRule (Just delta) db (planRulePremises (Just delta) db (Just deltaIndex) rule)
 
-  evalWithPlan index atom
-    | index == deltaIndex = evalQueryAtomDelta delta db atom
-    | otherwise = evalQueryAtom db atom
+data PlannedQueryAtom = PlannedQueryAtom
+  { plannedAtomIndex :: Int
+  , plannedAtom :: QueryAtom
+  , plannedUsesDelta :: Bool
+  }
+  deriving stock (Show, Eq, Ord)
+
+planRulePremises :: Maybe DeltaDatabase -> Database -> Maybe Int -> Rule -> [PlannedQueryAtom]
+planRulePremises maybeDelta db deltaIndex rule =
+  stableSortPlannedAtoms $
+    [ PlannedQueryAtom
+        { plannedAtomIndex = index
+        , plannedAtom = atom
+        , plannedUsesDelta = Just index == deltaIndex
+        }
+    | (index, atom) <- zip [0 ..] (rulePremises rule)
+    ]
+ where
+  stableSortPlannedAtoms =
+    sortOn (staticJoinCost maybeDelta db)
+
+evalPlannedRule :: Maybe DeltaDatabase -> Database -> [PlannedQueryAtom] -> Either EgglogError [Substitution]
+evalPlannedRule maybeDelta db atoms =
+  evalRemaining atoms emptySubstitution
+ where
+  evalRemaining remaining subst =
+    case remaining of
+      [] ->
+        Right [subst]
+      _ ->
+        case chooseNextAtom maybeDelta db subst remaining of
+          Nothing ->
+            Right []
+          Just (atom, rest) -> do
+            substitutions <- evalPlannedAtom maybeDelta db atom subst
+            concat <$> traverse (evalRemaining rest) substitutions
+
+evalPlannedAtom :: Maybe DeltaDatabase -> Database -> PlannedQueryAtom -> Substitution -> Either EgglogError [Substitution]
+evalPlannedAtom maybeDelta db planned subst
+  | plannedUsesDelta planned
+  , Just delta <- maybeDelta =
+      evalQueryAtomDelta delta db (plannedAtom planned) subst
+  | otherwise =
+      evalQueryAtom db (plannedAtom planned) subst
+
+chooseNextAtom :: Maybe DeltaDatabase -> Database -> Substitution -> [PlannedQueryAtom] -> Maybe (PlannedQueryAtom, [PlannedQueryAtom])
+chooseNextAtom maybeDelta db subst atoms =
+  case selectBestOn (dynamicJoinCost maybeDelta db subst) (filter (premiseReady subst . plannedAtom) atoms) of
+    Nothing ->
+      Nothing
+    Just best ->
+      Just (best, filter ((/= plannedAtomIndex best) . plannedAtomIndex) atoms)
+ where
+  selectBestOn _ [] =
+    Nothing
+  selectBestOn score (first : rest) =
+    Just $
+      foldl
+        ( \currentBest candidate ->
+            if score candidate < score currentBest
+              then candidate
+              else currentBest
+        )
+        first
+        rest
+
+data JoinCost = JoinCost
+  { joinEstimatedRows :: Int
+  , joinUnboundVariables :: Int
+  , joinOriginalIndex :: Int
+  }
+  deriving stock (Show, Eq, Ord)
+
+staticJoinCost :: Maybe DeltaDatabase -> Database -> PlannedQueryAtom -> JoinCost
+staticJoinCost maybeDelta db planned =
+  JoinCost
+    { joinEstimatedRows = estimatedRows maybeDelta db planned
+    , joinUnboundVariables = Set.size (queryAtomVariables (plannedAtom planned))
+    , joinOriginalIndex = plannedAtomIndex planned
+    }
+
+dynamicJoinCost :: Maybe DeltaDatabase -> Database -> Substitution -> PlannedQueryAtom -> JoinCost
+dynamicJoinCost maybeDelta db subst planned =
+  JoinCost
+    { joinEstimatedRows = adjustedRows
+    , joinUnboundVariables = Set.size (queryAtomVariables atom `Set.difference` boundVars)
+    , joinOriginalIndex = plannedAtomIndex planned
+    }
+ where
+  atom = plannedAtom planned
+  boundVars = Map.keysSet subst
+  boundInputs = Set.size (queryAtomVariables atom `Set.intersection` boundVars)
+  baseRows = estimatedRows maybeDelta db planned
+  adjustedRows = baseRows `div` (boundInputs + 1)
+
+estimatedRows :: Maybe DeltaDatabase -> Database -> PlannedQueryAtom -> Int
+estimatedRows maybeDelta db planned =
+  case queryAtomFunction (plannedAtom planned) of
+    Just name
+      | plannedUsesDelta planned
+      , Just delta <- maybeDelta ->
+          Map.size (deltaTable name delta)
+      | otherwise ->
+          Map.size (Map.findWithDefault Map.empty name (tables db))
+    Nothing ->
+      1
+
+premiseReady :: Substitution -> QueryAtom -> Bool
+premiseReady subst atom =
+  case atom of
+    QLookup _ args outPattern ->
+      varsReady (foldMap patternMatchRequiredVars (outPattern : args))
+    QMatch (PCall _ args) outPattern ->
+      varsReady (foldMap patternMatchRequiredVars (outPattern : args))
+    QMatch pattern outPattern ->
+      varsReady (patternTermRequiredVars pattern <> patternMatchRequiredVars outPattern)
+    QEq lhs rhs ->
+      (varsReady (patternTermRequiredVars lhs) && varsReady (patternMatchRequiredVars rhs))
+        || (varsReady (patternTermRequiredVars rhs) && varsReady (patternMatchRequiredVars lhs))
+ where
+  boundVars = Map.keysSet subst
+  varsReady required =
+    required `Set.isSubsetOf` boundVars
+
+queryAtomVariables :: QueryAtom -> Set.Set VarName
+queryAtomVariables = \case
+  QLookup _ args outPattern ->
+    foldMap patternVariables (outPattern : args)
+  QMatch pattern outPattern ->
+    patternVariables pattern <> patternVariables outPattern
+  QEq lhs rhs ->
+    patternVariables lhs <> patternVariables rhs
+
+patternVariables :: Pattern -> Set.Set VarName
+patternVariables = \case
+  PVar name _ ->
+    Set.singleton name
+  PValue {} ->
+    Set.empty
+  PCall _ args ->
+    foldMap patternVariables args
+  PAddInt lhs rhs ->
+    patternVariables lhs <> patternVariables rhs
+  PMulInt lhs rhs ->
+    patternVariables lhs <> patternVariables rhs
+  PKnownInt inner ->
+    patternVariables inner
+  PKnownBool inner ->
+    patternVariables inner
+
+patternTermRequiredVars :: Pattern -> Set.Set VarName
+patternTermRequiredVars = \case
+  PVar name _ ->
+    Set.singleton name
+  PValue {} ->
+    Set.empty
+  PCall _ args ->
+    foldMap patternTermRequiredVars args
+  PAddInt lhs rhs ->
+    patternTermRequiredVars lhs <> patternTermRequiredVars rhs
+  PMulInt lhs rhs ->
+    patternTermRequiredVars lhs <> patternTermRequiredVars rhs
+  PKnownInt inner ->
+    patternTermRequiredVars inner
+  PKnownBool inner ->
+    patternTermRequiredVars inner
+
+patternMatchRequiredVars :: Pattern -> Set.Set VarName
+patternMatchRequiredVars = \case
+  PVar {} ->
+    Set.empty
+  PValue {} ->
+    Set.empty
+  PCall _ args ->
+    foldMap patternMatchRequiredVars args
+  PAddInt lhs rhs ->
+    patternTermRequiredVars lhs <> patternTermRequiredVars rhs
+  PMulInt lhs rhs ->
+    patternTermRequiredVars lhs <> patternTermRequiredVars rhs
+  PKnownInt inner ->
+    patternMatchRequiredVars inner
+  PKnownBool inner ->
+    patternMatchRequiredVars inner
 
 isDeltaEligible :: QueryAtom -> Bool
 isDeltaEligible atom =
