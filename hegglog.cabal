@@ -36,11 +36,23 @@ executable hegglog
       Analysis.Facts
       Analysis.InferFacts
       CLI.Report
+      Egglog.Database
+      Egglog.Eval
+      Egglog.Extract
+      Egglog.Function
+      Egglog.Pattern
+      Egglog.Pretty
+      Egglog.Rebuild
+      Egglog.Rule
+      Egglog.Sort
+      Egglog.UnionFind
+      Egglog.Value
       Eval.ANFInterpreter
       Eval.Interpreter
       IR.ANF
       IR.ANF.Validate
       IR.Core
+      Optimize.EgglogBackend
       Optimize.EGraph
       Optimize.Placeholder
       Optimize.Rewrite
@@ -73,11 +85,23 @@ test-suite hegglog-test
       Analysis.Facts
       Analysis.InferFacts
       CLI.Report
+      Egglog.Database
+      Egglog.Eval
+      Egglog.Extract
+      Egglog.Function
+      Egglog.Pattern
+      Egglog.Pretty
+      Egglog.Rebuild
+      Egglog.Rule
+      Egglog.Sort
+      Egglog.UnionFind
+      Egglog.Value
       Eval.ANFInterpreter
       Eval.Interpreter
       IR.ANF
       IR.ANF.Validate
       IR.Core
+      Optimize.EgglogBackend
       Optimize.EGraph
       Optimize.Placeholder
       Optimize.Rewrite
