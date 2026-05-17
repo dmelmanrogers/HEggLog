@@ -57,8 +57,9 @@ cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm --run-llvm
 ```
 
 The LLVM v0 backend supports `Int`, `Bool`, `let`, `if`, `+`, `-`, `*`, `<`,
-and `==` over closed first-order programs. Lambdas, applications, closures,
-recursion, heap allocation, free variables, and division are rejected
+`==`, ordered top-level first-order functions, and saturated direct calls over
+closed first-order programs. Lambdas, closure calls, partial or over-applied
+calls, recursion, heap allocation, free variables, and division are rejected
 structurally. `Int` is a checked signed 64-bit value across the interpreter,
 optimizers, backend IR, and LLVM lowering; overflow is reported by interpreters
 and aborts in generated LLVM.
@@ -78,6 +79,7 @@ Supported source forms:
 - comparison operators: `<`, `==`
 - lambda expressions: `\x : Int -> x + 1`
 - function application: `f x`
+- top-level first-order functions: `def inc(x : Int) : Int = x + 1; inc 41`
 - function types: `Int -> Int`
 - parentheses
 
@@ -93,7 +95,8 @@ generalization are intentionally out of scope for this slice.
   Hindley-Milner generalization.
 - `Eval.*` interprets checked expressions into runtime values.
 - `IR.ANF` makes evaluation order explicit by atomizing primitive and
-  application operands.
+  application operands, and represents top-level functions/direct calls for the
+  first-order backend path.
 - `Analysis.*` defines relational facts over ANF terms. This keeps future
   egglog-style optimization grounded in analysis facts instead of a bare rewrite
   engine.
@@ -121,8 +124,9 @@ generalization are intentionally out of scope for this slice.
   Egglog kernel. It classifies a typed first-order fragment, encodes integer and
   boolean terms into separate Egglog sorts, runs compiler rules as `Rule` data,
   extracts back to valid ANF, and reports structured unsupported/failure states.
-- `Backend.*` lowers closed first-order ANF into a typed backend IR and then into
-  deterministic textual LLVM IR with a small C-compatible printing `main`.
+- `Backend.*` lowers closed first-order ANF programs into a typed backend IR and
+  then into deterministic textual LLVM IR with source top-level functions and a
+  small C-compatible printing `main`.
 
 Binder-aware equality saturation remains future work. Lambda rewrites require
 alpha equivalence, capture avoidance, beta-reduction discipline, and extraction
@@ -132,8 +136,9 @@ cost models before they can be optimized safely.
 
 The test suite is grouped by compiler concern:
 
-- parser precedence and grouping
-- structured negative typechecking cases
+- parser precedence, grouping, and top-level definitions
+- structured negative typechecking cases, including top-level duplicate and
+  forward-reference errors
 - parser/typechecker/backend diagnostic location and golden formatting
 - source-vs-ANF semantic preservation
 - ANF validation and invariants
@@ -144,9 +149,9 @@ The test suite is grouped by compiler concern:
 - Egglog kernel invariants, resolved ANF binding behavior, backend encoding,
   compiler rules, extraction/reconstruction, structured unsupported reporting,
   deterministic optimization, and semantic preservation on supported programs
-- LLVM backend validation, structured unsupported cases, deterministic SSA/phi
-  lowering, selected LLVM golden files, and optional execution checks against
-  the interpreter when LLVM tools are available
+- LLVM backend validation, structured unsupported cases, direct top-level calls,
+  deterministic SSA/phi lowering, selected LLVM golden files, and optional
+  execution checks against the interpreter when LLVM tools are available
 - selected golden CLI output sections
 - QuickCheck properties for ANF validation after lowering and Egglog semantic
   preservation on generated supported ANF fragments

@@ -91,7 +91,8 @@ Examples:
 The current LLVM source-fragment rejections are:
 
 - lambda expressions
-- function applications
+- unsupported applications, such as closure calls, calls through local
+  variables, partial calls, and over-applied top-level calls
 - division
 
 Closed first-order source that passes this check can still fail later backend

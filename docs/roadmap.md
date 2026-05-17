@@ -3,16 +3,20 @@
 This roadmap is the project-level source of truth for what exists now, what is
 being stabilized, and what should be built next. It is synchronized with the
 current codebase as of the checked `Int64` semantics, Egglog backend, LLVM
-backend, and source diagnostics work.
+backend, source diagnostics, and top-level first-order function work.
 
 ## Current Baseline
 
 Implemented:
 
-- Parser and pretty-printer for expression-level HeggLog.
+- Parser and pretty-printer for expression-level HeggLog plus ordered top-level
+  first-order definitions.
 - Typechecker with explicit function parameter annotations.
+- Typechecking and source interpretation for ordered nonrecursive top-level
+  definitions.
 - Source interpreter and ANF interpreter.
-- ANF lowering, validation, and deterministic generated names.
+- ANF lowering, validation, top-level function representation, direct calls, and
+  deterministic generated names.
 - Resolved ANF with deterministic binder ids and explicit free variables.
 - Fact inference over ANF.
 - Sound local ANF simplifier with validation before and after optimization.
@@ -21,7 +25,8 @@ Implemented:
   union-find, rebuild, rules, rewrite sugar, and extraction.
 - Compiler-facing Egglog backend for typed pure first-order ANF: integer
   `Add`/`Mul`, boolean and integer `if`, constants, variables, and lets.
-- Backend IR and LLVM backend v0 for closed first-order programs.
+- Backend IR and LLVM backend v0 for closed first-order programs, including
+  top-level first-order functions and saturated direct calls.
 - CLI report mode and LLVM compile mode, including optional LLVM execution.
 - LLVM toolchain checks that assemble selected emitted goldens with `llvm-as`
   when available, plus documented `llvm-as`/`lli`/`clang` executable workflow.
@@ -48,16 +53,14 @@ Implemented:
 - MIT license metadata.
 - Minimal GitHub Actions CI for build, test, package metadata, and whitespace
   checks.
-- Language and runtime specifications for the current expression language,
-  checked `Int64` semantics, runtime errors, evaluation order, and current
-  decision points.
+- Language and runtime specifications for the current source language, checked
+  `Int64` semantics, runtime errors, evaluation order, top-level first-order
+  definitions, and current decision points.
 
 Not implemented:
 
 - Normalized one-line parser diagnostics beyond Megaparsec's built-in bundles.
 - Exact subexpression runtime spans beyond the root source expression.
-- Top-level definitions.
-- Backend support for first-order function calls beyond the current root.
 - Lambda lifting.
 - Closure conversion or closure runtime.
 - Heap allocation and memory management policy.
@@ -135,7 +138,7 @@ Deliverables:
 Non-goals:
 
 - Hindley-Milner inference.
-- Top-level declarations.
+- Recursive top-level declarations.
 - Pattern matching.
 
 Acceptance criteria:
@@ -272,22 +275,25 @@ Definition of done:
 
 Next recommended task:
 
-- Start Phase 4 by designing and implementing top-level first-order source
-  definitions.
+- Start Phase 5 by lambda-lifting non-capturing lambdas onto the new top-level
+  function path.
 
 ## Phase 4 - Top-Level First-Order Functions
 
-Status: not started.
+Status: complete for ordered nonrecursive first-order definitions.
 
 Motivation: Move beyond single-expression programs without requiring closures.
 
 Deliverables:
 
-- Source syntax for top-level definitions.
-- Typechecking for top-level definitions and calls.
-- ANF representation for top-level function bodies.
-- Backend function IR.
-- LLVM function declarations/definitions and direct calls.
+- Completed: source syntax for top-level definitions.
+- Completed: typechecking for ordered top-level definitions and saturated direct
+  calls.
+- Completed: duplicate top-level name and duplicate parameter rejection.
+- Completed: rejection of function-typed top-level parameters and returns.
+- Completed: ANF representation for top-level function bodies and direct calls.
+- Completed: Backend function IR, validation, and direct calls.
+- Completed: LLVM function definitions with typed parameters and direct calls.
 
 Non-goals:
 
@@ -297,15 +303,17 @@ Non-goals:
 
 Acceptance criteria:
 
-- Closed first-order programs with multiple top-level functions compile to LLVM.
-- Direct calls execute the same as interpreter evaluation.
+- Completed: closed first-order programs with multiple top-level functions
+  compile to LLVM.
+- Completed: direct calls execute the same as interpreter evaluation.
 
 Tests required:
 
-- Parser/typechecker tests for top-level defs.
-- Shadowing and duplicate-name tests.
-- Interpreter-vs-LLVM call tests.
-- Backend unsupported tests for higher-order cases.
+- Completed: parser/typechecker tests for top-level defs.
+- Completed: duplicate-name and duplicate-parameter tests.
+- Completed: forward-reference rejection tests.
+- Completed: interpreter and LLVM direct-call tests.
+- Completed: backend unsupported tests for higher-order cases.
 
 Risks:
 
@@ -314,6 +322,11 @@ Risks:
 Definition of done:
 
 - Direct first-order function calls are part of the supported LLVM fragment.
+
+Next recommended task:
+
+- Start Phase 5 by detecting non-capturing lambdas and lowering them into
+  generated top-level functions.
 
 ## Phase 5 - Lambda Lifting
 
@@ -745,13 +758,15 @@ Extend Egglog backend to comparisons
 
 ### Task F - Top-Level First-Order Functions
 
+Status: complete.
+
 Prerequisite: source spans recommended; Task E optional.
 
 Implementation scope:
 
-- Add top-level function syntax and typechecking.
-- Extend ANF/backend IR for direct first-order functions.
-- Emit LLVM functions and direct calls.
+- Completed: add top-level function syntax and typechecking.
+- Completed: extend ANF/backend IR for direct first-order functions.
+- Completed: emit LLVM functions and direct calls.
 
 Files likely touched:
 
@@ -764,13 +779,14 @@ Files likely touched:
 
 Tests required:
 
-- Parser/typechecker tests.
-- Interpreter-vs-LLVM differential tests.
-- Unsupported higher-order backend tests.
+- Completed: parser/typechecker tests.
+- Completed: interpreter and LLVM direct-call execution tests.
+- Completed: unsupported higher-order backend tests.
 
 Acceptance criteria:
 
-- Multiple top-level first-order functions compile and run through LLVM.
+- Completed: multiple top-level first-order functions compile and run through
+  LLVM.
 
 Commit message suggestion:
 
@@ -910,7 +926,8 @@ Add semi-naive Egglog evaluation
 ## Next Recommended Prompt
 
 ```text
-Add source spans and diagnostics: introduce source locations in parser output,
-thread them into parser/typechecker/runtime/backend diagnostics, add golden
-negative diagnostic tests, and preserve current language semantics.
+Implement lambda lifting for non-capturing lambdas: detect lambdas with no free
+variables, generate deterministic top-level functions, lower eligible calls
+through the direct-call backend path, keep capturing lambdas rejected by LLVM
+compile mode, add tests, and update the roadmap.
 ```

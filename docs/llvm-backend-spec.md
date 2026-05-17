@@ -6,8 +6,9 @@ operational guide for CLI use and toolchain workflow.
 
 ## Scope
 
-The LLVM backend compiles a typed, closed, first-order expression program to
-deterministic textual LLVM IR.
+The LLVM backend compiles a typed, closed, first-order source program to
+deterministic textual LLVM IR. Source programs may include ordered top-level
+first-order functions and saturated direct calls.
 
 The pipeline is:
 
@@ -38,11 +39,16 @@ Supported source forms:
 - integer `<`
 - `==` over `Int`
 - `==` over `Bool`
+- ordered top-level function definitions with `Int`/`Bool` parameters and
+  `Int`/`Bool` returns
+- saturated direct calls to top-level functions
 
 Rejected source forms:
 
 - lambdas
-- function application
+- closure application
+- calls through local variables
+- partial or over-applied top-level calls
 - higher-order values
 - free variables
 - division
@@ -51,9 +57,9 @@ Rejected source forms:
 - strings
 - user-defined data
 
-The compile path rejects lambdas, applications, and division using located source
-diagnostics before ANF-to-backend lowering. Open programs and malformed internal
-IR are still defended by ANF and backend validators.
+The compile path rejects lambdas, unsupported applications, and division using
+located source diagnostics before ANF-to-backend lowering. Open programs and
+malformed internal IR are still defended by ANF and backend validators.
 
 ## Type Mapping
 
@@ -64,8 +70,9 @@ HeggLog types map through Backend IR before LLVM:
 | `Int` | `BI64` | `i64` |
 | `Bool` | `BI1` | `i1` |
 
-Function types have no LLVM backend representation in v0. Any function-typed
-source expression is outside the supported fragment.
+Function values have no LLVM backend representation in v0. Top-level function
+signatures lower to LLVM function signatures, but function-typed source values,
+parameters, and returns are outside the supported fragment.
 
 ## Value Representation
 
@@ -89,6 +96,8 @@ for:
 - primitive arithmetic and comparison
 - equality over `Int` and `Bool`
 - conditional branch selection
+- ordered top-level function scope
+- saturated direct calls to top-level functions
 
 The supported fragment is pure. There are no user-visible side effects before
 the generated `main` prints the root value.
@@ -123,12 +132,21 @@ Backend IR is the code-generation input. It contains:
 - typed primitive expressions
 - typed `if`
 - typed `let`
+- top-level function definitions with typed parameters and returns
+- typed direct calls to top-level functions
 - a typed root expression
 - provenance comments
 
-Backend IR has no lambda or application constructors. The validator enforces:
+Backend IR has no lambda or closure-application constructors. The validator
+enforces:
 
 - root type matches inferred root expression type
+- function names are unique
+- function parameter names are unique per function
+- function body type matches the declared return type
+- direct call targets exist
+- direct call arity matches the target function
+- direct call argument types match the target parameter types
 - variables are bound in scope
 - atom annotations match inferred atom types
 - primitive operands have the primitive's required operand type
@@ -147,8 +165,15 @@ Generated modules contain:
 - comments describing HeggLog provenance and selected optimization status
 - format-string globals for root printing
 - external declarations required by the generated program
+- zero or more top-level functions
 - one root function
 - one C-compatible `main`
+
+Top-level functions use deterministic names:
+
+```llvm
+define i64 @hegglog_fun_inc(i64 %arg_x) { ... }
+```
 
 Root functions:
 
@@ -157,7 +182,8 @@ define i64 @hegglog_main_i64() { ... }
 define i1 @hegglog_main_i1() { ... }
 ```
 
-Only one root function is emitted per module, selected by root type.
+Only one root function is emitted per module, selected by root type. Top-level
+functions are emitted before the root function.
 
 `main`:
 
@@ -196,6 +222,10 @@ unsupported fragment, LLVM compilation continues with original ANF and records
 that fallback in module comments. If Egglog fails internally, LLVM compilation
 fails before backend lowering.
 
+The current Egglog optimizer works over expression ANF. Source programs with
+top-level definitions are treated as unsupported for Egglog and continue through
+the original ANF program.
+
 The selected ANF, whether original or optimized, is validated before Backend IR
 lowering.
 
@@ -220,6 +250,7 @@ The current contract is covered by:
 - `llvm-as` validation for selected goldens when available
 - optional `lli`/`clang` execution for fixture programs
 - interpreter-vs-LLVM differential tests for successful supported programs
+- top-level parser/typechecker tests and direct-call LLVM execution tests
 - interpreter-vs-LLVM runtime-error equivalence tests for checked arithmetic
   overflow
 

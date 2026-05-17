@@ -5,11 +5,12 @@ features are explicitly marked as decisions or planned work.
 
 ## Source Unit
 
-A HeggLog source file currently contains exactly one expression followed by end
-of file.
+A HeggLog source file contains zero or more top-level first-order definitions
+followed by one main expression.
 
-Top-level definitions are not source syntax yet. They are planned in the
-roadmap before lambda lifting and closure conversion.
+Top-level definitions are ordered and nonrecursive. A definition body can refer
+to its parameters and earlier top-level definitions. The main expression can
+refer to all top-level definitions.
 
 ## Lexical Structure
 
@@ -29,7 +30,7 @@ Identifiers:
 Reserved words:
 
 ```text
-let in if then else true false Int Bool
+def let in if then else true false Int Bool
 ```
 
 Integer literals:
@@ -54,7 +55,10 @@ This sketch is intentionally close to the parser. It is not a Megaparsec grammar
 dump, but it captures the implemented precedence.
 
 ```text
-program     ::= expr EOF
+program     ::= topDef* expr EOF
+
+topDef      ::= "def" name "(" param ("," param)* ")" ":" type "=" expr ";"
+param       ::= name ":" type
 
 expr        ::= letExpr
               | ifExpr
@@ -109,6 +113,33 @@ T1 -> T2
 Function parameters require annotations. There is no Hindley-Milner inference,
 generalization, polymorphism, algebraic data type, or pattern matching support
 yet.
+
+Top-level function parameters and returns must be first-order values (`Int` or
+`Bool`). Function-typed top-level parameters and returns are rejected until
+lambda lifting or closure conversion gives the backend a representation for
+higher-order values.
+
+## Top-Level Definitions
+
+```text
+def inc(x : Int) : Int = x + 1;
+inc 41
+```
+
+Top-level definitions introduce named functions. They require at least one
+parameter, and parameter names in a single definition must be unique.
+
+Duplicate top-level names are rejected. Forward references are rejected because
+definitions are checked in source order:
+
+```text
+def f(x : Int) : Int = g x; -- rejected: g is not in scope yet
+def g(x : Int) : Int = x;
+f 1
+```
+
+The interpreter evaluates top-level definitions in order and then evaluates the
+main expression in the resulting environment.
 
 ## Expression Forms
 
@@ -205,12 +236,16 @@ type must equal `ArgType`.
 Evaluation is call-by-value: evaluate the function, evaluate the argument, then
 apply the closure.
 
-The LLVM backend currently rejects applications structurally.
+The LLVM backend supports saturated direct calls to top-level first-order
+functions. Other applications, including closure calls, partial top-level calls,
+over-applied top-level calls, and calls through local variables, are currently
+rejected structurally.
 
 ## Evaluation Order
 
 HeggLog is currently a strict, call-by-value language:
 
+- top-level definitions: evaluate in source order before the main expression.
 - `let`: evaluate the right-hand side before the body.
 - binary operations: evaluate the left operand, then the right operand, then the
   primitive.

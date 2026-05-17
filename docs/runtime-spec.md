@@ -163,12 +163,11 @@ declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)
 
 There is no custom HeggLog runtime library yet.
 
-## Future Function Runtime
+## Function Runtime
 
-Top-level first-order functions should compile to direct LLVM functions before
-closure runtime work begins.
+Top-level first-order functions compile to direct LLVM functions.
 
-Planned direct-call model:
+Direct-call model:
 
 - Each top-level HeggLog function becomes an LLVM function.
 - Arguments and results use backend types (`i64` for `Int`, `i1` for `Bool`).
@@ -198,8 +197,7 @@ Required design decisions:
 
 Recommendation:
 
-- Implement top-level first-order functions and non-capturing lambda lifting
-  first.
+- Implement non-capturing lambda lifting before closure conversion.
 - For closure conversion, start with heap-allocated environment structs and a
   deliberately simple ownership policy, then refine after tests force the
   lifetime model.

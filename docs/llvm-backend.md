@@ -1,8 +1,9 @@
 # HeggLog LLVM Backend
 
 The LLVM backend is the first executable code generation path for HeggLog. It is
-intentionally narrow: it compiles closed, pure, first-order ANF programs into a
-small typed backend IR, lowers that IR into structured LLVM IR, and emits textual
+intentionally narrow: it compiles closed, pure, first-order ANF programs,
+including ordered top-level functions and saturated direct calls, into a small
+typed backend IR, lowers that IR into structured LLVM IR, and emits textual
 LLVM.
 
 For the normative semantic contract, see
@@ -25,12 +26,15 @@ Supported in v0:
 - integer `<`
 - `==` over `Int` or `Bool`
 - `if` expressions with `Bool` conditions and same-typed branches
+- ordered top-level first-order functions
+- saturated direct calls to top-level functions
 
 Rejected structurally:
 
 - free variables and open ANF
 - lambdas
-- applications
+- closure calls, calls through local variables, partial calls, and over-applied
+  calls
 - higher-order values
 - recursion
 - heap allocation
@@ -53,9 +57,10 @@ checks all variable, primitive, `if`, and root types before LLVM lowering.
 ## Backend IR
 
 The backend IR is smaller than ANF and codegen-oriented. It contains typed atoms,
-typed primitive expressions, scoped `let`, typed `if`, and a closed root
-expression. It has no lambda/application constructors, so unsupported
-higher-order programs cannot leak into codegen.
+typed primitive expressions, scoped `let`, typed `if`, top-level function
+definitions, direct function calls, and a closed root expression. It has no
+lambda/application constructors, so unsupported higher-order programs cannot
+leak into codegen.
 
 ## LLVM Lowering
 
@@ -68,6 +73,8 @@ Lowering uses SSA:
 - `<` lowers to `icmp slt`
 - `==` lowers to `icmp eq`
 - `if` lowers to then/else/join blocks with a `phi` in the join block
+- top-level functions lower to LLVM functions with typed parameters
+- direct calls lower to ordinary LLVM `call` instructions
 
 Nested `if` expressions work because each branch returns the current predecessor
 block label for the enclosing `phi`.
@@ -99,6 +106,10 @@ define i32 @main() { ... }
 
 Programs that contain checked arithmetic also declare the corresponding LLVM
 overflow intrinsics and `abort`.
+
+Top-level source functions emit deterministic LLVM functions named
+`hegglog_fun_<source-name>`. Source parameters lower to LLVM function parameters
+and direct calls in function bodies or the root call those generated functions.
 
 `main` prints `Int` roots as decimal integers and `Bool` roots as `0` or `1`.
 The emitter uses opaque pointer syntax (`ptr`) for the `printf` declaration and
@@ -202,10 +213,11 @@ The LLVM pipeline can lower either original ANF or Egglog-optimized ANF:
 12. optionally run with `lli` or compile and run with `clang`
 
 Egglog remains an optimizer. LLVM remains a code generation backend.
+The current Egglog optimizer is expression-oriented; source programs with
+top-level functions bypass Egglog and lower through the original ANF program.
 
 ## Future Work
 
-- top-level functions
 - lambda lifting
 - closure conversion
 - recursion
