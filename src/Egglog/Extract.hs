@@ -96,7 +96,7 @@ childTerm bestMap = \case
 
 constructorCost :: FunctionName -> [Cost] -> Cost
 constructorCost name childCosts
-  | unFunctionName name `elem` ["Num", "Var"] = 1
+  | unFunctionName name `elem` ["Num", "Var", "INum", "IVar", "BBool", "BVar"] = 1
   | otherwise = 1 + sum childCosts
 
 isUserSort :: Sort -> Bool

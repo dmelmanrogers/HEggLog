@@ -50,9 +50,16 @@ executable hegglog
       Eval.ANFInterpreter
       Eval.Interpreter
       IR.ANF
+      IR.ANF.Resolved
       IR.ANF.Validate
       IR.Core
       Optimize.EgglogBackend
+      Optimize.EgglogBackend.Encode
+      Optimize.EgglogBackend.Extract
+      Optimize.EgglogBackend.Fragment
+      Optimize.EgglogBackend.Reconstruct
+      Optimize.EgglogBackend.Rules
+      Optimize.EgglogBackend.Schema
       Optimize.EGraph
       Optimize.Placeholder
       Optimize.Rewrite
@@ -99,9 +106,16 @@ test-suite hegglog-test
       Eval.ANFInterpreter
       Eval.Interpreter
       IR.ANF
+      IR.ANF.Resolved
       IR.ANF.Validate
       IR.Core
       Optimize.EgglogBackend
+      Optimize.EgglogBackend.Encode
+      Optimize.EgglogBackend.Extract
+      Optimize.EgglogBackend.Fragment
+      Optimize.EgglogBackend.Reconstruct
+      Optimize.EgglogBackend.Rules
+      Optimize.EgglogBackend.Schema
       Optimize.EGraph
       Optimize.Placeholder
       Optimize.Rewrite

@@ -19,6 +19,8 @@ data MergeBehavior
   | MergeKeepOld
   | MergeMinInt
   | MergeMaxInt
+  | MergeConstInt
+  | MergeConstBool
   | MergeError
   deriving stock (Show, Eq, Ord)
 
@@ -40,4 +42,3 @@ relation name argSorts =
     , functionDefault = DefaultNone
     , functionMerge = MergeKeepOld
     }
-
