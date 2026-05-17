@@ -13,6 +13,12 @@ import Analysis.InferFacts (inferFacts)
 import Eval.Interpreter (RuntimeError, Value, eval, renderRuntimeError, renderValue)
 import IR.ANF (AExpr, renderANF, toANF)
 import IR.Core (CoreProgram, lower, renderCore)
+import Optimize.EGraph
+  ( EGraphError
+  , EGraphResult (..)
+  , optimizeANF
+  , renderEGraphError
+  )
 import Optimize.Placeholder (optimize)
 import Optimize.Simplify
   ( AppliedRewrite
@@ -40,6 +46,7 @@ data CompileReport = CompileReport
   , reportFacts :: [Fact]
   , reportOptimizedANF :: AExpr
   , reportAppliedRewrites :: [AppliedRewrite]
+  , reportEGraph :: Either EGraphError EGraphResult
   , reportCore :: CoreProgram
   }
   deriving stock (Show, Eq)
@@ -79,6 +86,7 @@ compileReport path source = do
       , reportFacts = inferFacts anf
       , reportOptimizedANF = simplifiedANF simplified
       , reportAppliedRewrites = appliedRewrites simplified
+      , reportEGraph = optimizeANF anf
       , reportCore = optimize (lower parsed)
       }
 
@@ -92,6 +100,7 @@ renderFullReport report =
     , section "Inferred Facts" (renderFacts (reportFacts report))
     , section "Optimized ANF IR" (renderANF (reportOptimizedANF report))
     , section "Applied Rewrites" (renderAppliedRewrites (reportAppliedRewrites report))
+    , section "EGraph Optimized ANF IR" (renderEGraphReport (reportEGraph report))
     , section "Core IR" (renderCore (reportCore report))
     ]
 
@@ -104,6 +113,7 @@ renderGoldenReport report =
     , section "Inferred Facts" (renderFacts (reportFacts report))
     , section "Optimized ANF IR" (renderANF (reportOptimizedANF report))
     , section "Applied Rewrites" (renderAppliedRewrites (reportAppliedRewrites report))
+    , section "EGraph Optimized ANF IR" (renderEGraphReport (reportEGraph report))
     ]
 
 renderCompileError :: CompileError -> Text
@@ -120,3 +130,14 @@ renderCompileError = \case
 section :: Text -> Text -> Text
 section title body =
   "== " <> title <> " ==\n" <> Text.stripEnd body <> "\n"
+
+renderEGraphReport :: Either EGraphError EGraphResult -> Text
+renderEGraphReport = \case
+  Right result ->
+    Text.unlines
+      [ renderANF (egraphOptimizedANF result)
+      , "classes: " <> Text.pack (show (egraphClassCount result))
+      , "rewrites: " <> Text.pack (show (egraphRewriteCount result))
+      ]
+  Left err ->
+    renderEGraphError err

@@ -13,3 +13,5 @@ let _t0 = 1 < 2 in
 if _t0 then 42 else 0
 == Applied Rewrites ==
 <none>
+== EGraph Optimized ANF IR ==
+unsupported e-graph primitive: Lt

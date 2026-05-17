@@ -24,6 +24,8 @@ The CLI prints:
 - inferred analysis facts
 - optimized ANF IR
 - applied rewrite trace
+- report-only e-graph optimized ANF IR, or a structured unsupported-fragment
+  message
 - lowered Core IR
 
 ## Language MVP
@@ -65,6 +67,10 @@ generalization are intentionally out of scope for this slice.
 - `Optimize.Simplify` is a small fact-aware ANF rewrite engine. It validates
   optimizer input and output, records applied rules, and is intentionally
   replaceable by a future e-graph or egglog backend.
+- `Optimize.EGraph` is an isolated prototype e-graph backend for a pure
+  first-order ANF fragment. It supports arithmetic, boolean literals,
+  variables, and simple `if` terms; lambdas and applications return structured
+  unsupported-fragment diagnostics.
 
 Binder-aware equality saturation remains future work. Lambda rewrites require
 alpha equivalence, capture avoidance, beta-reduction discipline, and extraction
@@ -80,6 +86,8 @@ The test suite is grouped by compiler concern:
 - ANF validation and invariants
 - relational fact inference
 - fact-aware simplification and semantic preservation
+- e-graph insertion, union/find, extraction, rewrite behavior, unsupported
+  fragments, and semantic preservation on the supported fragment
 - selected golden CLI output sections
 - QuickCheck property skeleton for ANF validation after lowering
 

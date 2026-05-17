@@ -13,6 +13,7 @@ import Eval.Interpreter (Value (..), eval, renderRuntimeError)
 import IR.ANF
 import IR.ANF.Validate
 import IR.Core (CoreNode (..), CoreProgram (..), lower)
+import qualified Optimize.EGraph as EG
 import Optimize.Rewrite
   ( RewriteDiagnostic (..)
   , RewriteRule (rewriteConditions)
@@ -115,6 +116,35 @@ testGroups =
       , pureTest "rewrite conditions are checked" testRewriteConditions
       , ioTest "optimized ANF validates for examples" testOptimizedANFValidates
       , ioTest "optimized ANF preserves semantics for examples" testOptimizedSemanticPreservation
+      ]
+  , TestGroup
+      "EGraph"
+      [ pureTest "inserts ANF expression" testEGraphInsertion
+      , pureTest "union/find merges classes" testEGraphUnionFind
+      , pureTest "extracts cheaper arithmetic representative" testEGraphExtraction
+      , pureTest "x + 0 rewrite" $
+          checkEGraphOptimizes "let x = 7 in x + 0" (ALet xName (AAtom (AInt 7)) (AAtom (AVar xName)))
+      , pureTest "0 + x rewrite" $
+          checkEGraphOptimizes "let x = 7 in 0 + x" (ALet xName (AAtom (AInt 7)) (AAtom (AVar xName)))
+      , pureTest "x * 1 rewrite" $
+          checkEGraphOptimizes "let x = 7 in x * 1" (ALet xName (AAtom (AInt 7)) (AAtom (AVar xName)))
+      , pureTest "1 * x rewrite" $
+          checkEGraphOptimizes "let x = 7 in 1 * x" (ALet xName (AAtom (AInt 7)) (AAtom (AVar xName)))
+      , pureTest "x * 0 rewrite" $
+          checkEGraphOptimizes "let x = 7 in x * 0" (ALet xName (AAtom (AInt 7)) (AAtom (AInt 0)))
+      , pureTest "0 * x rewrite" $
+          checkEGraphOptimizes "let x = 7 in 0 * x" (ALet xName (AAtom (AInt 7)) (AAtom (AInt 0)))
+      , pureTest "constant folding rewrite" $
+          checkEGraphOptimizes "2 * 3" (AAtom (AInt 6))
+      , pureTest "if true rewrite" $
+          checkEGraphOptimizes "if true then 1 else 2" (AAtom (AInt 1))
+      , pureTest "if false rewrite" $
+          checkEGraphOptimizes "if false then 1 else 2" (AAtom (AInt 2))
+      , pureTest "unsupported lambda fails gracefully" testEGraphUnsupportedLambda
+      , pureTest "unsupported application fails gracefully" testEGraphUnsupportedApplication
+      , pureTest "unsupported primitive fails gracefully" testEGraphUnsupportedPrimitive
+      , pureTest "agrees with reference simplifier on supported arithmetic" testEGraphAgreesWithSimplifier
+      , pureTest "semantic preservation on supported fragment" testEGraphSemanticPreservation
       ]
   , TestGroup
       "Golden"
@@ -384,6 +414,95 @@ testRewriteConditions =
         conditions ->
           Left ("expected exactly one rewrite condition, got " <> show conditions)
 
+testEGraphInsertion :: Either String ()
+testEGraphInsertion =
+  let (rootId, graph) = EG.insertANF (APrim Add (AInt 1) (AInt 0)) EG.emptyEGraph
+   in do
+        assertBool "root class should exist" (Map.member (EG.findClass graph rootId) (EG.classNodes graph))
+        assertBool "expected inserted e-nodes" (Map.size (EG.memo graph) >= 3)
+
+testEGraphUnionFind :: Either String ()
+testEGraphUnionFind =
+  let (oneId, graph1) = EG.addENode (EG.EInt 1) EG.emptyEGraph
+      (twoId, graph2) = EG.addENode (EG.EInt 2) graph1
+      graph3 = EG.unionClasses oneId twoId graph2
+   in expectEqual "union/find roots" (EG.findClass graph3 oneId) (EG.findClass graph3 twoId)
+
+testEGraphExtraction :: Either String ()
+testEGraphExtraction = do
+  let (rootId, graph) = EG.insertANF (APrim Add (AInt 1) (AInt 0)) EG.emptyEGraph
+  saturated <- mapLeft (showText . EG.renderEGraphError) (EG.saturate graph)
+  extracted <- mapLeft (showText . EG.renderEGraphError) (EG.extractCheapest saturated rootId)
+  expectEqual "cheapest extraction" (AAtom (AInt 1)) extracted
+
+checkEGraphOptimizes :: Text -> AExpr -> Either String ()
+checkEGraphOptimizes source expected = do
+  parsed <- parseExpr source
+  let original = toANF parsed
+  result <- mapLeft (showText . EG.renderEGraphError) (EG.optimizeANF original)
+  mapLeft (showText . renderANFValidationError) (validateANF (EG.egraphOptimizedANF result))
+  originalValue <- mapLeft (showText . renderRuntimeError) (evalANF original)
+  optimizedValue <- mapLeft (showText . renderRuntimeError) (evalANF (EG.egraphOptimizedANF result))
+  originalObserved <- observeANFValue originalValue
+  optimizedObserved <- observeANFValue optimizedValue
+  expectEqual "e-graph optimized ANF" expected (EG.egraphOptimizedANF result)
+  expectEqual "e-graph preserves ANF semantics" originalObserved optimizedObserved
+
+testEGraphUnsupportedLambda :: Either String ()
+testEGraphUnsupportedLambda =
+  expectEqual
+    "unsupported lambda"
+    (Left (EG.UnsupportedLambda xName))
+    (EG.optimizeANF (ALam xName TInt (AAtom (AVar xName))))
+
+testEGraphUnsupportedApplication :: Either String ()
+testEGraphUnsupportedApplication =
+  expectEqual
+    "unsupported application"
+    (Left (EG.UnsupportedApplication (AVar (mkName "f")) (AInt 1)))
+    (EG.optimizeANF (AApp (AVar (mkName "f")) (AInt 1)))
+
+testEGraphUnsupportedPrimitive :: Either String ()
+testEGraphUnsupportedPrimitive =
+  expectEqual
+    "unsupported primitive"
+    (Left (EG.UnsupportedPrimitive Sub))
+    (EG.optimizeANF (APrim Sub (AInt 4) (AInt 1)))
+
+testEGraphAgreesWithSimplifier :: Either String ()
+testEGraphAgreesWithSimplifier = do
+  parsed <- parseExpr "if true then 1 + 0 else 2 * 0"
+  simplified <- mapLeft show (simplifyFixpoint (toANF parsed))
+  egraph <- mapLeft (showText . EG.renderEGraphError) (EG.optimizeANF (toANF parsed))
+  expectEqual
+    "e-graph agrees with reference simplifier"
+    (simplifiedANF simplified)
+    (EG.egraphOptimizedANF egraph)
+
+testEGraphSemanticPreservation :: Either String ()
+testEGraphSemanticPreservation =
+  firstFailurePure checkSupportedSemanticPreservation supportedEGraphSources
+
+checkSupportedSemanticPreservation :: Text -> Either String ()
+checkSupportedSemanticPreservation source = do
+  parsed <- parseExpr source
+  let original = toANF parsed
+  result <- mapLeft (showText . EG.renderEGraphError) (EG.optimizeANF original)
+  originalValue <- mapLeft (showText . renderRuntimeError) (evalANF original)
+  optimizedValue <- mapLeft (showText . renderRuntimeError) (evalANF (EG.egraphOptimizedANF result))
+  originalObserved <- observeANFValue originalValue
+  optimizedObserved <- observeANFValue optimizedValue
+  expectEqual ("e-graph semantic preservation for " <> Text.unpack source) originalObserved optimizedObserved
+
+firstFailurePure :: (a -> Either String ()) -> [a] -> Either String ()
+firstFailurePure action = \case
+  [] ->
+    Right ()
+  item : rest ->
+    case action item of
+      Left message -> Left message
+      Right () -> firstFailurePure action rest
+
 checkGolden :: FilePath -> FilePath -> IO (Either String ())
 checkGolden sourcePath goldenPath = do
   source <- Text.IO.readFile sourcePath
@@ -592,6 +711,16 @@ examplePaths =
   , "examples/inc.hg"
   , "examples/add.hg"
   , "examples/higher-order.hg"
+  ]
+
+supportedEGraphSources :: [Text]
+supportedEGraphSources =
+  [ "1 + 0"
+  , "0 + 4"
+  , "3 * 1"
+  , "0 * 99"
+  , "if true then 1 + 0 else 2 * 0"
+  , "let x = 7 in x * 1"
   ]
 
 incSource :: Text
