@@ -1,0 +1,85 @@
+cabal-version:      3.0
+name:               hegglog
+version:            0.1.0.0
+build-type:         Simple
+license:            NONE
+author:             Drew Melman-Rogers
+maintainer:         drew@example.com
+synopsis:           Initial compiler skeleton for HeggLog
+category:           Language
+
+common warnings
+  ghc-options:
+      -Wall
+      -Wcompat
+      -Wincomplete-record-updates
+      -Wincomplete-uni-patterns
+      -Wredundant-constraints
+
+executable hegglog
+  import:           warnings
+  main-is:          Main.hs
+  hs-source-dirs:   src
+  default-language: GHC2021
+  default-extensions:
+      DerivingStrategies
+      LambdaCase
+      OverloadedStrings
+  build-depends:
+      base >= 4.17 && < 5
+    , containers >= 0.6 && < 0.8
+    , megaparsec >= 9 && < 10
+    , mtl >= 2.2 && < 2.4
+    , prettyprinter >= 1.7 && < 1.8
+    , text >= 2.0 && < 2.2
+  other-modules:
+      Analysis.Facts
+      Analysis.InferFacts
+      CLI.Report
+      Eval.ANFInterpreter
+      Eval.Interpreter
+      IR.ANF
+      IR.ANF.Validate
+      IR.Core
+      Optimize.Placeholder
+      Optimize.Rewrite
+      Syntax.AST
+      Syntax.Parser
+      Syntax.Pretty
+      Typecheck.Infer
+      Typecheck.Types
+
+test-suite hegglog-test
+  import:           warnings
+  type:             exitcode-stdio-1.0
+  main-is:          Main.hs
+  hs-source-dirs:   test, src
+  default-language: GHC2021
+  default-extensions:
+      DerivingStrategies
+      LambdaCase
+      OverloadedStrings
+  build-depends:
+      base >= 4.17 && < 5
+    , containers >= 0.6 && < 0.8
+    , megaparsec >= 9 && < 10
+    , mtl >= 2.2 && < 2.4
+    , prettyprinter >= 1.7 && < 1.8
+    , QuickCheck >= 2.14 && < 2.16
+    , text >= 2.0 && < 2.2
+  other-modules:
+      Analysis.Facts
+      Analysis.InferFacts
+      CLI.Report
+      Eval.ANFInterpreter
+      Eval.Interpreter
+      IR.ANF
+      IR.ANF.Validate
+      IR.Core
+      Optimize.Placeholder
+      Optimize.Rewrite
+      Syntax.AST
+      Syntax.Parser
+      Syntax.Pretty
+      Typecheck.Infer
+      Typecheck.Types

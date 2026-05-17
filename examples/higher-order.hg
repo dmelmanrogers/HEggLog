@@ -1,0 +1,3 @@
+let applyTwice = \f : (Int -> Int) -> \x : Int -> f (f x) in
+let inc = \n : Int -> n + 1 in
+applyTwice inc 40
