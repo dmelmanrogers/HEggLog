@@ -147,7 +147,9 @@ and links against the platform C runtime for `printf` and `abort`.
 
 The test suite validates selected LLVM golden outputs against checked-in text.
 When `llvm-as` is available, those same emitted modules are also assembled to
-bitcode.
+bitcode. It also runs a small differential corpus through both the interpreter
+and LLVM execution path when `lli` or `clang` is available, comparing LLVM stdout
+against the interpreter-derived root value.
 
 ## External Tools
 

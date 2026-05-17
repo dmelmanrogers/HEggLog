@@ -265,6 +265,7 @@ testGroups =
       , ioTest "LLVM bool root golden" $
           checkLLVMGolden "examples/llvm/bool-root.hg" "test/golden/llvm-bool-root.ll"
       , ioTest "LLVM execution matches interpreter when tools are available" testLLVMExecutionMatchesInterpreter
+      , ioTest "LLVM differential corpus matches interpreter when tools are available" testLLVMDifferentialCorpus
       ]
   , TestGroup
       "Golden"
@@ -1428,6 +1429,45 @@ testLLVMExecutionMatchesInterpreter = do
             LLVMTools.LLVMRunSucceeded stdoutText ->
               expectEqual ("LLVM stdout for " <> path) expectedStdout stdoutText
 
+testLLVMDifferentialCorpus :: IO (Either String ())
+testLLVMDifferentialCorpus = do
+  tools <- LLVMTools.findLLVMTools
+  firstFailureIO (check tools) (zip [(1 :: Int) ..] llvmDifferentialSources)
+ where
+  check tools (index, source) = do
+    let path = "<llvm-diff-" <> show index <> ">"
+    case expectedLLVMStdout path source of
+      Left err ->
+        pure (Left err)
+      Right expectedStdout ->
+        case BC.compileToLLVM BC.defaultCompileLLVMOptions path source of
+          Left err ->
+            pure (Left (Text.unpack (BC.renderCompileLLVMError err)))
+          Right result -> do
+            runResult <- LLVMTools.runLLVMText tools (BC.llvmText result)
+            pure $
+              case runResult of
+                LLVMTools.LLVMRunSkipped {} ->
+                  Right ()
+                LLVMTools.LLVMRunFailed stdoutText stderrText ->
+                  Left ("LLVM execution failed for " <> path <> "\nstdout:\n" <> stdoutText <> "\nstderr:\n" <> stderrText)
+                LLVMTools.LLVMRunSucceeded stdoutText ->
+                  expectEqual ("LLVM stdout for " <> path) expectedStdout stdoutText
+
+expectedLLVMStdout :: FilePath -> Text -> Either String String
+expectedLLVMStdout path source = do
+  parsed <- parseExprAt path source
+  value <- mapLeft (showText . renderRuntimeError) (eval parsed)
+  case value of
+    VInt n ->
+      Right (show (hintToInteger n) <> "\n")
+    VBool True ->
+      Right "1\n"
+    VBool False ->
+      Right "0\n"
+    VClosure {} ->
+      Left "LLVM differential corpus only supports first-order root values"
+
 compileLLVMDefault :: Text -> Either String BC.LLVMCompileResult
 compileLLVMDefault source =
   mapLeft (showText . BC.renderCompileLLVMError) (BC.compileToLLVM BC.defaultCompileLLVMOptions "<test>" source)
@@ -2063,6 +2103,21 @@ llvmExecutionExamples =
   , ("examples/llvm/nested-if.hg", "2\n")
   , ("examples/llvm/let-chain.hg", "21\n")
   , ("examples/llvm/bool-root.hg", "1\n")
+  ]
+
+llvmDifferentialSources :: [Text]
+llvmDifferentialSources =
+  [ "0"
+  , "true"
+  , "false"
+  , "1 + 2 * 3"
+  , "let x = 10 in let y = x - 4 in y * 3"
+  , "if 3 < 4 then 11 else 22"
+  , "if 4 < 3 then 11 else 22"
+  , "let b = 1 == 1 in if b then 41 + 1 else 0"
+  , "let b = false == (1 < 0) in if b then 7 else 9"
+  , "let x = 5 in if x == 5 then if x < 10 then x * x else 0 else 1"
+  , "let x = 9223372036854775807 in x - 7"
   ]
 
 incSource :: Text
