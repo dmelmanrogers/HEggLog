@@ -14,6 +14,7 @@ Current semantic specs:
 - [Runtime specification](docs/runtime-spec.md)
 - [Diagnostics specification](docs/diagnostics-spec.md)
 - [LLVM backend specification](docs/llvm-backend-spec.md)
+- [Type inference direction](docs/type-inference.md)
 
 ## Build
 
@@ -84,16 +85,19 @@ Supported source forms:
 - function types: `Int -> Int`
 - parentheses
 
-Function parameter annotations are required. Hindley-Milner inference and
-generalization are intentionally out of scope for this slice.
+Function parameter annotations are required in source syntax. The first
+Hindley-Milner step is implemented as a tested principal-type engine for the
+current annotated language; exposing optional annotations and polymorphism is
+tracked in `docs/type-inference.md`.
 
 ## Architecture
 
 - `Syntax.*` owns parsed source syntax and pretty-printing.
 - `Syntax.Located` carries source ranges for diagnostics while preserving the
   unspanned AST used by semantic passes.
-- `Typecheck.*` performs a simple environment-based typecheck with no
-  Hindley-Milner generalization.
+- `Typecheck.Infer` performs the production environment-based typecheck.
+- `Typecheck.Principal` contains the Algorithm W-style principal-type engine
+  used to stage future inference work without changing the compile path yet.
 - `Eval.*` interprets checked expressions into runtime values.
 - `IR.ANF` makes evaluation order explicit by atomizing primitive and
   application operands, and represents top-level functions/direct calls for the

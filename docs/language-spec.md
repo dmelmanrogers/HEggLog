@@ -110,9 +110,11 @@ Bool
 T1 -> T2
 ```
 
-Function parameters require annotations. There is no Hindley-Milner inference,
-generalization, polymorphism, algebraic data type, or pattern matching support
-yet.
+Function parameters require annotations in source syntax. The compiler now has
+a separate principal-type inference engine for the current annotated language,
+but optional annotations, user-facing Hindley-Milner generalization,
+polymorphism, algebraic data types, and pattern matching are not source features
+yet. The staged inference direction is documented in `docs/type-inference.md`.
 
 Top-level function parameters and returns must be first-order values (`Int` or
 `Bool`). Function-typed top-level parameters and returns remain rejected while
@@ -313,5 +315,5 @@ though negative source literals are not syntax yet.
 
 ## Planned Features
 
-- Hindley-Milner direction decision.
+- Optional annotation syntax and user-facing Hindley-Milner inference.
 - Algebraic data types and pattern matching, later.

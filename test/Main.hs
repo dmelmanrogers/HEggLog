@@ -50,6 +50,7 @@ import System.Exit (exitFailure)
 import Test.QuickCheck hiding (NonZero, label)
 import Text.Megaparsec (errorBundlePretty)
 import Typecheck.Infer (infer, inferProgram)
+import qualified Typecheck.Principal as Principal
 import Typecheck.Types (TypeError (..), renderTypeError)
 
 data TestGroup = TestGroup String [Test]
@@ -81,6 +82,9 @@ testGroups =
   , TestGroup
       "Typechecker"
       [ pureTest "higher-order lambda annotation parses and types" testHigherOrderType
+      , pureTest "principal type engine infers annotated identity" testPrincipalIdentityType
+      , pureTest "principal type engine infers higher-order closures" testPrincipalHigherOrderType
+      , pureTest "principal type engine preserves monomorphic lets" testPrincipalMonomorphicLet
       , pureTest "top-level function program types" testTopLevelFunctionTypecheck
       , pureTest "top-level duplicate function names fail" testTopLevelDuplicateFunctionName
       , pureTest "top-level duplicate parameters fail" testTopLevelDuplicateParameter
@@ -375,6 +379,37 @@ testHigherOrderType = do
   parsed <- parseExpr "\\f : (Int -> Int) -> f 1"
   actualType <- mapLeft (showText . renderTypeError) (infer parsed)
   expectEqual "higher-order lambda type" (TFun (TFun TInt TInt) TInt) actualType
+
+testPrincipalIdentityType :: Either String ()
+testPrincipalIdentityType = do
+  parsed <- parseExpr "\\x : Int -> x"
+  actual <- mapLeft (showText . Principal.renderPrincipalTypeError) (Principal.principalType parsed)
+  expectEqual
+    "principal identity type"
+    (Principal.TypeScheme [] (Principal.PFun Principal.PInt Principal.PInt))
+    actual
+
+testPrincipalHigherOrderType :: Either String ()
+testPrincipalHigherOrderType = do
+  parsed <- parseExpr "\\f : (Int -> Int) -> \\x : Int -> f (f x)"
+  actual <- mapLeft (showText . Principal.renderPrincipalTypeError) (Principal.principalType parsed)
+  expectEqual
+    "principal higher-order type"
+    ( Principal.TypeScheme
+        []
+        ( Principal.PFun
+            (Principal.PFun Principal.PInt Principal.PInt)
+            (Principal.PFun Principal.PInt Principal.PInt)
+        )
+    )
+    actual
+
+testPrincipalMonomorphicLet :: Either String ()
+testPrincipalMonomorphicLet = do
+  parsed <- parseExpr "let id = \\x : Int -> x in let a = id 1 in id true"
+  case Principal.principalType parsed of
+    Left (Principal.PrincipalTypeFailure (TypeMismatch TInt TBool)) -> Right ()
+    other -> Left ("expected monomorphic let type mismatch, got " <> show other)
 
 testTopLevelFunctionTypecheck :: Either String ()
 testTopLevelFunctionTypecheck = do

@@ -89,6 +89,7 @@ executable hegglog
       Syntax.Pretty
       Syntax.Span
       Typecheck.Infer
+      Typecheck.Principal
       Typecheck.Types
 
 test-suite hegglog-test
@@ -162,4 +163,5 @@ test-suite hegglog-test
       Syntax.Pretty
       Syntax.Span
       Typecheck.Infer
+      Typecheck.Principal
       Typecheck.Types
