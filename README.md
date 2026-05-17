@@ -8,6 +8,11 @@ The living development roadmap is in [docs/roadmap.md](docs/roadmap.md). It
 tracks the implemented compiler baseline, remaining semantic work, and the next
 implementation queue.
 
+Current semantic specs:
+
+- [Language specification](docs/language-spec.md)
+- [Runtime specification](docs/runtime-spec.md)
+
 ## Build
 
 ```bash

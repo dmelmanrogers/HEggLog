@@ -36,6 +36,9 @@ Implemented:
 - MIT license metadata.
 - Minimal GitHub Actions CI for build, test, package metadata, and whitespace
   checks.
+- Language and runtime specifications for the current expression language,
+  checked `Int64` semantics, runtime errors, evaluation order, and current
+  decision points.
 
 Not implemented:
 
@@ -98,22 +101,24 @@ Definition of done:
 
 ## Phase 1 - Precise Language Semantics
 
-Status: partial.
+Status: complete for the current language baseline.
 
 Motivation: Ensure every frontend and backend observes the same language
 contract.
 
 Deliverables:
 
-- Write `docs/language-spec.md`.
-- Specify lexical structure, grammar, expression forms, types, scoping, and
-  evaluation order.
-- Specify nonrecursive `let`, shadowing, lambdas, application, and primitive
-  operations.
-- Specify runtime values and runtime errors.
-- Document that source literals are currently unsigned decimal atoms, while
-  runtime `Int` values are signed 64-bit.
-- Decide whether unary negative literals are source syntax or just arithmetic.
+- Completed: write `docs/language-spec.md`.
+- Completed: write `docs/runtime-spec.md`.
+- Completed: specify lexical structure, grammar, expression forms, types,
+  scoping, and evaluation order.
+- Completed: specify nonrecursive `let`, shadowing, lambdas, application, and
+  primitive operations.
+- Completed: specify runtime values and runtime errors.
+- Completed: document that source literals are currently unsigned decimal atoms,
+  while runtime `Int` values are signed 64-bit.
+- Completed: record the unary negative literal decision point and recommended
+  direction.
 
 Non-goals:
 
@@ -141,8 +146,8 @@ Risks:
 
 Definition of done:
 
-- There is a checked-in language spec and every current semantic decision is
-  either explicit or marked as a decision needed.
+- There is a checked-in language/runtime spec pair and every current semantic
+  decision is either explicit or marked as a decision needed.
 
 ## Phase 2 - Diagnostics And Source Spans
 
@@ -599,14 +604,17 @@ Add project metadata and CI
 
 ### Task C - Language And Runtime Specs
 
+Status: complete.
+
 Prerequisite: current roadmap.
 
 Implementation scope:
 
-- Add `docs/language-spec.md`.
-- Add `docs/runtime-spec.md`.
-- Clarify unsigned source literal syntax versus signed runtime values.
-- Record decision needed for unary negative literals.
+- Completed: add `docs/language-spec.md`.
+- Completed: add `docs/runtime-spec.md`.
+- Completed: clarify unsigned source literal syntax versus signed runtime
+  values.
+- Completed: record decision needed for unary negative literals.
 
 Files likely touched:
 
@@ -863,8 +871,7 @@ Add semi-naive Egglog evaluation
 ## Next Recommended Prompt
 
 ```text
-Write docs/language-spec.md and docs/runtime-spec.md from the current codebase:
-document source syntax, checked signed Int64 runtime semantics, runtime errors,
-evaluation order, scoping, current unsigned literal syntax, and decision points
-for unary negative literals. Do not change language semantics.
+Add source spans and diagnostics: introduce source locations in parser output,
+thread them into parser/typechecker/runtime/backend diagnostics, add golden
+negative diagnostic tests, and preserve current language semantics.
 ```
