@@ -176,6 +176,11 @@ Checked `+`, `-`, and `*` either produce an in-range `Int` or report overflow.
 LLVM programs abort on overflow. Division remains outside the LLVM backend
 fragment.
 
+Tests cover this runtime-error equivalence for checked `+`, `-`, and `*`: the
+same source program must fail in the interpreter with a checked-`Int` overflow,
+emit the corresponding LLVM overflow intrinsic, and terminate unsuccessfully
+when run through the available LLVM execution toolchain.
+
 ## Relationship With Egglog
 
 The LLVM pipeline can lower either original ANF or Egglog-optimized ANF:

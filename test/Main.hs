@@ -26,7 +26,7 @@ import qualified Egglog.Rule as ER
 import qualified Egglog.Sort as ES
 import qualified Egglog.Value as EV
 import Eval.ANFInterpreter (ANFValue (..), evalANF)
-import Eval.Interpreter (Value (..), eval, renderRuntimeError)
+import Eval.Interpreter (RuntimeError (..), Value (..), eval, renderRuntimeError, renderValue)
 import IR.ANF
 import qualified IR.ANF.Resolved as RANF
 import IR.ANF.Validate
@@ -43,7 +43,7 @@ import Optimize.Rewrite
   , matchRewriteRule
   )
 import Optimize.Simplify
-import Runtime.Int (HInt, hintToInteger, maxHIntInteger, unsafeHIntLiteral)
+import Runtime.Int (HInt, IntError (IntOverflow), hintToInteger, maxHIntInteger, unsafeHIntLiteral)
 import Syntax.AST
 import Syntax.Parser (parseProgram)
 import System.Exit (exitFailure)
@@ -1361,23 +1361,50 @@ testLLVMCompileUsesEgglog = do
 testLLVMOverflowAborts :: IO (Either String ())
 testLLVMOverflowAborts = do
   tools <- LLVMTools.findLLVMTools
-  pureCompile <-
-    pure $
-      compileLLVMDefault (Text.pack (show maxHIntInteger <> " + 1"))
-  case pureCompile of
+  firstFailureIO (check tools) llvmOverflowCases
+ where
+  check tools overflowCase = do
+    let source = overflowSource overflowCase
+        path = "<llvm-overflow-" <> Text.unpack (overflowName overflowCase) <> ">"
+    case expectedInterpreterOverflow path (overflowOperator overflowCase) source of
+      Left err ->
+        pure (Left err)
+      Right () ->
+        case
+          BC.compileToLLVM
+            BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
+            path
+            source of
+          Left err ->
+            pure (Left (Text.unpack (BC.renderCompileLLVMError err)))
+          Right result -> do
+            let llvmText = BC.llvmText result
+            runResult <- LLVMTools.runLLVMText tools llvmText
+            pure $
+              assertBool
+                ("overflow lowering uses expected intrinsic for " <> Text.unpack (overflowName overflowCase))
+                (overflowIntrinsic overflowCase `Text.isInfixOf` llvmText)
+                *> assertBool
+                  ("overflow lowering calls abort for " <> Text.unpack (overflowName overflowCase))
+                  ("@abort()" `Text.isInfixOf` llvmText)
+                *> case runResult of
+                  LLVMTools.LLVMRunSkipped {} ->
+                    Right ()
+                  LLVMTools.LLVMRunFailed _ _ ->
+                    Right ()
+                  LLVMTools.LLVMRunSucceeded stdoutText ->
+                    Left ("expected LLVM overflow execution to fail for " <> path <> ", got stdout:\n" <> stdoutText)
+
+expectedInterpreterOverflow :: FilePath -> BinOp -> Text -> Either String ()
+expectedInterpreterOverflow path expectedOp source = do
+  parsed <- parseExprAt path source
+  case eval parsed of
+    Left (RuntimeIntError (IntOverflow actualOp _ _))
+      | actualOp == expectedOp -> Right ()
     Left err ->
-      pure (Left err)
-    Right result -> do
-      let llvmText = BC.llvmText result
-      runResult <- LLVMTools.runLLVMText tools llvmText
-      pure $
-        assertBool "overflow lowering uses LLVM checked add" ("@llvm.sadd.with.overflow.i64" `Text.isInfixOf` llvmText)
-          *> assertBool "overflow lowering calls abort" ("@abort()" `Text.isInfixOf` llvmText)
-          *> case runResult of
-            LLVMTools.LLVMRunSkipped {} -> Right ()
-            LLVMTools.LLVMRunFailed _ _ -> Right ()
-            LLVMTools.LLVMRunSucceeded stdoutText ->
-              Left ("expected LLVM overflow execution to fail, got stdout:\n" <> stdoutText)
+      Left ("expected interpreter checked Int overflow for " <> path <> ", got " <> Text.unpack (renderRuntimeError err))
+    Right value ->
+      Left ("expected interpreter checked Int overflow for " <> path <> ", got value " <> Text.unpack (renderValue value))
 
 checkLLVMGolden :: FilePath -> FilePath -> IO (Either String ())
 checkLLVMGolden sourcePath goldenPath = do
@@ -2118,6 +2145,35 @@ llvmDifferentialSources =
   , "let b = false == (1 < 0) in if b then 7 else 9"
   , "let x = 5 in if x == 5 then if x < 10 then x * x else 0 else 1"
   , "let x = 9223372036854775807 in x - 7"
+  ]
+
+data LLVMOverflowCase = LLVMOverflowCase
+  { overflowName :: Text
+  , overflowSource :: Text
+  , overflowOperator :: BinOp
+  , overflowIntrinsic :: Text
+  }
+
+llvmOverflowCases :: [LLVMOverflowCase]
+llvmOverflowCases =
+  [ LLVMOverflowCase
+      { overflowName = "add"
+      , overflowSource = Text.pack (show maxHIntInteger <> " + 1")
+      , overflowOperator = Add
+      , overflowIntrinsic = "@llvm.sadd.with.overflow.i64"
+      }
+  , LLVMOverflowCase
+      { overflowName = "sub"
+      , overflowSource = "let minish = 0 - 9223372036854775807 in minish - 2"
+      , overflowOperator = Sub
+      , overflowIntrinsic = "@llvm.ssub.with.overflow.i64"
+      }
+  , LLVMOverflowCase
+      { overflowName = "mul"
+      , overflowSource = "3037000500 * 3037000500"
+      , overflowOperator = Mul
+      , overflowIntrinsic = "@llvm.smul.with.overflow.i64"
+      }
   ]
 
 incSource :: Text

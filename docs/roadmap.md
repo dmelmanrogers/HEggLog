@@ -27,6 +27,8 @@ Implemented:
   when available, plus documented `llvm-as`/`lli`/`clang` executable workflow.
 - Interpreter-vs-LLVM differential corpus for successful closed first-order
   source programs when `lli` or `clang` is available.
+- Runtime-error equivalence tests for checked-`Int` overflow in LLVM `+`, `-`,
+  and `*` lowering.
 - Parallel located source AST used by parser, typechecker, runtime report, and
   LLVM unsupported-feature diagnostics.
 - Stable diagnostics specification with golden negative diagnostics for
@@ -210,8 +212,8 @@ Next recommended task:
 
 ## Phase 3 - LLVM Backend Correctness
 
-Status: partial, with textual IR validation, executable workflow, and a small
-differential corpus documented.
+Status: partial, with textual IR validation, executable workflow, successful
+differential tests, and checked-overflow runtime-error equivalence documented.
 
 Motivation: LLVM must be a semantic implementation of the language fragment, not
 just a printer for simple examples.
@@ -225,8 +227,10 @@ Deliverables:
   interpreting, and compiling emitted LLVM.
 - Completed: add a small interpreter-vs-LLVM differential corpus for successful
   closed first-order programs in the supported fragment.
-- Partial: add runtime-error equivalence testing for overflow and, when
-  division is supported, division by zero.
+- Completed: add runtime-error equivalence testing for checked-`Int` overflow
+  in LLVM `+`, `-`, and `*`.
+- Future: add division-by-zero runtime-error equivalence when LLVM division is
+  supported.
 - Strengthen Backend IR and LLVM IR validators as new IR forms are added.
 - Add `docs/llvm-backend-spec.md` or fold the same precision into
   `docs/llvm-backend.md`.
@@ -251,6 +255,8 @@ Tests required:
 - Completed: `llvm-as` validation for emitted goldens when available.
 - Completed: optional `lli`/`clang` execution tests.
 - Completed: interpreter-vs-LLVM differential tests for successful executions.
+- Completed: interpreter-vs-LLVM runtime-error equivalence tests for checked
+  arithmetic overflow.
 
 Risks:
 
@@ -263,9 +269,9 @@ Definition of done:
 
 Next recommended task:
 
-- Strengthen runtime-error equivalence by comparing interpreter overflow
-  failures against LLVM abort behavior, and extend that model when LLVM division
-  support is added.
+- Fold the current LLVM semantic contract into a dedicated
+  `docs/llvm-backend-spec.md` or expand `docs/llvm-backend.md` with equivalent
+  spec-level precision.
 
 ## Phase 4 - Top-Level First-Order Functions
 
