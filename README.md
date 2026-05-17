@@ -30,6 +30,26 @@ The CLI prints:
   structured unsupported/failure reasons
 - lowered Core IR
 
+## LLVM Backend
+
+Closed first-order programs can be compiled to textual LLVM IR:
+
+```bash
+cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm
+cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm -o build/arithmetic.ll
+cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm --run-llvm
+```
+
+The LLVM v0 backend supports `Int`, `Bool`, `let`, `if`, `+`, `-`, `*`, `<`,
+and `==` over closed first-order programs. Lambdas, applications, closures,
+recursion, heap allocation, free variables, and division are rejected
+structurally. `Int` lowers to LLVM `i64`, so the LLVM backend currently has a
+documented integer-width gap with the interpreter's arbitrary-precision
+`Integer` semantics.
+
+See `docs/llvm-backend.md` for the supported fragment, lowering strategy, CLI
+behavior, and LLVM toolchain notes.
+
 ## Language MVP
 
 Supported source forms:
@@ -83,6 +103,8 @@ generalization are intentionally out of scope for this slice.
   Egglog kernel. It classifies a typed first-order fragment, encodes integer and
   boolean terms into separate Egglog sorts, runs compiler rules as `Rule` data,
   extracts back to valid ANF, and reports structured unsupported/failure states.
+- `Backend.*` lowers closed first-order ANF into a typed backend IR and then into
+  deterministic textual LLVM IR with a small C-compatible printing `main`.
 
 Binder-aware equality saturation remains future work. Lambda rewrites require
 alpha equivalence, capture avoidance, beta-reduction discipline, and extraction
@@ -103,6 +125,9 @@ The test suite is grouped by compiler concern:
 - Egglog kernel invariants, resolved ANF binding behavior, backend encoding,
   compiler rules, extraction/reconstruction, structured unsupported reporting,
   deterministic optimization, and semantic preservation on supported programs
+- LLVM backend validation, structured unsupported cases, deterministic SSA/phi
+  lowering, selected LLVM golden files, and optional execution checks against
+  the interpreter when LLVM tools are available
 - selected golden CLI output sections
 - QuickCheck properties for ANF validation after lowering and Egglog semantic
   preservation on generated supported ANF fragments
