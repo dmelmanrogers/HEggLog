@@ -61,13 +61,17 @@ Lowering uses SSA:
 - literals become LLVM constants
 - variables are looked up in the current SSA environment
 - `let` lowers the RHS and binds the source name to the resulting SSA operand
-- arithmetic lowers to `add`, `sub`, and `mul` on `i64`
+- arithmetic lowers to the LLVM checked overflow intrinsics for signed `i64`
 - `<` lowers to `icmp slt`
 - `==` lowers to `icmp eq`
 - `if` lowers to then/else/join blocks with a `phi` in the join block
 
 Nested `if` expressions work because each branch returns the current predecessor
 block label for the enclosing `phi`.
+
+For `+`, `-`, and `*`, lowering emits `llvm.sadd.with.overflow.i64`,
+`llvm.ssub.with.overflow.i64`, or `llvm.smul.with.overflow.i64`, extracts the
+value and overflow flag, and branches to an `abort` block when the flag is set.
 
 ## Generated Functions
 
@@ -89,6 +93,9 @@ It also emits:
 declare i32 @printf(ptr, ...)
 define i32 @main() { ... }
 ```
+
+Programs that contain checked arithmetic also declare the corresponding LLVM
+overflow intrinsics and `abort`.
 
 `main` prints `Int` roots as decimal integers and `Bool` roots as `0` or `1`.
 The emitter uses opaque pointer syntax (`ptr`) for the `printf` declaration and
@@ -133,13 +140,16 @@ If neither is available, execution checks are skipped gracefully.
 
 ## Integer Semantics
 
-LLVM v0 represents `Int` as signed 64-bit machine integers. Arithmetic uses LLVM
-`i64 add`, `mul`, and `sub`. The interpreter currently uses Haskell `Integer`,
-so programs outside the `i64` range expose a known semantic gap. Current tests
-avoid overflow.
+HeggLog `Int` is a signed 64-bit integer with checked arithmetic. Source integer
+literals are currently unsigned decimal atoms and must fit in
+`[0, 9223372036854775807]`; out-of-range literals are rejected before code
+generation. Negative values can still be produced by checked arithmetic. The
+source interpreter, ANF interpreter, simplifier, Egglog constant facts, backend
+IR, and LLVM lowering all share the signed `Int64` runtime policy.
 
-Future work should define a single language-level integer policy: fixed `Int64`,
-checked overflow, wrapping semantics, or an arbitrary-precision runtime.
+Checked `+`, `-`, and `*` either produce an in-range `Int` or report overflow.
+LLVM programs abort on overflow. Division remains outside the LLVM backend
+fragment.
 
 ## Relationship With Egglog
 

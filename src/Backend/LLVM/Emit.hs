@@ -88,7 +88,17 @@ emitInstruction = \case
         <> emitOperand base
         <> Text.concat [", " <> emitType ty <> " " <> emitOperand operand | (ty, operand) <- indices]
   ICall maybeReg returnType callee varArg args ->
-    maybe id assign maybeReg (emitCall returnType callee varArg args)
+    case maybeReg of
+      Just reg -> assign reg (emitCall returnType callee varArg args)
+      Nothing -> "  " <> emitCall returnType callee varArg args
+  IExtractValue reg _ aggregate index ->
+    assign reg $
+      "extractvalue "
+        <> emitType (operandType aggregate)
+        <> " "
+        <> emitOperand aggregate
+        <> ", "
+        <> Text.pack (show index)
   IPhi reg ty incoming ->
     assign reg $
       "phi "
@@ -140,6 +150,8 @@ emitTerminator = \case
       <> thenLabel
       <> ", label %"
       <> elseLabel
+  TUnreachable ->
+    "  unreachable"
 
 assign :: Register -> Text -> Text
 assign reg rhs =
@@ -166,6 +178,7 @@ emitType = \case
   LI8 -> "i8"
   LPtr -> "ptr"
   LArray count ty -> "[" <> Text.pack (show count) <> " x " <> emitType ty <> "]"
+  LStruct fields -> "{ " <> Text.intercalate ", " (map emitType fields) <> " }"
   LVoid -> "void"
 
 emitPredicate :: LLVMPredicate -> Text

@@ -43,6 +43,7 @@ import Optimize.Rewrite
   , matchRewriteRule
   )
 import Optimize.Simplify
+import Runtime.Int (HInt, hintToInteger, maxHIntInteger, unsafeHIntLiteral)
 import Syntax.AST
 import Syntax.Parser (parseProgram)
 import System.Exit (exitFailure)
@@ -89,12 +90,14 @@ testGroups =
           checkTypeError "examples/type-errors/apply-non-function.hg" (ExpectedFunction TInt)
       , ioTest "let Bool arithmetic fails" $
           checkTypeError "examples/type-errors/let-bool-arithmetic.hg" (ExpectedIntOperand Add TBool)
+      , pureTest "out-of-range Int literal fails" testOutOfRangeIntLiteralTypeError
       ]
   , TestGroup
       "Interpreter"
-      [ pureTest "inc example evaluates" (checkProgram incSource TInt (VInt 42))
-      , pureTest "add example evaluates" (checkProgram addSource TInt (VInt 7))
-      , pureTest "higher-order example evaluates" (checkProgram higherOrderSource TInt (VInt 42))
+      [ pureTest "inc example evaluates" (checkProgram incSource TInt (sourceInt 42))
+      , pureTest "add example evaluates" (checkProgram addSource TInt (sourceInt 7))
+      , pureTest "higher-order example evaluates" (checkProgram higherOrderSource TInt (sourceInt 42))
+      , pureTest "checked Int addition overflow fails" testInterpreterIntOverflow
       , ioTest "source and ANF evaluation agree for examples" testExampleSemanticPreservation
       ]
   , TestGroup
@@ -129,6 +132,7 @@ testGroups =
           checkSimplifies "let x = 7 in 0 * x" (ALet xName (AAtom (AInt 7)) (AAtom (AInt 0))) "mul-left-zero"
       , pureTest "constant folding simplifies integer arithmetic" $
           checkSimplifies "1 + 2" (AAtom (AInt 3)) "constant-fold-add"
+      , pureTest "constant folding preserves overflowing arithmetic" testSimplifierDoesNotFoldOverflow
       , pureTest "if true selects then branch" $
           checkSimplifies "if true then 1 else 2" (AAtom (AInt 1)) "if-true"
       , pureTest "if false selects else branch" $
@@ -222,6 +226,7 @@ testGroups =
       , pureTest "Egglog backend simplifies if true" testEgglogBackendIfTrue
       , pureTest "Egglog backend simplifies same branches" testEgglogBackendIfSameBranches
       , pureTest "Egglog backend folds constants through Egglog facts" testEgglogBackendConstFacts
+      , pureTest "Egglog Int constants do not fold overflow" testEgglogDoesNotFoldOverflowingInt
       , pureTest "Egglog backend optimizes open free-variable fragments" testEgglogBackendOpenFreeVariableFragment
       , pureTest "Egglog backend rejects applications structurally" testEgglogBackendUnsupportedApplication
       , pureTest "Egglog backend extraction is deterministic" testEgglogBackendDeterministic
@@ -244,6 +249,7 @@ testGroups =
       , pureTest "LLVM validator rejects missing block references" testLLVMValidatorRejectsMissingBlock
       , pureTest "LLVM compiler falls back when Egglog is unsupported" testLLVMCompileEgglogFallback
       , pureTest "LLVM compiler can use Egglog optimized ANF" testLLVMCompileUsesEgglog
+      , ioTest "LLVM checked Int overflow aborts when tools are available" testLLVMOverflowAborts
       , ioTest "LLVM arithmetic golden" $
           checkLLVMGolden "examples/llvm/arithmetic.hg" "test/golden/llvm-arithmetic.ll"
       , ioTest "LLVM if comparison golden" $
@@ -323,6 +329,15 @@ testHigherOrderType = do
   parsed <- parseExpr "\\f : (Int -> Int) -> f 1"
   actualType <- mapLeft (showText . renderTypeError) (infer parsed)
   expectEqual "higher-order lambda type" (TFun (TFun TInt TInt) TInt) actualType
+
+testOutOfRangeIntLiteralTypeError :: Either String ()
+testOutOfRangeIntLiteralTypeError = do
+  let tooLarge = maxHIntInteger + 1
+  parsed <- parseExpr (Text.pack (show tooLarge))
+  case infer parsed of
+    Left (IntLiteralOutOfRange value)
+      | value == tooLarge -> Right ()
+    other -> Left ("expected out-of-range Int literal type error, got " <> show other)
 
 checkTypeError :: FilePath -> TypeError -> IO (Either String ())
 checkTypeError path expectedTypeError = do
@@ -429,6 +444,15 @@ testExampleSemanticPreservation :: IO (Either String ())
 testExampleSemanticPreservation =
   firstFailure checkExampleSemanticPreservation examplePaths
 
+testInterpreterIntOverflow :: Either String ()
+testInterpreterIntOverflow = do
+  parsed <- parseExpr (Text.pack (show maxHIntInteger <> " + 1"))
+  case eval parsed of
+    Left err ->
+      assertBool "expected checked Int overflow" ("overflowed" `Text.isInfixOf` renderRuntimeError err)
+    Right value ->
+      Left ("expected checked Int overflow, got " <> show value)
+
 firstFailure :: (a -> IO (Either String ())) -> [a] -> IO (Either String ())
 firstFailure action = \case
   [] ->
@@ -494,6 +518,13 @@ checkSimplifies source expected ruleName = do
     ("expected rewrite " <> Text.unpack ruleName)
     (any ((== ruleName) . appliedRuleName) (appliedRewrites optimized))
   expectEqual "optimization preserves ANF semantics" originalObserved optimizedObserved
+
+testSimplifierDoesNotFoldOverflow :: Either String ()
+testSimplifierDoesNotFoldOverflow = do
+  let expression = APrim Add (AInt maxHIntInteger) (AInt 1)
+  optimized <- mapLeft show (simplifyFixpoint expression)
+  expectEqual "overflowing add is preserved" expression (simplifiedANF optimized)
+  assertBool "overflowing add did not apply constant folding" (null (appliedRewrites optimized))
 
 testFixpointSimplification :: Either String ()
 testFixpointSimplification = do
@@ -883,17 +914,17 @@ testEgglogConstIntMergeSame :: Either String ()
 testEgglogConstIntMergeSame = do
   let decl = EF.FunctionDecl (fn "const") [ES.SInt] ES.SConstInt EF.DefaultNone EF.MergeConstInt
       db0 = EDB.databaseFromDecls [decl]
-  (db1, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (EV.KnownInt 3)) db0)
-  (db2, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (EV.KnownInt 3)) db1)
+  (db1, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (knownInt 3)) db0)
+  (db2, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (knownInt 3)) db1)
   found <- egg (EDB.lookupFunction (fn "const") [EV.VInt 0] db2)
-  expectEqual "same constants merge unchanged" (Just (EV.VConstInt (EV.KnownInt 3))) found
+  expectEqual "same constants merge unchanged" (Just (EV.VConstInt (knownInt 3))) found
 
 testEgglogConstIntMergeConflict :: Either String ()
 testEgglogConstIntMergeConflict = do
   let decl = EF.FunctionDecl (fn "const") [ES.SInt] ES.SConstInt EF.DefaultNone EF.MergeConstInt
       db0 = EDB.databaseFromDecls [decl]
-  (db1, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (EV.KnownInt 3)) db0)
-  (db2, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (EV.KnownInt 4)) db1)
+  (db1, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (knownInt 3)) db0)
+  (db2, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (knownInt 4)) db1)
   found <- egg (EDB.lookupFunction (fn "const") [EV.VInt 0] db2)
   expectEqual "conflicting constants merge to conflict" (Just (EV.VConstInt EV.ConflictInt)) found
 
@@ -1039,7 +1070,7 @@ testEgglogRulesDeriveConstFacts = do
   (encoded, run) <- runEncodedSource "2 + 3"
   root <- canonicalRoot encoded run
   found <- egg (EDB.lookupFunction (OES.iConstFn OES.symbols) [root] (OEB.encodedRunDatabase run))
-  expectEqual "IConst root" (Just (EV.VConstInt (EV.KnownInt 5))) found
+  expectEqual "IConst root" (Just (EV.VConstInt (knownInt 5))) found
 
 testEgglogRulesConstantFoldEquality :: Either String ()
 testEgglogRulesConstantFoldEquality = do
@@ -1077,28 +1108,42 @@ testEgglogRulesExcludeDistributivity = do
 
 testEgglogBackendShadowing :: Either String ()
 testEgglogBackendShadowing =
-  assertEgglogPreservesSemantics "let x = 1 in let y = let x = 2 in x in x + y" (ANFVInt 3) >> Right ()
+  assertEgglogPreservesSemantics "let x = 1 in let y = let x = 2 in x in x + y" (anfInt 3) >> Right ()
 
 testEgglogBackendLetRetention :: Either String ()
 testEgglogBackendLetRetention = do
-  result <- assertEgglogPreservesSemantics "let x = 1 + 2 in x * 10" (ANFVInt 30)
+  result <- assertEgglogPreservesSemantics "let x = 1 + 2 in x * 10" (anfInt 30)
   mapLeft (showText . renderANFValidationError) (validateANF (OEB.optimizedANF result))
 
 testEgglogBackendDeadLet :: Either String ()
 testEgglogBackendDeadLet =
-  assertEgglogPreservesSemantics "let x = 1 + 2 in 4" (ANFVInt 4) >> Right ()
+  assertEgglogPreservesSemantics "let x = 1 + 2 in 4" (anfInt 4) >> Right ()
 
 testEgglogBackendIfTrue :: Either String ()
 testEgglogBackendIfTrue =
-  assertEgglogPreservesSemantics "if true then 10 else 20" (ANFVInt 10) >> Right ()
+  assertEgglogPreservesSemantics "if true then 10 else 20" (anfInt 10) >> Right ()
 
 testEgglogBackendIfSameBranches :: Either String ()
 testEgglogBackendIfSameBranches =
-  assertEgglogPreservesSemantics "let someBool = true in let x = 3 in if someBool then x else x" (ANFVInt 3) >> Right ()
+  assertEgglogPreservesSemantics "let someBool = true in let x = 3 in if someBool then x else x" (anfInt 3) >> Right ()
 
 testEgglogBackendConstFacts :: Either String ()
 testEgglogBackendConstFacts =
-  assertEgglogPreservesSemantics "let x = 2 + 3 in x * 4" (ANFVInt 20) >> Right ()
+  assertEgglogPreservesSemantics "let x = 2 + 3 in x * 4" (anfInt 20) >> Right ()
+
+testEgglogDoesNotFoldOverflowingInt :: Either String ()
+testEgglogDoesNotFoldOverflowingInt = do
+  let expression = APrim Add (AInt maxHIntInteger) (AInt 1)
+  (encoded, run) <- runEncodedANF expression
+  root <- canonicalRoot encoded run
+  found <- egg (EDB.lookupFunction (OES.iConstFn OES.symbols) [root] (OEB.encodedRunDatabase run))
+  case found of
+    Just (EV.VConstInt (EV.KnownInt n)) ->
+      Left ("overflowing add derived false KnownInt " <> show (hintToInteger n))
+    _ ->
+      Right ()
+  result <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig expression)
+  expectEqual "overflowing add is not materialized as a constant" expression (OEB.optimizedANF result)
 
 testEgglogBackendOpenFreeVariableFragment :: Either String ()
 testEgglogBackendOpenFreeVariableFragment = do
@@ -1122,7 +1167,7 @@ testEgglogBackendDeterministic = do
 
 testEgglogBackendBooleanBranchPreservation :: Either String ()
 testEgglogBackendBooleanBranchPreservation =
-  assertEgglogPreservesSemantics "let b = if true then false else true in if b then 1 else 2" (ANFVInt 2) >> Right ()
+  assertEgglogPreservesSemantics "let b = if true then false else true in if b then 1 else 2" (anfInt 2) >> Right ()
 
 testEgglogTryOptimizeUnsupportedLambda :: Either String ()
 testEgglogTryOptimizeUnsupportedLambda =
@@ -1134,7 +1179,7 @@ testOrdinaryPipelineHandlesUnsupportedLambda :: Either String ()
 testOrdinaryPipelineHandlesUnsupportedLambda = do
   parsed <- parseExpr "let inc = \\x : Int -> x + 1 in inc 41"
   value <- mapLeft (showText . renderRuntimeError) (eval parsed)
-  expectEqual "ordinary pipeline value" (VInt 42) value
+  expectEqual "ordinary pipeline value" (sourceInt 42) value
   case OEB.tryOptimizeWithEgglog EEV.defaultRunConfig (toANF parsed) of
     OEB.EgglogUnsupported {} -> Right ()
     other -> Left ("expected Egglog backend to be unsupported, got " <> show other)
@@ -1180,9 +1225,9 @@ testLLVMBackendValidationRejectsBadIf =
           , B.backendRoot =
               B.BEIf
                 B.BI64
-                (B.BInt 1)
-                (B.BEAtom B.BI64 (B.BInt 10))
-                (B.BEAtom B.BI64 (B.BInt 20))
+                (backendInt 1)
+                (B.BEAtom B.BI64 (backendInt 10))
+                (B.BEAtom B.BI64 (backendInt 20))
           , B.backendProvenance = []
           }
    in case BV.validateBackendProgram program of
@@ -1293,6 +1338,27 @@ testLLVMCompileUsesEgglog = do
     BC.LLVMOptimizationApplied {} -> Right ()
     other -> Left ("expected Egglog optimization, got " <> show other)
   assertBool "optimized LLVM returns constant" ("ret i64 14" `Text.isInfixOf` BC.llvmText result)
+
+testLLVMOverflowAborts :: IO (Either String ())
+testLLVMOverflowAborts = do
+  tools <- LLVMTools.findLLVMTools
+  pureCompile <-
+    pure $
+      compileLLVMDefault (Text.pack (show maxHIntInteger <> " + 1"))
+  case pureCompile of
+    Left err ->
+      pure (Left err)
+    Right result -> do
+      let llvmText = BC.llvmText result
+      runResult <- LLVMTools.runLLVMText tools llvmText
+      pure $
+        assertBool "overflow lowering uses LLVM checked add" ("@llvm.sadd.with.overflow.i64" `Text.isInfixOf` llvmText)
+          *> assertBool "overflow lowering calls abort" ("@abort()" `Text.isInfixOf` llvmText)
+          *> case runResult of
+            LLVMTools.LLVMRunSkipped {} -> Right ()
+            LLVMTools.LLVMRunFailed _ _ -> Right ()
+            LLVMTools.LLVMRunSucceeded stdoutText ->
+              Left ("expected LLVM overflow execution to fail, got stdout:\n" <> stdoutText)
 
 checkLLVMGolden :: FilePath -> FilePath -> IO (Either String ())
 checkLLVMGolden sourcePath goldenPath = do
@@ -1811,13 +1877,13 @@ letNames = \case
 
 observeSourceValue :: Value -> Either String ObservedValue
 observeSourceValue = \case
-  VInt n -> Right (ObservedInt n)
+  VInt n -> Right (ObservedInt (hintToInteger n))
   VBool b -> Right (ObservedBool b)
   VClosure {} -> Left "semantic preservation test cannot compare function results"
 
 observeANFValue :: ANFValue -> Either String ObservedValue
 observeANFValue = \case
-  ANFVInt n -> Right (ObservedInt n)
+  ANFVInt n -> Right (ObservedInt (hintToInteger n))
   ANFVBool b -> Right (ObservedBool b)
   ANFVClosure {} -> Left "semantic preservation test cannot compare function results"
 
@@ -1876,6 +1942,26 @@ mapLeft f = \case
 showText :: Text -> String
 showText =
   Text.unpack
+
+hint :: Integer -> HInt
+hint =
+  unsafeHIntLiteral
+
+sourceInt :: Integer -> Value
+sourceInt =
+  VInt . hint
+
+anfInt :: Integer -> ANFValue
+anfInt =
+  ANFVInt . hint
+
+knownInt :: Integer -> EV.ConstInt
+knownInt =
+  EV.KnownInt . hint
+
+backendInt :: Integer -> B.BackendAtom
+backendInt =
+  B.BInt . hint
 
 mkName :: Text -> Name
 mkName =

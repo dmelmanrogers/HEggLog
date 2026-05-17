@@ -7,6 +7,7 @@ where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Backend.IR
+import Runtime.Int (renderHInt)
 import Syntax.Pretty (prettyName, renderDoc)
 
 renderBackendProgram :: BackendProgram -> Text
@@ -45,7 +46,7 @@ renderBackendExpr outerPrec = \case
 renderBackendAtom :: BackendAtom -> Text
 renderBackendAtom = \case
   BVar name -> renderDoc (prettyName name)
-  BInt n -> Text.pack (show n)
+  BInt n -> renderHInt n
   BBool True -> "true"
   BBool False -> "false"
 

@@ -23,6 +23,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import IR.ANF
 import IR.ANF.Validate
+import Runtime.Int (HInt, addHInt, hintToInteger, mkHIntLiteral, mulHInt)
 import Syntax.AST (BinOp (..), Name (..))
 import Syntax.Pretty (prettyName, renderDoc)
 
@@ -331,7 +332,7 @@ addTargets lhs rhs graph =
   concat
     [ [ExistingClass lhs | classContains (EInt 0) rhs graph]
     , [ExistingClass rhs | classContains (EInt 0) lhs graph]
-    , [NewNode (EInt (a + b)) | a <- intValues lhs graph, b <- intValues rhs graph]
+    , [NewNode node | a <- intValues lhs graph, b <- intValues rhs graph, Just node <- [checkedIntNode addHInt a b]]
     ]
 
 mulTargets :: EClassId -> EClassId -> EGraph -> [RewriteTarget]
@@ -340,8 +341,15 @@ mulTargets lhs rhs graph =
     [ [ExistingClass lhs | classContains (EInt 1) rhs graph]
     , [ExistingClass rhs | classContains (EInt 1) lhs graph]
     , [NewNode (EInt 0) | classContains (EInt 0) lhs graph || classContains (EInt 0) rhs graph]
-    , [NewNode (EInt (a * b)) | a <- intValues lhs graph, b <- intValues rhs graph]
+    , [NewNode node | a <- intValues lhs graph, b <- intValues rhs graph, Just node <- [checkedIntNode mulHInt a b]]
     ]
+
+checkedIntNode :: (HInt -> HInt -> Either err HInt) -> Integer -> Integer -> Maybe ENode
+checkedIntNode op lhs rhs = do
+  lhsInt <- either (const Nothing) Just (mkHIntLiteral lhs)
+  rhsInt <- either (const Nothing) Just (mkHIntLiteral rhs)
+  result <- either (const Nothing) Just (op lhsInt rhsInt)
+  pure (EInt (hintToInteger result))
 
 ifTargets :: EClassId -> EClassId -> EClassId -> EGraph -> [RewriteTarget]
 ifTargets cond thenBranch elseBranch graph =

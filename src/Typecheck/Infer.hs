@@ -6,6 +6,7 @@ where
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.Reader (Reader, asks, local, runReader)
 import qualified Data.Map.Strict as Map
+import Runtime.Int (mkHIntLiteral)
 import Syntax.AST
 import Typecheck.Types
 
@@ -17,8 +18,10 @@ type InferM = ExceptT TypeError (Reader TypeEnv)
 
 inferExpr :: Expr -> InferM Type
 inferExpr = \case
-  EInt _ ->
-    pure TInt
+  EInt n -> do
+    case mkHIntLiteral n of
+      Right _ -> pure TInt
+      Left _ -> throwError (IntLiteralOutOfRange n)
   EBool _ ->
     pure TBool
   EVar name ->

@@ -12,10 +12,11 @@ where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Egglog.Sort
+import Runtime.Int (HInt, renderHInt)
 
 data ConstInt
   = UnknownInt
-  | KnownInt Integer
+  | KnownInt HInt
   | ConflictInt
   deriving stock (Show, Eq, Ord)
 
@@ -80,7 +81,7 @@ renderValue = \case
   VConstInt UnknownInt ->
     "UnknownInt"
   VConstInt (KnownInt n) ->
-    "KnownInt(" <> Text.pack (show n) <> ")"
+    "KnownInt(" <> renderHInt n <> ")"
   VConstInt ConflictInt ->
     "ConflictInt"
   VConstBool UnknownBool ->

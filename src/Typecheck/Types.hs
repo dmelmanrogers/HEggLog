@@ -8,7 +8,9 @@ where
 
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
+import qualified Data.Text as Text
 import Prettyprinter ((<+>))
+import qualified Runtime.Int as HInt
 import Syntax.AST
 import Syntax.Pretty (prettyBinOp, prettyName, prettyType, renderDoc)
 
@@ -24,6 +26,7 @@ data TypeError
   | ExpectedBoolCondition Type
   | ExpectedFunction Type
   | EqualityNotSupported Type
+  | IntLiteralOutOfRange Integer
   deriving stock (Show, Eq)
 
 renderTypeError :: TypeError -> Text
@@ -40,3 +43,11 @@ renderTypeError = \case
     renderDoc ("expected a function, got" <+> prettyType actual)
   EqualityNotSupported actual ->
     renderDoc ("equality is only supported for Int and Bool, got" <+> prettyType actual)
+  IntLiteralOutOfRange value ->
+    "integer literal "
+      <> Text.pack (show value)
+      <> " is outside HeggLog Int range ["
+      <> Text.pack (show HInt.minHIntInteger)
+      <> ", "
+      <> Text.pack (show HInt.maxHIntInteger)
+      <> "]"

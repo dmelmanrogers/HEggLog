@@ -2,6 +2,12 @@
 
 Initial vertical slice for a tiny typed functional language in Haskell.
 
+## Roadmap
+
+The living development roadmap is in [docs/roadmap.md](docs/roadmap.md). It
+tracks the implemented compiler baseline, remaining semantic work, and the next
+implementation queue.
+
 ## Build
 
 ```bash
@@ -43,9 +49,9 @@ cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm --run-llvm
 The LLVM v0 backend supports `Int`, `Bool`, `let`, `if`, `+`, `-`, `*`, `<`,
 and `==` over closed first-order programs. Lambdas, applications, closures,
 recursion, heap allocation, free variables, and division are rejected
-structurally. `Int` lowers to LLVM `i64`, so the LLVM backend currently has a
-documented integer-width gap with the interpreter's arbitrary-precision
-`Integer` semantics.
+structurally. `Int` is a checked signed 64-bit value across the interpreter,
+optimizers, backend IR, and LLVM lowering; overflow is reported by interpreters
+and aborts in generated LLVM.
 
 See `docs/llvm-backend.md` for the supported fragment, lowering strategy, CLI
 behavior, and LLVM toolchain notes.

@@ -15,6 +15,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import IR.ANF.Resolved
+import Runtime.Int (IntError, mkHIntLiteral, renderIntError)
 import Syntax.AST
 import Syntax.Pretty (prettyBinOp, prettyName, prettyType, renderDoc)
 
@@ -26,6 +27,7 @@ data FragmentError
   | AmbiguousFreeVariable Name
   | UnboundResolvedBinder Binder
   | TypeMismatch Type Type
+  | InvalidIntLiteral IntError
   deriving stock (Show, Eq, Ord)
 
 data TypedResolvedAtom = TypedResolvedAtom
@@ -143,8 +145,10 @@ inferPrim env op lhs rhs =
 inferAtom :: TypeEnv -> Maybe Type -> ResolvedAtom -> Either FragmentError TypedResolvedAtom
 inferAtom env expected atom =
   case atom of
-    RInt {} ->
-      withExpected TInt
+    RInt n ->
+      case mkHIntLiteral n of
+        Right _ -> withExpected TInt
+        Left err -> Left (InvalidIntLiteral err)
     RBool {} ->
       withExpected TBool
     RVar (BoundVar binder) ->
@@ -195,3 +199,5 @@ renderFragmentError = \case
     "unbound resolved binder " <> renderBinderKey binder
   TypeMismatch expected actual ->
     "type mismatch: expected " <> renderDoc (prettyType expected) <> ", got " <> renderDoc (prettyType actual)
+  InvalidIntLiteral err ->
+    renderIntError err

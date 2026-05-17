@@ -51,6 +51,7 @@ import Optimize.EgglogBackend.Fragment
 import qualified Optimize.EgglogBackend.Fragment as Fragment
 import Optimize.EgglogBackend.Rules
 import Optimize.EgglogBackend.Schema
+import Runtime.Int (IntError, renderIntError)
 import Syntax.AST (BinOp (..), Name (..), Type (..))
 import Syntax.Pretty (prettyBinOp, prettyName, prettyType, renderDoc)
 
@@ -159,6 +160,7 @@ data EgglogBackendError
   | ReconstructedTypeError Text
   | OptimizedTypeChanged Type Type
   | SemanticCheckFailed ANFValue ANFValue
+  | InvalidIntLiteral IntError
   deriving stock (Show, Eq)
 
 optimizeANFWithEgglog :: AExpr -> Either EgglogBackendError EgglogBackendResult
@@ -367,7 +369,7 @@ extractOptimizedANF encoded encodedRun = do
   rootTerm <-
     case rootValue of
       Just (VId sortName ident) ->
-        mapLeft ExtractionFailed (extractCheapest db sortName ident)
+        mapLeft ExtractionFailed (extractCheapest rootExtractionDb sortName ident)
       _ ->
         Left (MissingRootValue (rootFunction (encodedRootType encoded)))
   rootBuilt <- buildTop encoded rootTerm
@@ -388,6 +390,7 @@ extractOptimizedANF encoded encodedRun = do
     else Left (OptimizedTypeChanged (encodedRootType encoded) optimizedTy)
  where
   db = encodedRunDatabase encodedRun
+  rootExtractionDb = db {tables = Map.delete (rootFunction (encodedRootType encoded)) (tables db)}
 
 collectNeededBindings :: EncodedProgram -> Database -> Set.Set BinderId -> Either EgglogBackendError (Map.Map BinderId BuiltExpr, Set.Set BinderId)
 collectNeededBindings encoded db =
@@ -717,6 +720,8 @@ fragmentToBackendError = \case
     UnboundResolvedBinder binder
   Fragment.TypeMismatch expected actual ->
     FragmentTypeMismatch expected actual
+  Fragment.InvalidIntLiteral err ->
+    InvalidIntLiteral err
 
 isUnsupported :: EgglogBackendError -> Bool
 isUnsupported = \case
@@ -800,6 +805,8 @@ renderEgglogBackendError = \case
     "optimized type changed: expected " <> renderDoc (prettyType expected) <> ", got " <> renderDoc (prettyType actual)
   SemanticCheckFailed expected actual ->
     "semantic check failed: expected " <> Text.pack (show expected) <> ", got " <> Text.pack (show actual)
+  InvalidIntLiteral err ->
+    renderIntError err
 
 mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = \case

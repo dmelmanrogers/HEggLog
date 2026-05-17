@@ -25,6 +25,7 @@ data LLVMType
   | LI8
   | LPtr
   | LArray Int LLVMType
+  | LStruct [LLVMType]
   | LVoid
   deriving stock (Show, Eq, Ord)
 
@@ -47,6 +48,7 @@ data LLVMInstruction
   | IZext Register LLVMOperand LLVMType
   | IGetElementPtr Register LLVMType LLVMOperand [(LLVMType, LLVMOperand)]
   | ICall (Maybe Register) LLVMType Text Bool [(LLVMType, LLVMOperand)]
+  | IExtractValue Register LLVMType LLVMOperand Int
   | IPhi Register LLVMType [(LLVMOperand, Text)]
   deriving stock (Show, Eq, Ord)
 
@@ -54,6 +56,7 @@ data LLVMTerminator
   = TRet LLVMType LLVMOperand
   | TBr Text
   | TCondBr LLVMOperand Text Text
+  | TUnreachable
   deriving stock (Show, Eq, Ord)
 
 data LLVMBlock = LLVMBlock

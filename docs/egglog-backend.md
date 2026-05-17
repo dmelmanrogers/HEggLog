@@ -81,6 +81,10 @@ constant is stable, while conflicting known constants produce a conflict value.
 No function entry still means "no fact"; it is not confused with unknown or
 conflict.
 
+`ConstInt` known values use the language `Int` policy: signed 64-bit literals
+and checked `+`/`*` facts. If a constant rule would overflow, it does not derive
+a false known constant, so extraction cannot mask a runtime overflow.
+
 Constant folding is driven by Egglog rules over these facts, not by a Haskell
 pre-pass.
 
@@ -99,6 +103,8 @@ tree:
 
 If extraction chooses a binder as the best representative for that binder's own
 RHS, the backend falls back to the original RHS to avoid emitting `let x = x`.
+The synthetic root marker is ignored during root extraction so an expression
+that cannot be folded still reconstructs as ordinary ANF.
 
 ## Supported Fragment
 

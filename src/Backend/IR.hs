@@ -11,6 +11,7 @@ module Backend.IR
 where
 
 import Data.Text (Text)
+import Runtime.Int (HInt)
 import Syntax.AST (Name)
 
 data BackendType
@@ -20,7 +21,7 @@ data BackendType
 
 data BackendAtom
   = BVar Name
-  | BInt Integer
+  | BInt HInt
   | BBool Bool
   deriving stock (Show, Eq, Ord)
 

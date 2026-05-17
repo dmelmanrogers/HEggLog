@@ -12,6 +12,7 @@ import Backend.IR
 import Backend.Validate
 import IR.ANF
 import IR.ANF.Validate
+import Runtime.Int (IntError, mkHIntLiteral, renderIntError)
 import Syntax.AST
 import Syntax.Pretty (prettyBinOp, prettyName, prettyType, renderDoc)
 
@@ -23,6 +24,7 @@ data BackendLowerError
   | BackendUnboundANFVariable Name
   | BackendTypeMismatch BackendType BackendType
   | BackendCannotLowerFunctionType Type
+  | BackendIntError IntError
   | BackendValidationFailed BackendValidationError
   deriving stock (Show, Eq)
 
@@ -45,7 +47,7 @@ lowerExpr :: TypeEnv -> AExpr -> Either BackendLowerError BackendExpr
 lowerExpr env = \case
   AAtom atom -> do
     ty <- lowerAtomType env atom
-    pure (BEAtom ty (lowerAtom atom))
+    BEAtom ty <$> lowerAtom atom
   APrim op lhs rhs -> do
     lowerPrim env op lhs rhs
   AIf cond thenBranch elseBranch -> do
@@ -54,7 +56,8 @@ lowerExpr env = \case
     thenLowered <- lowerExpr env thenBranch
     elseLowered <- lowerExpr env elseBranch
     assertType (backendExprType thenLowered) (backendExprType elseLowered)
-    pure (BEIf (backendExprType thenLowered) (lowerAtom cond) thenLowered elseLowered)
+    loweredCond <- lowerAtom cond
+    pure (BEIf (backendExprType thenLowered) loweredCond thenLowered elseLowered)
   ALam name ty _ ->
     Left (BackendUnsupportedLambda name ty)
   AApp fn arg ->
@@ -78,22 +81,28 @@ lowerPrim env op lhs rhs =
   intPrim prim = do
     assertAtomType env BI64 lhs
     assertAtomType env BI64 rhs
-    pure (BEPrim (backendPrimResultType prim) prim (lowerAtom lhs) (lowerAtom rhs))
+    loweredLhs <- lowerAtom lhs
+    loweredRhs <- lowerAtom rhs
+    pure (BEPrim (backendPrimResultType prim) prim loweredLhs loweredRhs)
 
   equalityPrim = do
     lhsType <- lowerAtomType env lhs
     rhsType <- lowerAtomType env rhs
     assertType lhsType rhsType
-    pure (BEPrim BI1 (BPEq lhsType) (lowerAtom lhs) (lowerAtom rhs))
+    loweredLhs <- lowerAtom lhs
+    loweredRhs <- lowerAtom rhs
+    pure (BEPrim BI1 (BPEq lhsType) loweredLhs loweredRhs)
 
-lowerAtom :: Atom -> BackendAtom
+lowerAtom :: Atom -> Either BackendLowerError BackendAtom
 lowerAtom = \case
   AVar name ->
-    BVar name
+    Right (BVar name)
   AInt n ->
-    BInt n
+    case mkHIntLiteral n of
+      Right value -> Right (BInt value)
+      Left err -> Left (BackendIntError err)
   ABool b ->
-    BBool b
+    Right (BBool b)
 
 lowerAtomType :: TypeEnv -> Atom -> Either BackendLowerError BackendType
 lowerAtomType env = \case
@@ -132,6 +141,8 @@ renderBackendLowerError = \case
     "backend type mismatch: expected " <> renderBackendType expected <> ", got " <> renderBackendType actual
   BackendCannotLowerFunctionType ty ->
     "LLVM backend cannot lower function type " <> renderDoc (prettyType ty)
+  BackendIntError err ->
+    renderIntError err
   BackendValidationFailed err ->
     renderBackendValidationError err
 

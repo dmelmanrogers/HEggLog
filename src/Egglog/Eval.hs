@@ -18,6 +18,7 @@ import Egglog.Rebuild
 import Egglog.Rule
 import Egglog.Sort
 import Egglog.Value
+import Runtime.Int (hintToInteger)
 
 data DeltaDatabase = DeltaDatabase
   deriving stock (Show, Eq, Ord)
@@ -199,7 +200,7 @@ matchPattern db pattern value subst =
       matchComputed
     PKnownInt inner ->
       case canonical of
-        VConstInt (KnownInt n) -> matchPattern db inner (VInt n) subst
+        VConstInt (KnownInt n) -> matchPattern db inner (VInt (hintToInteger n)) subst
         _ -> pure []
     PKnownBool inner ->
       case canonical of
