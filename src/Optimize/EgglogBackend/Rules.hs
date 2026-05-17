@@ -64,6 +64,16 @@ analysisRules =
       , ruleActions = [ASet (iConstFn symbols) [outI] (PKnownInt (PMulInt intA intB))]
       }
   , Rule
+      { ruleName = FunctionName "egglog-iconst-div"
+      , rulePremises =
+          [ QLookup (iConstFn symbols) [a] (PKnownInt intA)
+          , QLookup (iConstFn symbols) [b] (PKnownInt intB)
+          , QLookup (iZeroFn symbols) [b] (PValue (VZeroInfo KnownNonZero))
+          , QMatch (iDiv a b) outI
+          ]
+      , ruleActions = [ASet (iConstFn symbols) [outI] (PKnownInt (PDivInt intA intB))]
+      }
+  , Rule
       { ruleName = FunctionName "egglog-bconst-ilt"
       , rulePremises =
           [ QLookup (iConstFn symbols) [a] (PKnownInt intA)
@@ -128,12 +138,22 @@ integerRules =
   [ rewrite (FunctionName "egglog-add-zero-right") (iExprSort symbols) (iAdd a (iNum (PValue (VInt 0)))) a
   , rewrite (FunctionName "egglog-add-zero-left") (iExprSort symbols) (iAdd (iNum (PValue (VInt 0))) a) a
   , rewrite (FunctionName "egglog-sub-zero-right") (iExprSort symbols) (iSub a (iNum (PValue (VInt 0)))) a
+  , rewrite (FunctionName "egglog-div-one-right") (iExprSort symbols) (iDiv a (iNum (PValue (VInt 1)))) a
   , rewrite (FunctionName "egglog-mul-one-right") (iExprSort symbols) (iMul a (iNum (PValue (VInt 1)))) a
   , rewrite (FunctionName "egglog-mul-one-left") (iExprSort symbols) (iMul (iNum (PValue (VInt 1))) a) a
   , rewrite (FunctionName "egglog-mul-zero-right") (iExprSort symbols) (iMul a (iNum (PValue (VInt 0)))) (iNum (PValue (VInt 0)))
   , rewrite (FunctionName "egglog-mul-zero-left") (iExprSort symbols) (iMul (iNum (PValue (VInt 0))) a) (iNum (PValue (VInt 0)))
   , rewrite (FunctionName "egglog-ieq-same") (bExprSort symbols) (iEq a a) (bBool (PValue (VBool True)))
   , rewrite (FunctionName "egglog-ilt-same") (bExprSort symbols) (iLt a a) (bBool (PValue (VBool False)))
+  , Rule
+      { ruleName = FunctionName "egglog-div-zero-numerator-nonzero"
+      , rulePremises =
+          [ QLookup (iZeroFn symbols) [a] (PValue (VZeroInfo KnownZero))
+          , QLookup (iZeroFn symbols) [b] (PValue (VZeroInfo KnownNonZero))
+          , QMatch (iDiv a b) out
+          ]
+      , ruleActions = [AUnion out (iNum (PValue (VInt 0)))]
+      }
   , Rule
       { ruleName = FunctionName "egglog-iif-known-true"
       , rulePremises =
@@ -212,6 +232,10 @@ iSub lhs rhs =
 iMul :: Pattern -> Pattern -> Pattern
 iMul lhs rhs =
   PCall (iMulFn symbols) [lhs, rhs]
+
+iDiv :: Pattern -> Pattern -> Pattern
+iDiv lhs rhs =
+  PCall (iDivFn symbols) [lhs, rhs]
 
 iLt :: Pattern -> Pattern -> Pattern
 iLt lhs rhs =

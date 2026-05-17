@@ -7,7 +7,7 @@ backend, source diagnostics, top-level first-order functions, lambda lifting,
 closure conversion runtime work, and optional monomorphic lambda parameter
 inference, semi-naive Egglog rule evaluation, and Egglog provenance/debug
 traces, relation-size Egglog join planning, the Egglog `ZeroInfo` lattice, and
-Egglog comparison and checked subtraction support.
+Egglog comparison, checked subtraction, and checked division support.
 
 ## Current Baseline
 
@@ -33,8 +33,8 @@ Implemented:
   semi-naive rule scheduling with stable relation-size join planning and opt-in
   rule/substitution debug traces.
 - Compiler-facing Egglog backend for typed pure first-order ANF: integer
-  `Add`/`Sub`/`Mul`, integer `Lt`, integer and boolean `Eq`, boolean and integer
-  `if`, constants, variables, and lets.
+  `Add`/`Sub`/`Mul`/`Div`, integer `Lt`, integer and boolean `Eq`, boolean and
+  integer `if`, constants, variables, and lets.
 - Egglog lattice facts for integer constants, boolean constants, and integer
   zero/nonzero information with unknown and conflict states.
 - Compact Egglog backend provenance traces covering encoded actions, applied
@@ -502,7 +502,7 @@ Definition of done:
 
 Next recommended task:
 
-- Add checked Egglog division with explicit nonzero and overflow constraints.
+- Add richer Egglog boolean reasoning.
 
 ## Phase 8 - Egglog Backend Expansion
 
@@ -515,7 +515,8 @@ Deliverables:
 
 - Completed: add comparison support where safe: `Lt` and `Eq`.
 - Completed: add subtraction with checked `Int64` semantics.
-- Add division only with explicit `NonZero` and overflow constraints.
+- Completed: add division only with explicit `NonZero` and overflow
+  constraints.
 - Add richer boolean reasoning.
 - Improve lattices and optimization explanations.
 - Strengthen extraction and cost model.
@@ -1209,11 +1210,63 @@ Commit message suggestion:
 Add checked Egglog subtraction
 ```
 
+### Task O - Egglog Checked Division
+
+Status: complete for typed integer division with explicit nonzero and overflow
+constraints.
+
+Prerequisite: `ZeroInfo` lattice facts and checked subtraction support.
+
+Implementation scope:
+
+- Completed: add `Div` support to Egglog fragment classification, encoding,
+  extraction, reconstruction, and reconstructed ANF type inference.
+- Completed: add `IDiv : IExpr IExpr -> IExpr` to the backend schema.
+- Completed: derive `IConst` division facts only when the denominator has
+  `KnownNonZero` information and `divHInt` succeeds.
+- Completed: avoid materializing constants for division by zero and
+  `minBound / -1` overflow.
+- Completed: add conservative rewrites for division by one and zero numerator
+  division when the denominator is known nonzero.
+- Completed: preserve strict runtime-error dependencies when division rewrites
+  expose a binder representative.
+
+Files touched:
+
+- `src/Optimize/EgglogBackend/*`
+- `src/Egglog/Pattern.hs`
+- `src/Egglog/Eval.hs`
+- `test/Main.hs`
+- `docs/egglog-backend.md`
+- `docs/roadmap.md`
+
+Tests required:
+
+- Completed: division fragment acceptance tests.
+- Completed: safe division constant-fact tests.
+- Completed: unsafe division non-folding tests for division by zero and
+  `minBound / -1`.
+- Completed: open division reconstruction tests.
+- Completed: strict runtime-error preservation tests.
+- Completed: generated supported-fragment semantic-preservation tests.
+
+Acceptance criteria:
+
+- Completed: Egglog can optimize checked division only when doing so cannot
+  mask division-by-zero or overflow runtime errors.
+
+Commit message suggestion:
+
+```text
+Add checked Egglog division
+```
+
 ## Next Recommended Prompt
 
 ```text
-Add checked Egglog division: encode `Div` only for integer expressions, use
-`IZero`/nonzero facts to fold or rewrite division only when division by zero and
-`minBound / -1` overflow cannot be masked, reconstruct open division terms, and
-preserve successful-result and runtime-error semantics.
+Add richer Egglog boolean reasoning: introduce safe boolean simplification rules
+for `Eq`, boolean `if`, and comparison-derived boolean facts without adding
+rewrites that duplicate or drop runtime-error-producing integer expressions;
+check closed semantic preservation, open-fragment type consistency, and
+extraction determinism.
 ```

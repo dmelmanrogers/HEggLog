@@ -18,6 +18,7 @@ data BackendSymbols = BackendSymbols
   , iAddFn :: FunctionName
   , iSubFn :: FunctionName
   , iMulFn :: FunctionName
+  , iDivFn :: FunctionName
   , iLtFn :: FunctionName
   , iEqFn :: FunctionName
   , iIfFn :: FunctionName
@@ -45,6 +46,7 @@ symbols =
     , iAddFn = FunctionName "IAdd"
     , iSubFn = FunctionName "ISub"
     , iMulFn = FunctionName "IMul"
+    , iDivFn = FunctionName "IDiv"
     , iLtFn = FunctionName "ILt"
     , iEqFn = FunctionName "IEq"
     , iIfFn = FunctionName "IIf"
@@ -66,6 +68,7 @@ backendDecls =
   , FunctionDecl (iAddFn symbols) [iExprSort symbols, iExprSort symbols] (iExprSort symbols) DefaultFreshId MergeUnion
   , FunctionDecl (iSubFn symbols) [iExprSort symbols, iExprSort symbols] (iExprSort symbols) DefaultFreshId MergeUnion
   , FunctionDecl (iMulFn symbols) [iExprSort symbols, iExprSort symbols] (iExprSort symbols) DefaultFreshId MergeUnion
+  , FunctionDecl (iDivFn symbols) [iExprSort symbols, iExprSort symbols] (iExprSort symbols) DefaultFreshId MergeUnion
   , FunctionDecl (iLtFn symbols) [iExprSort symbols, iExprSort symbols] (bExprSort symbols) DefaultFreshId MergeUnion
   , FunctionDecl (iEqFn symbols) [iExprSort symbols, iExprSort symbols] (bExprSort symbols) DefaultFreshId MergeUnion
   , FunctionDecl (iIfFn symbols) [bExprSort symbols, iExprSort symbols, iExprSort symbols] (iExprSort symbols) DefaultFreshId MergeUnion

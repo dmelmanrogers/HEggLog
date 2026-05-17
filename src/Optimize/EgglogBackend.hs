@@ -327,13 +327,13 @@ encodeExpr = \case
       Add -> call (iAddFn symbols) [encodeAtom lhs, encodeAtom rhs]
       Sub -> call (iSubFn symbols) [encodeAtom lhs, encodeAtom rhs]
       Mul -> call (iMulFn symbols) [encodeAtom lhs, encodeAtom rhs]
+      Div -> call (iDivFn symbols) [encodeAtom lhs, encodeAtom rhs]
       Lt -> call (iLtFn symbols) [encodeAtom lhs, encodeAtom rhs]
       Eq ->
         case typedAtomType lhs of
           TInt -> call (iEqFn symbols) [encodeAtom lhs, encodeAtom rhs]
           TBool -> call (bEqFn symbols) [encodeAtom lhs, encodeAtom rhs]
           TFun {} -> throwError (UnsupportedType (typedAtomType lhs))
-      Div -> throwError (UnsupportedPrimitive Div)
   TRIf ty cond thenBranch elseBranch -> do
     thenPattern <- encodeExpr thenBranch
     elsePattern <- encodeExpr elseBranch
@@ -480,6 +480,7 @@ buildExpr encoded term =
           | name == iAddFn symbols -> buildBinary encoded Add lhs rhs
           | name == iSubFn symbols -> buildBinary encoded Sub lhs rhs
           | name == iMulFn symbols -> buildBinary encoded Mul lhs rhs
+          | name == iDivFn symbols -> buildBinary encoded Div lhs rhs
           | name == iLtFn symbols -> buildBinary encoded Lt lhs rhs
           | name == iEqFn symbols || name == bEqFn symbols -> buildBinary encoded Eq lhs rhs
         ExtractCall name [cond, thenTerm, elseTerm]
@@ -687,6 +688,7 @@ inferANFType =
         Add -> intPrim lhs rhs
         Sub -> intPrim lhs rhs
         Mul -> intPrim lhs rhs
+        Div -> intPrim lhs rhs
         Lt -> do
           assertAtomType env TInt lhs
           assertAtomType env TInt rhs
@@ -697,7 +699,6 @@ inferANFType =
           if lhsType == rhsType && (lhsType == TInt || lhsType == TBool)
             then Right TBool
             else Left (FragmentTypeMismatch lhsType rhsType)
-        Div -> Left (UnsupportedPrimitive Div)
      where
       intPrim leftAtom rightAtom = do
         assertAtomType env TInt leftAtom

@@ -16,7 +16,7 @@ import qualified Data.Map.Strict as Map
 import Egglog.Database
 import Egglog.Sort
 import Egglog.Value
-import Runtime.Int (HInt, addHInt, hintToInteger, mkHIntLiteral, mulHInt, subHInt)
+import Runtime.Int (HInt, addHInt, divHInt, hintToInteger, mkHIntLiteral, mulHInt, subHInt)
 
 data Pattern
   = PVar VarName Sort
@@ -25,6 +25,7 @@ data Pattern
   | PAddInt Pattern Pattern
   | PSubInt Pattern Pattern
   | PMulInt Pattern Pattern
+  | PDivInt Pattern Pattern
   | PIntLt Pattern Pattern
   | PIntEq Pattern Pattern
   | PBoolEq Pattern Pattern
@@ -72,6 +73,8 @@ matchPatternValue db pattern value subst =
     PSubInt {} ->
       matchComputed
     PMulInt {} ->
+      matchComputed
+    PDivInt {} ->
       matchComputed
     PIntLt {} ->
       matchComputed
@@ -140,6 +143,13 @@ evalExistingPattern db subst = \case
       (Just (VInt a), Just (VInt b)) -> pure (VInt <$> checkedInteger mulHInt a b)
       (Just _, Just _) -> Left (QueryTypeError "expected Int operands for multiplication")
       _ -> pure Nothing
+  PDivInt lhs rhs -> do
+    lhsValue <- evalExistingPattern db subst lhs
+    rhsValue <- evalExistingPattern db subst rhs
+    case (lhsValue, rhsValue) of
+      (Just (VInt a), Just (VInt b)) -> pure (VInt <$> checkedDivInteger a b)
+      (Just _, Just _) -> Left (QueryTypeError "expected Int operands for division")
+      _ -> pure Nothing
   PIntLt lhs rhs ->
     evalExistingIntComparison db subst (<) lhs rhs
   PIntEq lhs rhs ->
@@ -201,6 +211,15 @@ evalTerm db subst = \case
           Just result -> Right (db2, VInt result)
           Nothing -> Left (QueryTypeError "Int multiplication overflow")
       _ -> Left (QueryTypeError "expected Int operands for multiplication")
+  PDivInt lhs rhs -> do
+    (db1, lhsValue) <- evalTerm db subst lhs
+    (db2, rhsValue) <- evalTerm db1 subst rhs
+    case (lhsValue, rhsValue) of
+      (VInt a, VInt b) ->
+        case checkedDivInteger a b of
+          Just result -> Right (db2, VInt result)
+          Nothing -> Left (QueryTypeError "Int division failed")
+      _ -> Left (QueryTypeError "expected Int operands for division")
   PIntLt lhs rhs ->
     evalTermIntComparison db subst (<) lhs rhs
   PIntEq lhs rhs ->
@@ -272,6 +291,8 @@ evalExistingKnownInt db subst = \case
     evalExistingCheckedKnownInt db subst subHInt lhs rhs
   PMulInt lhs rhs ->
     evalExistingCheckedKnownInt db subst mulHInt lhs rhs
+  PDivInt lhs rhs ->
+    evalExistingCheckedKnownInt db subst checkedDivHInt lhs rhs
   pattern -> do
     innerValue <- evalExistingPattern db subst pattern
     case innerValue of
@@ -301,6 +322,8 @@ evalTermKnownInt db subst = \case
     evalTermCheckedKnownInt db subst subHInt lhs rhs
   PMulInt lhs rhs ->
     evalTermCheckedKnownInt db subst mulHInt lhs rhs
+  PDivInt lhs rhs ->
+    evalTermCheckedKnownInt db subst checkedDivHInt lhs rhs
   pattern -> do
     (db1, value) <- evalTerm db subst pattern
     case value of
@@ -328,6 +351,18 @@ checkedInteger op lhs rhs = do
   result <- either (const Nothing) Just (op lhsInt rhsInt)
   pure (hintToInteger result)
 
+checkedDivInteger :: Integer -> Integer -> Maybe Integer
+checkedDivInteger lhs rhs = do
+  lhsInt <- either (const Nothing) Just (mkHIntLiteral lhs)
+  rhsInt <- either (const Nothing) Just (mkHIntLiteral rhs)
+  result <- either (const Nothing) Just (checkedDivHInt lhsInt rhsInt)
+  pure (hintToInteger result)
+
+checkedDivHInt :: HInt -> HInt -> Either () HInt
+checkedDivHInt lhs rhs
+  | hintToInteger rhs == 0 = Left ()
+  | otherwise = either (const (Left ())) Right (divHInt lhs rhs)
+
 renderPattern :: Pattern -> Text
 renderPattern = \case
   PVar name sort ->
@@ -342,6 +377,8 @@ renderPattern = \case
     "(" <> renderPattern lhs <> " - " <> renderPattern rhs <> ")"
   PMulInt lhs rhs ->
     "(" <> renderPattern lhs <> " * " <> renderPattern rhs <> ")"
+  PDivInt lhs rhs ->
+    "(" <> renderPattern lhs <> " / " <> renderPattern rhs <> ")"
   PIntLt lhs rhs ->
     "(" <> renderPattern lhs <> " < " <> renderPattern rhs <> ")"
   PIntEq lhs rhs ->

@@ -382,6 +382,8 @@ patternVariables = \case
     patternVariables lhs <> patternVariables rhs
   PMulInt lhs rhs ->
     patternVariables lhs <> patternVariables rhs
+  PDivInt lhs rhs ->
+    patternVariables lhs <> patternVariables rhs
   PIntLt lhs rhs ->
     patternVariables lhs <> patternVariables rhs
   PIntEq lhs rhs ->
@@ -409,6 +411,8 @@ patternTermRequiredVars = \case
     patternTermRequiredVars lhs <> patternTermRequiredVars rhs
   PMulInt lhs rhs ->
     patternTermRequiredVars lhs <> patternTermRequiredVars rhs
+  PDivInt lhs rhs ->
+    patternTermRequiredVars lhs <> patternTermRequiredVars rhs
   PIntLt lhs rhs ->
     patternTermRequiredVars lhs <> patternTermRequiredVars rhs
   PIntEq lhs rhs ->
@@ -435,6 +439,8 @@ patternMatchRequiredVars = \case
   PSubInt lhs rhs ->
     patternTermRequiredVars lhs <> patternTermRequiredVars rhs
   PMulInt lhs rhs ->
+    patternTermRequiredVars lhs <> patternTermRequiredVars rhs
+  PDivInt lhs rhs ->
     patternTermRequiredVars lhs <> patternTermRequiredVars rhs
   PIntLt lhs rhs ->
     patternTermRequiredVars lhs <> patternTermRequiredVars rhs
@@ -565,6 +571,8 @@ matchPattern db pattern value subst =
     PSubInt {} ->
       matchComputed
     PMulInt {} ->
+      matchComputed
+    PDivInt {} ->
       matchComputed
     PIntLt {} ->
       matchComputed

@@ -16,8 +16,8 @@ uses separate Egglog sorts:
 - `IExpr` for integer expressions
 - `BExpr` for boolean expressions
 
-Integer constructors include `INum`, `IVar`, `IAdd`, `ISub`, `IMul`, and
-`IIf`.
+Integer constructors include `INum`, `IVar`, `IAdd`, `ISub`, `IMul`, `IDiv`,
+and `IIf`.
 Boolean constructors include `BBool`, `BVar`, `ILt`, `IEq`, `BEq`, and `BIf`.
 
 This keeps ill-typed terms out of the Egglog database. The extracted root must
@@ -61,10 +61,13 @@ ruleset includes:
 - `1 * x = x`
 - `x * 0 = 0`
 - `0 * x = 0`
-- integer constant facts for `INum`, `IAdd`, `ISub`, and `IMul`
+- integer constant facts for `INum`, `IAdd`, `ISub`, `IMul`, and checked
+  `IDiv`
 - boolean constant facts for `BBool`, integer `<`, integer `==`, and boolean
   `==`
 - checked subtraction by zero
+- checked division by one
+- checked zero numerator division when the denominator is known nonzero
 - same-expression rewrites for integer/boolean `==` and integer `<`
 - `if true then a else b = a`
 - `if false then a else b = b`
@@ -112,13 +115,14 @@ conflicting known facts produce a conflict value. No function entry still means
 "no fact"; it is not confused with unknown or conflict.
 
 `ConstInt` known values use the language `Int` policy: signed 64-bit literals
-and checked `+`/`-`/`*` facts. If a constant rule would overflow, it does not
-derive a false known constant, so extraction cannot mask a runtime overflow.
+and checked `+`/`-`/`*`/`/` facts. Division facts require a known nonzero
+denominator, and `minBound / -1` overflow does not derive a false known
+constant, so extraction cannot mask a runtime error.
 
 `ZeroInfo` records whether a known integer expression is zero, nonzero,
 unknown, or conflicted. It is derived from integer literals and folded integer
-constants, and is kept separate from rewrites until operations such as checked
-division can consume it without changing runtime-error behavior.
+constants. Checked division consumes nonzero facts before deriving constants or
+applying zero-numerator rewrites.
 
 Constant folding is driven by Egglog rules over these facts, not by a Haskell
 pre-pass.
@@ -168,6 +172,7 @@ Supported:
 - integer `Add`
 - integer `Sub`
 - integer `Mul`
+- integer `Div`, with checked constant facts and conservative rewrites only
 - integer `Lt`
 - integer `Eq`
 - boolean `Eq`
@@ -181,7 +186,6 @@ Unsupported:
 - higher-order values
 - recursion
 - effects
-- division
 - ill-typed or ambiguous terms
 
 Unsupported terms return structured backend errors. The backend does not

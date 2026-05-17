@@ -244,6 +244,7 @@ testGroups =
       , pureTest "Egglog fragment accepts if expressions" testEgglogFragmentAcceptsIf
       , pureTest "Egglog fragment accepts comparisons" testEgglogFragmentAcceptsComparisons
       , pureTest "Egglog fragment accepts subtraction" testEgglogFragmentAcceptsSubtraction
+      , pureTest "Egglog fragment accepts division" testEgglogFragmentAcceptsDivision
       , pureTest "Egglog fragment rejects mismatched if branches" testEgglogFragmentRejectsIfMismatch
       , pureTest "Egglog fragment rejects inconsistent free variable types" testEgglogFragmentRejectsInconsistentFreeVariableTypes
       , pureTest "Egglog encoding uses distinct typed sorts" testEgglogEncodingDistinctTypedSorts
@@ -259,6 +260,8 @@ testGroups =
       , pureTest "Egglog rules derive zero information" testEgglogRulesDeriveZeroInfo
       , pureTest "Egglog rules derive comparison facts" testEgglogRulesDeriveComparisonFacts
       , pureTest "Egglog rules derive subtraction facts" testEgglogRulesDeriveSubtractionFacts
+      , pureTest "Egglog rules derive safe division facts" testEgglogRulesDeriveDivisionFacts
+      , pureTest "Egglog rules avoid unsafe division facts" testEgglogRulesAvoidUnsafeDivisionFacts
       , pureTest "Egglog default rules exclude distributivity" testEgglogRulesExcludeDistributivity
       , pureTest "Egglog backend preserves shadowing semantics" testEgglogBackendShadowing
       , pureTest "Egglog backend preserves retained let dependencies" testEgglogBackendLetRetention
@@ -270,6 +273,8 @@ testGroups =
       , pureTest "Egglog backend optimizes open comparisons" testEgglogBackendOpenComparisonFragment
       , pureTest "Egglog backend folds checked subtraction constants" testEgglogBackendSubtractionConstFacts
       , pureTest "Egglog backend reconstructs open subtraction" testEgglogBackendOpenSubtractionFragment
+      , pureTest "Egglog backend folds checked division constants" testEgglogBackendDivisionConstFacts
+      , pureTest "Egglog backend reconstructs open division" testEgglogBackendOpenDivisionFragment
       , pureTest "Egglog Int constants do not fold overflow" testEgglogDoesNotFoldOverflowingInt
       , pureTest "Egglog backend optimizes open free-variable fragments" testEgglogBackendOpenFreeVariableFragment
       , pureTest "Egglog backend rejects applications structurally" testEgglogBackendUnsupportedApplication
@@ -1415,6 +1420,13 @@ testEgglogFragmentAcceptsSubtraction = do
     Right {} -> Right ()
     Left err -> Left ("expected subtraction to be accepted, got " <> Text.unpack (OEB.renderEgglogBackendError err))
 
+testEgglogFragmentAcceptsDivision :: Either String ()
+testEgglogFragmentAcceptsDivision = do
+  resolved <- resolvedFor "8 / 2"
+  case OEB.classifyEgglogFragment resolved of
+    Right {} -> Right ()
+    Left err -> Left ("expected division to be accepted, got " <> Text.unpack (OEB.renderEgglogBackendError err))
+
 testEgglogFragmentRejectsIfMismatch :: Either String ()
 testEgglogFragmentRejectsIfMismatch =
   let malformed =
@@ -1555,6 +1567,28 @@ testEgglogRulesDeriveSubtractionFacts = do
   found <- egg (EDB.lookupFunction (OES.iConstFn OES.symbols) [root] (OEB.encodedRunDatabase run))
   expectEqual "subtraction constant fact" (Just (EV.VConstInt (knownInt 5))) found
 
+testEgglogRulesDeriveDivisionFacts :: Either String ()
+testEgglogRulesDeriveDivisionFacts = do
+  (encoded, run) <- runEncodedSource "8 / 2"
+  root <- canonicalRoot encoded run
+  found <- egg (EDB.lookupFunction (OES.iConstFn OES.symbols) [root] (OEB.encodedRunDatabase run))
+  expectEqual "division constant fact" (Just (EV.VConstInt (knownInt 4))) found
+
+testEgglogRulesAvoidUnsafeDivisionFacts :: Either String ()
+testEgglogRulesAvoidUnsafeDivisionFacts = do
+  assertNoKnownDivFact (APrim Div (AInt 8) (AInt 0))
+  assertNoKnownDivFact (APrim Div (AInt minHIntInteger) (AInt (-1)))
+ where
+  assertNoKnownDivFact expression = do
+    (encoded, run) <- runEncodedANF expression
+    root <- canonicalRoot encoded run
+    found <- egg (EDB.lookupFunction (OES.iConstFn OES.symbols) [root] (OEB.encodedRunDatabase run))
+    case found of
+      Just (EV.VConstInt (EV.KnownInt n)) ->
+        Left ("unsafe division derived false KnownInt " <> show (hintToInteger n))
+      _ ->
+        Right ()
+
 testEgglogRulesExcludeDistributivity :: Either String ()
 testEgglogRulesExcludeDistributivity = do
   let compilerRuleNames = map ER.ruleName OER.compilerRules
@@ -1620,6 +1654,22 @@ testEgglogBackendOpenSubtractionFragment = do
   expectEqual "open subtraction type" TInt (OEB.optimizedType result)
   mapLeft (showText . renderANFValidationError) (validateANFWithFreeVars (Set.singleton xName) (OEB.optimizedANF result))
 
+testEgglogBackendDivisionConstFacts :: Either String ()
+testEgglogBackendDivisionConstFacts = do
+  result <- assertEgglogPreservesSemantics "let x = 8 / 2 in x + 1" (anfInt 5)
+  expectEqual "division folds through int facts" (AAtom (AInt 5)) (OEB.optimizedANF result)
+  zeroNumerator <- assertEgglogPreservesSemantics "let x = 10 - 7 in 0 / x" (anfInt 0)
+  expectEqual "zero divided by known nonzero folds safely" (AAtom (AInt 0)) (OEB.optimizedANF zeroNumerator)
+
+testEgglogBackendOpenDivisionFragment :: Either String ()
+testEgglogBackendOpenDivisionFragment = do
+  divResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (APrim Div (AVar xName) (AInt 2)))
+  expectEqual "open division expression" (APrim Div (AVar xName) (AInt 2)) (OEB.optimizedANF divResult)
+  expectEqual "open division type" TInt (OEB.optimizedType divResult)
+  mapLeft (showText . renderANFValidationError) (validateANFWithFreeVars (Set.singleton xName) (OEB.optimizedANF divResult))
+  divOneResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (APrim Div (AVar xName) (AInt 1)))
+  expectEqual "open division by one expression" (AAtom (AVar xName)) (OEB.optimizedANF divOneResult)
+
 testEgglogDoesNotFoldOverflowingInt :: Either String ()
 testEgglogDoesNotFoldOverflowingInt = do
   let expression = APrim Add (AInt maxHIntInteger) (AInt 1)
@@ -1654,6 +1704,24 @@ testEgglogDoesNotFoldOverflowingInt = do
   case OEB.optimizedANF strictResult of
     ALet {} -> Right ()
     other -> Left ("subtraction identity dropped strict overflow dependency: " <> show other)
+  let divByZero = APrim Div (AInt 8) (AInt 0)
+  divByZeroResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig divByZero)
+  expectEqual "division by zero is not materialized as a constant" divByZero (OEB.optimizedANF divByZeroResult)
+  expectEqual "division by zero runtime error is preserved" (evalANF divByZero) (evalANF (OEB.optimizedANF divByZeroResult))
+  let divOverflow = APrim Div (AInt minHIntInteger) (AInt (-1))
+  divOverflowResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig divOverflow)
+  expectEqual "overflowing division is not materialized as a constant" divOverflow (OEB.optimizedANF divOverflowResult)
+  expectEqual "overflowing division runtime error is preserved" (evalANF divOverflow) (evalANF (OEB.optimizedANF divOverflowResult))
+  let strictDiv =
+        ALet
+          xName
+          divByZero
+          (APrim Div (AVar xName) (AInt 1))
+  strictDivResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig strictDiv)
+  expectEqual "division identity preserves strict division-by-zero dependency" (evalANF strictDiv) (evalANF (OEB.optimizedANF strictDivResult))
+  case OEB.optimizedANF strictDivResult of
+    ALet {} -> Right ()
+    other -> Left ("division identity dropped strict runtime-error dependency: " <> show other)
 
 testEgglogBackendOpenFreeVariableFragment :: Either String ()
 testEgglogBackendOpenFreeVariableFragment = do
@@ -2497,7 +2565,7 @@ genSupportedIf ty size env next = do
 
 genIntPrim :: Int -> [TypedName] -> Gen AExpr
 genIntPrim _ env = do
-  op <- elements [Add, Sub, Mul]
+  op <- elements [Add, Sub, Mul, Div]
   lhs <- genSupportedAtom TInt env
   rhs <- genSupportedAtom TInt env
   pure (APrim op lhs rhs)
@@ -2727,6 +2795,7 @@ supportedEgglogSources =
   , "if true then 1 + 0 else 2 * 0"
   , "let x = 2 + 3 in x * 4"
   , "let x = 10 - 3 in x + 1"
+  , "let x = 8 / 2 in x + 1"
   , "let b = true in if b then 10 else 20"
   ]
 
