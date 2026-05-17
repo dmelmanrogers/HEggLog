@@ -1,0 +1,11 @@
+== Type ==
+Int
+== Result ==
+42
+== ANF IR ==
+let inc = \x : Int -> x + 1 in
+inc 41
+== Inferred Facts ==
+HasType x Int
+HasType inc (Int -> Int)
+IsPure inc
