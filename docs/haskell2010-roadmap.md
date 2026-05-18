@@ -300,6 +300,17 @@ Acceptance criteria:
 
 ### Phase 12 - Type Classes and Dictionary Passing
 
+Status: initial dictionary representation implemented for user-defined
+single-parameter classes with concrete, context-free instances. Class methods
+now elaborate to selector functions, instance declarations emit dictionary
+values, constrained source functions receive explicit Core dictionary
+arguments, dictionary values lower through STG as ordinary constructor/function
+values, and native wet tests cover default Egglog and `--no-egglog` execution.
+Remaining Phase 12 work includes superclasses, default methods, instance
+contexts, method-specific constraints/type variables, coherence diagnostics,
+deriving, built-in Prelude class dictionaries, numeric defaulting, and
+overloaded literals.
+
 Deliverables:
 
 - class declarations, instance declarations, constraints, and superclasses
@@ -311,8 +322,8 @@ Acceptance criteria:
 - `Eq` instances work
 - `Show` works enough for print
 - overloaded numeric literals work for supported numeric types
-- dictionary-passing Core validates
-- native wet tests cover typeclass calls
+- initial dictionary-passing Core validates for user-defined classes
+- native wet tests cover user-defined typeclass calls
 
 ### Phase 13 - IO and `main`
 
@@ -351,8 +362,8 @@ Status: the first safe Core-0 optimizer slice is implemented. It optimizes
 typed `Int`/`Bool` Core fragments before STG lowering, extracts validating Core,
 reports provenance, preserves laziness/bottom by skipping unsafe fragments, and
 is checked against Core, STG, and optimized/unoptimized native execution.
-Broader ADT, dictionary, strictness, and constructor facts remain part of the
-full Phase 15 expansion.
+Broader ADT, dictionary-simplification, strictness, and constructor facts remain
+part of the full Phase 15 expansion.
 
 Deliverables:
 
@@ -480,7 +491,7 @@ Acceptance criteria:
 ## Immediate Next Five Tasks
 
 1. Haskell 2010 conformance matrix expansion for the broader executable surface.
-2. Type class dictionary representation.
+2. Built-in `Eq`, `Ord`, `Show`, and `Num` Prelude class coverage.
 3. Pattern-match diagnostics, guards, and remaining pattern forms.
 4. IO `main`, `print`, `putStrLn`, and do-notation lowering.
 5. Module graph loading, export filtering, and multi-file compilation.
@@ -536,6 +547,11 @@ Completed immediate tasks:
   singleton self-recursive Core emission, local recursive `let` bindings,
   top-level fibonacci recursion, mutually recursive functions, cons-pattern
   recursive list functions, and default/no-egglog native wet tests.
+- Haskell 2010 type class dictionary representation, including user-defined
+  single-parameter classes, concrete instances, explicit source constraints,
+  generated dictionary constructors/selectors, Core dictionary arguments,
+  Core/STG preservation tests, native LLVM execution, and default/no-egglog
+  native wet tests.
 
 ## Non-Negotiable Rules
 

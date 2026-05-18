@@ -166,6 +166,8 @@ tryEgglogRewrite config env expression = do
     Just fragment ->
       case ANFEgglog.optimizeWithEgglog config (fragmentANF fragment) of
         Left err
+          | isUnsupportedANFBackend err -> pure expression
+        Left err
           | expressionCost expression <= 1 -> pure expression
           | otherwise -> lift (Left (CoreEgglogBackendError err))
         Right result -> do
@@ -203,6 +205,19 @@ tryEgglogRewrite config env expression = do
                     }
               pure decoded
             else pure expression
+
+isUnsupportedANFBackend :: ANFEgglog.EgglogBackendError -> Bool
+isUnsupportedANFBackend = \case
+  ANFEgglog.UnsupportedLambda {} -> True
+  ANFEgglog.UnsupportedApplication {} -> True
+  ANFEgglog.UnsupportedDirectCall {} -> True
+  ANFEgglog.UnsupportedPrimitive {} -> True
+  ANFEgglog.UnsupportedType {} -> True
+  ANFEgglog.AmbiguousFreeVariable {} -> True
+  ANFEgglog.UnboundResolvedBinder {} -> True
+  ANFEgglog.FragmentTypeMismatch {} -> True
+  ANFEgglog.InvalidIntLiteral {} -> True
+  _ -> False
 
 encodeCoreFragment :: Map.Map RName CoreType -> CoreExpr -> Maybe EncodedFragment
 encodeCoreFragment env expression = do

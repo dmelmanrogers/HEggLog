@@ -45,7 +45,7 @@ For the detailed current support matrix, see
 ## Immediate Next Tasks
 
 1. Haskell 2010 conformance matrix expansion for the broader executable surface.
-2. Type class dictionary representation.
+2. Built-in `Eq`, `Ord`, `Show`, and `Num` Prelude class coverage.
 3. Pattern-match diagnostics, guards, and remaining pattern forms.
 
 Completed Haskell 2010 roadmap work:
@@ -102,6 +102,10 @@ Completed Haskell 2010 roadmap work:
   top-level/local bindings, mutually recursive functions, fibonacci/factorial
   programs, cons-pattern recursive list functions, and default/no-egglog native
   wet tests.
+- Haskell 2010 type class dictionary representation: implemented for
+  user-defined single-parameter classes, concrete instances, explicit
+  constrained functions, generated dictionary constructors/selectors, Core
+  dictionary arguments, STG/native lowering, and default/no-egglog wet tests.
 
 ## Non-Negotiable Project Direction
 

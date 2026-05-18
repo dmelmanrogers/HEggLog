@@ -28,7 +28,8 @@ Implemented today: `Syntax`, `Lexer`, `Layout`, `Parser`, `Pretty`, `Names`,
 `Renamed`, `Renamer`, and a `Typecheck` source-to-Core pass for the current
 executable subset, including custom ADTs, constructor patterns, lists, tuples,
 generated Core Prelude bindings for basic list/Bool functions, and recursive
-top-level/local binding groups. Broader
+top-level/local binding groups, plus initial user-defined single-parameter
+type class dictionaries. Broader
 inference/desugaring modules for full Haskell 2010 remain planned.
 
 Implemented Core modules:
@@ -46,8 +47,8 @@ src/Haskell2010/Core/
 Core types live in `Haskell2010.Core.Syntax` for the current MVP. The reference
 evaluator in `Haskell2010.Core.Eval` executes validated typed Core, including
 user ADT constructors, list/tuple/Prelude constructors, generated Prelude list
-functions, recursive functions, and lazy fields, as the oracle for STG/native
-work.
+functions, recursive functions, lazy fields, and dictionary-passed user class
+method calls, as the oracle for STG/native work.
 
 Implemented STG modules:
 
@@ -114,8 +115,12 @@ is built alongside them.
     recursive top-level groups, local recursive `let`, fibonacci/factorial
     programs, recursive list functions with cons patterns, Core/STG/native
     execution, and wet-tested default/no-egglog CLI runs.
-14. Broader Prelude subset.
-15. Type classes/dictionaries.
+14. Type classes/dictionaries. Completed for user-defined single-parameter
+    classes, concrete context-free instances, explicit constraints, generated
+    dictionary constructors/selectors, Core/STG/native execution, and
+    wet-tested default/no-egglog CLI runs. Superclasses, defaults, deriving,
+    built-in Prelude classes, and numeric defaulting remain planned.
+15. Broader Prelude subset.
 16. IO.
 17. Modules.
 18. Egglog Core optimizer. Completed for the first safe Core-0 fragment;

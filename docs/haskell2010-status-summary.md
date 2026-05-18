@@ -29,11 +29,14 @@ lazy lets and arguments, custom ADTs, polymorphic constructors, constructor
 cases, nested constructor patterns, list and tuple expressions/patterns/types,
 built-in `Maybe`, `Either`, and `Ordering`, generated Core bindings for basic
 Prelude list/Bool functions, recursive top-level/local functions, recursive
-list functions, and lazy constructor fields. The following Haskell 2010
-requirements are planned but not implemented:
+list functions, lazy constructor fields, and the initial type class dictionary
+slice for user-defined single-parameter classes with concrete instances and
+explicit constrained functions. The following Haskell 2010 requirements are
+planned but not implemented:
 
 - remaining pattern forms and pattern-match diagnostics
-- type classes and dictionary passing
+- superclasses, default methods, instance contexts, deriving, built-in Prelude
+  class dictionaries, overloaded literals, and numeric defaulting
 - broader Prelude/library subset
 - Haskell source desugaring beyond the current executable subset
 - IO `main`
@@ -87,11 +90,15 @@ Prelude data constructors, wildcard patterns, literal patterns, short-circuit
 `map`, `foldr`, `length`, `filter`, and `reverse`, and primitive `+`, `-`,
 `*`, `/`, `<`, and `==`. Recursive top-level functions, mutually recursive
 top-level groups, singleton self-recursive bindings, and local recursive `let`
-bindings now emit recursive Core groups in the supported subset.
+bindings now emit recursive Core groups in the supported subset. The initial
+type class slice typechecks user-defined single-parameter classes, concrete
+context-free instances, explicit source constraints, and method calls by
+emitting dictionary constructor values, selector functions, and explicit Core
+dictionary arguments.
 
 Core-0 equality is deliberately limited to first-order literal value types
-(`Int`, `Bool`, `Char`, and `String`) until class constraints and dictionaries
-exist.
+(`Int`, `Bool`, `Char`, and `String`) until built-in `Eq` class dictionaries
+replace the primitive-only equality path.
 
 ## What Core Evaluates Today
 
@@ -106,7 +113,9 @@ It now also evaluates list and tuple values/patterns, built-in
 `Maybe`/`Either`/`Ordering` constructors, short-circuit Bool operators, and the
 generated Prelude list functions. Core evaluation covers guarded self recursion,
 local factorial recursion, top-level fibonacci recursion, mutual recursion, and
-recursive list functions.
+recursive list functions. It also evaluates dictionary-passed user class
+method calls through generated selector functions and instance dictionary
+values.
 
 This is a reference oracle for the native path. Source-spanned Haskell 2010
 type diagnostics remain later work because the renamed AST is currently
@@ -123,8 +132,8 @@ re-entry, black-hole detection, Bool and user-constructor dispatch, and checked
 
 The boxed LLVM/native runtime path is implemented for the current executable
 subset, including ADT constructor objects, list/tuple/Prelude data constructor
-objects, and lazy field projection. Runtime expansion for IO remains later
-work.
+objects, lazy field projection, and type class dictionary values as ordinary
+constructor closures. Runtime expansion for IO remains later work.
 
 ## What Core Optimizes Today
 
@@ -148,7 +157,9 @@ as unary curried STG functions, wraps non-atomic operands and intermediate
 applications in thunks, preserves `let`/`letrec`, recursive top-level and local
 binding groups, cases, Bool and user
 constructors, list/tuple/Prelude constructors, constructor field laziness, and
-primitive operations, and rejects invalid Core before lowering.
+primitive operations, and rejects invalid Core before lowering. Dictionary
+records, selectors, constrained functions, and concrete instance dictionaries
+lower through the same Core-to-STG path.
 
 Lowered STG runs through the in-process STG evaluator as the semantic check.
 The current executable Haskell 2010 subset is also emitted as boxed lazy STG LLVM
@@ -181,6 +192,11 @@ and compiled to native executables through the existing clang toolchain.
     local recursive `let`, fibonacci/factorial programs, recursive list
     functions with cons patterns, STG lowering/evaluation, native LLVM
     execution, and wet-tested default/no-egglog CLI runs.
+13. Type class dictionary representation. Completed for user-defined
+    single-parameter classes, concrete context-free instances, explicit
+    constrained functions, generated dictionary constructors/selectors, Core
+    dictionary arguments, STG lowering/evaluation, native LLVM execution, and
+    wet-tested default/no-egglog CLI runs.
 
 ## Where Egglog Fits
 
@@ -188,8 +204,8 @@ The existing ANF Egglog backend is now reused by a typed Haskell 2010 Core
 adapter for safe Core-0 fragments. The adapter preserves laziness, bottom, and
 runtime-error behavior by validating Core before and after extraction and by
 omitting unsafe rewrites unless the fragment has facts strong enough to justify
-them. Broader Core facts for ADTs, dictionaries, and full pattern matching
-remain later Phase 15 expansion work.
+them. Broader Core facts for ADTs, dictionary simplification, and full pattern
+matching remain later Phase 15 expansion work.
 
 ## Where LLVM/Native Output Fits
 
@@ -198,8 +214,9 @@ the current Haskell 2010 executable subset. The Haskell 2010 path lowers typed
 Core to STG-like lazy IR, emits a boxed lazy LLVM runtime with closure
 allocation, enter/apply, thunk forcing/update, Bool and user-constructor case
 dispatch, list/tuple/Prelude constructor dispatch, boxed constructor fields,
-recursive closure/thunk groups, and checked primitives, and invokes clang to
-produce native machine-code executables.
+recursive closure/thunk groups, type class dictionary constructor/selector
+execution, and checked primitives, and invokes clang to produce native
+machine-code executables.
 
 ## GHC Compatibility
 
@@ -209,7 +226,8 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Broaden the Haskell 2010 executable surface with type class dictionary
-representation while preserving the `.hg` compiler, Core evaluator, STG
-runtime, Core-to-STG lowering, native executable path, Egglog Core optimizer,
-ADT/list/tuple/Prelude/recursion support, and wet-test baseline.
+Broaden the Haskell 2010 executable surface with built-in `Eq`, `Ord`, `Show`,
+and `Num` Prelude class coverage while preserving the `.hg` compiler, Core
+evaluator, STG runtime, Core-to-STG lowering, native executable path, Egglog
+Core optimizer, ADT/list/tuple/Prelude/recursion/typeclass-dictionary support,
+and wet-test baseline.

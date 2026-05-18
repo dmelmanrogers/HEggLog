@@ -92,7 +92,9 @@ semantics against the STG evaluator. Native runtime object layout, LLVM
 lowering, and runtime linking are implemented for the current executable subset,
 including custom ADTs, nested constructor patterns, lists, tuples, built-in
 Prelude data constructors, generated Core Prelude list/Bool functions, and
-recursive top-level/local functions; IO remains a future expansion.
+recursive top-level/local functions. User-defined type class dictionaries lower
+as ordinary constructor closures with selector/method calls in the initial
+dictionary slice. IO remains a future expansion.
 
 ## LLVM Lowering
 

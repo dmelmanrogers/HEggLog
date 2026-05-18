@@ -10,7 +10,8 @@ AST, lexer, layout parser, and parser. The renamer is implemented as a
 unique-name pass over that AST. A typed Core IR and validator are implemented
 as the target representation. The typechecker/desugarer is implemented for the
 first executable subset, including custom ADTs, constructor patterns, and
-recursive top-level/local bindings. The
+recursive top-level/local bindings, plus initial user-defined type class
+dictionary passing. The
 current `.hg` frontend remains separate substrate; Haskell 2010 source uses the
 `Haskell2010` pipeline.
 
@@ -109,11 +110,15 @@ Required Core-0 capabilities:
 - recursive binding groups where supported
 - source-spanned type errors
 
-Planned Haskell 2010 capabilities:
+Current initial Haskell 2010 class capabilities:
 
 - class constraints
 - instance lookup
 - dictionary-passing elaboration
+
+Remaining planned Haskell 2010 capabilities:
+
+- superclasses, default methods, deriving, and instance contexts
 - defaulting for numeric classes
 - kind checking for type constructors and classes
 
@@ -152,9 +157,11 @@ patterns, list and tuple expressions/types, built-in `Maybe`, `Either`, and
 `Ordering`, generated Core Prelude bindings for `id`, `const`, `not`,
 `otherwise`, `map`, `foldr`, `length`, `filter`, and `reverse`, short-circuit
 Bool operators, recursive top-level/local binding groups, and primitive
-arithmetic/comparison. Full Haskell 2010 type
-classes, remaining pattern forms, broader Prelude, IO, and modules remain
-planned. The strict
+arithmetic/comparison. It also covers the initial type class dictionary slice:
+user-defined single-parameter classes, concrete context-free instances,
+explicit constrained functions, generated dictionary constructors/selectors,
+and dictionary-passed method calls. Full Haskell 2010 type classes, remaining
+pattern forms, broader Prelude, IO, and modules remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

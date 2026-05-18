@@ -334,6 +334,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-fibonacci" "test/e2e/programs/haskell2010/fibonacci.hs" "21" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-mutual-recursion" "test/e2e/programs/haskell2010/mutual-recursion.hs" "1" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-recursive-list" "test/e2e/programs/haskell2010/recursive-list.hs" "10" [DefaultEgglog, NoEgglog] False
+  , nativeOnlySuccessCase "haskell2010-typeclass-dictionary" "test/e2e/programs/haskell2010/typeclass-dictionary.hs" "1" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-adt-box" "test/e2e/programs/haskell2010/adt-box.hs" "7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-adt-maybe" "test/e2e/programs/haskell2010/adt-maybe.hs" "4" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-adt-nested" "test/e2e/programs/haskell2010/adt-nested.hs" "3" [DefaultEgglog, NoEgglog] False

@@ -141,6 +141,8 @@ testGroups =
       , pureTest "typechecks nested constructor patterns" testHaskell2010Core0NestedADTPatterns
       , pureTest "typechecks lists tuples and Prelude constructors" testHaskell2010Core0PreludeData
       , pureTest "typechecks recursive bindings" testHaskell2010Core0Recursion
+      , pureTest "typechecks type class dictionaries" testHaskell2010Core0TypeClassDictionaries
+      , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       , pureTest "rejects unsupported Core-0 equality" testHaskell2010Core0UnsupportedEquality
       ]
@@ -154,6 +156,7 @@ testGroups =
       , pureTest "evaluates Prelude list functions" testHaskell2010Core0EvalPreludeLists
       , pureTest "short-circuits Bool operators" testHaskell2010Core0EvalShortCircuitBool
       , pureTest "evaluates recursive functions and list recursion" testHaskell2010Core0EvalRecursion
+      , pureTest "evaluates type class dictionary calls" testHaskell2010Core0EvalTypeClassDictionaries
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
       , pureTest "reports forced division by zero" testHaskell2010Core0EvalDivisionByZero
@@ -182,6 +185,7 @@ testGroups =
       , pureTest "preserves nested constructor pattern semantics" testHaskell2010CoreToSTGNestedADTPatterns
       , pureTest "preserves list tuple and Prelude semantics" testHaskell2010CoreToSTGPreludeData
       , pureTest "preserves recursive function semantics" testHaskell2010CoreToSTGRecursion
+      , pureTest "preserves type class dictionary semantics" testHaskell2010CoreToSTGTypeClassDictionaries
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves curried partial application" testHaskell2010CoreToSTGPartialApplication
       , pureTest "rejects invalid Core before lowering" testHaskell2010CoreToSTGRejectsInvalidCore
@@ -1141,6 +1145,45 @@ testHaskell2010Core0Recursion = do
   expectCoreEvalInt "mutual recursion Core oracle" 1 =<< evalHaskell2010Binding "main" haskell2010MutualRecursionSource
   expectCoreEvalInt "recursive list Core oracle" 10 =<< evalHaskell2010Binding "main" haskell2010RecursiveListSource
 
+testHaskell2010Core0TypeClassDictionaries :: Either String ()
+testHaskell2010Core0TypeClassDictionaries = do
+  coreModule <- typecheckHaskell2010 haskell2010TypeClassDictionarySource
+  assertBool "type class dictionary constructor is recorded" (containsConstructorOccurrence "$MkEqualDict" coreModule)
+  assertBool "type class method selector is emitted" (containsBindingOccurrence "equal" coreModule)
+  assertBool "type class instance dictionary is emitted" (containsBindingPrefix "$fEqual" coreModule)
+  expectCoreEvalInt "type class dictionary Core oracle" 1 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0RejectsInvalidTypeClassDictionaries :: Either String ()
+testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
+  expectUnsupported "rejects duplicate concrete instances" "duplicate instance" duplicateInstanceSource
+    *> expectUnsupported "rejects missing instance methods" "missing instance method" missingInstanceMethodSource
+ where
+  expectUnsupported label needle source =
+    case typecheckHaskell2010Raw source of
+      Left (H2010Typecheck.UnsupportedCore0 message)
+        | needle `Text.isInfixOf` message -> Right ()
+      Left err -> Left (label <> ": expected unsupported type class dictionary form, got " <> show err)
+      Right coreModule -> Left (label <> ": typechecked unexpectedly: " <> show coreModule)
+
+  duplicateInstanceSource =
+    "module Main where\n\
+    \class Equal a where\n\
+    \  equal :: a -> a -> Bool\n\
+    \data Box = Box Int\n\
+    \instance Equal Box where\n\
+    \  equal (Box x) (Box y) = x == y\n\
+    \instance Equal Box where\n\
+    \  equal (Box x) (Box y) = x == y\n\
+    \main = 1\n"
+
+  missingInstanceMethodSource =
+    "module Main where\n\
+    \class Equal a where\n\
+    \  equal :: a -> a -> Bool\n\
+    \data Box = Box Int\n\
+    \instance Equal Box where {}\n\
+    \main = 1\n"
+
 testHaskell2010Core0TypeError :: Either String ()
 testHaskell2010Core0TypeError =
   case
@@ -1237,6 +1280,13 @@ testHaskell2010Core0EvalRecursion =
     , expectCoreEvalInt "Core-0 mutual recursion" 1 =<< evalHaskell2010Binding "main" haskell2010MutualRecursionSource
     , expectCoreEvalInt "Core-0 recursive list function" 10 =<< evalHaskell2010Binding "main" haskell2010RecursiveListSource
     ]
+
+testHaskell2010Core0EvalTypeClassDictionaries :: Either String ()
+testHaskell2010Core0EvalTypeClassDictionaries =
+  expectCoreEvalInt
+    "Core-0 type class dictionary evaluation"
+    1
+    =<< evalHaskell2010Binding "main" haskell2010TypeClassDictionarySource
 
 testHaskell2010Core0EvalLazyLet :: Either String ()
 testHaskell2010Core0EvalLazyLet =
@@ -1465,6 +1515,10 @@ testHaskell2010CoreToSTGRecursion = do
   checkCoreToSTGInt "Core-to-STG guarded self recursion" 1 haskell2010GuardedSelfRecursionSource
   checkCoreToSTGInt "Core-to-STG local factorial recursion" 120 haskell2010LocalFactorialSource
   checkCoreToSTGInt "Core-to-STG recursive list function" 10 haskell2010RecursiveListSource
+
+testHaskell2010CoreToSTGTypeClassDictionaries :: Either String ()
+testHaskell2010CoreToSTGTypeClassDictionaries =
+  checkCoreToSTGInt "Core-to-STG type class dictionaries" 1 haskell2010TypeClassDictionarySource
 
 testHaskell2010CoreToSTGDivisionByZero :: Either String ()
 testHaskell2010CoreToSTGDivisionByZero =
@@ -4486,6 +4540,7 @@ haskell2010NativeSuccessExamples =
   , ("fibonacci", haskell2010FibonacciSource, "21\n")
   , ("mutual-recursion", haskell2010MutualRecursionSource, "1\n")
   , ("recursive-list", haskell2010RecursiveListSource, "10\n")
+  , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-maybe", haskell2010PolymorphicADTSource, "4\n")
   , ("adt-nested", haskell2010NestedADTSource, "3\n")
@@ -4499,6 +4554,7 @@ haskell2010NativeExecutableExamples =
   , ("partial-application", haskell2010PartialApplicationSource, "1\n")
   , ("prelude-lists", haskell2010ListPreludeSource, "321\n")
   , ("recursive-list", haskell2010RecursiveListSource, "10\n")
+  , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
   ]
 
 haskell2010ArithmeticSource :: Text
@@ -4600,6 +4656,18 @@ haskell2010RecursiveListSource =
   \  [] -> 0\n\
   \  y : ys -> y + sumList ys\n\
   \main = sumList [1, 2, 3, 4]\n"
+
+haskell2010TypeClassDictionarySource :: Text
+haskell2010TypeClassDictionarySource =
+  "module Main where\n\
+  \class Equal a where\n\
+  \  equal :: a -> a -> Bool\n\
+  \data Box = Box Int\n\
+  \instance Equal Box where\n\
+  \  equal (Box x) (Box y) = x == y\n\
+  \same :: Equal a => a -> a -> Bool\n\
+  \same x y = equal x y\n\
+  \main = if same (Box 7) (Box 7) && not (same (Box 7) (Box 8)) then 1 else 0\n"
 
 haskell2010ADTBoxSource :: Text
 haskell2010ADTBoxSource =
@@ -4869,6 +4937,18 @@ altContainsConstructorAlt occurrence (H2010Core.CoreAlt altCon _ body) =
       H2010Names.nameOcc name == occurrence || containsConstructorAlt occurrence body
     _ ->
       containsConstructorAlt occurrence body
+
+containsConstructorOccurrence :: Text -> H2010Core.CoreModule -> Bool
+containsConstructorOccurrence occurrence coreModule =
+  any ((== occurrence) . H2010Names.nameOcc) (Map.keys (H2010Core.coreModuleConstructors coreModule))
+
+containsBindingOccurrence :: Text -> H2010Core.CoreModule -> Bool
+containsBindingOccurrence occurrence coreModule =
+  any ((== occurrence) . H2010Names.nameOcc . H2010Core.coreBinderName) (concatMap H2010Core.bindersOf (H2010Core.coreModuleBinds coreModule))
+
+containsBindingPrefix :: Text -> H2010Core.CoreModule -> Bool
+containsBindingPrefix prefix coreModule =
+  any (Text.isPrefixOf prefix . H2010Names.nameOcc . H2010Core.coreBinderName) (concatMap H2010Core.bindersOf (H2010Core.coreModuleBinds coreModule))
 
 containsVarOccurrence :: Text -> H2010Core.CoreExpr -> Bool
 containsVarOccurrence occurrence = \case
