@@ -29,14 +29,15 @@ lazy lets and arguments, custom ADTs, polymorphic constructors, constructor
 cases, nested constructor patterns, list and tuple expressions/patterns/types,
 built-in `Maybe`, `Either`, and `Ordering`, generated Core bindings for basic
 Prelude list/Bool functions, recursive top-level/local functions, recursive
-list functions, lazy constructor fields, and the initial type class dictionary
-slice for user-defined single-parameter classes with concrete instances and
-explicit constrained functions. The following Haskell 2010 requirements are
+list functions, lazy constructor fields, user-defined single-parameter classes
+with concrete instances and explicit constrained functions, and built-in
+Prelude dictionaries for `Eq Int`, `Eq Bool`, `Ord Int`, `Ord Bool`, and
+executable `Num Int` methods. The following Haskell 2010 requirements are
 planned but not implemented:
 
 - remaining pattern forms and pattern-match diagnostics
-- superclasses, default methods, instance contexts, deriving, built-in Prelude
-  class dictionaries, overloaded literals, and numeric defaulting
+- superclasses, default methods, instance contexts, deriving, `Show`,
+  `fromInteger`, overloaded literals, and numeric defaulting
 - broader Prelude/library subset
 - Haskell source desugaring beyond the current executable subset
 - IO `main`
@@ -87,18 +88,19 @@ desugared to Bool `case`, explicit Bool and user-constructor `case`, custom
 constructor patterns, list and tuple expressions/patterns/types, built-in
 Prelude data constructors, wildcard patterns, literal patterns, short-circuit
 `&&`/`||`, generated Prelude bindings for `id`, `const`, `not`, `otherwise`,
-`map`, `foldr`, `length`, `filter`, and `reverse`, and primitive `+`, `-`,
-`*`, `/`, `<`, and `==`. Recursive top-level functions, mutually recursive
+`map`, `foldr`, `length`, `filter`, and `reverse`; dictionary-backed `Eq`,
+`Ord`, and `Num` methods for the first built-in instances; and primitive `/`.
+Recursive top-level functions, mutually recursive
 top-level groups, singleton self-recursive bindings, and local recursive `let`
 bindings now emit recursive Core groups in the supported subset. The initial
 type class slice typechecks user-defined single-parameter classes, concrete
 context-free instances, explicit source constraints, and method calls by
 emitting dictionary constructor values, selector functions, and explicit Core
-dictionary arguments.
-
-Core-0 equality is deliberately limited to first-order literal value types
-(`Int`, `Bool`, `Char`, and `String`) until built-in `Eq` class dictionaries
-replace the primitive-only equality path.
+dictionary arguments. Built-in `Eq Int`, `Eq Bool`, `Ord Int`, `Ord Bool`, and
+`Num Int` dictionaries cover `(==)`, `(/=)`, `compare`, `(<)`, `(<=)`, `(>)`,
+`(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`, and `signum`.
+`/` remains checked concrete `Int` division; `Show`, `fromInteger`, overloaded
+literals, and numeric defaulting remain planned.
 
 ## What Core Evaluates Today
 
@@ -114,8 +116,8 @@ It now also evaluates list and tuple values/patterns, built-in
 generated Prelude list functions. Core evaluation covers guarded self recursion,
 local factorial recursion, top-level fibonacci recursion, mutual recursion, and
 recursive list functions. It also evaluates dictionary-passed user class
-method calls through generated selector functions and instance dictionary
-values.
+method calls and built-in `Eq`/`Ord`/`Num` class methods through generated
+selector functions and instance dictionary values.
 
 This is a reference oracle for the native path. Source-spanned Haskell 2010
 type diagnostics remain later work because the renamed AST is currently
@@ -197,6 +199,12 @@ and compiled to native executables through the existing clang toolchain.
     constrained functions, generated dictionary constructors/selectors, Core
     dictionary arguments, STG lowering/evaluation, native LLVM execution, and
     wet-tested default/no-egglog CLI runs.
+14. Built-in Prelude class dictionary coverage. Completed for `Eq Int`,
+    `Eq Bool`, `Ord Int`, `Ord Bool`, and executable `Num Int` methods,
+    including generated built-in dictionaries/selectors, overloaded
+    comparison/arithmetic operator desugaring, Core/STG lowering/evaluation,
+    native LLVM execution, and wet-tested default/no-egglog CLI runs. `Show`,
+    `fromInteger`, overloaded literals, and numeric defaulting remain planned.
 
 ## Where Egglog Fits
 
@@ -214,9 +222,9 @@ the current Haskell 2010 executable subset. The Haskell 2010 path lowers typed
 Core to STG-like lazy IR, emits a boxed lazy LLVM runtime with closure
 allocation, enter/apply, thunk forcing/update, Bool and user-constructor case
 dispatch, list/tuple/Prelude constructor dispatch, boxed constructor fields,
-recursive closure/thunk groups, type class dictionary constructor/selector
-execution, and checked primitives, and invokes clang to produce native
-machine-code executables.
+recursive closure/thunk groups, user and built-in type class dictionary
+constructor/selector execution, and checked primitives, and invokes clang to
+produce native machine-code executables.
 
 ## GHC Compatibility
 
@@ -226,8 +234,8 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Broaden the Haskell 2010 executable surface with built-in `Eq`, `Ord`, `Show`,
-and `Num` Prelude class coverage while preserving the `.hg` compiler, Core
-evaluator, STG runtime, Core-to-STG lowering, native executable path, Egglog
-Core optimizer, ADT/list/tuple/Prelude/recursion/typeclass-dictionary support,
-and wet-test baseline.
+Broaden pattern-match support with diagnostics, guards, and remaining pattern
+forms while preserving the `.hg` compiler, Core evaluator, STG runtime,
+Core-to-STG lowering, native executable path, Egglog Core optimizer,
+ADT/list/tuple/Prelude/recursion/typeclass-dictionary support, built-in
+`Eq`/`Ord`/`Num` dictionary support, and wet-test baseline.

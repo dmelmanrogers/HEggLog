@@ -1,7 +1,7 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after adding Haskell 2010 type class
-dictionary native coverage. The suite covers the existing `.hg`
+Recorded for the mandatory wet-test suite after adding Haskell 2010 built-in
+Prelude class dictionary native coverage. The suite covers the existing `.hg`
 native compiler baseline and Haskell 2010 executable-subset `.hs` programs that
 compile to native executables, compare lazy runtime behavior, and run both
 default Egglog and `--no-egglog` modes for Haskell 2010 optimizer coverage.
@@ -17,15 +17,15 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 91
-- Source files: 40
-- Successful source cases: 31
+- HUnit checks: 94
+- Source files: 41
+- Successful source cases: 32
 - Runtime-error source cases: 6
 - Compile-error source cases: 3
-- Native compile/run checks: 68
-- Default Egglog native checks: 40
-- `--no-egglog` native checks: 28
-- Emit-LLVM checks: 11
+- Native compile/run checks: 70
+- Default Egglog native checks: 41
+- `--no-egglog` native checks: 29
+- Emit-LLVM checks: 12
 - Report/interpreter comparisons: 12
 - Failures: 0
 
@@ -103,6 +103,9 @@ Summary:
 | haskell2010-typeclass-dictionary | `test/e2e/programs/haskell2010/typeclass-dictionary.hs` | success | native/default | `1` | stdout `1`, stderr empty, exit 0 | pass |
 | haskell2010-typeclass-dictionary | `test/e2e/programs/haskell2010/typeclass-dictionary.hs` | success | native/no-egglog | `1` | stdout `1`, stderr empty, exit 0 | pass |
 | haskell2010-typeclass-dictionary | `test/e2e/programs/haskell2010/typeclass-dictionary.hs` | success | emit-llvm/default | `1` | LLVM compiled through clang, stdout `1`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-classes | `test/e2e/programs/haskell2010/prelude-classes.hs` | success | native/default | `6` | stdout `6`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-classes | `test/e2e/programs/haskell2010/prelude-classes.hs` | success | native/no-egglog | `6` | stdout `6`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-classes | `test/e2e/programs/haskell2010/prelude-classes.hs` | success | emit-llvm/default | `6` | LLVM compiled through clang, stdout `6`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/no-egglog | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | emit-llvm/default | `7` | LLVM compiled through clang, stdout `7`, stderr empty, exit 0 | pass |

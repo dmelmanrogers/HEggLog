@@ -138,7 +138,8 @@ typecheckModuleToCore sourceModule = do
       preludeValues = collectPreludeValueNames sourceDecls
   ((typedBindings, _typedEnv, typedInstances), finalState) <-
     runInfer typeConstructors $ do
-      classes <- collectClassInfos sourceDecls
+      sourceClasses <- collectClassInfos sourceDecls
+      let classes = Map.union sourceClasses builtinClassInfos
       modify (\state -> state {classInfos = classes})
       constructors <- collectDataConstructors sourceDecls
       modify
@@ -157,21 +158,28 @@ typecheckModuleToCore sourceModule = do
       instances <- inferInstanceDictionaries env sourceDecls
       pure (bindings, env, instances)
   let classes = classInfos finalState
-      instances = instanceDictionaryRefs (substitution finalState) classes typedInstances
+      classesForCore = usedClassInfos classes (substitution finalState) typedBindings typedInstances
+      builtinInstances = builtinInstanceDictionaries classesForCore
+      instances =
+        builtinInstanceDictionaryRefs builtinInstances
+          <> instanceDictionaryRefs (substitution finalState) classesForCore typedInstances
   coreBinds <- traverse (bindingToCore (CoreElabEnv (substitution finalState) Map.empty instances [])) typedBindings
-  classCoreBinds <- classSelectorCoreBinds (substitution finalState) classes
-  instanceCoreBinds <- traverse (instanceDictionaryToCore (substitution finalState) classes instances) typedInstances
+  classCoreBinds <- classSelectorCoreBinds (substitution finalState) classesForCore
+  builtinInstanceCoreBinds <- traverse (builtinInstanceDictionaryToCore classesForCore) builtinInstances
+  instanceCoreBinds <- traverse (instanceDictionaryToCore (substitution finalState) classesForCore instances) typedInstances
   preludeCoreBinds <- preludeCoreBindings preludeValues
   let sourceCoreBinds = maybe [] (: []) (bindingGroupCoreBind typedBindings coreBinds)
   coreConstructors <-
     Map.union (tupleConstructorInfos tupleArities)
-      <$> constructorInfosToCore (substitution finalState) (dataConstructors finalState)
+      <$> constructorInfosToCore
+        (substitution finalState)
+        (filterClassDictionaryConstructors classes classesForCore (dataConstructors finalState))
   let coreModule =
         CoreModule
           { coreModuleName = rModuleName sourceModule
           , coreModuleConstructors = coreConstructors
           , coreModuleBinds =
-              case preludeCoreBinds <> classCoreBinds <> instanceCoreBinds <> sourceCoreBinds of
+              case preludeCoreBinds <> classCoreBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> sourceCoreBinds of
                 [] -> []
                 [one] -> [one]
                 many -> [CoreRec (concatMap bindPairs many)]
@@ -360,6 +368,115 @@ classDictionaryConstructorName :: RName -> RName
 classDictionaryConstructorName className =
   RName ConstructorNamespace ("$Mk" <> nameOcc className <> "Dict") (5100000 + nameUnique className) False
 
+builtinClassInfos :: Map.Map RName ClassInfo
+builtinClassInfos =
+  Map.fromList
+    [ (builtinEqClassName, eqInfo)
+    , (builtinOrdClassName, ordInfo)
+    , (builtinNumClassName, numInfo)
+    ]
+ where
+  eqA = preludeTypeVariable "a" (-1301)
+  eqATy = TyVar eqA
+  eqInfo =
+    builtinClassInfo
+      builtinEqClassName
+      eqA
+      [ ("==", -1401, TyFun eqATy (TyFun eqATy boolMonoType))
+      , ("/=", -1402, TyFun eqATy (TyFun eqATy boolMonoType))
+      ]
+
+  ordA = preludeTypeVariable "a" (-1311)
+  ordATy = TyVar ordA
+  ordInfo =
+    builtinClassInfo
+      builtinOrdClassName
+      ordA
+      [ ("compare", -1410, TyFun ordATy (TyFun ordATy orderingMonoType))
+      , ("<", -1411, TyFun ordATy (TyFun ordATy boolMonoType))
+      , ("<=", -1412, TyFun ordATy (TyFun ordATy boolMonoType))
+      , (">", -1413, TyFun ordATy (TyFun ordATy boolMonoType))
+      , (">=", -1414, TyFun ordATy (TyFun ordATy boolMonoType))
+      , ("max", -1415, TyFun ordATy (TyFun ordATy ordATy))
+      , ("min", -1416, TyFun ordATy (TyFun ordATy ordATy))
+      ]
+
+  numA = preludeTypeVariable "a" (-1321)
+  numATy = TyVar numA
+  numInfo =
+    builtinClassInfo
+      builtinNumClassName
+      numA
+      [ ("+", -1421, TyFun numATy (TyFun numATy numATy))
+      , ("-", -1422, TyFun numATy (TyFun numATy numATy))
+      , ("*", -1423, TyFun numATy (TyFun numATy numATy))
+      , ("negate", -1424, TyFun numATy numATy)
+      , ("abs", -1425, TyFun numATy numATy)
+      , ("signum", -1426, TyFun numATy numATy)
+      ]
+
+builtinClassInfo :: RName -> RName -> [(Text, Int, MonoType)] -> ClassInfo
+builtinClassInfo className classVariable methodSpecs =
+  ClassInfo
+    { classInfoName = className
+    , classInfoVariable = classVariable
+    , classInfoDictTypeName = classDictionaryTypeName className
+    , classInfoDictConstructorName = classDictionaryConstructorName className
+    , classInfoMethods =
+        [ ClassMethodInfo
+            { classMethodName = preludeTermName occurrence unique
+            , classMethodScheme = Scheme [classVariable] [ClassConstraint className (TyVar classVariable)] fieldType
+            , classMethodFieldType = fieldType
+            , classMethodFieldIndex = index
+            }
+        | (index, (occurrence, unique, fieldType)) <- zip [0 ..] methodSpecs
+        ]
+    }
+
+builtinEqClassName :: RName
+builtinEqClassName =
+  preludeClassName "Eq" (-1300)
+
+builtinOrdClassName :: RName
+builtinOrdClassName =
+  preludeClassName "Ord" (-1310)
+
+builtinNumClassName :: RName
+builtinNumClassName =
+  preludeClassName "Num" (-1320)
+
+preludeClassName :: Text -> Int -> RName
+preludeClassName occurrence unique =
+  RName ClassNamespace occurrence unique True
+
+canonicalClassName :: RName -> RName
+canonicalClassName name
+  | nameExternal name =
+      case nameOcc name of
+        "Eq" -> builtinEqClassName
+        "Ord" -> builtinOrdClassName
+        "Num" -> builtinNumClassName
+        _ -> name
+  | otherwise = name
+
+builtinMethodInfoByOccurrence :: Text -> Maybe ClassMethodInfo
+builtinMethodInfoByOccurrence occurrence =
+  List.find ((== occurrence) . nameOcc . classMethodName) $
+    concatMap classInfoMethods (Map.elems builtinClassInfos)
+
+builtinClassInfoByOccurrence :: Text -> InferM ClassInfo
+builtinClassInfoByOccurrence occurrence = do
+  classes <- classInfos <$> get
+  let className =
+        case occurrence of
+          "Eq" -> builtinEqClassName
+          "Ord" -> builtinOrdClassName
+          "Num" -> builtinNumClassName
+          _ -> RName ClassNamespace occurrence 0 True
+  case Map.lookup className classes of
+    Just info -> pure info
+    Nothing -> throwTypecheck (UnsupportedCore0 ("missing built-in class `" <> occurrence <> "`"))
+
 builtinDataConstructors :: Map.Map RName DataConstructorInfo
 builtinDataConstructors =
   Map.fromList
@@ -414,6 +531,76 @@ builtinDataConstructors =
 preludeTypeVariable :: Text -> Int -> RName
 preludeTypeVariable occurrence unique =
   RName TypeVariableNamespace occurrence unique True
+
+usedClassInfos ::
+  Map.Map RName ClassInfo ->
+  Subst ->
+  [TypedBinding] ->
+  [TypedInstanceDictionary] ->
+  Map.Map RName ClassInfo
+usedClassInfos classes subst bindings instances =
+  Map.filterWithKey (\name _ -> name `Set.member` usedNames) classes
+ where
+  bindingConstraints =
+    concatMap typedBindingClassConstraints bindings
+  instanceConstraints =
+    [ClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary) | dictionary <- instances]
+      <> concatMap (concatMap typedExprClassConstraints . typedInstanceMethods) instances
+  usedNames =
+    Set.fromList
+      [ className
+      | ClassConstraint className _ <- map (applyConstraintSubst subst) (bindingConstraints <> instanceConstraints)
+      ]
+
+typedBindingClassConstraints :: TypedBinding -> [ClassConstraint]
+typedBindingClassConstraints binding =
+  schemeConstraints (typedBindingScheme binding) <> typedExprClassConstraints (typedBindingRhs binding)
+
+typedExprClassConstraints :: TypedExpr -> [ClassConstraint]
+typedExprClassConstraints = \case
+  TVar _ scheme typeArguments _ ->
+    instantiateSchemeConstraints scheme typeArguments
+  TLit {} ->
+    []
+  TCon _ scheme typeArguments _ ->
+    instantiateSchemeConstraints scheme typeArguments
+  TTuple fields _ ->
+    concatMap typedExprClassConstraints fields
+  TList elements _ ->
+    concatMap typedExprClassConstraints elements
+  TLam _ body _ ->
+    typedExprClassConstraints body
+  TApp fn arg _ ->
+    typedExprClassConstraints fn <> typedExprClassConstraints arg
+  TLet bindings body _ ->
+    concatMap typedBindingClassConstraints bindings <> typedExprClassConstraints body
+  TCase scrutinee _ alternatives _ ->
+    typedExprClassConstraints scrutinee <> concatMap typedAltClassConstraints alternatives
+  TPrim _ arguments _ ->
+    concatMap typedExprClassConstraints arguments
+
+typedAltClassConstraints :: TypedAlt -> [ClassConstraint]
+typedAltClassConstraints (TypedAlt _ _ body) =
+  typedExprClassConstraints body
+
+applyConstraintSubst :: Subst -> ClassConstraint -> ClassConstraint
+applyConstraintSubst subst (ClassConstraint className ty) =
+  ClassConstraint className (applySubst subst ty)
+
+filterClassDictionaryConstructors ::
+  Map.Map RName ClassInfo ->
+  Map.Map RName ClassInfo ->
+  Map.Map RName DataConstructorInfo ->
+  Map.Map RName DataConstructorInfo
+filterClassDictionaryConstructors allClasses usedClasses =
+  Map.filterWithKey keepConstructor
+ where
+  allDictionaryConstructors =
+    Set.fromList (map classInfoDictConstructorName (Map.elems allClasses))
+  usedDictionaryConstructors =
+    Set.fromList (map classInfoDictConstructorName (Map.elems usedClasses))
+  keepConstructor name _ =
+    name `Set.notMember` allDictionaryConstructors || name `Set.member` usedDictionaryConstructors
 
 constructorInfosToCore ::
   Subst ->
@@ -607,7 +794,31 @@ isSupportedPreludeValue name =
 
 supportedPreludeValueOccurrences :: [Text]
 supportedPreludeValueOccurrences =
-  ["id", "const", "not", "otherwise", "map", "foldr", "length", "filter", "reverse"]
+  [ "id"
+  , "const"
+  , "not"
+  , "otherwise"
+  , "map"
+  , "foldr"
+  , "length"
+  , "filter"
+  , "reverse"
+  , "=="
+  , "/="
+  , "<"
+  , "<="
+  , ">"
+  , ">="
+  , "compare"
+  , "max"
+  , "min"
+  , "+"
+  , "-"
+  , "*"
+  , "negate"
+  , "abs"
+  , "signum"
+  ]
 
 inferBindingGroup :: TypeEnv -> [RDecl] -> InferM ([TypedBinding], TypeEnv)
 inferBindingGroup outerEnv decls = do
@@ -767,6 +978,8 @@ inferInstanceDictionaries env =
     RInstanceDecl [] instanceHead decls -> do
       dictionary <- inferInstanceDictionary env instanceHead decls
       let instanceKey = ClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary)
+      when (isBuiltinInstanceConstraint instanceKey) $
+        throwTypecheck (UnsupportedCore0 ("duplicate built-in instance for `" <> renderClassConstraint instanceKey <> "`"))
       when (any (constraintMatches instanceKey . instanceKeyFor) acc) $
         throwTypecheck (UnsupportedCore0 ("duplicate instance for `" <> renderClassConstraint instanceKey <> "`"))
       pure (acc <> [dictionary])
@@ -806,7 +1019,7 @@ inferInstanceDictionary env instanceHead decls = do
 splitInstanceHead :: RHsType -> InferM (RName, MonoType)
 splitInstanceHead = \case
   RTyApp (RTyCon className) argument ->
-    (className,) <$> sourceMonoType argument
+    (canonicalClassName className,) <$> sourceMonoType argument
   other ->
     throwTypecheck (UnsupportedCore0 ("instance head " <> Text.pack (show other)))
 
@@ -1027,7 +1240,13 @@ inferPreludeValue name =
       throwTypecheck (UnknownCore0Variable name)
     Just scheme -> do
       (instantiatedTy, typeArguments) <- instantiate scheme
-      pure (TVar name scheme typeArguments instantiatedTy)
+      pure (TVar (preludeValueCoreName name) scheme typeArguments instantiatedTy)
+
+preludeValueCoreName :: RName -> RName
+preludeValueCoreName name =
+  case builtinMethodInfoByOccurrence (nameOcc name) of
+    Just method -> classMethodName method
+    Nothing -> name
 
 preludeConstructorInfo :: RName -> Maybe (RName, DataConstructorInfo)
 preludeConstructorInfo name
@@ -1052,23 +1271,26 @@ preludeValueScheme :: RName -> Maybe Scheme
 preludeValueScheme name
   | not (nameExternal name) = Nothing
   | otherwise =
-      case nameOcc name of
-        "id" -> Just (Scheme [a] [] (TyFun aTy aTy))
-        "const" -> Just (Scheme [a, b] [] (TyFun aTy (TyFun bTy aTy)))
-        "not" -> Just (Scheme [] [] (TyFun boolMonoType boolMonoType))
-        "otherwise" -> Just (Scheme [] [] boolMonoType)
-        "map" -> Just (Scheme [a, b] [] (TyFun (TyFun aTy bTy) (TyFun listA listB)))
-        "foldr" ->
-          Just
-            ( Scheme
-                [a, b]
-                []
-                (TyFun (TyFun aTy (TyFun bTy bTy)) (TyFun bTy (TyFun listA bTy)))
-            )
-        "length" -> Just (Scheme [a] [] (TyFun listA intMonoType))
-        "filter" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun listA listA)))
-        "reverse" -> Just (Scheme [a] [] (TyFun listA listA))
-        _ -> Nothing
+      case builtinMethodInfoByOccurrence (nameOcc name) of
+        Just method -> Just (classMethodScheme method)
+        Nothing ->
+          case nameOcc name of
+            "id" -> Just (Scheme [a] [] (TyFun aTy aTy))
+            "const" -> Just (Scheme [a, b] [] (TyFun aTy (TyFun bTy aTy)))
+            "not" -> Just (Scheme [] [] (TyFun boolMonoType boolMonoType))
+            "otherwise" -> Just (Scheme [] [] boolMonoType)
+            "map" -> Just (Scheme [a, b] [] (TyFun (TyFun aTy bTy) (TyFun listA listB)))
+            "foldr" ->
+              Just
+                ( Scheme
+                    [a, b]
+                    []
+                    (TyFun (TyFun aTy (TyFun bTy bTy)) (TyFun bTy (TyFun listA bTy)))
+                )
+            "length" -> Just (Scheme [a] [] (TyFun listA intMonoType))
+            "filter" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun listA listA)))
+            "reverse" -> Just (Scheme [a] [] (TyFun listA listA))
+            _ -> Nothing
  where
   a = preludeTypeVariable "a" (-1201)
   b = preludeTypeVariable "b" (-1202)
@@ -1081,12 +1303,16 @@ inferPrimitive :: TypeEnv -> RExpr -> RName -> RExpr -> InferM TypedExpr
 inferPrimitive env lhs op rhs =
   case nameOcc op of
     ":" -> inferExpr env (RApp (RApp (RCon op) lhs) rhs)
-    "+" -> fixedInt PrimAdd
-    "-" -> fixedInt PrimSub
-    "*" -> fixedInt PrimMul
+    "+" -> overloadedBinary "Num" "+"
+    "-" -> overloadedBinary "Num" "-"
+    "*" -> overloadedBinary "Num" "*"
     "/" -> fixedInt PrimDiv
-    "<" -> fixedCompare PrimLt
-    "==" -> equality
+    "<" -> overloadedBinary "Ord" "<"
+    "<=" -> overloadedBinary "Ord" "<="
+    ">" -> overloadedBinary "Ord" ">"
+    ">=" -> overloadedBinary "Ord" ">="
+    "==" -> overloadedBinary "Eq" "=="
+    "/=" -> overloadedBinary "Eq" "/="
     "&&" -> shortCircuit falseTyped trueDataConName
     "||" -> shortCircuit trueTyped falseDataConName
     other -> throwTypecheck (UnsupportedCore0 ("operator `" <> other <> "`"))
@@ -1115,27 +1341,47 @@ inferPrimitive env lhs op rhs =
     unify (typedExprType typedRhs) intMonoType
     pure (TPrim prim [typedLhs, typedRhs] intMonoType)
 
-  fixedCompare prim = do
-    typedLhs <- inferExpr env lhs
-    typedRhs <- inferExpr env rhs
-    unify (typedExprType typedLhs) intMonoType
-    unify (typedExprType typedRhs) intMonoType
-    pure (TPrim prim [typedLhs, typedRhs] boolMonoType)
-
-  equality = do
+  overloadedBinary classOccurrence methodOccurrence = do
     typedLhs <- inferExpr env lhs
     typedRhs <- inferExpr env rhs
     unify (typedExprType typedLhs) (typedExprType typedRhs)
-    equalityType <- applyCurrent (typedExprType typedLhs)
-    unless (supportsCore0Equality equalityType) $
-      throwTypecheck (UnsupportedCore0 ("equality for type " <> renderMonoType equalityType))
-    pure (TPrim PrimEq [typedLhs, typedRhs] boolMonoType)
+    argumentTy <- applyCurrent (typedExprType typedLhs)
+    method <- builtinClassMethod classOccurrence methodOccurrence
+    classVariable <-
+      case schemeVars (classMethodScheme method) of
+        [variable] -> pure variable
+        variables ->
+          throwTypecheck
+            ( UnsupportedCore0
+                ( "built-in method `"
+                    <> methodOccurrence
+                    <> "` has unexpected type variables "
+                    <> Text.pack (show variables)
+                )
+            )
+    let methodBodyTy = replaceTypeVars (Map.singleton classVariable argumentTy) (schemeBody (classMethodScheme method))
+        resultTy =
+          case methodBodyTy of
+            TyFun _ (TyFun _ result) -> result
+            other -> other
+        methodExpr = TVar (classMethodName method) (classMethodScheme method) [argumentTy] methodBodyTy
+    pure (TApp (TApp methodExpr typedLhs (TyFun argumentTy resultTy)) typedRhs resultTy)
 
-  supportsCore0Equality ty =
-    ty == intMonoType
-      || ty == boolMonoType
-      || ty == charMonoType
-      || ty == stringMonoType
+builtinClassMethod :: Text -> Text -> InferM ClassMethodInfo
+builtinClassMethod classOccurrence methodOccurrence = do
+  info <- builtinClassInfoByOccurrence classOccurrence
+  case List.find ((== methodOccurrence) . nameOcc . classMethodName) (classInfoMethods info) of
+    Just method -> pure method
+    Nothing ->
+      throwTypecheck
+        ( UnsupportedCore0
+            ( "missing built-in method `"
+                <> methodOccurrence
+                <> "` for class `"
+                <> classOccurrence
+                <> "`"
+            )
+        )
 
 inferCaseAlt :: TypeEnv -> MonoType -> TypedBinder -> MonoType -> RAlt -> InferM TypedAlt
 inferCaseAlt env scrutineeTy _caseBinder resultTy (RAlt pat rhs whereDecls) = do
@@ -1348,7 +1594,7 @@ sourceQualifiedMonoType = \case
 sourceClassConstraint :: RHsType -> InferM ClassConstraint
 sourceClassConstraint = \case
   RTyApp (RTyCon className) argument ->
-    ClassConstraint className <$> sourceMonoType argument
+    ClassConstraint (canonicalClassName className) <$> sourceMonoType argument
   other ->
     throwTypecheck (UnsupportedCore0 ("type-class constraint " <> Text.pack (show other)))
 
@@ -1853,6 +2099,14 @@ data InstanceDictionaryRef = InstanceDictionaryRef
   }
   deriving stock (Show, Eq, Ord)
 
+data BuiltinInstanceDictionary = BuiltinInstanceDictionary
+  { builtinInstanceClass :: RName
+  , builtinInstanceType :: MonoType
+  , builtinInstanceName :: RName
+  , builtinInstanceMethods :: [CoreExpr]
+  }
+  deriving stock (Show, Eq, Ord)
+
 bindingToCore :: CoreElabEnv -> TypedBinding -> Either TypecheckError CoreBind
 bindingToCore env binding = do
   let scheme = typedBindingScheme binding
@@ -2081,6 +2335,317 @@ instanceDictionaryRefs subst _classes =
           }
     )
 
+builtinInstanceDictionaries :: Map.Map RName ClassInfo -> [BuiltinInstanceDictionary]
+builtinInstanceDictionaries classes =
+  concat
+    [ maybe [] eqInstances (Map.lookup builtinEqClassName classes)
+    , maybe [] ordInstances (Map.lookup builtinOrdClassName classes)
+    , maybe [] numInstances (Map.lookup builtinNumClassName classes)
+    ]
+ where
+  eqInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fEqInt" (-1501))
+        [intEqMethod, intNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        boolMonoType
+        (preludeTermName "$fEqBool" (-1502))
+        [boolEqMethod, boolNotEqMethod]
+    ]
+
+  ordInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fOrdInt" (-1511))
+        [ intCompareMethod
+        , intLtMethod
+        , intLeMethod
+        , intGtMethod
+        , intGeMethod
+        , intMaxMethod
+        , intMinMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        boolMonoType
+        (preludeTermName "$fOrdBool" (-1512))
+        [ boolCompareMethod
+        , boolLtMethod
+        , boolLeMethod
+        , boolGtMethod
+        , boolGeMethod
+        , boolMaxMethod
+        , boolMinMethod
+        ]
+    ]
+
+  numInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fNumInt" (-1521))
+        [ intAddMethod
+        , intSubMethod
+        , intMulMethod
+        , intNegateMethod
+        , intAbsMethod
+        , intSignumMethod
+        ]
+    ]
+
+builtinInstanceDictionaryRefs :: [BuiltinInstanceDictionary] -> [InstanceDictionaryRef]
+builtinInstanceDictionaryRefs =
+  map
+    ( \dictionary ->
+        InstanceDictionaryRef
+          { instanceRefConstraint = ClassConstraint (builtinInstanceClass dictionary) (builtinInstanceType dictionary)
+          , instanceRefName = builtinInstanceName dictionary
+          }
+    )
+
+isBuiltinInstanceConstraint :: ClassConstraint -> Bool
+isBuiltinInstanceConstraint wanted =
+  any (constraintMatches wanted . instanceRefConstraint) (builtinInstanceDictionaryRefs (builtinInstanceDictionaries builtinClassInfos))
+
+builtinInstanceDictionaryToCore :: Map.Map RName ClassInfo -> BuiltinInstanceDictionary -> Either TypecheckError CoreBind
+builtinInstanceDictionaryToCore classes dictionary = do
+  info <-
+    case Map.lookup (builtinInstanceClass dictionary) classes of
+      Nothing -> Left (UnsupportedCore0 ("missing built-in class info for instance `" <> renderRName (builtinInstanceClass dictionary) <> "`"))
+      Just classInfo -> pure classInfo
+  dictTy <- monoToCoreType Map.empty Map.empty (classDictionaryType info (builtinInstanceType dictionary))
+  instanceTypeArg <- monoToCoreType Map.empty Map.empty (builtinInstanceType dictionary)
+  constructorTy <-
+    schemeToCoreType
+      ( Scheme
+          [classInfoVariable info]
+          []
+          (foldr TyFun (classDictionaryType info (TyVar (classInfoVariable info))) (map classMethodFieldType (classInfoMethods info)))
+      )
+  let constructorResultTy = foldr CTyFun dictTy (map exprType (builtinInstanceMethods dictionary))
+      typedConstructor =
+        CTypeApp
+          (CCon (classInfoDictConstructorName info) constructorTy)
+          [instanceTypeArg]
+          constructorResultTy
+      rhs = foldl applyValue typedConstructor (builtinInstanceMethods dictionary)
+  pure (CoreNonRec (CoreBinder (builtinInstanceName dictionary) dictTy) rhs)
+ where
+  applyValue callee argument =
+    let remainingResult =
+          case exprType callee of
+            CTyFun _ result -> result
+            _ -> exprType callee
+     in CApp callee argument remainingResult
+
+intEqMethod :: CoreExpr
+intEqMethod =
+  binaryPrimMethod "$eq_int" (-1601) intTy boolTy PrimEq
+
+intNotEqMethod :: CoreExpr
+intNotEqMethod =
+  binaryBoolMethod "$neq_int" (-1611) intTy (\lhs rhs -> boolNotCore "$neq_int_not" (-1614) (CPrimOp PrimEq [lhs, rhs] boolTy))
+
+boolEqMethod :: CoreExpr
+boolEqMethod =
+  binaryPrimMethod "$eq_bool" (-1621) boolTy boolTy PrimEq
+
+boolNotEqMethod :: CoreExpr
+boolNotEqMethod =
+  binaryBoolMethod "$neq_bool" (-1631) boolTy (\lhs rhs -> boolNotCore "$neq_bool_not" (-1634) (CPrimOp PrimEq [lhs, rhs] boolTy))
+
+intCompareMethod :: CoreExpr
+intCompareMethod =
+  binaryMethod "$compare_int" (-1641) intTy orderingTy $ \lhs rhs ->
+    boolCaseCore
+      "$compare_int_lt"
+      (-1644)
+      (CPrimOp PrimLt [lhs, rhs] boolTy)
+      orderingTy
+      (CCon orderingLTDataConName orderingTy)
+      ( boolCaseCore
+          "$compare_int_gt"
+          (-1645)
+          (CPrimOp PrimLt [rhs, lhs] boolTy)
+          orderingTy
+          (CCon orderingGTDataConName orderingTy)
+          (CCon orderingEQDataConName orderingTy)
+      )
+
+intLtMethod :: CoreExpr
+intLtMethod =
+  binaryPrimMethod "$lt_int" (-1651) intTy boolTy PrimLt
+
+intLeMethod :: CoreExpr
+intLeMethod =
+  binaryBoolMethod "$le_int" (-1661) intTy (\lhs rhs -> boolNotCore "$le_int_not" (-1664) (CPrimOp PrimLt [rhs, lhs] boolTy))
+
+intGtMethod :: CoreExpr
+intGtMethod =
+  binaryBoolMethod "$gt_int" (-1671) intTy (\lhs rhs -> CPrimOp PrimLt [rhs, lhs] boolTy)
+
+intGeMethod :: CoreExpr
+intGeMethod =
+  binaryBoolMethod "$ge_int" (-1681) intTy (\lhs rhs -> boolNotCore "$ge_int_not" (-1684) (CPrimOp PrimLt [lhs, rhs] boolTy))
+
+intMaxMethod :: CoreExpr
+intMaxMethod =
+  binaryMethod "$max_int" (-1691) intTy intTy $ \lhs rhs ->
+    boolCaseCore "$max_int_case" (-1694) (CPrimOp PrimLt [lhs, rhs] boolTy) intTy rhs lhs
+
+intMinMethod :: CoreExpr
+intMinMethod =
+  binaryMethod "$min_int" (-1701) intTy intTy $ \lhs rhs ->
+    boolCaseCore "$min_int_case" (-1704) (CPrimOp PrimLt [lhs, rhs] boolTy) intTy lhs rhs
+
+boolCompareMethod :: CoreExpr
+boolCompareMethod =
+  binaryMethod "$compare_bool" (-1711) boolTy orderingTy $ \lhs rhs ->
+    boolCaseCore
+      "$compare_bool_eq"
+      (-1714)
+      (CPrimOp PrimEq [lhs, rhs] boolTy)
+      orderingTy
+      (CCon orderingEQDataConName orderingTy)
+      ( boolCaseCore
+          "$compare_bool_lt"
+          (-1715)
+          lhs
+          orderingTy
+          (CCon orderingGTDataConName orderingTy)
+          (CCon orderingLTDataConName orderingTy)
+      )
+
+boolLtMethod :: CoreExpr
+boolLtMethod =
+  binaryMethod "$lt_bool" (-1721) boolTy boolTy $ \lhs rhs ->
+    boolCaseCore "$lt_bool_case" (-1724) lhs boolTy (CCon falseDataConName boolTy) rhs
+
+boolLeMethod :: CoreExpr
+boolLeMethod =
+  binaryMethod "$le_bool" (-1731) boolTy boolTy $ \lhs rhs ->
+    boolCaseCore "$le_bool_case" (-1734) lhs boolTy rhs (CCon trueDataConName boolTy)
+
+boolGtMethod :: CoreExpr
+boolGtMethod =
+  binaryMethod "$gt_bool" (-1741) boolTy boolTy $ \lhs rhs ->
+    boolCaseCore "$gt_bool_case" (-1744) lhs boolTy (boolNotCore "$gt_bool_not" (-1745) rhs) (CCon falseDataConName boolTy)
+
+boolGeMethod :: CoreExpr
+boolGeMethod =
+  binaryMethod "$ge_bool" (-1751) boolTy boolTy $ \lhs rhs ->
+    boolCaseCore "$ge_bool_case" (-1754) lhs boolTy (CCon trueDataConName boolTy) (boolNotCore "$ge_bool_not" (-1755) rhs)
+
+boolMaxMethod :: CoreExpr
+boolMaxMethod =
+  binaryMethod "$max_bool" (-1761) boolTy boolTy $ \lhs rhs ->
+    boolCaseCore "$max_bool_case" (-1764) lhs boolTy (CCon trueDataConName boolTy) rhs
+
+boolMinMethod :: CoreExpr
+boolMinMethod =
+  binaryMethod "$min_bool" (-1771) boolTy boolTy $ \lhs rhs ->
+    boolCaseCore "$min_bool_case" (-1774) lhs boolTy rhs (CCon falseDataConName boolTy)
+
+intAddMethod :: CoreExpr
+intAddMethod =
+  binaryPrimMethod "$add_int" (-1781) intTy intTy PrimAdd
+
+intSubMethod :: CoreExpr
+intSubMethod =
+  binaryPrimMethod "$sub_int" (-1791) intTy intTy PrimSub
+
+intMulMethod :: CoreExpr
+intMulMethod =
+  binaryPrimMethod "$mul_int" (-1801) intTy intTy PrimMul
+
+intNegateMethod :: CoreExpr
+intNegateMethod =
+  unaryPrimMethod "$negate_int" (-1811) intTy intTy PrimNegate
+
+intAbsMethod :: CoreExpr
+intAbsMethod =
+  unaryMethod "$abs_int" (-1821) intTy intTy $ \value ->
+    boolCaseCore
+      "$abs_int_case"
+      (-1823)
+      (CPrimOp PrimLt [value, CLit (LInt 0) intTy] boolTy)
+      intTy
+      (CPrimOp PrimNegate [value] intTy)
+      value
+
+intSignumMethod :: CoreExpr
+intSignumMethod =
+  unaryMethod "$signum_int" (-1831) intTy intTy $ \value ->
+    boolCaseCore
+      "$signum_int_neg"
+      (-1833)
+      (CPrimOp PrimLt [value, CLit (LInt 0) intTy] boolTy)
+      intTy
+      (CLit (LInt (-1)) intTy)
+      ( boolCaseCore
+          "$signum_int_zero"
+          (-1834)
+          (CPrimOp PrimEq [value, CLit (LInt 0) intTy] boolTy)
+          intTy
+          (CLit (LInt 0) intTy)
+          (CLit (LInt 1) intTy)
+      )
+
+binaryPrimMethod :: Text -> Int -> CoreType -> CoreType -> CorePrimOp -> CoreExpr
+binaryPrimMethod occurrence unique argumentTy resultTy prim =
+  binaryMethod occurrence unique argumentTy resultTy (\lhs rhs -> CPrimOp prim [lhs, rhs] resultTy)
+
+binaryBoolMethod :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+binaryBoolMethod occurrence unique argumentTy body =
+  binaryMethod occurrence unique argumentTy boolTy body
+
+binaryMethod :: Text -> Int -> CoreType -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+binaryMethod occurrence unique argumentTy resultTy body =
+  CLam lhsBinder (CLam rhsBinder methodBody (CTyFun argumentTy resultTy)) (CTyFun argumentTy (CTyFun argumentTy resultTy))
+ where
+  lhsName = builtinLocalTermName (occurrence <> "_lhs") unique
+  rhsName = builtinLocalTermName (occurrence <> "_rhs") (unique - 1)
+  lhsBinder = CoreBinder lhsName argumentTy
+  rhsBinder = CoreBinder rhsName argumentTy
+  lhs = CVar lhsName argumentTy
+  rhs = CVar rhsName argumentTy
+  methodBody = body lhs rhs
+
+unaryPrimMethod :: Text -> Int -> CoreType -> CoreType -> CorePrimOp -> CoreExpr
+unaryPrimMethod occurrence unique argumentTy resultTy prim =
+  unaryMethod occurrence unique argumentTy resultTy (\value -> CPrimOp prim [value] resultTy)
+
+unaryMethod :: Text -> Int -> CoreType -> CoreType -> (CoreExpr -> CoreExpr) -> CoreExpr
+unaryMethod occurrence unique argumentTy resultTy body =
+  CLam valueBinder methodBody (CTyFun argumentTy resultTy)
+ where
+  valueName = builtinLocalTermName (occurrence <> "_x") unique
+  valueBinder = CoreBinder valueName argumentTy
+  value = CVar valueName argumentTy
+  methodBody = body value
+
+boolNotCore :: Text -> Int -> CoreExpr -> CoreExpr
+boolNotCore binderOccurrence binderUnique scrutinee =
+  boolCaseCore binderOccurrence binderUnique scrutinee boolTy (CCon falseDataConName boolTy) (CCon trueDataConName boolTy)
+
+boolCaseCore :: Text -> Int -> CoreExpr -> CoreType -> CoreExpr -> CoreExpr -> CoreExpr
+boolCaseCore binderOccurrence binderUnique scrutinee resultTy trueBody falseBody =
+  CCase
+    scrutinee
+    (CoreBinder (builtinLocalTermName binderOccurrence binderUnique) boolTy)
+    [ CoreAlt (ConstructorAlt trueDataConName) [] trueBody
+    , CoreAlt (ConstructorAlt falseDataConName) [] falseBody
+    ]
+    resultTy
+
+builtinLocalTermName :: Text -> Int -> RName
+builtinLocalTermName occurrence unique =
+  RName TermNamespace occurrence unique False
+
 classSelectorCoreBinds :: Subst -> Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
 classSelectorCoreBinds subst classes =
   concat <$> traverse selectorBinds (Map.elems classes)
@@ -2114,8 +2679,8 @@ classSelectorCoreBinds subst classes =
           [ CoreBinder
               ( RName
                   TermNamespace
-                  ("$method" <> renderInt index <> "_" <> nameOcc (classInfoName info))
-                  (5420000 + nameUnique (classInfoName info) * 100 + index)
+                  ("$method" <> renderInt index <> "_" <> nameOcc (classInfoName info) <> "_" <> nameOcc (classMethodName method))
+                  (5420000 + nameUnique (classInfoName info) * 1000 + nameUnique (classMethodName method) * 10 + index)
                   False
               )
               fieldTy

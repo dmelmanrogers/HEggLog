@@ -71,7 +71,8 @@ syntax/patterns/types, built-in `Maybe`, `Either`, `Ordering`, and generated
 Core Prelude bindings for basic list/Bool functions, plus recursive top-level
 and local functions, plus the initial type class dictionary slice for
 user-defined single-parameter classes, concrete instances, explicit source
-constraints, and dictionary-passed method calls. A Core
+constraints, dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`,
+`Ord Int`, `Ord Bool`, and executable `Num Int` class methods. A Core
 reference evaluator executes validating typed Core with erased type
 abstraction/application, checked `Int` primitives, and structured runtime
 errors. An isolated STG-like IR, validator, and pure heap evaluator now model
@@ -100,18 +101,20 @@ Current status:
 - Haskell source desugaring to typed Core: implemented and unit-tested for
   functions, lambdas, application, `let`, `if`, Bool/user-constructor `case`,
   nested/list/tuple constructor patterns, list/tuple expressions, short-circuit
-  Bool operators, generated Prelude list functions, and primitive
-  arithmetic/comparison, including singleton self-recursive bindings and
+  Bool operators, generated Prelude list functions, primitive `/`, and
+  dictionary-backed `Eq`/`Ord`/`Num` methods, including singleton self-recursive bindings and
   mutually recursive top-level groups, user-defined single-parameter classes,
   concrete instances, explicit constraints, dictionary constructors/selectors,
-  and dictionary-passed method calls
+  dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Ord Int`,
+  `Ord Bool`, and `Num Int` dictionaries
 - Haskell 2010 Core reference evaluator: implemented and unit-tested for
   arithmetic, polymorphic instantiation, Bool and user ADT cases, lazy
   lets/arguments, lazy constructor fields, Prelude list functions, tuple and
   built-in Prelude constructor cases, short-circuit Bool operators, and
   guarded self recursion, local factorial recursion, top-level fibonacci
   recursion, mutual recursion, recursive list functions, user class dictionary
-  calls, and division-by-zero reporting
+  calls, built-in `Eq`/`Ord`/`Num` dictionary calls, and division-by-zero
+  reporting
 - Haskell 2010 STG-like lazy IR/runtime MVP: implemented and unit-tested for
   validation, lazy lets/arguments, case demand, constructor dispatch, thunk
   sharing/update behavior, single-entry thunks, black-hole detection, and
@@ -126,8 +129,8 @@ Current status:
   `Maybe`, built-in `Maybe`/`Either`/`Ordering`, lists, tuples, Prelude list
   functions, short-circuit Bool operators, nested constructor patterns, lazy
   constructor fields, top-level/local/mutual/list recursion, forced
-  division-by-zero failure, curried partial application, and user-defined type
-  class dictionary calls
+  division-by-zero failure, curried partial application, user-defined type
+  class dictionary calls, and built-in `Eq`/`Ord`/`Num` class dictionary calls
 - Haskell 2010 Egglog Core optimizer: implemented and unit/wet-tested for
   safe Core-0 arithmetic identities, checked constant folding, known Bool case
   selection, typed Core extraction/validation, provenance reporting, lazy
@@ -170,9 +173,10 @@ Current tests include:
   `hegglog` CLI, compiles real `.hg` and executable-subset `.hs` files,
   executes native artifacts, verifies stdout/stderr/exit codes, compares
   report-mode `Result: <value>` output, runs Haskell 2010 default Egglog and
-  `--no-egglog` native cases including ADT, list, tuple, Prelude, and recursive
-  programs plus a user-defined type class dictionary program, and compiles
-  selected emitted LLVM through `clang`
+  `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
+  programs, user-defined type class dictionary programs, and built-in
+  `Eq`/`Ord`/`Num` dictionary programs, and compiles selected emitted LLVM
+  through `clang`
 
 Future Haskell 2010 wet tests should extend this direct executable coverage as
-remaining pattern forms, built-in Prelude classes, and IO are implemented.
+remaining pattern forms, `Show`, numeric defaulting, and IO are implemented.

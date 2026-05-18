@@ -44,9 +44,10 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Haskell 2010 conformance matrix expansion for the broader executable surface.
-2. Built-in `Eq`, `Ord`, `Show`, and `Num` Prelude class coverage.
-3. Pattern-match diagnostics, guards, and remaining pattern forms.
+1. Pattern-match diagnostics, guards, and remaining pattern forms.
+2. `Show`, `String`, `print`, `putStrLn`, and IO `main` lowering.
+3. `fromInteger`, overloaded literals, numeric defaulting, and broader Prelude
+   class hierarchy.
 
 Completed Haskell 2010 roadmap work:
 
@@ -106,6 +107,11 @@ Completed Haskell 2010 roadmap work:
   user-defined single-parameter classes, concrete instances, explicit
   constrained functions, generated dictionary constructors/selectors, Core
   dictionary arguments, STG/native lowering, and default/no-egglog wet tests.
+- Haskell 2010 built-in Prelude class dictionaries: implemented for `Eq Int`,
+  `Eq Bool`, `Ord Int`, `Ord Bool`, and executable `Num Int` methods, including
+  overloaded comparison/arithmetic operator desugaring, Core/STG/native
+  lowering, and default/no-egglog wet tests. `Show`, `fromInteger`, overloaded
+  literals, and numeric defaulting remain planned.
 
 ## Non-Negotiable Project Direction
 

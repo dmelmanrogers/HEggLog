@@ -300,16 +300,22 @@ Acceptance criteria:
 
 ### Phase 12 - Type Classes and Dictionary Passing
 
-Status: initial dictionary representation implemented for user-defined
-single-parameter classes with concrete, context-free instances. Class methods
-now elaborate to selector functions, instance declarations emit dictionary
-values, constrained source functions receive explicit Core dictionary
-arguments, dictionary values lower through STG as ordinary constructor/function
-values, and native wet tests cover default Egglog and `--no-egglog` execution.
+Status: dictionary representation is implemented for user-defined
+single-parameter classes with concrete, context-free instances and for the
+first built-in Prelude class slice. Class methods elaborate to selector
+functions, instance declarations emit dictionary values, constrained source
+functions receive explicit Core dictionary arguments, dictionary values lower
+through STG as ordinary constructor/function values, and native wet tests cover
+default Egglog and `--no-egglog` execution.
+
+The built-in executable Prelude class slice now supports `Eq Int`, `Eq Bool`,
+`Ord Int`, `Ord Bool`, and `Num Int`: `(==)`, `(/=)`, `compare`, `(<)`,
+`(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`, and
+`signum` lower through generated dictionaries and selectors. `/` remains the
+existing checked `Int` division primitive rather than a `Fractional` method.
 Remaining Phase 12 work includes superclasses, default methods, instance
 contexts, method-specific constraints/type variables, coherence diagnostics,
-deriving, built-in Prelude class dictionaries, numeric defaulting, and
-overloaded literals.
+deriving, `Show`, `fromInteger`, overloaded literals, and numeric defaulting.
 
 Deliverables:
 
@@ -319,11 +325,12 @@ Deliverables:
 
 Acceptance criteria:
 
-- `Eq` instances work
+- `Eq` and `Ord` methods work for supported built-in instances
+- executable `Num Int` methods work through dictionaries
 - `Show` works enough for print
 - overloaded numeric literals work for supported numeric types
 - initial dictionary-passing Core validates for user-defined classes
-- native wet tests cover user-defined typeclass calls
+- native wet tests cover user-defined and built-in typeclass calls
 
 ### Phase 13 - IO and `main`
 
@@ -490,11 +497,13 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. Haskell 2010 conformance matrix expansion for the broader executable surface.
-2. Built-in `Eq`, `Ord`, `Show`, and `Num` Prelude class coverage.
-3. Pattern-match diagnostics, guards, and remaining pattern forms.
-4. IO `main`, `print`, `putStrLn`, and do-notation lowering.
-5. Module graph loading, export filtering, and multi-file compilation.
+1. Pattern-match diagnostics, guards, and remaining pattern forms.
+2. `Show`, `String`, `print`, `putStrLn`, and IO `main` lowering.
+3. `fromInteger`, overloaded literals, numeric defaulting, and broader Prelude
+   class hierarchy.
+4. Module graph loading, export filtering, and multi-file compilation.
+5. Haskell 2010 conformance matrix expansion for the broader executable
+   surface.
 
 Completed immediate tasks:
 
@@ -552,6 +561,11 @@ Completed immediate tasks:
   generated dictionary constructors/selectors, Core dictionary arguments,
   Core/STG preservation tests, native LLVM execution, and default/no-egglog
   native wet tests.
+- Haskell 2010 built-in Prelude class dictionary coverage for `Eq Int`,
+  `Eq Bool`, `Ord Int`, `Ord Bool`, and executable `Num Int` methods, including
+  generated built-in dictionaries/selectors, overloaded comparison/arithmetic
+  operator desugaring, Core/STG preservation tests, native LLVM execution, and
+  default/no-egglog native wet tests.
 
 ## Non-Negotiable Rules
 

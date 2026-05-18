@@ -41,11 +41,16 @@ Implemented today for the Haskell 2010 target:
   STG LLVM runtime
 - Egglog Core optimization for safe typed Core-0 fragments, with Core/STG/native
   oracle tests and `--no-egglog` comparison coverage
+- the current executable subset now includes custom ADTs, list/tuple and
+  Prelude data constructors, recursion, user-defined dictionary-passed classes,
+  and built-in `Eq`/`Ord`/`Num` dictionary calls
 
 Planned for the broader Haskell 2010 target:
 
-- full Haskell 2010 class constraints and dictionaries
-- broader runtime-linked LLVM/native executable output for `.hs` programs
+- `Show`, `String`, `print`, `putStrLn`, and IO `main`
+- `fromInteger`, overloaded literals, numeric defaulting, and the broader
+  Prelude class hierarchy
+- modules, exports/imports, remaining pattern forms, and broader conformance
 
 ## Quickstart
 
@@ -121,9 +126,9 @@ Full documentation index:
 | Haskell 2010 parser/layout | Implemented as an isolated parser/layout frontend and parser-tested; connected to the Core-0 native `.hs` compile path. |
 | Haskell 2010 renamer | Implemented as an isolated unique-name pass and unit-tested; connected to the Core-0 native `.hs` compile path. |
 | Haskell 2010 typed Core | Implemented as a typed IR with validator, free-variable analysis, substitution, pretty-printer, and Core-0 source generation. |
-| Haskell 2010 Core-0 typechecker/desugarer | Implemented for explicit signatures, HM polymorphism, `Int`, `Bool`, top-level functions, lambdas, application, `let`, `if`, Bool `case`, and primitive arithmetic/comparison. |
-| Haskell 2010 Core-0 reference evaluator | Implemented for validating typed Core with lazy let/function argument thunks, erased Core type abstraction/application, Bool case execution, checked `Int` primitives, and structured runtime errors; native executable compilation now exists through the STG path. |
-| Haskell 2010 STG/lazy runtime | Implemented as an isolated STG-like IR, validator, pure heap evaluator, Core-to-STG lowering, and boxed LLVM/native runtime for the Core-0 `Int`/`Bool` subset, including thunks, enter/apply, Bool case dispatch, checked primitives, and native wet tests. |
+| Haskell 2010 Core-0 typechecker/desugarer | Implemented for explicit signatures, HM polymorphism, functions, lambdas, application, `let`, `if`, cases, ADTs, lists/tuples, recursion, user-defined class dictionaries, built-in Prelude data, generated Prelude list functions, primitive `/`, and dictionary-backed `Eq`/`Ord`/`Num` methods. |
+| Haskell 2010 Core-0 reference evaluator | Implemented for validating typed Core with lazy let/function/constructor-field thunks, erased Core type abstraction/application, Bool/user/list/tuple/Prelude-data case execution, generated Prelude functions, user and built-in class dictionary calls, checked `Int` primitives, and structured runtime errors. |
+| Haskell 2010 STG/lazy runtime | Implemented as an isolated STG-like IR, validator, pure heap evaluator, Core-to-STG lowering, and boxed LLVM/native runtime for the current executable subset, including thunks, enter/apply, constructor dispatch, dictionary constructor/selector execution, checked primitives, and native wet tests. |
 | LLVM/native backend | Implemented for the current `.hg` supported subset. |
 | Egglog ANF backend | Implemented for the current `.hg` supported subset. |
 | Egglog Core optimizer | Implemented for safe Haskell 2010 Core-0 `Int`/`Bool` fragments using the existing Egglog backend, typed Core validation, provenance, and optimized/unoptimized native agreement tests. |
@@ -152,10 +157,9 @@ programs with printable `Int` or `Bool` roots, top-level first-order calls,
 lambda-lifted non-capturing functions, and closure-converted local function
 values. It rejects unsupported targets structurally.
 
-HeggLog does not yet support whole-program Haskell 2010 modules/imports, ADTs,
-general pattern matching, classes/instances, Prelude data/functions, or IO
-`main`. Lazy semantics are implemented for the current Core-0 executable
-subset.
+HeggLog does not yet support whole-program Haskell 2010 modules/imports, full
+pattern matching, full class hierarchy/defaulting/deriving, `Show`, or IO
+`main`. Lazy semantics are implemented for the current executable subset.
 
 ## Existing Specs
 

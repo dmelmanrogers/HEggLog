@@ -142,6 +142,7 @@ testGroups =
       , pureTest "typechecks lists tuples and Prelude constructors" testHaskell2010Core0PreludeData
       , pureTest "typechecks recursive bindings" testHaskell2010Core0Recursion
       , pureTest "typechecks type class dictionaries" testHaskell2010Core0TypeClassDictionaries
+      , pureTest "typechecks Prelude class dictionaries" testHaskell2010Core0PreludeClassDictionaries
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       , pureTest "rejects unsupported Core-0 equality" testHaskell2010Core0UnsupportedEquality
@@ -157,6 +158,7 @@ testGroups =
       , pureTest "short-circuits Bool operators" testHaskell2010Core0EvalShortCircuitBool
       , pureTest "evaluates recursive functions and list recursion" testHaskell2010Core0EvalRecursion
       , pureTest "evaluates type class dictionary calls" testHaskell2010Core0EvalTypeClassDictionaries
+      , pureTest "evaluates Prelude class dictionary calls" testHaskell2010Core0EvalPreludeClassDictionaries
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
       , pureTest "reports forced division by zero" testHaskell2010Core0EvalDivisionByZero
@@ -186,6 +188,7 @@ testGroups =
       , pureTest "preserves list tuple and Prelude semantics" testHaskell2010CoreToSTGPreludeData
       , pureTest "preserves recursive function semantics" testHaskell2010CoreToSTGRecursion
       , pureTest "preserves type class dictionary semantics" testHaskell2010CoreToSTGTypeClassDictionaries
+      , pureTest "preserves Prelude class dictionary semantics" testHaskell2010CoreToSTGPreludeClassDictionaries
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves curried partial application" testHaskell2010CoreToSTGPartialApplication
       , pureTest "rejects invalid Core before lowering" testHaskell2010CoreToSTGRejectsInvalidCore
@@ -1153,10 +1156,22 @@ testHaskell2010Core0TypeClassDictionaries = do
   assertBool "type class instance dictionary is emitted" (containsBindingPrefix "$fEqual" coreModule)
   expectCoreEvalInt "type class dictionary Core oracle" 1 =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0PreludeClassDictionaries :: Either String ()
+testHaskell2010Core0PreludeClassDictionaries = do
+  coreModule <- typecheckHaskell2010 haskell2010PreludeClassDictionarySource
+  assertBool "Prelude Eq dictionary constructor is recorded" (containsConstructorOccurrence "$MkEqDict" coreModule)
+  assertBool "Prelude Ord dictionary constructor is recorded" (containsConstructorOccurrence "$MkOrdDict" coreModule)
+  assertBool "Prelude Num dictionary constructor is recorded" (containsConstructorOccurrence "$MkNumDict" coreModule)
+  assertBool "Prelude Eq Int instance dictionary is emitted" (containsBindingOccurrence "$fEqInt" coreModule)
+  assertBool "Prelude Ord Int instance dictionary is emitted" (containsBindingOccurrence "$fOrdInt" coreModule)
+  assertBool "Prelude Num Int instance dictionary is emitted" (containsBindingOccurrence "$fNumInt" coreModule)
+  expectCoreEvalInt "Prelude class dictionary Core oracle" 6 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries :: Either String ()
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
   expectUnsupported "rejects duplicate concrete instances" "duplicate instance" duplicateInstanceSource
     *> expectUnsupported "rejects missing instance methods" "missing instance method" missingInstanceMethodSource
+    *> expectUnsupported "rejects unsolved Prelude class dictionaries" "unsolved type-class constraint" unsolvedPreludeConstraintSource
  where
   expectUnsupported label needle source =
     case typecheckHaskell2010Raw source of
@@ -1184,6 +1199,11 @@ testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
     \instance Equal Box where {}\n\
     \main = 1\n"
 
+  unsolvedPreludeConstraintSource =
+    "module Main where\n\
+    \data Box = Box Int\n\
+    \main = if Box 1 == Box 1 then 1 else 0\n"
+
 testHaskell2010Core0TypeError :: Either String ()
 testHaskell2010Core0TypeError =
   case
@@ -1205,7 +1225,7 @@ testHaskell2010Core0UnsupportedEquality =
       \bad f g = f == g\n"
     of
       Left (H2010Typecheck.UnsupportedCore0 message)
-        | "equality for type" `Text.isInfixOf` message -> Right ()
+        | "unsolved type-class constraint" `Text.isInfixOf` message -> Right ()
       Left err -> Left ("expected unsupported Core-0 equality, got: " <> show err)
       Right coreModule -> Left ("unsupported Core-0 equality typechecked unexpectedly: " <> show coreModule)
 
@@ -1287,6 +1307,13 @@ testHaskell2010Core0EvalTypeClassDictionaries =
     "Core-0 type class dictionary evaluation"
     1
     =<< evalHaskell2010Binding "main" haskell2010TypeClassDictionarySource
+
+testHaskell2010Core0EvalPreludeClassDictionaries :: Either String ()
+testHaskell2010Core0EvalPreludeClassDictionaries =
+  expectCoreEvalInt
+    "Core-0 Prelude class dictionary evaluation"
+    6
+    =<< evalHaskell2010Binding "main" haskell2010PreludeClassDictionarySource
 
 testHaskell2010Core0EvalLazyLet :: Either String ()
 testHaskell2010Core0EvalLazyLet =
@@ -1520,6 +1547,10 @@ testHaskell2010CoreToSTGTypeClassDictionaries :: Either String ()
 testHaskell2010CoreToSTGTypeClassDictionaries =
   checkCoreToSTGInt "Core-to-STG type class dictionaries" 1 haskell2010TypeClassDictionarySource
 
+testHaskell2010CoreToSTGPreludeClassDictionaries :: Either String ()
+testHaskell2010CoreToSTGPreludeClassDictionaries =
+  checkCoreToSTGInt "Core-to-STG Prelude class dictionaries" 6 haskell2010PreludeClassDictionarySource
+
 testHaskell2010CoreToSTGDivisionByZero :: Either String ()
 testHaskell2010CoreToSTGDivisionByZero =
   case
@@ -1649,7 +1680,7 @@ testHaskell2010NativeRuntimeError = do
 
 testHaskell2010CoreEgglogFoldsArithmetic :: Either String ()
 testHaskell2010CoreEgglogFoldsArithmetic = do
-  result <- optimizeHaskell2010Core haskell2010ArithmeticSource
+  result <- optimizeHaskell2010CoreModule haskell2010PrimitiveArithmeticCoreModule
   assertBool
     "arithmetic Core optimizer should lower expression cost"
     (H2010CoreEgglog.coreEgglogOptimizedCost result < H2010CoreEgglog.coreEgglogOriginalCost result)
@@ -4415,6 +4446,10 @@ typecheckHaskell2010Raw source = do
 optimizeHaskell2010Core :: Text -> Either String H2010CoreEgglog.CoreEgglogResult
 optimizeHaskell2010Core source = do
   coreModule <- typecheckHaskell2010 source
+  optimizeHaskell2010CoreModule coreModule
+
+optimizeHaskell2010CoreModule :: H2010Core.CoreModule -> Either String H2010CoreEgglog.CoreEgglogResult
+optimizeHaskell2010CoreModule coreModule =
   mapLeft
     (Text.unpack . H2010CoreEgglog.renderCoreEgglogError)
     (H2010CoreEgglog.optimizeCoreModuleWithEgglog EEV.defaultRunConfig coreModule)
@@ -4541,6 +4576,7 @@ haskell2010NativeSuccessExamples =
   , ("mutual-recursion", haskell2010MutualRecursionSource, "1\n")
   , ("recursive-list", haskell2010RecursiveListSource, "10\n")
   , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
+  , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-maybe", haskell2010PolymorphicADTSource, "4\n")
   , ("adt-nested", haskell2010NestedADTSource, "3\n")
@@ -4555,12 +4591,31 @@ haskell2010NativeExecutableExamples =
   , ("prelude-lists", haskell2010ListPreludeSource, "321\n")
   , ("recursive-list", haskell2010RecursiveListSource, "10\n")
   , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
+  , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
   ]
 
 haskell2010ArithmeticSource :: Text
 haskell2010ArithmeticSource =
   "module Main where\n\
   \main = (1 + 2) * 3\n"
+
+haskell2010PrimitiveArithmeticCoreModule :: H2010Core.CoreModule
+haskell2010PrimitiveArithmeticCoreModule =
+  H2010Core.CoreModule
+    { H2010Core.coreModuleName = Nothing
+    , H2010Core.coreModuleConstructors = Map.empty
+    , H2010Core.coreModuleBinds =
+        [ H2010Core.CoreNonRec
+            (coreBinder (coreTerm "main" 6200) H2010Core.intTy)
+            ( H2010Core.CPrimOp
+                H2010Core.PrimMul
+                [ H2010Core.CPrimOp H2010Core.PrimAdd [coreInt 1, coreInt 2] H2010Core.intTy
+                , coreInt 3
+                ]
+                H2010Core.intTy
+            )
+        ]
+    }
 
 haskell2010PolymorphicIdentitySource :: Text
 haskell2010PolymorphicIdentitySource =
@@ -4668,6 +4723,20 @@ haskell2010TypeClassDictionarySource =
   \same :: Equal a => a -> a -> Bool\n\
   \same x y = equal x y\n\
   \main = if same (Box 7) (Box 7) && not (same (Box 7) (Box 8)) then 1 else 0\n"
+
+haskell2010PreludeClassDictionarySource :: Text
+haskell2010PreludeClassDictionarySource =
+  "module Main where\n\
+  \same :: Eq a => a -> a -> Bool\n\
+  \same x y = x == y\n\
+  \ordered :: Ord a => a -> a -> Bool\n\
+  \ordered x y = x <= y && y > x\n\
+  \distancePlusSign :: Num a => a -> a -> a\n\
+  \distancePlusSign x y = abs (x + negate y) + signum (x - y)\n\
+  \compareFlag = case compare 5 4 of\n\
+  \  GT -> True\n\
+  \  _ -> False\n\
+  \main = if same 7 7 && not (same 7 8) && ordered 3 4 && compareFlag && max False True && not (min False True) then distancePlusSign 9 4 else 0\n"
 
 haskell2010ADTBoxSource :: Text
 haskell2010ADTBoxSource =

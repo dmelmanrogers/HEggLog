@@ -117,9 +117,11 @@ is built alongside them.
     execution, and wet-tested default/no-egglog CLI runs.
 14. Type classes/dictionaries. Completed for user-defined single-parameter
     classes, concrete context-free instances, explicit constraints, generated
-    dictionary constructors/selectors, Core/STG/native execution, and
-    wet-tested default/no-egglog CLI runs. Superclasses, defaults, deriving,
-    built-in Prelude classes, and numeric defaulting remain planned.
+    dictionary constructors/selectors, built-in `Eq Int`, `Eq Bool`,
+    `Ord Int`, `Ord Bool`, and executable `Num Int` dictionaries,
+    Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
+    Superclasses, defaults, deriving, `Show`, `fromInteger`, overloaded
+    literals, and numeric defaulting remain planned.
 15. Broader Prelude subset.
 16. IO.
 17. Modules.
