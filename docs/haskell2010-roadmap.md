@@ -449,11 +449,11 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. Lazy runtime MVP.
-2. Core-to-STG lowering MVP.
-3. Core-0 native executable path.
-4. Egglog Core optimizer implementation using the Core evaluator as oracle.
-5. Broader ADT and pattern-match Core support.
+1. Core-to-STG lowering MVP.
+2. Core-0 native executable path.
+3. Egglog Core optimizer implementation using the Core evaluator as oracle.
+4. Broader ADT and pattern-match Core support.
+5. Prelude Bool/list/tuple runtime expansion.
 
 Completed immediate tasks:
 
@@ -468,6 +468,10 @@ Completed immediate tasks:
 - Haskell 2010 Core-0 reference evaluator, including lazy Core thunks,
   erased type abstraction/application, Bool case evaluation, checked `Int`
   primitive behavior, and structured runtime errors.
+- Haskell 2010 Lazy/STG runtime MVP, including STG syntax, validation,
+  function closures, updateable and single-entry thunk closures, constructor
+  closures, `let`/`letrec`, case demand, thunk sharing, black-hole detection,
+  Bool constructor dispatch, and checked primitive runtime errors.
 
 ## Non-Negotiable Rules
 

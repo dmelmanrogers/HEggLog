@@ -31,7 +31,7 @@ implemented:
 - type classes and dictionary passing
 - Prelude/library subset
 - Haskell source desugaring beyond the Core-0 `Int`/`Bool` subset
-- lazy STG/runtime path
+- Core-to-STG lowering and native lazy runtime path
 - IO `main`
 - Haskell 2010 conformance suite
 
@@ -92,9 +92,21 @@ signed `Int64` arithmetic/division helpers, and reports structured runtime
 errors such as division by zero and no matching case alternative.
 
 This is a reference oracle only. It does not lower Core to STG, allocate/update
-runtime thunks, share evaluated thunks through a native heap, or compile Haskell
-2010 source to native executables. Source-spanned Haskell 2010 type diagnostics
-also remain later work because the renamed AST is currently spanless.
+native runtime thunks, or compile Haskell 2010 source to native executables.
+Source-spanned Haskell 2010 type diagnostics also remain later work because the
+renamed AST is currently spanless.
+
+## What STG Runtime Exists Today
+
+The Haskell2010 STG layer now provides an isolated STG-like IR, validator, and
+pure heap evaluator for the lazy runtime MVP. It models function closures,
+thunk closures, constructor closures, `let`/`letrec`, case demand,
+updateable-thunk sharing, single-entry thunk re-entry, black-hole detection,
+Bool constructor dispatch, and checked `Int` primitive runtime errors.
+
+This is not yet the native runtime system. Core-to-STG lowering, runtime C/LLVM
+closure layout, runtime linking, and Haskell 2010 native wet tests remain later
+work.
 
 ## First Haskell 2010 Implementation Milestones
 
@@ -103,9 +115,10 @@ also remain later work because the renamed AST is currently spanless.
 3. Typed Core MVP. Completed.
 4. Core-0 Haskell typechecker/desugarer integration. Completed.
 5. Core-0 reference evaluator. Completed.
-6. Lazy/STG runtime MVP.
+6. Lazy/STG runtime MVP. Completed.
 7. Core-to-STG lowering MVP.
-8. Egglog Core optimizer implementation using the Core evaluator as oracle.
+8. Core-0 native executable path.
+9. Egglog Core optimizer implementation using the Core evaluator as oracle.
 
 ## Where Egglog Fits
 
@@ -127,5 +140,5 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Build the Lazy/STG runtime MVP while preserving the current `.hg` compiler,
-Core-0 reference evaluator, and wet-test baseline.
+Build Core-to-STG lowering while preserving the current `.hg` compiler,
+Core-0 reference evaluator, STG runtime MVP, and wet-test baseline.

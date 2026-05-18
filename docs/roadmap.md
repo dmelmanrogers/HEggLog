@@ -43,9 +43,9 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Lazy/STG runtime MVP.
-2. Core-to-STG lowering MVP.
-3. Core-0 native executable path.
+1. Core-to-STG lowering MVP.
+2. Core-0 native executable path.
+3. Egglog Core optimizer implementation using the Core evaluator as oracle.
 
 Completed Haskell 2010 roadmap work:
 
@@ -67,6 +67,11 @@ Completed Haskell 2010 roadmap work:
   Core evaluator with lazy let/function argument thunks, erased Core type
   abstraction/application, Bool case execution, checked `Int` primitives, and
   structured runtime errors.
+- Haskell 2010 Lazy/STG runtime MVP: implemented as an isolated STG-like IR,
+  validator, and pure heap evaluator with function closures, updateable and
+  single-entry thunk closures, constructor closures, `let`/`letrec`, case
+  demand, sharing, black-hole detection, Bool constructor dispatch, and checked
+  primitive runtime errors.
 
 ## Non-Negotiable Project Direction
 

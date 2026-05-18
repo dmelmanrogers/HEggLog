@@ -67,7 +67,10 @@ and are unit-tested. A Core-0 Haskell typechecker/desugarer now emits
 validating typed Core for the first `Int`/`Bool` subset. A Core-0 reference
 evaluator now executes validating typed Core with lazy let/function argument
 thunks, Bool case evaluation, erased type abstraction/application, checked
-`Int` primitives, and structured runtime errors. The STG pipeline, lazy runtime,
+`Int` primitives, and structured runtime errors. An isolated STG-like IR,
+validator, and pure heap evaluator now model the lazy runtime MVP with
+updateable thunks, single-entry thunks, sharing, black-hole detection,
+constructor case dispatch, and checked primitives. Core-to-STG lowering, the
 native executable path, and executable conformance tests are not yet
 implemented for Haskell 2010.
 
@@ -84,7 +87,11 @@ Current status:
 - Haskell 2010 Core-0 reference evaluator: implemented and unit-tested for
   arithmetic, polymorphic instantiation, Bool case, lazy lets/arguments, and
   division-by-zero reporting
-- STG-like lazy IR/runtime: planned
+- Haskell 2010 STG-like lazy IR/runtime MVP: implemented and unit-tested for
+  validation, lazy lets/arguments, case demand, constructor dispatch, thunk
+  sharing/update behavior, single-entry thunks, black-hole detection, and
+  checked primitive errors
+- Core-to-STG lowering: planned
 - Haskell 2010 native executable path: planned
 - Haskell 2010 conformance suite: planned
 

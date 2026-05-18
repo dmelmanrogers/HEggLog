@@ -80,6 +80,14 @@ Validation must check unique binders, resolved variables, arity, constructor
 tags, alternative coverage where applicable, and type/representation
 consistency.
 
+Current implementation status: `Haskell2010.STG.Syntax`,
+`Haskell2010.STG.Validate`, and `Haskell2010.STG.Eval` implement the in-process
+STG runtime MVP. The evaluator models heap closures, updateable and
+single-entry thunks, sharing after update, black-hole detection, case demand,
+Bool constructor dispatch, and checked primitive errors. Core-to-STG lowering,
+native runtime object layout, LLVM lowering, and runtime linking remain later
+work.
+
 ## LLVM Lowering
 
 The lazy backend lowers STG-like IR to LLVM by using:

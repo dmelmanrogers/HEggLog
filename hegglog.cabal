@@ -84,6 +84,9 @@ executable hegglog
       Haskell2010.Pretty
       Haskell2010.Renamed
       Haskell2010.Renamer
+      Haskell2010.STG.Eval
+      Haskell2010.STG.Syntax
+      Haskell2010.STG.Validate
       Haskell2010.Syntax
       Haskell2010.Typecheck
       IR.ANF
@@ -174,6 +177,9 @@ test-suite hegglog-test
       Haskell2010.Pretty
       Haskell2010.Renamed
       Haskell2010.Renamer
+      Haskell2010.STG.Eval
+      Haskell2010.STG.Syntax
+      Haskell2010.STG.Validate
       Haskell2010.Syntax
       Haskell2010.Typecheck
       IR.ANF

@@ -38,6 +38,9 @@ import qualified Haskell2010.Names as H2010Names
 import qualified Haskell2010.Parser as H2010Parser
 import qualified Haskell2010.Renamed as H2010Renamed
 import qualified Haskell2010.Renamer as H2010Renamer
+import qualified Haskell2010.STG.Eval as H2010STGEval
+import qualified Haskell2010.STG.Syntax as H2010STG
+import qualified Haskell2010.STG.Validate as H2010STGValidate
 import qualified Haskell2010.Syntax as H2010
 import qualified Haskell2010.Typecheck as H2010Typecheck
 import IR.ANF
@@ -142,6 +145,18 @@ testGroups =
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
       , pureTest "reports forced division by zero" testHaskell2010Core0EvalDivisionByZero
+      ]
+  , TestGroup
+      "Haskell 2010 STG Runtime"
+      [ pureTest "validates lazy STG bindings" testHaskell2010STGValidatesLazyBindings
+      , pureTest "does not force unused let thunks" testHaskell2010STGLazyLet
+      , pureTest "does not force unused function arguments" testHaskell2010STGLazyFunctionArgument
+      , pureTest "case forces its scrutinee" testHaskell2010STGCaseForcesScrutinee
+      , pureTest "dispatches constructor cases" testHaskell2010STGConstructorCase
+      , pureTest "shares updatable thunks" testHaskell2010STGUpdatableThunkSharing
+      , pureTest "single-entry thunks are not shared" testHaskell2010STGSingleEntryThunk
+      , pureTest "reports recursive black holes" testHaskell2010STGBlackHole
+      , pureTest "rejects unbound STG variables" testHaskell2010STGRejectsUnboundVariable
       ]
   , TestGroup
       "Typechecker"
@@ -1128,6 +1143,116 @@ testHaskell2010Core0EvalDivisionByZero =
       Left H2010CoreEval.CoreEvalDivisionByZero -> Right ()
       Left err -> Left ("expected Core-0 division by zero, got: " <> show err)
       Right value -> Left ("division by zero evaluated unexpectedly: " <> show value)
+
+testHaskell2010STGValidatesLazyBindings :: Either String ()
+testHaskell2010STGValidatesLazyBindings =
+  expectEqual
+    "lazy STG program validates"
+    (Right ())
+    (H2010STGValidate.validateProgram stgLazyFunctionArgumentProgram)
+
+testHaskell2010STGLazyLet :: Either String ()
+testHaskell2010STGLazyLet =
+  expectSTGInt
+    "STG lazy let evaluation"
+    5
+    =<< evalSTGBinding
+      "main"
+      ( stgMainProgram
+          ( H2010STG.STGLet
+              (stgThunkBinding stgUnusedBadBinder H2010STG.Updatable stgDivZeroExpr)
+              (stgIntExpr 5)
+              H2010Core.intTy
+          )
+      )
+
+testHaskell2010STGLazyFunctionArgument :: Either String ()
+testHaskell2010STGLazyFunctionArgument =
+  expectSTGInt
+    "STG lazy function argument evaluation"
+    1
+    =<< evalSTGBinding "main" stgLazyFunctionArgumentProgram
+
+testHaskell2010STGCaseForcesScrutinee :: Either String ()
+testHaskell2010STGCaseForcesScrutinee =
+  case
+    evalSTGBindingRaw
+      "main"
+      ( stgMainProgram
+          ( H2010STG.STGCase
+              stgDivZeroExpr
+              (stgBinder "$case" 5130 H2010Core.intTy)
+              [H2010STG.STGAlt H2010Core.DefaultAlt [] (stgIntExpr 0)]
+              H2010Core.intTy
+          )
+      )
+    of
+      Left H2010STGEval.STGEvalDivisionByZero -> Right ()
+      Left err -> Left ("expected STG division by zero, got: " <> show err)
+      Right value -> Left ("STG case scrutinee evaluated unexpectedly: " <> show value)
+
+testHaskell2010STGConstructorCase :: Either String ()
+testHaskell2010STGConstructorCase =
+  expectSTGInt
+    "STG constructor case dispatch"
+    1
+    =<< evalSTGBinding
+      "main"
+      ( stgMainProgram
+          ( H2010STG.STGCase
+              (H2010STG.STGAtom (H2010STG.STGCon H2010Core.trueDataConName H2010Core.boolTy))
+              (stgBinder "$case" 5140 H2010Core.boolTy)
+              [ H2010STG.STGAlt (H2010Core.ConstructorAlt H2010Core.trueDataConName) [] (stgIntExpr 1)
+              , H2010STG.STGAlt (H2010Core.ConstructorAlt H2010Core.falseDataConName) [] (stgIntExpr 0)
+              ]
+              H2010Core.intTy
+          )
+      )
+
+testHaskell2010STGUpdatableThunkSharing :: Either String ()
+testHaskell2010STGUpdatableThunkSharing = do
+  let xBinder = stgBinder "x" 5150 H2010Core.intTy
+      program = stgSharingProgram H2010STG.Updatable xBinder
+  (value, stats) <- evalSTGBindingWithStats "main" program
+  expectSTGInt "STG updatable thunk result" 42 value
+  expectEqual
+    "STG updatable thunk force count"
+    (Just 1)
+    (Map.lookup (H2010STG.stgBinderName xBinder) (H2010STGEval.stgThunkEvaluations stats))
+
+testHaskell2010STGSingleEntryThunk :: Either String ()
+testHaskell2010STGSingleEntryThunk = do
+  let xBinder = stgBinder "x" 5160 H2010Core.intTy
+      program = stgSharingProgram H2010STG.SingleEntry xBinder
+  (value, stats) <- evalSTGBindingWithStats "main" program
+  expectSTGInt "STG single-entry thunk result" 42 value
+  expectEqual
+    "STG single-entry thunk force count"
+    (Just 2)
+    (Map.lookup (H2010STG.stgBinderName xBinder) (H2010STGEval.stgThunkEvaluations stats))
+
+testHaskell2010STGBlackHole :: Either String ()
+testHaskell2010STGBlackHole =
+  case evalSTGBindingRaw "main" stgBlackHoleProgram of
+    Left (H2010STGEval.STGEvalBlackHole (Just name))
+      | name == H2010STG.stgBinderName stgRecursiveBinder -> Right ()
+    Left err -> Left ("expected STG black-hole error, got: " <> show err)
+    Right value -> Left ("recursive STG thunk evaluated unexpectedly: " <> show value)
+
+testHaskell2010STGRejectsUnboundVariable :: Either String ()
+testHaskell2010STGRejectsUnboundVariable =
+  case
+    H2010STGValidate.validateExpr
+      (H2010STG.STGAtom (H2010STG.STGVar (coreTerm "missing" 5190) H2010Core.intTy))
+    of
+      Left errors
+        | any isUnbound errors -> Right ()
+      Left errors -> Left ("expected unbound STG variable, got: " <> show errors)
+      Right () -> Left "unbound STG variable validated unexpectedly"
+ where
+  isUnbound = \case
+    H2010STGValidate.STGUnboundVariable {} -> True
+    _ -> False
 
 testHigherOrderType :: Either String ()
 testHigherOrderType = do
@@ -3752,6 +3877,36 @@ expectCoreEvalInt label expected = \case
           <> Text.unpack (H2010CoreEval.renderCoreValue actual)
       )
 
+evalSTGBinding :: Text -> H2010STG.STGProgram -> Either String H2010STGEval.STGValue
+evalSTGBinding binding program =
+  mapLeft (Text.unpack . H2010STGEval.renderSTGEvalError) (evalSTGBindingRaw binding program)
+
+evalSTGBindingRaw :: Text -> H2010STG.STGProgram -> Either H2010STGEval.STGEvalError H2010STGEval.STGValue
+evalSTGBindingRaw binding =
+  H2010STGEval.evalSTGProgramBindingByOccurrence binding
+
+evalSTGBindingWithStats ::
+  Text ->
+  H2010STG.STGProgram ->
+  Either String (H2010STGEval.STGValue, H2010STGEval.STGEvalStats)
+evalSTGBindingWithStats binding program =
+  mapLeft
+    (Text.unpack . H2010STGEval.renderSTGEvalError)
+    (H2010STGEval.evalSTGProgramBindingByOccurrenceWithStats binding program)
+
+expectSTGInt :: String -> Integer -> H2010STGEval.STGValue -> Either String ()
+expectSTGInt label expected = \case
+  H2010STGEval.STGInt actual ->
+    expectEqual label expected (hintToInteger actual)
+  actual ->
+    Left
+      ( label
+          <> ": expected STG Int "
+          <> show expected
+          <> ", got "
+          <> Text.unpack (H2010STGEval.renderSTGValue actual)
+      )
+
 coreTerm :: Text -> Int -> H2010Names.RName
 coreTerm occurrence uniqueId =
   H2010Names.RName H2010Names.TermNamespace occurrence uniqueId False
@@ -3767,6 +3922,100 @@ coreInt value =
 coreTrue :: H2010Core.CoreExpr
 coreTrue =
   H2010Core.CCon H2010Core.trueDataConName H2010Core.boolTy
+
+stgBinder :: Text -> Int -> H2010Core.CoreType -> H2010STG.STGBinder
+stgBinder occurrence uniqueId ty =
+  H2010STG.STGBinder (coreTerm occurrence uniqueId) ty
+
+stgVar :: H2010STG.STGBinder -> H2010STG.STGAtom
+stgVar binder =
+  H2010STG.STGVar (H2010STG.stgBinderName binder) (H2010STG.stgBinderType binder)
+
+stgIntAtom :: Integer -> H2010STG.STGAtom
+stgIntAtom value =
+  H2010STG.STGLit (H2010.LInt value) H2010Core.intTy
+
+stgIntExpr :: Integer -> H2010STG.STGExpr
+stgIntExpr =
+  H2010STG.STGAtom . stgIntAtom
+
+stgDivZeroExpr :: H2010STG.STGExpr
+stgDivZeroExpr =
+  H2010STG.STGPrim H2010Core.PrimDiv [stgIntAtom 1, stgIntAtom 0] H2010Core.intTy
+
+stgThunkBinding :: H2010STG.STGBinder -> H2010STG.STGUpdateFlag -> H2010STG.STGExpr -> H2010STG.STGBind
+stgThunkBinding binder updateFlag expression =
+  H2010STG.STGNonRec binder (H2010STG.STGThunk updateFlag expression)
+
+stgMainProgram :: H2010STG.STGExpr -> H2010STG.STGProgram
+stgMainProgram expression =
+  H2010STG.STGProgram [stgThunkBinding stgMainBinder H2010STG.Updatable expression]
+
+stgMainBinder :: H2010STG.STGBinder
+stgMainBinder =
+  stgBinder "main" 5100 H2010Core.intTy
+
+stgUnusedBadBinder :: H2010STG.STGBinder
+stgUnusedBadBinder =
+  stgBinder "bad" 5101 H2010Core.intTy
+
+stgLazyFunctionArgumentProgram :: H2010STG.STGProgram
+stgLazyFunctionArgumentProgram =
+  H2010STG.STGProgram
+    [ H2010STG.STGNonRec constBinder constRhs
+    , stgThunkBinding stgMainBinder H2010STG.Updatable mainBody
+    ]
+ where
+  constBinder =
+    stgBinder
+      "const"
+      5110
+      (H2010Core.funTy H2010Core.intTy (H2010Core.funTy H2010Core.intTy H2010Core.intTy))
+  xBinder =
+    stgBinder "x" 5111 H2010Core.intTy
+  yBinder =
+    stgBinder "y" 5112 H2010Core.intTy
+  badBinder =
+    stgBinder "bad" 5113 H2010Core.intTy
+  constRhs =
+    H2010STG.STGFunction [xBinder, yBinder] (H2010STG.STGAtom (stgVar xBinder))
+  mainBody =
+    H2010STG.STGLet
+      (stgThunkBinding badBinder H2010STG.Updatable stgDivZeroExpr)
+      ( H2010STG.STGApp
+          (H2010STG.stgBinderName constBinder)
+          [stgIntAtom 1, stgVar badBinder]
+          H2010Core.intTy
+      )
+      H2010Core.intTy
+
+stgSharingProgram :: H2010STG.STGUpdateFlag -> H2010STG.STGBinder -> H2010STG.STGProgram
+stgSharingProgram updateFlag xBinder =
+  stgMainProgram
+    ( H2010STG.STGLet
+        ( stgThunkBinding
+            xBinder
+            updateFlag
+            (H2010STG.STGPrim H2010Core.PrimAdd [stgIntAtom 20, stgIntAtom 1] H2010Core.intTy)
+        )
+        (H2010STG.STGPrim H2010Core.PrimAdd [stgVar xBinder, stgVar xBinder] H2010Core.intTy)
+        H2010Core.intTy
+    )
+
+stgRecursiveBinder :: H2010STG.STGBinder
+stgRecursiveBinder =
+  stgBinder "x" 5180 H2010Core.intTy
+
+stgBlackHoleProgram :: H2010STG.STGProgram
+stgBlackHoleProgram =
+  H2010STG.STGProgram
+    [ H2010STG.STGRec
+        [ ( stgRecursiveBinder
+          , H2010STG.STGThunk H2010STG.Updatable (H2010STG.STGAtom (stgVar stgRecursiveBinder))
+          )
+        ]
+    , stgThunkBinding stgMainBinder H2010STG.Updatable (H2010STG.STGAtom (stgVar stgRecursiveBinder))
+    ]
 
 expectCoreValidationError ::
   String ->
