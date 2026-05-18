@@ -1,0 +1,3 @@
+let min_int = (0 - 9223372036854775807) - 1 in
+let neg_one = 0 - 1 in
+min_int / neg_one

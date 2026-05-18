@@ -13,8 +13,8 @@ import Analysis.InferFacts (inferFacts)
 import Egglog.Eval (defaultRunConfig)
 import Egglog.Rebuild (canonicalizedEntries, mergeConflicts, rebuildIterations, unionsCreated)
 import Egglog.Sort (renderFunctionName)
-import Eval.Interpreter (RuntimeError, Value, eval, renderRuntimeError, renderValue)
-import IR.ANF (AExpr, renderANF, toANF)
+import Eval.Interpreter (RuntimeError, Value, evalProgram, renderRuntimeError, renderValue)
+import IR.ANF (AExpr, AProgram (..), renderANF, renderANFProgram, toANFProgram)
 import IR.Core (CoreProgram, lower, renderCore)
 import Optimize.EgglogBackend
   ( AppliedRuleSummary (..)
@@ -35,6 +35,7 @@ import Optimize.Placeholder (optimize)
 import Optimize.Simplify
   ( AppliedRewrite
   , SimplifyError
+  , SimplifyResult (..)
   , appliedRewrites
   , renderAppliedRewrites
   , renderSimplifyError
@@ -43,20 +44,22 @@ import Optimize.Simplify
   )
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Syntax.AST (Expr, Type)
-import Syntax.Parser (parseProgram)
-import Syntax.Pretty (prettyExpr, prettyType, renderDoc)
+import Syntax.AST (Program (..), Type)
+import Syntax.Located (locatedExprSpan, locatedProgramMain, stripLocatedProgram)
+import Syntax.Parser (parseLocatedSourceProgram)
+import Syntax.Pretty (prettyProgram, prettyType, renderDoc)
+import Syntax.Span (SourceSpan, renderSourceDiagnostic)
 import Text.Megaparsec (errorBundlePretty)
-import Typecheck.Infer (infer)
-import Typecheck.Types (TypeError, renderTypeError)
+import Typecheck.Infer (elaborateLocatedProgram)
+import Typecheck.Types (LocatedTypeError, renderLocatedTypeError)
 
 data CompileReport = CompileReport
-  { reportParsed :: Expr
+  { reportParsed :: Program
   , reportType :: Type
   , reportValue :: Value
-  , reportANF :: AExpr
+  , reportANF :: AProgram
   , reportFacts :: [Fact]
-  , reportOptimizedANF :: AExpr
+  , reportOptimizedANF :: AProgram
   , reportAppliedRewrites :: [AppliedRewrite]
   , reportEGraph :: Either EGraphError EGraphResult
   , reportEgglog :: EgglogOptimizationAttempt
@@ -66,53 +69,69 @@ data CompileReport = CompileReport
 
 data CompileError
   = CompileParseError Text
-  | CompileTypeError TypeError
-  | CompileRuntimeError RuntimeError
+  | CompileTypeError LocatedTypeError
+  | CompileRuntimeError SourceSpan RuntimeError
   | CompileSimplifyError SimplifyError
   deriving stock (Show, Eq)
 
 compileReport :: FilePath -> Text -> Either CompileError CompileReport
 compileReport path source = do
   parsed <-
-    case parseProgram path source of
+    case parseLocatedSourceProgram path source of
       Left parseError -> Left (CompileParseError (Text.pack (errorBundlePretty parseError)))
       Right expr -> Right expr
-  inferredType <-
-    case infer parsed of
+  (inferredType, typedParsed) <-
+    case elaborateLocatedProgram parsed of
       Left typeError -> Left (CompileTypeError typeError)
-      Right ty -> Right ty
-  value <-
-    case eval parsed of
-      Left runtimeError -> Left (CompileRuntimeError runtimeError)
       Right result -> Right result
-  let anf = toANF parsed
+  let stripped = stripLocatedProgram typedParsed
+  value <-
+    case evalProgram stripped of
+      Left runtimeError -> Left (CompileRuntimeError (locatedExprSpan (locatedProgramMain typedParsed)) runtimeError)
+      Right result -> Right result
+  let anf = toANFProgram stripped
+      mainANF = programMainANF anf
   simplified <-
-    case simplifyFixpoint anf of
+    case simplifyTopLevelAware anf of
       Left simplifyError -> Left (CompileSimplifyError simplifyError)
       Right result -> Right result
   pure
     CompileReport
-      { reportParsed = parsed
+      { reportParsed = stripped
       , reportType = inferredType
       , reportValue = value
       , reportANF = anf
-      , reportFacts = inferFacts anf
-      , reportOptimizedANF = simplifiedANF simplified
+      , reportFacts = inferFacts mainANF
+      , reportOptimizedANF = replaceProgramMain anf (simplifiedANF simplified)
       , reportAppliedRewrites = appliedRewrites simplified
-      , reportEGraph = optimizeANF anf
-      , reportEgglog = tryOptimizeWithEgglog defaultRunConfig anf
-      , reportCore = optimize (lower parsed)
+      , reportEGraph = optimizeANF mainANF
+      , reportEgglog = tryOptimizeWithEgglog defaultRunConfig mainANF
+      , reportCore = optimize (lower (programMain stripped))
       }
+
+programMainANF :: AProgram -> AExpr
+programMainANF (AProgram _ mainExpr) =
+  mainExpr
+
+replaceProgramMain :: AProgram -> AExpr -> AProgram
+replaceProgramMain (AProgram defs _) mainExpr =
+  AProgram defs mainExpr
+
+simplifyTopLevelAware :: AProgram -> Either SimplifyError SimplifyResult
+simplifyTopLevelAware (AProgram [] mainExpr) =
+  simplifyFixpoint mainExpr
+simplifyTopLevelAware (AProgram _ mainExpr) =
+  Right SimplifyResult {simplifiedANF = mainExpr, appliedRewrites = []}
 
 renderFullReport :: CompileReport -> Text
 renderFullReport report =
   Text.concat
-    [ section "Parsed AST" (renderDoc (prettyExpr (reportParsed report)))
+    [ section "Parsed AST" (renderDoc (prettyProgram (reportParsed report)))
     , section "Type" (renderDoc (prettyType (reportType report)))
     , section "Result" (renderValue (reportValue report))
-    , section "ANF IR" (renderANF (reportANF report))
+    , section "ANF IR" (renderANFProgram (reportANF report))
     , section "Inferred Facts" (renderFacts (reportFacts report))
-    , section "Optimized ANF IR" (renderANF (reportOptimizedANF report))
+    , section "Optimized ANF IR" (renderANFProgram (reportOptimizedANF report))
     , section "Applied Rewrites" (renderAppliedRewrites (reportAppliedRewrites report))
     , section "EGraph Optimized ANF IR" (renderEGraphReport (reportEGraph report))
     , section "Egglog Optimizer" (renderEgglogReport (reportEgglog report))
@@ -124,9 +143,9 @@ renderGoldenReport report =
   Text.concat
     [ section "Type" (renderDoc (prettyType (reportType report)))
     , section "Result" (renderValue (reportValue report))
-    , section "ANF IR" (renderANF (reportANF report))
+    , section "ANF IR" (renderANFProgram (reportANF report))
     , section "Inferred Facts" (renderFacts (reportFacts report))
-    , section "Optimized ANF IR" (renderANF (reportOptimizedANF report))
+    , section "Optimized ANF IR" (renderANFProgram (reportOptimizedANF report))
     , section "Applied Rewrites" (renderAppliedRewrites (reportAppliedRewrites report))
     , section "EGraph Optimized ANF IR" (renderEGraphReport (reportEGraph report))
     ]
@@ -136,9 +155,9 @@ renderCompileError = \case
   CompileParseError parseError ->
     section "Parse error" parseError
   CompileTypeError typeError ->
-    section "Type error" (renderTypeError typeError)
-  CompileRuntimeError runtimeError ->
-    section "Runtime error" (renderRuntimeError runtimeError)
+    section "Type error" (renderLocatedTypeError typeError)
+  CompileRuntimeError sourceRange runtimeError ->
+    section "Runtime error" (renderSourceDiagnostic sourceRange "runtime error" (renderRuntimeError runtimeError))
   CompileSimplifyError simplifyError ->
     section "Simplify error" (renderSimplifyError simplifyError)
 

@@ -236,6 +236,13 @@ mergeValues decl key oldValue newValue db
                in pure (db, merged, merged /= oldValue, False)
             _ ->
               Left (InvalidMerge (functionName decl) MergeConstBool oldValue newValue)
+        MergeZeroInfo ->
+          case (oldValue, newValue) of
+            (VZeroInfo lhs, VZeroInfo rhs) ->
+              let merged = VZeroInfo (joinZeroInfo lhs rhs)
+               in pure (db, merged, merged /= oldValue, False)
+            _ ->
+              Left (InvalidMerge (functionName decl) MergeZeroInfo oldValue newValue)
         MergeError ->
           Left (FunctionalDependencyConflict (functionName decl) key oldValue newValue MergeError)
 

@@ -9,14 +9,25 @@ import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.Reader (Reader, asks, local, runReader)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
-import qualified Data.Text as Text
 import Eval.Interpreter (RuntimeError (..))
 import IR.ANF
+import Runtime.Int
+  ( HInt
+  , addHInt
+  , divHInt
+  , eqHInt
+  , hintToInteger
+  , ltHInt
+  , mkHIntLiteral
+  , mulHInt
+  , renderHInt
+  , subHInt
+  )
 import Syntax.AST
-import Syntax.Pretty (prettyBinOp, renderDoc)
+import Syntax.Pretty (prettyBinOp, prettyName, renderDoc)
 
 data ANFValue
-  = ANFVInt Integer
+  = ANFVInt HInt
   | ANFVBool Bool
   | ANFVClosure Env Name AExpr
   deriving stock (Show, Eq)
@@ -55,6 +66,8 @@ evalExpr = \case
         local (const (Map.insert name argValue closureEnv)) (evalExpr body)
       other ->
         throwError (RuntimeTypeError ("expected a function, got " <> renderANFValue other))
+  ACall callee _ ->
+    throwError (RuntimeTypeError ("ANF direct call requires top-level program evaluator for " <> renderDoc (prettyName callee)))
   ALet name rhs body -> do
     value <- evalExpr rhs
     local (Map.insert name value) (evalExpr body)
@@ -66,29 +79,37 @@ evalAtom = \case
       Just value -> pure value
       Nothing -> throwError (RuntimeUnknownVariable name)
   AInt n ->
-    pure (ANFVInt n)
+    case mkHIntLiteral n of
+      Right value -> pure (ANFVInt value)
+      Left err -> throwError (RuntimeIntError err)
   ABool b ->
     pure (ANFVBool b)
 
 evalPrim :: BinOp -> ANFValue -> ANFValue -> EvalM ANFValue
 evalPrim op lhs rhs =
   case (op, lhs, rhs) of
-    (Add, ANFVInt a, ANFVInt b) -> pure (ANFVInt (a + b))
-    (Sub, ANFVInt a, ANFVInt b) -> pure (ANFVInt (a - b))
-    (Mul, ANFVInt a, ANFVInt b) -> pure (ANFVInt (a * b))
-    (Div, ANFVInt _, ANFVInt 0) -> throwError DivisionByZero
-    (Div, ANFVInt a, ANFVInt b) -> pure (ANFVInt (a `div` b))
-    (Lt, ANFVInt a, ANFVInt b) -> pure (ANFVBool (a < b))
-    (Eq, ANFVInt a, ANFVInt b) -> pure (ANFVBool (a == b))
+    (Add, ANFVInt a, ANFVInt b) -> checkedIntValue (addHInt a b)
+    (Sub, ANFVInt a, ANFVInt b) -> checkedIntValue (subHInt a b)
+    (Mul, ANFVInt a, ANFVInt b) -> checkedIntValue (mulHInt a b)
+    (Div, ANFVInt _, ANFVInt b)
+      | hintToInteger b == 0 -> throwError DivisionByZero
+    (Div, ANFVInt a, ANFVInt b) -> checkedIntValue (divHInt a b)
+    (Lt, ANFVInt a, ANFVInt b) -> pure (ANFVBool (ltHInt a b))
+    (Eq, ANFVInt a, ANFVInt b) -> pure (ANFVBool (eqHInt a b))
     (Eq, ANFVBool a, ANFVBool b) -> pure (ANFVBool (a == b))
     _ ->
       throwError $
         RuntimeTypeError
           ("invalid operands for " <> renderDoc (prettyBinOp op))
+ where
+  checkedIntValue =
+    \case
+      Right value -> pure (ANFVInt value)
+      Left err -> throwError (RuntimeIntError err)
 
 renderANFValue :: ANFValue -> Text
 renderANFValue = \case
-  ANFVInt n -> Text.pack (show n)
+  ANFVInt n -> renderHInt n
   ANFVBool True -> "true"
   ANFVBool False -> "false"
   ANFVClosure {} -> "<function>"

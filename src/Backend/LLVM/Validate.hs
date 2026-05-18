@@ -19,6 +19,10 @@ data LLVMValidationError
   | UnknownLLVMRegister Text Register
   | LLVMOperandTypeMismatch LLVMType LLVMType LLVMOperand
   | LLVMConditionTypeMismatch LLVMType
+  | LLVMLoadExpectedPointer LLVMOperand
+  | LLVMStoreExpectedPointer LLVMOperand
+  | LLVMExtractValueExpectedStruct LLVMType
+  | LLVMExtractValueIndexOutOfBounds LLVMType Int
   | LLVMPhiHasNoIncoming Register
   | LLVMPhiIncomingBlockMissing Register Text
   | LLVMReturnTypeMismatch Text LLVMType LLVMType
@@ -42,9 +46,9 @@ checkUniqueFunctions functions =
 validateFunction :: LLVMFunction -> Either LLVMValidationError ()
 validateFunction function = do
   checkUniqueBlocks (functionName function) (functionBlocks function)
-  checkRegisters (functionName function) (functionBlocks function)
+  checkRegisters (functionName function) function
   let labels = Set.fromList (map blockLabel (functionBlocks function))
-      registers = registerTypes (functionBlocks function)
+      registers = registerTypes function
   mapM_ (validateBlock function labels registers) (functionBlocks function)
 
 checkUniqueBlocks :: Text -> [LLVMBlock] -> Either LLVMValidationError ()
@@ -57,9 +61,9 @@ checkUniqueBlocks function blocks =
     | blockLabel block `Set.member` seen = Left (DuplicateLLVMBlock function (blockLabel block))
     | otherwise = go (Set.insert (blockLabel block) seen) rest
 
-checkRegisters :: Text -> [LLVMBlock] -> Either LLVMValidationError ()
-checkRegisters function blocks =
-  go Set.empty [reg | block <- blocks, instruction <- blockInstructions block, reg <- maybeToList (instructionResult instruction)]
+checkRegisters :: Text -> LLVMFunction -> Either LLVMValidationError ()
+checkRegisters function llvmFunction =
+  go Set.empty (map snd (functionParams llvmFunction) <> [reg | block <- functionBlocks llvmFunction, instruction <- blockInstructions block, reg <- maybeToList (instructionResult instruction)])
  where
   go _ [] =
     Right ()
@@ -77,13 +81,32 @@ validateInstruction function labels registers = \case
   IAdd _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   ISub _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IMul _ ty lhs rhs -> validateBinary function registers ty lhs rhs
+  IDiv _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IIcmp _ _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IZext _ value _ -> validateOperand function registers value
   IGetElementPtr _ _ base indices -> do
     assertOperandType function registers LPtr base
     mapM_ (validateOperand function registers . snd) indices
-  ICall _ _ _ _ args ->
+  ILoad _ _ pointer ->
+    assertOperandType function registers LPtr pointer
+  IStore ty value pointer -> do
+    assertOperandType function registers ty value
+    assertOperandType function registers LPtr pointer
+  ICall _ _ callee _ args -> do
+    validateCallTarget function registers callee
     mapM_ (validateOperand function registers . snd) args
+  IExtractValue _ ty aggregate index -> do
+    validateOperand function registers aggregate
+    case operandType aggregate of
+      LStruct fields
+        | index < 0 || index >= length fields ->
+            Left (LLVMExtractValueIndexOutOfBounds (operandType aggregate) index)
+        | fields !! index == ty ->
+            Right ()
+        | otherwise ->
+            Left (LLVMOperandTypeMismatch ty (fields !! index) aggregate)
+      other ->
+        Left (LLVMExtractValueExpectedStruct other)
   IPhi reg ty incoming -> do
     if null incoming
       then Left (LLVMPhiHasNoIncoming reg)
@@ -109,11 +132,20 @@ validateTerminator function labels registers = \case
     assertOperandType (functionName function) registers LI1 cond
     assertBlock (functionName function) labels thenLabel
     assertBlock (functionName function) labels elseLabel
+  TUnreachable ->
+    Right ()
 
 validateBinary :: Text -> Map.Map Register LLVMType -> LLVMType -> LLVMOperand -> LLVMOperand -> Either LLVMValidationError ()
 validateBinary function registers ty lhs rhs = do
   assertOperandType function registers ty lhs
   assertOperandType function registers ty rhs
+
+validateCallTarget :: Text -> Map.Map Register LLVMType -> LLVMCallTarget -> Either LLVMValidationError ()
+validateCallTarget function registers = \case
+  DirectCall {} ->
+    Right ()
+  IndirectCall operand ->
+    assertOperandType function registers LPtr operand
 
 assertBlock :: Text -> Set.Set Text -> Text -> Either LLVMValidationError ()
 assertBlock function labels label
@@ -140,25 +172,33 @@ validateOperand function registers = \case
     Right ()
   OConstInt {} ->
     Right ()
+  OConstNull ->
+    Right ()
 
-registerTypes :: [LLVMBlock] -> Map.Map Register LLVMType
-registerTypes blocks =
+registerTypes :: LLVMFunction -> Map.Map Register LLVMType
+registerTypes function =
   Map.fromList
-    [ (reg, instructionResultType instruction)
-    | block <- blocks
-    , instruction <- blockInstructions block
-    , reg <- maybeToList (instructionResult instruction)
-    ]
+    ( [(reg, ty) | (ty, reg) <- functionParams function]
+        <> [ (reg, instructionResultType instruction)
+           | block <- functionBlocks function
+           , instruction <- blockInstructions block
+           , reg <- maybeToList (instructionResult instruction)
+           ]
+    )
 
 instructionResult :: LLVMInstruction -> Maybe Register
 instructionResult = \case
   IAdd reg _ _ _ -> Just reg
   ISub reg _ _ _ -> Just reg
   IMul reg _ _ _ -> Just reg
+  IDiv reg _ _ _ -> Just reg
   IIcmp reg _ _ _ _ -> Just reg
   IZext reg _ _ -> Just reg
   IGetElementPtr reg _ _ _ -> Just reg
+  ILoad reg _ _ -> Just reg
+  IStore {} -> Nothing
   ICall maybeReg _ _ _ _ -> maybeReg
+  IExtractValue reg _ _ _ -> Just reg
   IPhi reg _ _ -> Just reg
 
 instructionResultType :: LLVMInstruction -> LLVMType
@@ -166,10 +206,14 @@ instructionResultType = \case
   IAdd _ ty _ _ -> ty
   ISub _ ty _ _ -> ty
   IMul _ ty _ _ -> ty
+  IDiv _ ty _ _ -> ty
   IIcmp {} -> LI1
   IZext _ _ ty -> ty
   IGetElementPtr {} -> LPtr
+  ILoad _ ty _ -> ty
+  IStore {} -> LVoid
   ICall _ ty _ _ _ -> ty
+  IExtractValue _ ty _ _ -> ty
   IPhi _ ty _ -> ty
 
 renderLLVMValidationError :: LLVMValidationError -> Text
@@ -188,6 +232,14 @@ renderLLVMValidationError = \case
     "LLVM operand type mismatch for " <> Text.pack (show operand) <> ": expected " <> renderLLVMType expected <> ", got " <> renderLLVMType actual
   LLVMConditionTypeMismatch actual ->
     "LLVM branch condition must be i1, got " <> renderLLVMType actual
+  LLVMLoadExpectedPointer operand ->
+    "LLVM load expected ptr, got " <> Text.pack (show operand)
+  LLVMStoreExpectedPointer operand ->
+    "LLVM store expected ptr, got " <> Text.pack (show operand)
+  LLVMExtractValueExpectedStruct actual ->
+    "LLVM extractvalue expected a struct operand, got " <> renderLLVMType actual
+  LLVMExtractValueIndexOutOfBounds ty index ->
+    "LLVM extractvalue index " <> Text.pack (show index) <> " is out of bounds for " <> renderLLVMType ty
   LLVMPhiHasNoIncoming reg ->
     "LLVM phi %" <> registerName reg <> " has no incoming edges"
   LLVMPhiIncomingBlockMissing reg label ->
@@ -203,6 +255,7 @@ renderLLVMType = \case
   LI8 -> "i8"
   LPtr -> "ptr"
   LArray count ty -> "[" <> Text.pack (show count) <> " x " <> renderLLVMType ty <> "]"
+  LStruct fields -> "{ " <> Text.intercalate ", " (map renderLLVMType fields) <> " }"
   LVoid -> "void"
 
 maybeToList :: Maybe a -> [a]

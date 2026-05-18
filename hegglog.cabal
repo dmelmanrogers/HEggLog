@@ -1,11 +1,18 @@
 cabal-version:      3.0
 name:               hegglog
-version:            0.1.0.0
+version:            0.2.0.0
 build-type:         Simple
-license:            NONE
+license:            MIT
+license-file:       LICENSE
 author:             Drew Melman-Rogers
-maintainer:         drew@example.com
-synopsis:           Initial compiler skeleton for HeggLog
+maintainer:         dmelmanrogers@uchicago.edu
+tested-with:        GHC == 9.10.1
+synopsis:           Small typed functional language compiler
+description:
+    HeggLog is a small typed functional language compiler in Haskell with
+    parsing, typechecking, interpretation, ANF lowering, Egglog-inspired
+    optimization, LLVM IR generation, and native executable compilation for
+    its supported runtime fragment.
 category:           Language
 
 common warnings
@@ -37,8 +44,10 @@ executable hegglog
   other-modules:
       Analysis.Facts
       Analysis.InferFacts
+      Backend.ClosureConvert
       Backend.Compile
       Backend.IR
+      Backend.LambdaLift
       Backend.LLVM.Emit
       Backend.LLVM.IR
       Backend.LLVM.Lower
@@ -47,6 +56,7 @@ executable hegglog
       Backend.Lower
       Backend.Pretty
       Backend.Validate
+      CLI.Compile
       CLI.Report
       Egglog.Database
       Egglog.Eval
@@ -76,10 +86,14 @@ executable hegglog
       Optimize.Placeholder
       Optimize.Rewrite
       Optimize.Simplify
+      Runtime.Int
       Syntax.AST
+      Syntax.Located
       Syntax.Parser
       Syntax.Pretty
+      Syntax.Span
       Typecheck.Infer
+      Typecheck.Principal
       Typecheck.Types
 
 test-suite hegglog-test
@@ -105,8 +119,10 @@ test-suite hegglog-test
   other-modules:
       Analysis.Facts
       Analysis.InferFacts
+      Backend.ClosureConvert
       Backend.Compile
       Backend.IR
+      Backend.LambdaLift
       Backend.LLVM.Emit
       Backend.LLVM.IR
       Backend.LLVM.Lower
@@ -115,6 +131,7 @@ test-suite hegglog-test
       Backend.Lower
       Backend.Pretty
       Backend.Validate
+      CLI.Compile
       CLI.Report
       Egglog.Database
       Egglog.Eval
@@ -144,8 +161,12 @@ test-suite hegglog-test
       Optimize.Placeholder
       Optimize.Rewrite
       Optimize.Simplify
+      Runtime.Int
       Syntax.AST
+      Syntax.Located
       Syntax.Parser
       Syntax.Pretty
+      Syntax.Span
       Typecheck.Infer
+      Typecheck.Principal
       Typecheck.Types

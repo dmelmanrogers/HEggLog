@@ -16,8 +16,9 @@ uses separate Egglog sorts:
 - `IExpr` for integer expressions
 - `BExpr` for boolean expressions
 
-Integer constructors include `INum`, `IVar`, `IAdd`, `IMul`, and `IIf`.
-Boolean constructors include `BBool`, `BVar`, and `BIf`.
+Integer constructors include `INum`, `IVar`, `IAdd`, `ISub`, `IMul`, `IDiv`,
+and `IIf`.
+Boolean constructors include `BBool`, `BVar`, `ILt`, `IEq`, `BEq`, and `BIf`.
 
 This keeps ill-typed terms out of the Egglog database. The extracted root must
 have the same compiler type as the original ANF root.
@@ -58,16 +59,57 @@ ruleset includes:
 - `0 + x = x`
 - `x * 1 = x`
 - `1 * x = x`
-- `x * 0 = 0`
-- `0 * x = 0`
-- integer constant facts for `INum`, `IAdd`, and `IMul`
-- boolean constant facts for `BBool`
+- integer constant facts for `INum`, `IAdd`, `ISub`, `IMul`, and checked
+  `IDiv`
+- boolean constant facts for `BBool`, integer `<`, integer `==`, and boolean
+  `==`
+- checked subtraction by zero
+- checked division by one
+- checked zero numerator division when the denominator is known nonzero
+- boolean `== true` simplification
+- boolean `if c then true else false = c`
+- boolean `if c then false else true = c == false`
+- zero-info-driven boolean facts for comparisons against zero
 - `if true then a else b = a`
 - `if false then a else b = b`
-- `if c then a else a = a`
 
 Distributivity is kept out of the default compiler ruleset because it can grow
 terms. It remains available as an experimental ruleset.
+
+The default compiler rules intentionally avoid open identities such as
+`x * 0 = 0`, `0 * x = 0`, `x == x = true`, `x < x = false`, and
+`if c then a else a = a` because those rewrites can erase strict evaluation of
+a local binding or condition that would otherwise raise an integer runtime
+error. Constant multiplication by zero can still fold through checked constant
+facts, for example `3 * 0 = 0`, because those facts are not produced for
+overflowing arithmetic, division by zero, or division overflow.
+
+The optimizer runtime contract is specified in `docs/optimizer-spec.md`.
+
+## Evaluation
+
+The Egglog kernel runs rules with semi-naive evaluation by default. Initial
+actions populate a delta database, and each later iteration evaluates a rule
+once for each premise whose root lookup or root match has changed entries. Other
+premises in that planned join still read the full database, so recursive rules
+such as transitive closure see combinations of new and existing facts without
+rescanning every unchanged tuple as the driver.
+
+Rule evaluation uses a stable join planner in both naive and semi-naive modes.
+The planner estimates relation sizes from the current function tables, treats a
+semi-naive delta premise as the size of its delta table, prefers smaller ready
+premises, and delays computed/equality premises until the variables needed to
+evaluate them are bound. Ties fall back to original premise order so traces and
+extraction remain deterministic.
+
+The older naive mode remains available through `RunNaive` for equivalence tests
+and debugging. Semi-naive and naive runs are checked against each other for
+kernel transitive-closure behavior, and compiler backend tests compare optimized
+ANF results across both modes.
+
+Rules without a delta-eligible lookup or root function match still run naively.
+That keeps equality-only and empty-premise rules correct while preserving the
+same dependency-aware premise ordering.
 
 ## Constants As Facts
 
@@ -75,11 +117,22 @@ Constants are represented inside Egglog as functions:
 
 - `IConst : IExpr -> ConstInt`
 - `BConst : BExpr -> ConstBool`
+- `IZero : IExpr -> ZeroInfo`
 
-`ConstInt` and `ConstBool` are typed lattice values. Merging the same known
-constant is stable, while conflicting known constants produce a conflict value.
-No function entry still means "no fact"; it is not confused with unknown or
-conflict.
+`ConstInt`, `ConstBool`, and `ZeroInfo` are typed lattice values. Merging the
+same known fact is stable, unknown values refine to known values, while
+conflicting known facts produce a conflict value. No function entry still means
+"no fact"; it is not confused with unknown or conflict.
+
+`ConstInt` known values use the language `Int` policy: signed 64-bit literals
+and checked `+`/`-`/`*`/`/` facts. Division facts require a known nonzero
+denominator, and `minBound / -1` overflow does not derive a false known
+constant, so extraction cannot mask a runtime error.
+
+`ZeroInfo` records whether a known integer expression is zero, nonzero,
+unknown, or conflicted. It is derived from integer literals and folded integer
+constants. Checked division consumes nonzero facts before deriving constants or
+applying zero-numerator rewrites.
 
 Constant folding is driven by Egglog rules over these facts, not by a Haskell
 pre-pass.
@@ -99,6 +152,24 @@ tree:
 
 If extraction chooses a binder as the best representative for that binder's own
 RHS, the backend falls back to the original RHS to avoid emitting `let x = x`.
+The synthetic root marker is ignored during root extraction so an expression
+that cannot be folded still reconstructs as ordinary ANF.
+
+## Provenance And Debug Traces
+
+The Egglog kernel can preserve debug logs with `collectDebugLog = True`. Changed
+initial actions, rule actions, and substitutions are recorded with compact
+action renderings such as:
+
+```text
+rule edge-to-path substitution #0 {x=1, y=2}: assert path(?x:Int, ?y:Int)
+```
+
+Backend runs enable trace collection internally and expose both the raw
+`encodedRunDebugLog` and the compact `provenanceTrace` on successful
+optimization results. The compact trace summarizes encoded initial actions,
+applied rules, function-entry counts, union counts, the extracted root term, the
+reconstructed optimized ANF, and a bounded set of rule-action trace lines.
 
 ## Supported Fragment
 
@@ -109,7 +180,12 @@ Supported:
 - variables with resolvable type
 - `let` bindings
 - integer `Add`
+- integer `Sub`
 - integer `Mul`
+- integer `Div`, with checked constant facts and conservative rewrites only
+- integer `Lt`
+- integer `Eq`
+- boolean `Eq`
 - `if` expressions with a `Bool` condition and branches of the same supported
   type
 
@@ -120,9 +196,6 @@ Unsupported:
 - higher-order values
 - recursion
 - effects
-- division
-- subtraction
-- equality and ordering primitives
 - ill-typed or ambiguous terms
 
 Unsupported terms return structured backend errors. The backend does not
@@ -139,16 +212,15 @@ For supported closed ANF programs, the backend checks:
 
 - optimized ANF validates
 - optimized type equals original type
-- evaluation result is preserved
+- successful results and runtime errors are preserved
 - extraction is deterministic in tests
 - optimized cost does not exceed original cost after saturation
 
 ## Remaining Gaps
 
-- semi-naive evaluation
-- richer lattice values
-- generic join planning
+- additional domain-specific lattice values
+- indexed/adaptive join execution beyond relation-size estimates
 - rule language/parser
 - full ANF integration
 - binder-aware higher-order EqSat
-- cost model improvements
+- deeper cost model tuning

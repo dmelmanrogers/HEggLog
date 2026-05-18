@@ -54,7 +54,9 @@ emitFunction function =
     <> emitType (functionReturnType function)
     <> " @"
     <> functionName function
-    <> "() {\n"
+    <> "("
+    <> Text.intercalate ", " [emitType ty <> " %" <> registerName reg | (ty, reg) <- functionParams function]
+    <> ") {\n"
     <> Text.concat (map emitBlock (functionBlocks function))
     <> "}"
 
@@ -74,6 +76,8 @@ emitInstruction = \case
     assign reg ("sub " <> emitTypedOperands ty lhs rhs)
   IMul reg ty lhs rhs ->
     assign reg ("mul " <> emitTypedOperands ty lhs rhs)
+  IDiv reg ty lhs rhs ->
+    assign reg ("sdiv " <> emitTypedOperands ty lhs rhs)
   IIcmp reg predicate ty lhs rhs ->
     assign reg ("icmp " <> emitPredicate predicate <> " " <> emitTypedOperands ty lhs rhs)
   IZext reg value targetType ->
@@ -87,8 +91,22 @@ emitInstruction = \case
         <> " "
         <> emitOperand base
         <> Text.concat [", " <> emitType ty <> " " <> emitOperand operand | (ty, operand) <- indices]
+  ILoad reg ty pointer ->
+    assign reg ("load " <> emitType ty <> ", ptr " <> emitOperand pointer)
+  IStore ty value pointer ->
+    "  store " <> emitType ty <> " " <> emitOperand value <> ", ptr " <> emitOperand pointer
   ICall maybeReg returnType callee varArg args ->
-    maybe id assign maybeReg (emitCall returnType callee varArg args)
+    case maybeReg of
+      Just reg -> assign reg (emitCall returnType callee varArg args)
+      Nothing -> "  " <> emitCall returnType callee varArg args
+  IExtractValue reg _ aggregate index ->
+    assign reg $
+      "extractvalue "
+        <> emitType (operandType aggregate)
+        <> " "
+        <> emitOperand aggregate
+        <> ", "
+        <> Text.pack (show index)
   IPhi reg ty incoming ->
     assign reg $
       "phi "
@@ -100,15 +118,22 @@ emitInstruction = \case
           | (operand, label) <- incoming
           ]
 
-emitCall :: LLVMType -> Text -> Bool -> [(LLVMType, LLVMOperand)] -> Text
+emitCall :: LLVMType -> LLVMCallTarget -> Bool -> [(LLVMType, LLVMOperand)] -> Text
 emitCall returnType callee varArg args =
   "call "
     <> emitCallType returnType varArg args
-    <> " @"
-    <> callee
+    <> " "
+    <> emitCallTarget callee
     <> "("
     <> Text.intercalate ", " [emitType ty <> " " <> emitOperand operand | (ty, operand) <- args]
     <> ")"
+
+emitCallTarget :: LLVMCallTarget -> Text
+emitCallTarget = \case
+  DirectCall name ->
+    "@" <> name
+  IndirectCall operand ->
+    emitOperand operand
 
 emitCallType :: LLVMType -> Bool -> [(LLVMType, LLVMOperand)] -> Text
 emitCallType returnType varArg args
@@ -140,6 +165,8 @@ emitTerminator = \case
       <> thenLabel
       <> ", label %"
       <> elseLabel
+  TUnreachable ->
+    "  unreachable"
 
 assign :: Register -> Text -> Text
 assign reg rhs =
@@ -157,6 +184,8 @@ emitOperand = \case
     "true"
   OConstInt _ n ->
     Text.pack (show n)
+  OConstNull ->
+    "null"
 
 emitType :: LLVMType -> Text
 emitType = \case
@@ -166,6 +195,7 @@ emitType = \case
   LI8 -> "i8"
   LPtr -> "ptr"
   LArray count ty -> "[" <> Text.pack (show count) <> " x " <> emitType ty <> "]"
+  LStruct fields -> "{ " <> Text.intercalate ", " (map emitType fields) <> " }"
   LVoid -> "void"
 
 emitPredicate :: LLVMPredicate -> Text

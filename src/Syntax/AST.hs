@@ -2,6 +2,9 @@ module Syntax.AST
   ( Name (..)
   , Type (..)
   , BinOp (..)
+  , Param (..)
+  , TopDef (..)
+  , Program (..)
   , Expr (..)
   )
 where
@@ -26,6 +29,26 @@ data BinOp
   | Lt
   deriving stock (Show, Eq, Ord)
 
+data Param = Param
+  { paramName :: Name
+  , paramType :: Type
+  }
+  deriving stock (Show, Eq, Ord)
+
+data TopDef = TopDef
+  { topDefName :: Name
+  , topDefParams :: [Param]
+  , topDefReturnType :: Type
+  , topDefBody :: Expr
+  }
+  deriving stock (Show, Eq, Ord)
+
+data Program = Program
+  { programDefs :: [TopDef]
+  , programMain :: Expr
+  }
+  deriving stock (Show, Eq, Ord)
+
 data Expr
   = EInt Integer
   | EBool Bool
@@ -35,4 +58,4 @@ data Expr
   | EBin BinOp Expr Expr
   | ELam Name Type Expr
   | EApp Expr Expr
-  deriving stock (Show, Eq)
+  deriving stock (Show, Eq, Ord)

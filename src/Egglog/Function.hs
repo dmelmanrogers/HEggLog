@@ -21,6 +21,7 @@ data MergeBehavior
   | MergeMaxInt
   | MergeConstInt
   | MergeConstBool
+  | MergeZeroInfo
   | MergeError
   deriving stock (Show, Eq, Ord)
 
