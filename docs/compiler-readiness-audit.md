@@ -23,11 +23,16 @@ HeggLog is a credible partial compiler for a well-defined, typed expression lang
 - ANF conversion and validation.
 - A simplifier, an experimental e-graph path, and a more substantial Egglog-style optimizer backend.
 - Lambda lifting and closure conversion.
-- Backend IR validation and LLVM text emission.
+- Backend IR validation, LLVM text emission, and native executable output
+  through `clang`.
 - LLVM validation and execution through external LLVM tools.
 - A meaningful test suite across parser, typechecker, interpreter, optimizer, backend, goldens, and properties.
 
-The project is not yet a fully working production compiler in the ordinary user-facing sense. The largest gap is artifact production: `hegglog compile file.hg -o program` currently writes LLVM IR text to `program`; it does not produce a native executable. Native execution is available only through `--run-llvm`, using `lli` or a temporary clang path.
+The project now has the core artifact behavior expected of a small compiler for
+its supported subset: `hegglog compile file.hg -o program` generates LLVM IR
+and invokes `clang` to produce a native executable, while `--emit-llvm` preserves
+textual LLVM output. `--run-llvm` remains available for LLVM-tool execution, and
+`--run` builds and runs the requested native executable.
 
 The LLVM backend is correct-looking and well tested for its intended subset: closed `Int`/`Bool` roots, `let`, `if`, checked `+`, `-`, `*`, `/`, `<`, `==`, top-level first-order calls, lambda lifting, and local closures. Checked division was a gap at the original audit time; it is now lowered directly with division-by-zero and minimum-`Int / -1` runtime checks.
 
@@ -35,10 +40,11 @@ The optimizer story is better than the average experimental compiler at this sta
 
 The highest-priority readiness gaps are:
 
-1. Add real native executable output mode.
-2. Normalize CLI commands and stdout/stderr behavior.
-3. Improve source locations for nested runtime errors.
-4. Reconcile docs drift, especially the stale runtime-spec statement about `x * 0`.
+1. Normalize CLI commands into a polished `check`/`run`/`compile`/`report`
+   surface.
+2. Improve source locations for nested runtime errors.
+3. Decide the Bool executable output format before a polished v1.
+4. Add a CI lane that requires LLVM tools, including `clang`.
 
 ## 2. Baseline Validation
 
@@ -90,7 +96,7 @@ Representative CLI checks:
 | LLVM run | `examples/add.hg` | Passed; lambda-lifted output `7`. |
 | LLVM run | `examples/higher-order.hg` | Passed; closure output `42`. |
 | LLVM emit | `examples/llvm/arithmetic.hg --emit-llvm -o .context/audit-cli/arithmetic.ll` | Passed; wrote LLVM IR text. |
-| LLVM output path | `examples/llvm/arithmetic.hg -o .context/audit-cli/program` | Passed, but wrote LLVM IR text to `program`; did not produce a native executable. |
+| Native output path | `examples/llvm/arithmetic.hg -o .context/audit-cli/program` | Passed when `clang` was available; produced a native executable. |
 
 ## 3. Current End-to-End Compiler Capability
 
@@ -116,11 +122,14 @@ The compiler can currently process a source file through the following end-to-en
    - Optionally run Egglog optimization for supported expression programs.
    - Lower to backend IR.
    - Lower backend IR to LLVM.
-   - Emit LLVM text.
+   - Emit LLVM text or compile it to a native executable with `clang`.
    - Optionally validate LLVM with `llvm-as`.
    - Optionally run LLVM text with `lli` or a temporary clang executable.
+   - Optionally run the requested native executable.
 
-The compiler can run generated code for representative examples with the installed toolchain. It cannot yet produce a persistent native executable as the normal output artifact.
+The compiler can run generated code for representative examples with the
+installed toolchain and can produce a persistent native executable as the normal
+compile output artifact.
 
 ## 4. Current Source Language
 
@@ -210,7 +219,8 @@ Major implementation areas:
 The pipeline is reasonably modular. The main architectural split is between:
 
 - The source/report path, which is broad and introspective.
-- The compiler/backend path, which is narrower and emits LLVM text.
+- The compiler/backend path, which is narrower and emits LLVM text or native
+  executables.
 - The optimizer paths, where simplifier/e-graph are mostly reporting/prototype paths and Egglog is the real compile-time optimizer when supported.
 
 ## 7. Semantics Consistency Audit
@@ -306,12 +316,12 @@ Supported:
 - Lambda-lifted non-capturing functions.
 - Closure-converted local capturing functions.
 - LLVM text emission.
+- Native executable output via `clang`.
 - LLVM validation through `llvm-as` when available.
 - LLVM execution through `lli` when available, with clang fallback.
 
 Unsupported:
 
-- Native executable output as the ordinary `-o` artifact.
 - Function-valued roots.
 - Partial top-level application.
 - Top-level function values as first-class values.
@@ -319,7 +329,11 @@ Unsupported:
 - Recursion.
 - Heap ownership beyond process-lifetime closure allocation.
 
-The most important user-facing finding is the current meaning of `-o`. In compile mode, `-o path` writes LLVM IR text to `path`; it does not produce a native binary. This is surprising for a compiler CLI. A practical v1 should make native executable output the default compile artifact and move LLVM text behind `--emit-llvm`.
+The most important user-facing LLVM finding is now CLI polish rather than
+artifact production. In compile mode, `-o path` produces a native executable and
+`--emit-llvm -o path.ll` writes LLVM text. A practical v1 should still normalize
+top-level commands and stdout/stderr behavior so ordinary users have a simpler
+`check`/`run`/`compile` story.
 
 ## 10. Runtime Audit
 
@@ -336,7 +350,9 @@ Readiness gaps:
 - Add more precise source locations for runtime errors.
 - Decide whether process-lifetime closure allocation is acceptable for v1 or whether explicit ownership/freeing is required.
 
-The current runtime model is good enough for a small language compiler, but diagnostics and artifact output should be completed before claiming polished compiler readiness.
+The current runtime model is good enough for a small language compiler, but
+diagnostics, Bool output policy, and CLI polish should be completed before
+claiming polished compiler readiness.
 
 ## 11. Diagnostics And User Experience Audit
 
@@ -353,10 +369,11 @@ Current weaknesses:
 - Runtime errors lack consistently precise nested spans.
 - CLI shape is still transitional:
   - Passing a file path directly runs report mode.
-  - `compile` emits LLVM text.
+  - `compile -o` emits a native executable.
+  - `compile --emit-llvm` emits LLVM text.
   - `--run-llvm` runs generated code.
   - `--run-llvm` prints program output to stderr so stdout can remain usable for LLVM text.
-- `-o` does not produce a native executable.
+  - `--run` builds and runs a requested native executable.
 - There is no clean `hegglog run file.hg` command for ordinary users.
 
 For compiler readiness, the CLI should eventually separate:
@@ -413,26 +430,28 @@ Strong points:
 
 - Tests cover both successful execution and rejected unsupported backend cases.
 - LLVM tests include runtime overflow behavior for supported arithmetic.
+- Native executable tests cover representative successful programs and a
+  runtime-error executable when `clang` is available.
 - Egglog tests now include strictness-sensitive optimization cases.
 - Golden tests make report shape visible.
 - External LLVM tool tests skip rather than fail when tools are unavailable.
 
 Coverage gaps:
 
-1. Native executable output cannot be tested because it does not exist yet.
-2. Actual process-level CLI tests are thinner than library-level tests.
-3. Parser diagnostics are not fully normalized and goldened as compiler diagnostics.
-4. Runtime-error source-span precision is not deeply tested.
-5. Property tests are useful but bounded and do not replace end-to-end fuzzing.
-6. Closure memory ownership is not stress-tested because the current model is process-lifetime allocation.
+1. Actual process-level CLI tests are thinner than library-level tests.
+2. Parser diagnostics are not fully normalized and goldened as compiler diagnostics.
+3. Runtime-error source-span precision is not deeply tested.
+4. Property tests are useful but bounded and do not replace end-to-end fuzzing.
+5. Closure memory ownership is not stress-tested because the current model is process-lifetime allocation.
 
-Overall, the test suite is strong for the implementation stage. The next test investments should follow artifact output, CLI normalization, and diagnostics.
+Overall, the test suite is strong for the implementation stage. The next test
+investments should focus on process-level CLI coverage, CLI normalization, and
+diagnostics.
 
 ## 14. Architecture Risks
 
 | Risk | Severity | Why It Matters | Recommended Response |
 | --- | --- | --- | --- |
-| No native executable output | High | Users expect `compile -o program` to create an executable. | Add native output mode and make LLVM text explicit. |
 | CLI mode confusion | Medium | Report, compile, emit, and run modes are not yet user-clean. | Introduce `check`, `run`, `compile`, `report`. |
 | Docs drift | Medium | Multiple specs can contradict code as semantics evolve. | Add docs consistency checks and resolve stale runtime text. |
 | Optimizer implementation drift | Medium | Simplifier, e-graph, and Egglog rules may diverge. | Keep only one production optimizer active or share rule specs. |
@@ -445,16 +464,15 @@ Overall, the test suite is strong for the implementation stage. The next test in
 
 To claim HeggLog is a fully working compiler for its current source language, the project still needs:
 
-1. Native executable output.
-2. A clean CLI contract for checking, running, compiling, reporting, and emitting LLVM.
-3. End-to-end tests that verify native artifacts run outside the compiler process.
-4. Precise runtime-error diagnostics.
-5. A documented v1 language subset table.
-6. Docs reconciliation for stale optimizer/runtime claims.
-7. A CI lane that actually has `lli`, `llvm-as`, and clang available.
-10. A decision on Bool output format.
-11. A decision on closure lifetime/ownership scope.
-12. A release-oriented README path that teaches normal users the simplest successful workflow.
+1. A clean CLI contract for checking, running, compiling, reporting, and emitting LLVM.
+2. Process-level CLI tests that verify native artifacts run outside the compiler process.
+3. Precise runtime-error diagnostics.
+4. A documented v1 language subset table.
+5. Docs reconciliation for stale optimizer/runtime claims.
+6. A CI lane that actually has `lli`, `llvm-as`, and clang available.
+7. A decision on Bool output format.
+8. A decision on closure lifetime/ownership scope.
+9. A release-oriented README path that teaches normal users the simplest successful workflow.
 
 Items not required for a v1 of the current language, but required for a larger general-purpose language:
 
@@ -473,10 +491,11 @@ Goal: make `hegglog compile` behave like a real compiler command.
 
 Tasks:
 
-1. Add native executable output mode.
-2. Keep LLVM text output behind explicit `--emit-llvm`.
-3. Add process-level CLI tests for output files and executable behavior.
-4. Update README and LLVM backend docs.
+1. Completed: add native executable output mode.
+2. Completed: keep LLVM text output behind explicit `--emit-llvm`.
+3. Partial: add library-level native artifact tests; add process-level CLI tests
+   next.
+4. Completed: update README and LLVM backend docs.
 
 Exit criteria:
 
@@ -558,15 +577,16 @@ Exit criteria:
 
 ## 17. Recommended Next Five Implementation Tasks
 
-1. Add native executable output mode.
-   - Files likely affected: `src/Main.hs`, `src/Backend/LLVM/Toolchain.hs`, `src/Backend/Compile.hs`, README, LLVM docs, tests.
-   - Acceptance: `hegglog compile file.hg -o program` produces an executable; `--emit-llvm` produces LLVM text.
-   - Suggested commit: `Add native executable output mode`
-
-2. Normalize the CLI command model.
+1. Normalize the CLI command model.
    - Files likely affected: `src/Main.hs`, `src/CLI/Report.hs`, README, CLI/golden tests.
    - Acceptance: `check`, `run`, `compile`, and `report` have clear stdout/stderr and exit-code behavior.
    - Suggested commit: `Normalize compiler CLI commands`
+
+2. Add process-level CLI artifact tests.
+   - Files likely affected: test harness, README examples, CI config.
+   - Acceptance: CLI tests prove `compile -o`, `--emit-llvm -o`, `--run`, and
+     missing-toolchain behavior at the executable boundary.
+   - Suggested commit: `Test compiler artifact CLI`
 
 3. Track precise runtime-error source spans.
    - Files likely affected: located syntax, ANF/source mapping, interpreters, compile diagnostics, tests.
@@ -580,8 +600,15 @@ Exit criteria:
 
 ## 18. Readiness Verdict
 
-HeggLog is ready to be described as an actively working compiler prototype with a real typed frontend, optimizer stack, closure-aware backend path, and LLVM execution path for a defined subset.
+HeggLog is ready to be described as an actively working compiler prototype with
+a real typed frontend, optimizer stack, closure-aware backend path, LLVM
+execution path, and native executable output for a defined subset.
 
-It is not yet ready to be described as a complete compiler in the ordinary user-facing sense because `compile -o` does not produce a native executable.
+It is not yet ready to be described as a complete compiler in the ordinary
+user-facing sense because the CLI surface, process-level artifact tests, runtime
+diagnostic precision, Bool output policy, and LLVM-tool CI story still need
+polish.
 
-The implementation direction is sound. The next best work is not more abstract architecture; it is closing the concrete artifact and usability gaps: native executable output, CLI normalization, precise runtime diagnostics, and final docs reconciliation.
+The implementation direction is sound. The next best work is closing the
+remaining usability gaps: CLI normalization, process-level artifact tests,
+precise runtime diagnostics, and final docs/CI reconciliation.

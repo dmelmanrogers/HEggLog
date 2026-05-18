@@ -7,7 +7,8 @@ backend, source diagnostics, top-level first-order functions, lambda lifting,
 closure conversion runtime work, and optional monomorphic lambda parameter
 inference, semi-naive Egglog rule evaluation, and Egglog provenance/debug
 traces, relation-size Egglog join planning, the Egglog `ZeroInfo` lattice, and
-Egglog comparison, checked subtraction, and checked division support.
+Egglog comparison, checked subtraction, checked division support, and native
+executable output through `clang`.
 
 ## Current Baseline
 
@@ -47,11 +48,15 @@ Implemented:
   objects containing a code pointer and captured fields.
 - LLVM indirect closure calls through local function values, including captured
   variables, returned closures, and higher-order local functions.
-- CLI report mode and LLVM compile mode, including optional LLVM execution.
+- CLI report mode and LLVM compile mode, including LLVM text emission, native
+  executable output with `clang`, optional LLVM execution, and native `--run`.
 - LLVM toolchain checks that assemble selected emitted goldens with `llvm-as`
   when available, plus documented `llvm-as`/`lli`/`clang` executable workflow.
 - Interpreter-vs-LLVM differential corpus for successful closed first-order and
   closure source programs when `lli` or `clang` is available.
+- Native executable tests that compile and run arithmetic, comparison,
+  division, Bool-root, no-Egglog, and runtime-error programs when `clang` is
+  available.
 - Runtime-error equivalence tests for checked-`Int` overflow in LLVM `+`, `-`,
   and `*` lowering.
 - Dedicated LLVM backend specification for the current supported fragment,
@@ -234,8 +239,8 @@ Definition of done:
 
 Next recommended task:
 
-- Start Phase 3 by strengthening LLVM backend correctness around runtime-error
-  equivalence and executable workflow documentation.
+- Continue CLI polish and runtime diagnostic precision; Phase 3's executable
+  workflow work is complete for the current fragment.
 
 ## Phase 3 - LLVM Backend Correctness
 
@@ -257,6 +262,8 @@ Deliverables:
   in LLVM `+`, `-`, and `*`.
 - Completed: add checked LLVM division lowering and runtime-error equivalence
   testing for division by zero and minimum-`Int / -1`.
+- Completed: make `compile file.hg -o program` build a native executable
+  through `clang` while preserving explicit `--emit-llvm` output.
 - Completed: add `docs/llvm-backend-spec.md` for the current LLVM semantic
   contract, IR invariants, validation boundaries, and test obligations.
 - Ongoing: strengthen Backend IR and LLVM IR validators as new IR forms are
@@ -281,9 +288,10 @@ Tests required:
 - Completed: LLVM golden tests.
 - Completed: `llvm-as` validation for emitted goldens when available.
 - Completed: optional `lli`/`clang` execution tests.
+- Completed: native executable build/run tests when `clang` is available.
 - Completed: interpreter-vs-LLVM differential tests for successful executions.
 - Completed: interpreter-vs-LLVM runtime-error equivalence tests for checked
-  arithmetic overflow.
+  arithmetic overflow and division failures.
 
 Risks:
 
@@ -292,13 +300,13 @@ Risks:
 
 Definition of done:
 
-- The current LLVM fragment has a documented semantic contract and differential
-  tests.
+- The current LLVM fragment has a documented semantic contract, differential
+  tests, runtime-error checks, and a native executable artifact path.
 
 Next recommended task:
 
-- Start Phase 5 by lambda-lifting non-capturing lambdas onto the new top-level
-  function path.
+- Normalize the CLI command model around explicit `check`, `run`, `compile`,
+  `report`, `--emit-llvm`, and executable artifact behavior.
 
 ## Phase 4 - Top-Level First-Order Functions
 

@@ -9,6 +9,7 @@ import qualified Backend.LLVM.Toolchain as LLVMTools
 import qualified Backend.LLVM.Validate as LV
 import qualified Backend.Lower as BL
 import qualified Backend.Validate as BV
+import qualified CLI.Compile as CompileCLI
 import CLI.Report (CompileError (..), CompileReport (..), compileReport, renderCompileError, renderGoldenReport)
 import Control.Monad (unless)
 import qualified Data.Map.Strict as Map
@@ -47,6 +48,7 @@ import Runtime.Int (HInt, IntError (IntOverflow), hintToInteger, maxHIntInteger,
 import Syntax.AST
 import Syntax.Parser (parseProgram, parseSourceProgram)
 import Syntax.Span (SourceSpan (..))
+import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
 import Test.QuickCheck hiding (NonZero, label)
 import Text.Megaparsec (errorBundlePretty)
@@ -115,6 +117,11 @@ testGroups =
           checkDiagnosticGolden "examples/type-errors/add-bool.hg" "test/golden/diagnostic-type-add-bool.golden"
       , ioTest "LLVM unsupported diagnostic golden" $
           checkLLVMDiagnosticGolden "\\x : Int -> x" "test/golden/diagnostic-llvm-lambda.golden"
+      ]
+  , TestGroup
+      "CLI"
+      [ pureTest "compile flags select LLVM and native output modes" testCompileFlagsOutputModes
+      , pureTest "compile flags reject invalid run combinations" testCompileFlagsRejectInvalidRunModes
       ]
   , TestGroup
       "Interpreter"
@@ -311,6 +318,9 @@ testGroups =
       , pureTest "LLVM compiler lambda lifts immediate lambdas" testLLVMCompileImmediateLambda
       , pureTest "LLVM compiler closure-converts capturing lambdas" testLLVMCompileCapturingLambda
       , pureTest "LLVM compiler closure-converts inferred capturing lambdas" testLLVMCompileInferredCapturingLambda
+      , ioTest "native build reports missing clang structurally" testNativeBuildToolchainMissing
+      , ioTest "native executable output matches interpreter when clang is available" testNativeExecutionMatchesInterpreter
+      , ioTest "native executable runtime errors fail when clang is available" testNativeRuntimeErrorExecutable
       , ioTest "LLVM checked Int overflow aborts when tools are available" testLLVMOverflowAborts
       , ioTest "LLVM checked division runs and aborts when tools are available" testLLVMDivisionExecution
       , ioTest "LLVM arithmetic golden" $
@@ -554,6 +564,62 @@ testParserDiagnosticIncludesLocation =
         ("examples/bad.hg:1:4:" `Text.isInfixOf` Text.pack (errorBundlePretty parseError))
     Right parsed ->
       Left ("expected parser to fail, got " <> show parsed)
+
+testCompileFlagsOutputModes :: Either String ()
+testCompileFlagsOutputModes = do
+  expectEqual
+    "emit LLVM to explicit file"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.EmitLLVM (Just "out.ll")
+          , CompileCLI.cliUseEgglog = True
+          }
+        )
+    )
+    (CompileCLI.parseCompileFlags ["--emit-llvm", "-o", "out.ll"])
+  expectEqual
+    "legacy run LLVM mode"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.EmitAndRunLLVM Nothing
+          , CompileCLI.cliUseEgglog = True
+          }
+        )
+    )
+    (CompileCLI.parseCompileFlags ["--run-llvm"])
+  expectEqual
+    "native executable output"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.BuildExecutable "program"
+          , CompileCLI.cliUseEgglog = True
+          }
+        )
+    )
+    (CompileCLI.parseCompileFlags ["-o", "program"])
+  expectEqual
+    "native executable run output"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.BuildAndRunExecutable "program"
+          , CompileCLI.cliUseEgglog = False
+          }
+        )
+    )
+    (CompileCLI.parseCompileFlags ["--output", "program", "--run", "--no-egglog"])
+
+testCompileFlagsRejectInvalidRunModes :: Either String ()
+testCompileFlagsRejectInvalidRunModes =
+  assertLeftContains "native run needs output" "--run requires -o/--output" (CompileCLI.parseCompileFlags ["--run"])
+    *> assertLeftContains "native run conflicts with emit LLVM" "--run builds and runs a native executable" (CompileCLI.parseCompileFlags ["--emit-llvm", "--run"])
+    *> assertLeftContains "native and LLVM run conflict" "--run and --run-llvm cannot be combined" (CompileCLI.parseCompileFlags ["--run", "--run-llvm", "-o", "program"])
+    *> assertLeftContains "duplicate output rejected" "provided more than once" (CompileCLI.parseCompileFlags ["-o", "a", "--output", "b"])
+ where
+  assertLeftContains label needle = \case
+    Left message ->
+      assertBool label (needle `Text.isInfixOf` message)
+    Right value ->
+      Left (label <> ": expected parse failure, got " <> show value)
 
 testANFNestedArithmetic :: Either String ()
 testANFNestedArithmetic = do
@@ -2114,6 +2180,105 @@ testLLVMCompileInferredCapturingLambda = do
     "inferred closure call dispatches through loaded code pointer"
     ("call i64 %closure_code" `Text.isInfixOf` llvmText)
 
+testNativeBuildToolchainMissing :: IO (Either String ())
+testNativeBuildToolchainMissing = do
+  result <-
+    LLVMTools.buildNativeExecutable
+      (LLVMTools.LLVMTools Nothing Nothing Nothing)
+      "define i64 @main() {\nentry:\n  ret i64 0\n}\n"
+      ".context/native-tests/missing-toolchain"
+  pure $
+    case result of
+      LLVMTools.NativeBuildToolchainMissing message ->
+        assertBool "missing clang reports toolchain status" ("clang unavailable" `Text.isInfixOf` Text.pack message)
+      other ->
+        Left ("expected missing native toolchain, got " <> show other)
+
+testNativeExecutionMatchesInterpreter :: IO (Either String ())
+testNativeExecutionMatchesInterpreter = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} -> do
+      createDirectoryIfMissing True ".context/native-tests"
+      firstFailureIO (check tools) nativeExecutionExamples
+ where
+  check tools nativeExample = do
+    source <- Text.IO.readFile (nativeExamplePath nativeExample)
+    let options =
+          BC.defaultCompileLLVMOptions
+            { BC.compileUseEgglog = nativeExampleUseEgglog nativeExample
+            }
+    case BC.compileToLLVM options (nativeExamplePath nativeExample) source of
+      Left err ->
+        pure (Left (Text.unpack (BC.renderCompileLLVMError err)))
+      Right result -> do
+        let outputPath = ".context/native-tests/" <> nativeExampleName nativeExample
+        buildResult <- LLVMTools.buildNativeExecutable tools (BC.llvmText result) outputPath
+        runBuiltNative outputPath buildResult $ \runResult ->
+          case runResult of
+            LLVMTools.NativeRunSucceeded stdoutText ->
+              expectEqual ("native stdout for " <> nativeExamplePath nativeExample) (nativeExampleStdout nativeExample) stdoutText
+            LLVMTools.NativeRunFailed code stdoutText stderrText ->
+              Left ("native execution failed for " <> outputPath <> " with " <> show code <> "\nstdout:\n" <> stdoutText <> "\nstderr:\n" <> stderrText)
+            LLVMTools.NativeRunIOError message ->
+              Left ("native execution I/O error for " <> outputPath <> ": " <> message)
+
+testNativeRuntimeErrorExecutable :: IO (Either String ())
+testNativeRuntimeErrorExecutable = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} -> do
+      createDirectoryIfMissing True ".context/native-tests"
+      source <- Text.IO.readFile "examples/llvm/division-by-zero.hg"
+      case expectedInterpreterDivisionError "native-by-zero" ExpectDivisionByZero source of
+        Left err ->
+          pure (Left err)
+        Right () ->
+          case
+            BC.compileToLLVM
+              BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
+              "examples/llvm/division-by-zero.hg"
+              source of
+            Left err ->
+              pure (Left (Text.unpack (BC.renderCompileLLVMError err)))
+            Right result -> do
+              let outputPath = ".context/native-tests/division-by-zero"
+              buildResult <- LLVMTools.buildNativeExecutable tools (BC.llvmText result) outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    Left ("expected native division by zero to fail, got stdout:\n" <> stdoutText)
+                  LLVMTools.NativeRunFailed {} ->
+                    Right ()
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("native execution I/O error for " <> outputPath <> ": " <> message)
+
+runBuiltNative :: FilePath -> LLVMTools.NativeBuildResult -> (LLVMTools.NativeRunResult -> Either String ()) -> IO (Either String ())
+runBuiltNative outputPath buildResult checkRun =
+  case buildResult of
+    LLVMTools.NativeBuildSucceeded ->
+      checkRun <$> LLVMTools.runNativeExecutable outputPath
+    LLVMTools.NativeBuildToolchainMissing {} ->
+      pure (Right ())
+    LLVMTools.NativeBuildFailed clangPath args code stdoutText stderrText ->
+      pure $
+        Left
+          ( "native build failed with "
+              <> show code
+              <> "\ncommand: "
+              <> unwords (clangPath : args)
+              <> "\nstdout:\n"
+              <> stdoutText
+              <> "\nstderr:\n"
+              <> stderrText
+          )
+    LLVMTools.NativeBuildIOError message ->
+      pure (Left ("native build I/O error: " <> message))
+
 testLLVMOverflowAborts :: IO (Either String ())
 testLLVMOverflowAborts = do
   tools <- LLVMTools.findLLVMTools
@@ -2975,6 +3140,23 @@ llvmExecutionExamples =
   , ("examples/llvm/bool-root.hg", "1\n")
   , ("examples/llvm/top-level.hg", "42\n")
   , ("examples/llvm/division.hg", "5\n")
+  ]
+
+data NativeExample = NativeExample
+  { nativeExampleName :: FilePath
+  , nativeExamplePath :: FilePath
+  , nativeExampleStdout :: String
+  , nativeExampleUseEgglog :: Bool
+  }
+  deriving stock (Show, Eq)
+
+nativeExecutionExamples :: [NativeExample]
+nativeExecutionExamples =
+  [ NativeExample "arithmetic" "examples/llvm/arithmetic.hg" "14\n" True
+  , NativeExample "if-comparison" "examples/llvm/if-comparison.hg" "6\n" True
+  , NativeExample "division" "examples/llvm/division.hg" "5\n" True
+  , NativeExample "bool-root" "examples/llvm/bool-root.hg" "1\n" True
+  , NativeExample "division-no-egglog" "examples/llvm/division.hg" "5\n" False
   ]
 
 llvmDifferentialSources :: [Text]

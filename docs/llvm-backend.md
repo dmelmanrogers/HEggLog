@@ -5,13 +5,13 @@ intentionally narrow but now includes a first closure runtime pass: it compiles
 closed, pure programs with first-order roots, ordered top-level functions,
 saturated direct calls, lambda-lifted non-capturing functions, and local closure
 calls into a small typed backend IR, lowers that IR into structured LLVM IR, and
-emits textual LLVM.
+emits either textual LLVM or a native executable through `clang`.
 
 For the normative semantic contract, see
 [`docs/llvm-backend-spec.md`](llvm-backend-spec.md).
 
 ```text
-source -> typecheck -> lambda lift -> ANF or closure conversion -> Backend IR -> LLVM IR
+source -> typecheck -> lambda lift -> ANF or closure conversion -> Backend IR -> LLVM IR -> text or clang executable
 ```
 
 ## Supported Fragment
@@ -146,6 +146,16 @@ cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm --no-egglog
 cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm --run-llvm
 ```
 
+Native executable mode:
+
+```bash
+cabal run hegglog -- compile examples/llvm/arithmetic.hg -o build/arithmetic
+./build/arithmetic
+
+cabal run hegglog -- compile examples/llvm/arithmetic.hg -o build/arithmetic --run
+cabal run hegglog -- compile examples/llvm/division.hg -o build/division --no-egglog
+```
+
 The shorthand form also works:
 
 ```bash
@@ -158,8 +168,8 @@ produce structured compile errors.
 
 ## Assembly And Executable Workflow
 
-The compiler emits textual LLVM IR. A local LLVM toolchain can validate,
-interpret, or compile that IR:
+The compiler can either write textual LLVM IR directly or build a native
+executable by passing generated LLVM text to `clang` with an argument list:
 
 ```bash
 cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm -o build/arithmetic.ll
@@ -167,18 +177,31 @@ llvm-as build/arithmetic.ll -o build/arithmetic.bc
 lli build/arithmetic.ll
 clang build/arithmetic.ll -o build/arithmetic
 ./build/arithmetic
+
+cabal run hegglog -- compile examples/llvm/arithmetic.hg -o build/arithmetic
+./build/arithmetic
 ```
 
 `llvm-as` checks that emitted text is accepted by LLVM's parser and assembler.
 `lli` is useful for fast interpretation. `clang` produces a native executable
 and links against the platform C runtime for `printf` and `abort`.
 
+Native executable mode requires `clang`. If `clang` is unavailable, the CLI
+prints a structured toolchain error and exits nonzero. Temporary LLVM files used
+only for native builds are cleaned up after the clang invocation. `--run` builds
+the requested executable and then runs it, preserving program stdout; build
+status and toolchain diagnostics are written to stderr. Runtime errors in
+generated code call `abort`, so the executable exits unsuccessfully.
+
 The test suite validates selected LLVM golden outputs against checked-in text.
 When `llvm-as` is available, those same emitted modules are also assembled to
 bitcode. It also runs a small differential corpus through both the interpreter
 and LLVM execution path when `lli` or `clang` is available, comparing LLVM stdout
-against the interpreter-derived root value. The corpus includes captured
-closures, returned closures, and higher-order local function values.
+against the interpreter-derived root value. Native executable tests compile and
+run representative artifacts with `clang` when available, including arithmetic,
+comparison, division, Bool roots, `--no-egglog`, and runtime-error aborts. The
+corpus includes captured closures, returned closures, and higher-order local
+function values.
 
 ## External Tools
 
@@ -188,6 +211,7 @@ available tools:
 - `llvm-as`, if available, for assembly validation
 - `lli`, if available
 - otherwise `clang`, if available
+- `clang`, required for native executable output
 
 If the relevant external tool is unavailable, that external-tool check is
 skipped gracefully. Pure Haskell validation and textual golden tests still run.
@@ -225,7 +249,8 @@ closure-converted source:
 7. lower to LLVM IR
 8. validate and emit LLVM IR
 9. optionally validate emitted text with `llvm-as`
-10. optionally run with `lli` or compile and run with `clang`
+10. optionally run LLVM text with `lli` or a temporary clang executable
+11. optionally build the requested native executable with `clang`
 
 Egglog remains an optimizer. LLVM remains a code generation backend.
 The current Egglog optimizer is expression-oriented; source programs with

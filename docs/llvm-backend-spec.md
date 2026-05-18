@@ -7,14 +7,15 @@ operational guide for CLI use and toolchain workflow.
 ## Scope
 
 The LLVM backend compiles a typed, closed source program with an `Int` or `Bool`
-root to deterministic textual LLVM IR. Source programs may include ordered
+root to deterministic textual LLVM IR, and the CLI can pass that generated IR to
+`clang` to produce a native executable. Source programs may include ordered
 top-level first-order functions, saturated direct calls, lambda-lifted
 non-capturing functions, and local closure values.
 
 The pipeline is:
 
 ```text
-source -> located parse -> typecheck -> lambda lift -> ANF or closure conversion -> Backend IR -> LLVM IR -> text
+source -> located parse -> typecheck -> lambda lift -> ANF or closure conversion -> Backend IR -> LLVM IR -> text or clang executable
 ```
 
 The source interpreter is the semantic reference. The LLVM backend must either:
@@ -36,7 +37,7 @@ Supported source forms:
 - variables bound by `let`
 - nonrecursive `let`
 - `if` expressions with `Bool` conditions and same-typed branches
-- integer `+`, `-`, and `*`
+- integer `+`, `-`, `*`, and `/`
 - integer `<`
 - `==` over `Int`
 - `==` over `Bool`
@@ -259,14 +260,20 @@ lowering.
 
 ## Toolchain Contract
 
-Pure compiler validation does not require external LLVM tools. When tools are
-available, tests add these checks:
+Pure compiler validation and LLVM text emission do not require external LLVM
+tools. Native executable output requires `clang`; absence of `clang` is reported
+as a structured toolchain error by the CLI. When tools are available, tests add
+these checks:
 
 - `llvm-as` assembles selected emitted golden modules to bitcode
 - `lli` executes emitted LLVM text when available
 - `clang` is the fallback execution path when `lli` is unavailable
+- `clang` builds persistent native executables for representative programs
 
 External-tool checks skip gracefully when the relevant tool is unavailable.
+Native compile mode does not shell-concatenate commands; it invokes `clang` with
+an argument list, captures stdout and stderr, and returns structured build
+failure information that includes the command, exit code, stdout, and stderr.
 
 ## Required Tests
 
@@ -277,13 +284,14 @@ The current contract is covered by:
 - deterministic LLVM golden tests
 - `llvm-as` validation for selected goldens when available
 - optional `lli`/`clang` execution for fixture programs
+- native executable build/run tests when `clang` is available
 - interpreter-vs-LLVM differential tests for successful supported programs
 - top-level parser/typechecker tests, lambda-lifting tests, and direct-call LLVM
   execution tests
 - closure-conversion LLVM tests and interpreter-vs-LLVM closure differential
   examples
 - interpreter-vs-LLVM runtime-error equivalence tests for checked arithmetic
-  overflow
+  overflow and division failures
 
 ## Extension Rules
 

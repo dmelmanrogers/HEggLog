@@ -2,21 +2,15 @@ module Main (main) where
 
 import Backend.Compile
 import Backend.LLVM.Toolchain
+import CLI.Compile (CompileCLIOptions (..), CompileOutputMode (..), parseCompileFlags)
 import CLI.Report (compileReport, renderCompileError, renderFullReport)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
-import System.Environment (getArgs)
-import System.Exit (exitFailure)
 import System.Directory (createDirectoryIfMissing)
+import System.Environment (getArgs)
+import System.Exit (ExitCode (..), exitFailure)
 import System.IO (stderr)
-
-data CompileCLIOptions = CompileCLIOptions
-  { cliOutput :: Maybe FilePath
-  , cliUseEgglog :: Bool
-  , cliRunLLVM :: Bool
-  }
-  deriving stock (Show, Eq)
 
 main :: IO ()
 main = do
@@ -58,14 +52,25 @@ runCompile path flags =
           Text.IO.putStrLn (renderCompileLLVMError err)
           exitFailure
         Right result -> do
-          emitCompileResult cliOptions result
-          if cliRunLLVM cliOptions
-            then runGeneratedLLVM result
-            else pure ()
+          handleCompileOutput cliOptions result
 
-emitCompileResult :: CompileCLIOptions -> LLVMCompileResult -> IO ()
-emitCompileResult cliOptions result =
-  case cliOutput cliOptions of
+handleCompileOutput :: CompileCLIOptions -> LLVMCompileResult -> IO ()
+handleCompileOutput cliOptions result =
+  case cliOutputMode cliOptions of
+    EmitLLVM maybePath ->
+      emitLLVMOutput maybePath result
+    EmitAndRunLLVM maybePath -> do
+      emitLLVMOutput maybePath result
+      runGeneratedLLVM result
+    BuildExecutable outputPath ->
+      buildNativeOutput outputPath result
+    BuildAndRunExecutable outputPath -> do
+      buildNativeOutput outputPath result
+      runGeneratedExecutable outputPath
+
+emitLLVMOutput :: Maybe FilePath -> LLVMCompileResult -> IO ()
+emitLLVMOutput maybePath result =
+  case maybePath of
     Nothing ->
       Text.IO.putStr (llvmText result)
     Just path -> do
@@ -73,6 +78,28 @@ emitCompileResult cliOptions result =
       Text.IO.writeFile path (llvmText result)
       Text.IO.putStrLn ("wrote LLVM IR to " <> Text.pack path)
       Text.IO.putStrLn (renderLLVMOptimizationStatus (llvmOptimizationStatus result))
+
+buildNativeOutput :: FilePath -> LLVMCompileResult -> IO ()
+buildNativeOutput outputPath result = do
+  ensureParentDirectory outputPath
+  tools <- findLLVMTools
+  nativeResult <- buildNativeExecutable tools (llvmText result) outputPath
+  case nativeResult of
+    NativeBuildSucceeded -> do
+      Text.IO.hPutStrLn stderr ("wrote native executable to " <> Text.pack outputPath)
+      Text.IO.hPutStrLn stderr (renderLLVMOptimizationStatus (llvmOptimizationStatus result))
+    NativeBuildToolchainMissing message -> do
+      Text.IO.hPutStrLn stderr ("native executable build unavailable: " <> Text.pack message)
+      exitFailure
+    NativeBuildFailed clangPath args code stdoutText stderrText -> do
+      Text.IO.hPutStrLn stderr ("native executable build failed: " <> renderExitCode code)
+      Text.IO.hPutStrLn stderr ("command: " <> Text.pack (unwords (clangPath : args)))
+      if null stdoutText then pure () else Text.IO.hPutStrLn stderr ("stdout:\n" <> Text.pack stdoutText)
+      if null stderrText then pure () else Text.IO.hPutStrLn stderr ("stderr:\n" <> Text.pack stderrText)
+      exitFailure
+    NativeBuildIOError message -> do
+      Text.IO.hPutStrLn stderr ("native executable build I/O error: " <> Text.pack message)
+      exitFailure
 
 runGeneratedLLVM :: LLVMCompileResult -> IO ()
 runGeneratedLLVM result = do
@@ -89,34 +116,27 @@ runGeneratedLLVM result = do
     LLVMRunSucceeded stdoutText ->
       Text.IO.hPutStr stderr (Text.pack stdoutText)
 
-parseCompileFlags :: [String] -> Either Text CompileCLIOptions
-parseCompileFlags =
-  go
-    CompileCLIOptions
-      { cliOutput = Nothing
-      , cliUseEgglog = True
-      , cliRunLLVM = False
-      }
- where
-  go options = \case
-    [] ->
-      Right options
-    "--emit-llvm" : rest ->
-      go options rest
-    "--no-egglog" : rest ->
-      go options {cliUseEgglog = False} rest
-    "--run-llvm" : rest ->
-      go options {cliRunLLVM = True} rest
-    "-o" : output : rest ->
-      go options {cliOutput = Just output} rest
-    "--output" : output : rest ->
-      go options {cliOutput = Just output} rest
-    "-o" : [] ->
-      Left "-o requires a file path"
-    "--output" : [] ->
-      Left "--output requires a file path"
-    flag : _ ->
-      Left ("unknown compile option: " <> Text.pack flag)
+runGeneratedExecutable :: FilePath -> IO ()
+runGeneratedExecutable outputPath = do
+  runResult <- runNativeExecutable outputPath
+  case runResult of
+    NativeRunSucceeded stdoutText ->
+      Text.IO.putStr (Text.pack stdoutText)
+    NativeRunFailed code stdoutText stderrText -> do
+      Text.IO.hPutStrLn stderr ("native executable failed: " <> Text.pack outputPath <> " exited with " <> renderExitCode code)
+      if null stdoutText then pure () else Text.IO.hPutStrLn stderr ("stdout:\n" <> Text.pack stdoutText)
+      if null stderrText then pure () else Text.IO.hPutStrLn stderr ("stderr:\n" <> Text.pack stderrText)
+      exitFailure
+    NativeRunIOError message -> do
+      Text.IO.hPutStrLn stderr ("native executable run I/O error: " <> Text.pack message)
+      exitFailure
+
+renderExitCode :: ExitCode -> Text
+renderExitCode = \case
+  ExitSuccess ->
+    "exit 0"
+  ExitFailure code ->
+    "exit " <> Text.pack (show code)
 
 usage :: Text
 usage =
@@ -124,6 +144,7 @@ usage =
     [ "usage:"
     , "  cabal run hegglog -- examples/test.hg"
     , "  cabal run hegglog -- compile examples/test.hg --emit-llvm [-o build/test.ll] [--no-egglog] [--run-llvm]"
+    , "  cabal run hegglog -- compile examples/test.hg -o build/test [--no-egglog] [--run]"
     , "  cabal run hegglog -- examples/test.hg --emit-llvm [-o build/test.ll] [--no-egglog] [--run-llvm]"
     ]
 

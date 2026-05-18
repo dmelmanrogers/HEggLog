@@ -49,12 +49,28 @@ The CLI prints:
 
 ## LLVM Backend
 
-Closed programs with `Int` or `Bool` roots can be compiled to textual LLVM IR:
+Closed programs with `Int` or `Bool` roots can be compiled to native
+executables through `clang`:
+
+```bash
+cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithmetic
+/tmp/hegglog-arithmetic
+# 14
+```
+
+Textual LLVM IR remains available behind `--emit-llvm`:
 
 ```bash
 cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm
 cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm -o build/arithmetic.ll
 cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm --run-llvm
+```
+
+Native compile mode also supports `--no-egglog` and `--run`:
+
+```bash
+cabal run hegglog -- compile examples/llvm/division.hg -o /tmp/hegglog-division --no-egglog
+cabal run hegglog -- compile examples/llvm/division.hg -o /tmp/hegglog-division --run
 ```
 
 The LLVM v0 backend supports `Int`, `Bool`, `let`, `if`, `+`, `-`, `*`, `/`,

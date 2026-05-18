@@ -53,6 +53,7 @@ executable hegglog
       Backend.Lower
       Backend.Pretty
       Backend.Validate
+      CLI.Compile
       CLI.Report
       Egglog.Database
       Egglog.Eval
@@ -127,6 +128,7 @@ test-suite hegglog-test
       Backend.Lower
       Backend.Pretty
       Backend.Validate
+      CLI.Compile
       CLI.Report
       Egglog.Database
       Egglog.Eval
