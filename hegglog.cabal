@@ -71,6 +71,7 @@ executable hegglog
       Egglog.Value
       Eval.ANFInterpreter
       Eval.Interpreter
+      Haskell2010.Core.Eval
       Haskell2010.Core.FreeVars
       Haskell2010.Core.Pretty
       Haskell2010.Core.Subst
@@ -160,6 +161,7 @@ test-suite hegglog-test
       Egglog.Value
       Eval.ANFInterpreter
       Eval.Interpreter
+      Haskell2010.Core.Eval
       Haskell2010.Core.FreeVars
       Haskell2010.Core.Pretty
       Haskell2010.Core.Subst

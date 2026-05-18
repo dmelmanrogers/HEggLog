@@ -34,6 +34,7 @@ Planned for the Haskell 2010 target:
 - typed Core IR, validator, and utilities
 - Core-0 Hindley-Milner typechecker and source-to-Core desugaring for the
   first `Int`/`Bool` subset
+- Core-0 reference evaluator for validated typed Core
 - full Haskell 2010 class constraints and dictionaries
 - STG-like lazy IR and runtime
 - Egglog optimizer over typed Core
@@ -105,7 +106,8 @@ Full documentation index:
 | Haskell 2010 parser/layout | Implemented as an isolated parser/layout frontend and parser-tested; connected to Core-0 source-to-Core tests, not executable compilation. |
 | Haskell 2010 renamer | Implemented as an isolated unique-name pass and unit-tested; connected to Core-0 source-to-Core tests, not executable compilation. |
 | Haskell 2010 typed Core | Implemented as a typed IR with validator, free-variable analysis, substitution, pretty-printer, and Core-0 source generation. |
-| Haskell 2010 Core-0 typechecker/desugarer | Implemented for explicit signatures, HM polymorphism, `Int`, `Bool`, top-level functions, lambdas, application, `let`, `if`, Bool `case`, and primitive arithmetic/comparison; not yet executable. |
+| Haskell 2010 Core-0 typechecker/desugarer | Implemented for explicit signatures, HM polymorphism, `Int`, `Bool`, top-level functions, lambdas, application, `let`, `if`, Bool `case`, and primitive arithmetic/comparison. |
+| Haskell 2010 Core-0 reference evaluator | Implemented for validating typed Core with lazy let/function argument thunks, erased Core type abstraction/application, Bool case execution, checked `Int` primitives, and structured runtime errors; not yet native executable compilation. |
 | Haskell 2010 STG/lazy runtime | Planned; not implemented. |
 | LLVM/native backend | Implemented for the current `.hg` supported subset. |
 | Egglog ANF backend | Implemented for the current `.hg` supported subset. |

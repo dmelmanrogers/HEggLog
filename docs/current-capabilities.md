@@ -64,8 +64,11 @@ produces a unique-name resolved AST with lexical scopes, namespace separation,
 import ambiguity checks, and fixity resolution. An isolated typed Core IR,
 validator, free-variable pass, substitution pass, and pretty-printer now exist
 and are unit-tested. A Core-0 Haskell typechecker/desugarer now emits
-validating typed Core for the first `Int`/`Bool` subset. The Core evaluator,
-STG pipeline, lazy runtime, and executable conformance tests are not yet
+validating typed Core for the first `Int`/`Bool` subset. A Core-0 reference
+evaluator now executes validating typed Core with lazy let/function argument
+thunks, Bool case evaluation, erased type abstraction/application, checked
+`Int` primitives, and structured runtime errors. The STG pipeline, lazy runtime,
+native executable path, and executable conformance tests are not yet
 implemented for Haskell 2010.
 
 Current status:
@@ -78,6 +81,9 @@ Current status:
 - Haskell source desugaring to typed Core: implemented and unit-tested for
   Core-0 functions, lambdas, application, `let`, `if`, Bool `case`, and
   primitive arithmetic/comparison
+- Haskell 2010 Core-0 reference evaluator: implemented and unit-tested for
+  arithmetic, polymorphic instantiation, Bool case, lazy lets/arguments, and
+  division-by-zero reporting
 - STG-like lazy IR/runtime: planned
 - Haskell 2010 native executable path: planned
 - Haskell 2010 conformance suite: planned

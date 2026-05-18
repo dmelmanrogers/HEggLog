@@ -5,8 +5,9 @@ This matrix tracks the active Haskell 2010 target. Rows marked
 substrate but is not yet implemented for Haskell 2010 source.
 
 Status values: `not started`, `current .hg only`, `parsed`, `renamed`,
-`typechecked`, `desugared to Core`, `compiled to native`, `wet-tested`,
-`complete`, `deferred`, `documented deviation`.
+`typechecked`, `desugared to Core`, `evaluated by Core`,
+`compiled to native`, `wet-tested`, `complete`, `deferred`,
+`documented deviation`.
 
 | Haskell 2010 area | Feature | Current status | Planned milestone | Parser | Renamer | Typechecker | Core | STG/runtime | LLVM/native | Tests | Notes/deviations |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -75,10 +76,11 @@ Status values: `not started`, `current .hg only`, `parsed`, `renamed`,
 | Compiler IR | Core validator | complete | Phase 4 | n/a | n/a | n/a | implemented | not started | not started | Core unit tests | Validates unique binders, resolved variables, expression types, primitive signatures, constructor arities, and case alternative result types. |
 | Compiler IR | Core utilities | complete | Phase 4 | n/a | n/a | n/a | implemented | not started | not started | Core unit tests | Free-variable analysis, capture-aware substitution, and stable pretty-printing are implemented for the isolated Core IR. |
 | Compiler IR | Haskell source to Core | desugared to Core | Phase 5 | parsed | renamed | Core-0 subset | Core-0 emitted | not started | not started | Core-0 tests | Renamed Core-0 source typechecks and emits validating typed Core; full Haskell 2010 remains later. |
-| Runtime/semantics | laziness | not started | Phase 6 | n/a | n/a | not started | not started | not started | not started | not started | Required for Haskell 2010. |
+| Compiler IR | Core-0 reference evaluator | evaluated by Core | Phase 5 | parsed | renamed | Core-0 subset | Core-0 evaluated | not started | not started | Core-0 evaluator tests | Validated typed Core executes with lazy let/function argument thunks, erased type abstraction/application, Bool case evaluation, checked `Int` primitives, and structured runtime errors; not a native runtime. |
+| Runtime/semantics | laziness | evaluated by Core | Phase 6 | n/a | n/a | Core-0 subset | lazy Core evaluator | not started | not started | Core-0 evaluator tests | Reference Core evaluation has lazy lets and function arguments; STG heap sharing/update behavior remains pending. |
 | Runtime/semantics | sharing | not started | Phase 6/7 | n/a | n/a | n/a | not started | not started | not started | not started | Thunk updates pending. |
 | Runtime/semantics | bottom | not started | Phase 6/15 | n/a | n/a | n/a | not started | not started | not started | not started | Must constrain optimizer rules. |
-| Runtime/semantics | checked Int64 bridge/current runtime | current .hg only | Phase 7 | .hg only | n/a | .hg only | .hg only | .hg strict only | .hg native wet-tested | wet-tested for .hg | Haskell numeric model to be specified. |
+| Runtime/semantics | checked Int64 bridge/current runtime | evaluated by Core | Phase 7 | .hg only | n/a | Core-0 Int primitives | Core evaluator uses checked helpers | not started | .hg native wet-tested | .hg wet tests and Core-0 evaluator tests | The current `.hg` runtime remains native; Haskell Core-0 reference evaluation now reuses the checked signed `Int64` helper semantics before STG/native runtime exists. |
 | Runtime/semantics | constructors | not started | Phase 7/9 | not started | not started | not started | not started | not started | not started | not started | Closure layout pending. |
 | Runtime/semantics | pattern-match failure | not started | Phase 9/17 | not started | not started | not started | not started | not started | not started | not started | Diagnostics pending. |
 | Runtime/semantics | IO | not started | Phase 13 | not started | not started | not started | not started | not started | not started | not started | Native entrypoint pending. |

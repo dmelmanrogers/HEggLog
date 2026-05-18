@@ -388,7 +388,16 @@ inferPrimitive env lhs op rhs =
     typedLhs <- inferExpr env lhs
     typedRhs <- inferExpr env rhs
     unify (typedExprType typedLhs) (typedExprType typedRhs)
+    equalityType <- applyCurrent (typedExprType typedLhs)
+    unless (supportsCore0Equality equalityType) $
+      throwTypecheck (UnsupportedCore0 ("equality for type " <> renderMonoType equalityType))
     pure (TPrim PrimEq [typedLhs, typedRhs] boolMonoType)
+
+  supportsCore0Equality ty =
+    ty == intMonoType
+      || ty == boolMonoType
+      || ty == charMonoType
+      || ty == stringMonoType
 
 inferBoolAlt :: TypeEnv -> TypedBinder -> MonoType -> RAlt -> InferM TypedAlt
 inferBoolAlt env caseBinder resultTy (RAlt pat rhs whereDecls) = do

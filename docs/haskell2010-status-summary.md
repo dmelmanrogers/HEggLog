@@ -23,10 +23,10 @@ values when the root is printable.
 
 ## What Does Not Yet Compile
 
-HeggLog does not yet compile Haskell 2010 `.hs` source. The following Haskell
-2010 requirements are planned but not implemented:
+HeggLog does not yet compile Haskell 2010 `.hs` source to native
+executables. The following Haskell 2010 requirements are planned but not
+implemented:
 
-- Haskell Hindley-Milner typechecker
 - ADTs and pattern matching
 - type classes and dictionary passing
 - Prelude/library subset
@@ -78,10 +78,23 @@ generalization and instantiation, top-level functions, lambdas, application,
 local `let`, `if` desugared to Bool `case`, explicit Bool `case`, and primitive
 `+`, `-`, `*`, `/`, `<`, and `==`.
 
-This is a source-to-Core milestone only. It does not yet evaluate Core, lower
-Core to STG, or compile Haskell 2010 source to native executables. Source-spanned
-Haskell 2010 type diagnostics also remain later work because the renamed AST is
-currently spanless.
+Core-0 equality is deliberately limited to first-order literal value types
+(`Int`, `Bool`, `Char`, and `String`) until class constraints and dictionaries
+exist.
+
+## What Core Evaluates Today
+
+The Core-0 reference evaluator executes validating typed Core modules and
+bindings for the first executable subset. It implements lazy let and function
+argument thunks, forces case scrutinees and primitive operands, erases Core type
+abstraction/application at runtime, evaluates Bool cases, reuses the checked
+signed `Int64` arithmetic/division helpers, and reports structured runtime
+errors such as division by zero and no matching case alternative.
+
+This is a reference oracle only. It does not lower Core to STG, allocate/update
+runtime thunks, share evaluated thunks through a native heap, or compile Haskell
+2010 source to native executables. Source-spanned Haskell 2010 type diagnostics
+also remain later work because the renamed AST is currently spanless.
 
 ## First Haskell 2010 Implementation Milestones
 
@@ -89,9 +102,10 @@ currently spanless.
 2. Renamer MVP. Completed.
 3. Typed Core MVP. Completed.
 4. Core-0 Haskell typechecker/desugarer integration. Completed.
-5. Core-0 reference evaluator.
+5. Core-0 reference evaluator. Completed.
 6. Lazy/STG runtime MVP.
-7. Egglog Core optimizer implementation after Core has an execution oracle.
+7. Core-to-STG lowering MVP.
+8. Egglog Core optimizer implementation using the Core evaluator as oracle.
 
 ## Where Egglog Fits
 
@@ -113,5 +127,5 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Build a Core-0 reference evaluator while preserving the current `.hg` compiler
-and wet-test baseline.
+Build the Lazy/STG runtime MVP while preserving the current `.hg` compiler,
+Core-0 reference evaluator, and wet-test baseline.

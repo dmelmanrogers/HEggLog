@@ -29,6 +29,7 @@ import qualified Egglog.Value as EV
 import Eval.ANFInterpreter (ANFValue (..), evalANF)
 import Eval.Interpreter (RuntimeError (..), Value (..), eval, evalProgram, renderRuntimeError, renderValue)
 import qualified Haskell2010.Core.FreeVars as H2010CoreFreeVars
+import qualified Haskell2010.Core.Eval as H2010CoreEval
 import qualified Haskell2010.Core.Pretty as H2010CorePretty
 import qualified Haskell2010.Core.Subst as H2010CoreSubst
 import qualified Haskell2010.Core.Syntax as H2010Core
@@ -131,6 +132,16 @@ testGroups =
       , pureTest "desugars if to Bool case Core" testHaskell2010Core0If
       , pureTest "desugars explicit Bool case Core" testHaskell2010Core0Case
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
+      , pureTest "rejects unsupported Core-0 equality" testHaskell2010Core0UnsupportedEquality
+      ]
+  , TestGroup
+      "Haskell 2010 Core-0 Evaluator"
+      [ pureTest "evaluates arithmetic Core-0 source" testHaskell2010Core0EvalArithmetic
+      , pureTest "evaluates polymorphic identity instantiation" testHaskell2010Core0EvalPolymorphicIdentity
+      , pureTest "evaluates Bool case" testHaskell2010Core0EvalBoolCase
+      , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
+      , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
+      , pureTest "reports forced division by zero" testHaskell2010Core0EvalDivisionByZero
       ]
   , TestGroup
       "Typechecker"
@@ -1034,6 +1045,89 @@ testHaskell2010Core0TypeError =
       Left H2010Typecheck.TypeMismatch {} -> Right ()
       Left err -> Left ("expected Core-0 type mismatch, got: " <> show err)
       Right coreModule -> Left ("ill-typed Core-0 source typechecked unexpectedly: " <> show coreModule)
+
+testHaskell2010Core0UnsupportedEquality :: Either String ()
+testHaskell2010Core0UnsupportedEquality =
+  case
+    typecheckHaskell2010Raw
+      "module Core0 where\n\
+      \bad :: (Int -> Int) -> (Int -> Int) -> Bool\n\
+      \bad f g = f == g\n"
+    of
+      Left (H2010Typecheck.UnsupportedCore0 message)
+        | "equality for type" `Text.isInfixOf` message -> Right ()
+      Left err -> Left ("expected unsupported Core-0 equality, got: " <> show err)
+      Right coreModule -> Left ("unsupported Core-0 equality typechecked unexpectedly: " <> show coreModule)
+
+testHaskell2010Core0EvalArithmetic :: Either String ()
+testHaskell2010Core0EvalArithmetic =
+  expectCoreEvalInt
+    "Core-0 arithmetic evaluation"
+    9
+    =<< evalHaskell2010Binding
+      "main"
+      "module Eval where\n\
+      \main = (1 + 2) * 3\n"
+
+testHaskell2010Core0EvalPolymorphicIdentity :: Either String ()
+testHaskell2010Core0EvalPolymorphicIdentity =
+  expectCoreEvalInt
+    "Core-0 polymorphic identity evaluation"
+    42
+    =<< evalHaskell2010Binding
+      "main"
+      "module Eval where\n\
+      \id :: a -> a\n\
+      \id x = x\n\
+      \main = id 42\n"
+
+testHaskell2010Core0EvalBoolCase :: Either String ()
+testHaskell2010Core0EvalBoolCase =
+  expectCoreEvalInt
+    "Core-0 Bool case evaluation"
+    7
+    =<< evalHaskell2010Binding
+      "main"
+      "module Eval where\n\
+      \main = case False of\n\
+      \  True -> 0\n\
+      \  False -> 7\n"
+
+testHaskell2010Core0EvalLazyLet :: Either String ()
+testHaskell2010Core0EvalLazyLet =
+  expectCoreEvalInt
+    "Core-0 lazy let evaluation"
+    5
+    =<< evalHaskell2010Binding
+      "main"
+      "module Eval where\n\
+      \main = let\n\
+      \  x = 1 / 0\n\
+      \in 5\n"
+
+testHaskell2010Core0EvalLazyArgument :: Either String ()
+testHaskell2010Core0EvalLazyArgument =
+  expectCoreEvalInt
+    "Core-0 lazy argument evaluation"
+    1
+    =<< evalHaskell2010Binding
+      "main"
+      "module Eval where\n\
+      \const :: a -> b -> a\n\
+      \const x y = x\n\
+      \main = const 1 (1 / 0)\n"
+
+testHaskell2010Core0EvalDivisionByZero :: Either String ()
+testHaskell2010Core0EvalDivisionByZero =
+  case
+    evalHaskell2010BindingRaw
+      "main"
+      "module Eval where\n\
+      \main = 1 / 0\n"
+    of
+      Left H2010CoreEval.CoreEvalDivisionByZero -> Right ()
+      Left err -> Left ("expected Core-0 division by zero, got: " <> show err)
+      Right value -> Left ("division by zero evaluated unexpectedly: " <> show value)
 
 testHigherOrderType :: Either String ()
 testHigherOrderType = do
@@ -3635,6 +3729,28 @@ typecheckHaskell2010Raw :: Text -> Either H2010Typecheck.TypecheckError H2010Cor
 typecheckHaskell2010Raw source = do
   renamed <- mapLeft (error . Text.unpack . H2010Renamer.renderRenameError) (renameHaskell2010Raw source)
   H2010Typecheck.typecheckModuleToCore renamed
+
+evalHaskell2010Binding :: Text -> Text -> Either String H2010CoreEval.CoreValue
+evalHaskell2010Binding binding source =
+  mapLeft (Text.unpack . H2010CoreEval.renderCoreEvalError) (evalHaskell2010BindingRaw binding source)
+
+evalHaskell2010BindingRaw :: Text -> Text -> Either H2010CoreEval.CoreEvalError H2010CoreEval.CoreValue
+evalHaskell2010BindingRaw binding source = do
+  coreModule <- mapLeft (error . Text.unpack . H2010Typecheck.renderTypecheckError) (typecheckHaskell2010Raw source)
+  H2010CoreEval.evalCoreModuleBindingByOccurrence binding coreModule
+
+expectCoreEvalInt :: String -> Integer -> H2010CoreEval.CoreValue -> Either String ()
+expectCoreEvalInt label expected = \case
+  H2010CoreEval.CoreInt actual ->
+    expectEqual label expected (hintToInteger actual)
+  actual ->
+    Left
+      ( label
+          <> ": expected Core Int "
+          <> show expected
+          <> ", got "
+          <> Text.unpack (H2010CoreEval.renderCoreValue actual)
+      )
 
 coreTerm :: Text -> Int -> H2010Names.RName
 coreTerm occurrence uniqueId =

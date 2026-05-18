@@ -32,13 +32,16 @@ Implemented Core modules:
 ```text
 src/Haskell2010/Core/
   Syntax.hs
+  Eval.hs
   Validate.hs
   Pretty.hs
   FreeVars.hs
   Subst.hs
 ```
 
-Core types live in `Haskell2010.Core.Syntax` for the current MVP.
+Core types live in `Haskell2010.Core.Syntax` for the current MVP. The
+reference evaluator in `Haskell2010.Core.Eval` executes validated Core-0 typed
+Core as the oracle for later STG/native work.
 
 Proposed STG modules:
 
@@ -79,18 +82,17 @@ is built alongside them.
 3. Core IR. Completed.
 4. Core validator. Completed.
 5. Core-0 typechecker/desugarer. Completed.
-6. Core evaluator.
-7. Core evaluator or reference interpreter.
-8. STG IR.
-9. Lazy runtime.
-10. STG-to-LLVM.
-11. ADTs/pattern matching.
-12. Recursion.
-13. Prelude subset.
-14. Type classes/dictionaries.
-15. IO.
-16. Modules.
-17. Egglog Core optimizer.
+6. Core evaluator. Completed.
+7. STG IR.
+8. Lazy runtime.
+9. STG-to-LLVM.
+10. ADTs/pattern matching.
+11. Recursion.
+12. Prelude subset.
+13. Type classes/dictionaries.
+14. IO.
+15. Modules.
+16. Egglog Core optimizer.
 
 ## Tests Required Per Milestone
 

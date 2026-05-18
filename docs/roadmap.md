@@ -43,9 +43,9 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Core-0 reference evaluator.
-2. Lazy/STG runtime MVP.
-3. Egglog Core optimizer implementation after Core has an execution oracle.
+1. Lazy/STG runtime MVP.
+2. Core-to-STG lowering MVP.
+3. Core-0 native executable path.
 
 Completed Haskell 2010 roadmap work:
 
@@ -63,6 +63,10 @@ Completed Haskell 2010 roadmap work:
   to typed Core pass for `Int`, `Bool`, explicit signatures, HM
   generalization/instantiation, top-level functions, lambdas, application,
   local `let`, `if`, Bool `case`, and primitive arithmetic/comparison.
+- Haskell 2010 Core-0 reference evaluator: implemented as a validating typed
+  Core evaluator with lazy let/function argument thunks, erased Core type
+  abstraction/application, Bool case execution, checked `Int` primitives, and
+  structured runtime errors.
 
 ## Non-Negotiable Project Direction
 
