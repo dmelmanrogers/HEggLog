@@ -386,11 +386,11 @@
     {
       "name": "unsupported.kind-checking",
       "sourceFile": "test/haskell2010/conformance/unsupported/kind-checking.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "type mismatch",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "kind mismatch",
       "requiredStage": "typecheck",
-      "notes": "Full kind checking and partial type-constructor use remain incomplete."
+      "notes": "Partial type-constructor use must be rejected by kind checking."
     },
     {
       "name": "unsupported.broad-show-string",

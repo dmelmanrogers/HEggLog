@@ -31,6 +31,7 @@ import Haskell2010.Syntax (Literal (..))
 data Kind
   = StarKind
   | KindArrow Kind Kind
+  | KindMeta Int
   deriving stock (Show, Eq, Ord)
 
 newtype TypeConstructorInfo = TypeConstructorInfo
@@ -55,6 +56,7 @@ kindArity :: Kind -> Int
 kindArity = \case
   StarKind -> 0
   KindArrow _ result -> 1 + kindArity result
+  KindMeta {} -> 0
 
 renderKind :: Kind -> Text
 renderKind =
@@ -63,10 +65,12 @@ renderKind =
   renderRight = \case
     StarKind -> "*"
     KindArrow argument result -> renderArgument argument <> " -> " <> renderRight result
+    KindMeta meta -> "?k" <> renderInt meta
 
   renderArgument = \case
     StarKind -> "*"
     arrow@KindArrow {} -> "(" <> renderRight arrow <> ")"
+    KindMeta meta -> "?k" <> renderInt meta
 
 data TypecheckError
   = UnsupportedCore0 Text
@@ -75,6 +79,8 @@ data TypecheckError
   | UnknownCore0Variable RName
   | TypeMismatch MonoType MonoType
   | OccursCheck Int MonoType
+  | KindMismatch Kind Kind
+  | KindOccursCheck Int Kind
   | AmbiguousTypeVariable Int
   | CoreValidationFailed [CoreValidate.CoreValidationError]
   deriving stock (Show, Eq)
@@ -169,6 +175,9 @@ type Subst = Map.Map Int MonoType
 data InferState = InferState
   { nextMeta :: Int
   , substitution :: Subst
+  , nextKindMeta :: Int
+  , kindSubstitution :: Map.Map Int Kind
+  , typeVariableKinds :: Map.Map RName Kind
   , nextGeneratedUnique :: Int
   , typeConstructors :: Map.Map RName TypeConstructorInfo
   , dataConstructors :: Map.Map RName DataConstructorInfo
@@ -182,11 +191,12 @@ type InferM = StateT InferState (Either TypecheckError)
 typecheckModuleToCore :: RHsModule -> Either TypecheckError CoreModule
 typecheckModuleToCore sourceModule = do
   let sourceDecls = rModuleDecls sourceModule
-      typeConstructors = collectTypeConstructors sourceDecls
       tupleArities = collectTupleArities sourceDecls
       preludeValues = collectPreludeValueNames sourceDecls
   ((typedBindings, _typedEnv, typedInstances), finalState) <-
-    runInfer typeConstructors $ do
+    runInfer Map.empty $ do
+      typeConstructors <- collectTypeConstructors sourceDecls
+      modify (\state -> state {typeConstructors = typeConstructors})
       sourceClasses <- collectClassInfos sourceDecls
       let classes = Map.union sourceClasses builtinClassInfos
       modify (\state -> state {classInfos = classes})
@@ -253,6 +263,10 @@ renderTypecheckError = \case
     "type mismatch: expected " <> renderMonoType expected <> ", got " <> renderMonoType actual
   OccursCheck meta ty ->
     "occurs check failed: ?" <> renderInt meta <> " occurs in " <> renderMonoType ty
+  KindMismatch expected actual ->
+    "kind mismatch: expected " <> renderKind expected <> ", got " <> renderKind actual
+  KindOccursCheck meta kind ->
+    "kind occurs check failed: ?k" <> renderInt meta <> " occurs in " <> renderKind kind
   AmbiguousTypeVariable meta ->
     "ambiguous Core-0 type variable ?" <> renderInt meta
   CoreValidationFailed errors ->
@@ -265,6 +279,9 @@ runInfer initialTypeConstructors action =
         InferState
           { nextMeta = 0
           , substitution = Map.empty
+          , nextKindMeta = 0
+          , kindSubstitution = Map.empty
+          , typeVariableKinds = Map.empty
           , nextGeneratedUnique = 100000
           , typeConstructors = initialTypeConstructors
           , dataConstructors = Map.empty
@@ -276,18 +293,80 @@ runInfer initialTypeConstructors action =
   swapState (value, state) =
     (value, state)
 
-collectTypeConstructors :: [RDecl] -> Map.Map RName TypeConstructorInfo
-collectTypeConstructors =
-  foldr collect Map.empty
+collectTypeConstructors :: [RDecl] -> InferM (Map.Map RName TypeConstructorInfo)
+collectTypeConstructors decls = do
+  seeded <- foldM seed Map.empty decls
+  modify (\state -> state {typeConstructors = seeded})
+  traverse_ inferDeclKinds decls
+  finalized <- finalizeTypeConstructors seeded
+  modify (\state -> state {typeConstructors = finalized})
+  pure finalized
  where
-  collect decl acc =
-    case decl of
-      RDataDecl name params _ _ ->
-        Map.insert name (typeConstructorInfo (length params)) acc
-      RNewtypeDecl name params _ _ ->
-        Map.insert name (typeConstructorInfo (length params)) acc
-      _ ->
-        acc
+  seed acc = \case
+    RDataDecl name params _ _ ->
+      insertTypeConstructor name params acc
+    RNewtypeDecl name params _ _ ->
+      insertTypeConstructor name params acc
+    _ ->
+      pure acc
+
+insertTypeConstructor :: RName -> [RName] -> Map.Map RName TypeConstructorInfo -> InferM (Map.Map RName TypeConstructorInfo)
+insertTypeConstructor name params acc = do
+  paramKinds <- traverse (const freshKindMeta) params
+  pure (Map.insert name (TypeConstructorInfo (foldr KindArrow StarKind paramKinds)) acc)
+
+inferDeclKinds :: RDecl -> InferM ()
+inferDeclKinds = \case
+  RDataDecl typeName params constructors _ ->
+    withTypeParameterKinds typeName params $
+      traverse_ checkConstructor constructors
+  RNewtypeDecl typeName params constructor _ ->
+    withTypeParameterKinds typeName params (checkConstructor constructor)
+  _ ->
+    pure ()
+ where
+  checkConstructor (RConDecl _ fields) =
+    traverse_ checkSourceTypeKind fields
+
+withTypeParameterKinds :: RName -> [RName] -> InferM a -> InferM a
+withTypeParameterKinds typeName params action = do
+  oldKinds <- typeVariableKinds <$> get
+  constructors <- typeConstructors <$> get
+  let parameterKinds =
+        case Map.lookup typeName constructors of
+          Nothing -> replicate (length params) StarKind
+          Just info -> take (length params) (kindArgumentKinds (typeConstructorKind info))
+  modify
+    ( \state ->
+        state
+          { typeVariableKinds =
+              Map.union
+                (Map.fromList (zip params parameterKinds))
+                (typeVariableKinds state)
+          }
+    )
+  result <- action
+  modify (\state -> state {typeVariableKinds = oldKinds})
+  pure result
+
+kindArgumentKinds :: Kind -> [Kind]
+kindArgumentKinds = \case
+  KindArrow argument result -> argument : kindArgumentKinds result
+  _ -> []
+
+finalizeTypeConstructors :: Map.Map RName TypeConstructorInfo -> InferM (Map.Map RName TypeConstructorInfo)
+finalizeTypeConstructors constructors =
+  traverse finalize constructors
+ where
+  finalize info = do
+    kind <- applyKindCurrent (typeConstructorKind info)
+    pure (TypeConstructorInfo (defaultKindMetas kind))
+
+defaultKindMetas :: Kind -> Kind
+defaultKindMetas = \case
+  StarKind -> StarKind
+  KindArrow argument result -> KindArrow (defaultKindMetas argument) (defaultKindMetas result)
+  KindMeta {} -> StarKind
 
 collectDataConstructors :: [RDecl] -> InferM (Map.Map RName DataConstructorInfo)
 collectDataConstructors =
@@ -2128,31 +2207,151 @@ sourceQualifiedMonoType = \case
 
 sourceClassConstraint :: RHsType -> InferM ClassConstraint
 sourceClassConstraint = \case
-  RTyApp (RTyCon className) argument ->
+  RTyApp (RTyCon className) argument -> do
+    checkSourceTypeKind argument
     ClassConstraint (canonicalClassName className) <$> sourceMonoType argument
   other ->
     throwTypecheck (UnsupportedCore0 ("type-class constraint " <> Text.pack (show other)))
 
 sourceMonoType :: RHsType -> InferM MonoType
-sourceMonoType = \case
+sourceMonoType sourceType = do
+  checkSourceTypeKind sourceType
+  sourceMonoTypeUnchecked sourceType
+
+sourceMonoTypeUnchecked :: RHsType -> InferM MonoType
+sourceMonoTypeUnchecked = \case
   RTyVar name ->
     pure (TyVar name)
   RTyCon name ->
     typeConstructorMonoType name
   RTyApp fn arg ->
-    TyApp <$> sourceMonoType fn <*> sourceMonoType arg
+    TyApp <$> sourceMonoTypeUnchecked fn <*> sourceMonoTypeUnchecked arg
   RTyFun arg result ->
-    TyFun <$> sourceMonoType arg <*> sourceMonoType result
+    TyFun <$> sourceMonoTypeUnchecked arg <*> sourceMonoTypeUnchecked result
   RTyContext [] body ->
-    sourceMonoType body
+    sourceMonoTypeUnchecked body
   RTyContext _ _ ->
     throwTypecheck (UnsupportedCore0 "nested type-class constraints")
   RTyTuple types ->
-    TyTuple <$> traverse sourceMonoType types
+    TyTuple <$> traverse sourceMonoTypeUnchecked types
   RTyList elementType ->
-    TyList <$> sourceMonoType elementType
+    TyList <$> sourceMonoTypeUnchecked elementType
   RTyParen inner ->
-    sourceMonoType inner
+    sourceMonoTypeUnchecked inner
+
+checkSourceTypeKind :: RHsType -> InferM ()
+checkSourceTypeKind sourceType = do
+  actual <- inferSourceTypeKind sourceType
+  unifyKind StarKind actual
+
+inferSourceTypeKind :: RHsType -> InferM Kind
+inferSourceTypeKind = \case
+  RTyVar name ->
+    typeVariableKind name
+  RTyCon name ->
+    typeConstructorKindOf name
+  RTyApp fn arg -> do
+    fnKind <- inferSourceTypeKind fn
+    argKind <- inferSourceTypeKind arg
+    resultKind <- freshKindMeta
+    unifyKind (KindArrow argKind resultKind) fnKind
+    applyKindCurrent resultKind
+  RTyFun arg result -> do
+    checkSourceTypeKind arg
+    checkSourceTypeKind result
+    pure StarKind
+  RTyContext constraints body -> do
+    traverse_ checkConstraintKind constraints
+    checkSourceTypeKind body
+    pure StarKind
+  RTyTuple types -> do
+    traverse_ checkSourceTypeKind types
+    pure StarKind
+  RTyList elementType -> do
+    checkSourceTypeKind elementType
+    pure StarKind
+  RTyParen inner ->
+    inferSourceTypeKind inner
+
+checkConstraintKind :: RHsType -> InferM ()
+checkConstraintKind = \case
+  RTyApp (RTyCon _) argument ->
+    checkSourceTypeKind argument
+  other ->
+    throwTypecheck (UnsupportedCore0 ("type-class constraint " <> Text.pack (show other)))
+
+typeVariableKind :: RName -> InferM Kind
+typeVariableKind name = do
+  kinds <- typeVariableKinds <$> get
+  case Map.lookup name kinds of
+    Just kind ->
+      applyKindCurrent kind
+    Nothing -> do
+      kind <- freshKindMeta
+      modify (\state -> state {typeVariableKinds = Map.insert name kind (typeVariableKinds state)})
+      pure kind
+
+typeConstructorKindOf :: RName -> InferM Kind
+typeConstructorKindOf name = do
+  knownTypes <- typeConstructors <$> get
+  case Map.lookup name knownTypes of
+    Just info ->
+      applyKindCurrent (typeConstructorKind info)
+    Nothing ->
+      case builtinTypeConstructorInfo name of
+        Just info -> pure (typeConstructorKind info)
+        Nothing -> throwTypecheck (UnsupportedCore0 ("type constructor `" <> nameOcc name <> "`"))
+
+freshKindMeta :: InferM Kind
+freshKindMeta = do
+  state <- get
+  let meta = nextKindMeta state
+  modify (\current -> current {nextKindMeta = meta + 1})
+  pure (KindMeta meta)
+
+unifyKind :: Kind -> Kind -> InferM ()
+unifyKind expected actual = do
+  expected' <- applyKindCurrent expected
+  actual' <- applyKindCurrent actual
+  case (expected', actual') of
+    (StarKind, StarKind) ->
+      pure ()
+    (KindArrow expectedArg expectedResult, KindArrow actualArg actualResult) ->
+      unifyKind expectedArg actualArg *> unifyKind expectedResult actualResult
+    (KindMeta expectedMeta, kind) ->
+      bindKindMeta expectedMeta kind
+    (kind, KindMeta actualMeta) ->
+      bindKindMeta actualMeta kind
+    _ ->
+      throwTypecheck (KindMismatch expected' actual')
+
+bindKindMeta :: Int -> Kind -> InferM ()
+bindKindMeta meta kind
+  | kind == KindMeta meta = pure ()
+  | meta `Set.member` kindMetaVars kind = throwTypecheck (KindOccursCheck meta kind)
+  | otherwise =
+      modify $ \state ->
+        state {kindSubstitution = Map.insert meta kind (kindSubstitution state)}
+
+applyKindCurrent :: Kind -> InferM Kind
+applyKindCurrent kind = do
+  subst <- kindSubstitution <$> get
+  pure (applyKindSubst subst kind)
+
+applyKindSubst :: Map.Map Int Kind -> Kind -> Kind
+applyKindSubst subst = \case
+  StarKind -> StarKind
+  KindArrow argument result -> KindArrow (applyKindSubst subst argument) (applyKindSubst subst result)
+  KindMeta meta ->
+    case Map.lookup meta subst of
+      Nothing -> KindMeta meta
+      Just kind -> applyKindSubst subst kind
+
+kindMetaVars :: Kind -> Set.Set Int
+kindMetaVars = \case
+  StarKind -> Set.empty
+  KindArrow argument result -> kindMetaVars argument <> kindMetaVars result
+  KindMeta meta -> Set.singleton meta
 
 typeConstructorMonoType :: RName -> InferM MonoType
 typeConstructorMonoType name = do

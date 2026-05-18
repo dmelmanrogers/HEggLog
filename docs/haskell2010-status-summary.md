@@ -115,8 +115,11 @@ dictionary arguments. Built-in `Eq Int`, `Eq Bool`, `Ord Int`, `Ord Bool`, and
 Built-in `Show Int` and `Show Bool` cover enough `show` support for `print`.
 `fromInteger` is part of the executable `Num Int` dictionary, integer literals
 elaborate through it, and ambiguous numeric constraints default to `Int`.
-Type constructors now carry explicit `*`/arrow-kind metadata for user and
-supported built-in types; full kind inference/checking remains planned.
+Type constructors now carry explicit `*`/arrow-kind metadata, and source type
+expressions are kind-inferred/checked for signatures, constructor fields,
+constraints, and supported built-in/user constructors; partial type-constructor
+use is rejected before Core generation. Broader class/synonym features remain
+planned.
 `/` remains checked concrete `Int` division; broader `Show` remains planned.
 
 ## What Core Evaluates Today

@@ -138,6 +138,8 @@ testGroups =
   , TestGroup
       "Haskell 2010 Core-0 Typechecker"
       [ pureTest "represents type constructor kinds" testHaskell2010KindRepresentation
+      , pureTest "infers higher-kinded type constructors" testHaskell2010KindChecksHigherKindedConstructors
+      , pureTest "rejects kind-mismatched source types" testHaskell2010KindRejectsMismatch
       , pureTest "typechecks explicit polymorphic identity" testHaskell2010Core0Identity
       , pureTest "typechecks explicit polymorphic const" testHaskell2010Core0Const
       , pureTest "generalizes local let polymorphism" testHaskell2010Core0PolymorphicLet
@@ -1153,6 +1155,33 @@ testHaskell2010KindRepresentation = do
   expectEqual "binary arity" 2 (H2010Typecheck.typeConstructorArity binaryInfo)
   expectEqual "render binary kind" "* -> * -> *" (H2010Typecheck.renderKind binary)
   expectEqual "render higher-kinded argument" "(* -> *) -> *" (H2010Typecheck.renderKind higher)
+
+testHaskell2010KindChecksHigherKindedConstructors :: Either String ()
+testHaskell2010KindChecksHigherKindedConstructors =
+  expectCoreEvalInt
+    "higher-kinded constructor kind inference"
+    1
+    =<< evalHaskell2010Binding
+      "main"
+      "module Core0 where\n\
+      \data Wrap f = Wrap (f Int)\n\
+      \use :: Wrap Maybe -> Int\n\
+      \use _ = 1\n\
+      \main = use (Wrap (Just 3))\n"
+
+testHaskell2010KindRejectsMismatch :: Either String ()
+testHaskell2010KindRejectsMismatch =
+  case
+    typecheckHaskell2010Raw
+      "module Core0 where\n\
+      \data Box a = Box a\n\
+      \bad :: Box -> Int\n\
+      \bad _ = 0\n\
+      \main = 0\n"
+    of
+      Left H2010Typecheck.KindMismatch {} -> Right ()
+      Left err -> Left ("expected kind mismatch, got: " <> show err)
+      Right coreModule -> Left ("kind-mismatched source typechecked unexpectedly: " <> show coreModule)
 
 testHaskell2010Core0If :: Either String ()
 testHaskell2010Core0If = do
