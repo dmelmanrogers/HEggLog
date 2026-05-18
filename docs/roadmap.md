@@ -10,6 +10,9 @@ traces, relation-size Egglog join planning, the Egglog `ZeroInfo` lattice, and
 Egglog comparison, checked subtraction, checked division support, and native
 executable output through `clang`.
 
+For a concise support matrix and user-facing workflow reference, see
+[current-capabilities.md](current-capabilities.md).
+
 ## Current Baseline
 
 Implemented:
@@ -77,8 +80,8 @@ Implemented:
   e-graph prototype, Egglog kernel/backend, LLVM lowering, goldens, and
   QuickCheck properties.
 - MIT license metadata.
-- Minimal GitHub Actions CI for build, test, package metadata, and whitespace
-  checks.
+- GitHub Actions CI for build, test, package metadata, whitespace checks, and a
+  clang-backed native executable smoke test.
 - Language and runtime specifications for the current source language, checked
   `Int64` semantics, runtime errors, evaluation order, top-level first-order
   definitions, lambda lifting, closure runtime layout, and current decision

@@ -6,10 +6,13 @@ license:            MIT
 license-file:       LICENSE
 author:             Drew Melman-Rogers
 maintainer:         dmelmanrogers@uchicago.edu
-synopsis:           Initial compiler skeleton for HeggLog
+tested-with:        GHC == 9.10.1
+synopsis:           Small typed functional language compiler
 description:
     HeggLog is a small typed functional language compiler in Haskell with
-    interpreter, ANF, optimization, Egglog, and LLVM backend experiments.
+    parsing, typechecking, interpretation, ANF lowering, Egglog-inspired
+    optimization, LLVM IR generation, and native executable compilation for
+    its supported runtime fragment.
 category:           Language
 
 common warnings

@@ -4,6 +4,7 @@ import Backend.Compile
 import Backend.LLVM.Toolchain
 import CLI.Compile (CompileCLIOptions (..), CompileOutputMode (..), parseCompileFlags)
 import CLI.Report (compileReport, renderCompileError, renderFullReport)
+import Control.Exception (IOException, try)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
@@ -15,6 +16,18 @@ import System.IO (stderr)
 main :: IO ()
 main = do
   getArgs >>= \case
+    [] -> do
+      Text.IO.putStrLn usage
+      exitFailure
+    ["--help"] ->
+      Text.IO.putStrLn usage
+    ["help"] ->
+      Text.IO.putStrLn usage
+    "compile" : "--help" : [] ->
+      Text.IO.putStrLn compileUsage
+    "compile" : [] -> do
+      Text.IO.putStrLn compileUsage
+      exitFailure
     "compile" : path : flags ->
       runCompile path flags
     [path] -> runFile path
@@ -26,33 +39,51 @@ main = do
 
 runFile :: FilePath -> IO ()
 runFile path = do
-  source <- Text.IO.readFile path
-  case compileReport path source of
-    Left err -> do
-      Text.IO.putStr (renderCompileError err)
+  readSourceFile path >>= \case
+    Left message -> do
+      Text.IO.hPutStrLn stderr message
       exitFailure
-    Right report ->
-      Text.IO.putStr (renderFullReport report)
+    Right source ->
+      case compileReport path source of
+        Left err -> do
+          Text.IO.putStr (renderCompileError err)
+          exitFailure
+        Right report ->
+          Text.IO.putStr (renderFullReport report)
 
 runCompile :: FilePath -> [String] -> IO ()
 runCompile path flags =
   case parseCompileFlags flags of
     Left message -> do
-      Text.IO.putStrLn message
-      Text.IO.putStrLn usage
+      Text.IO.hPutStrLn stderr message
+      Text.IO.hPutStrLn stderr compileUsage
       exitFailure
     Right cliOptions -> do
-      source <- Text.IO.readFile path
-      let options =
-            defaultCompileLLVMOptions
-              { compileUseEgglog = cliUseEgglog cliOptions
-              }
-      case compileToLLVM options path source of
-        Left err -> do
-          Text.IO.putStrLn (renderCompileLLVMError err)
+      readSourceFile path >>= \case
+        Left message -> do
+          Text.IO.hPutStrLn stderr message
           exitFailure
-        Right result -> do
-          handleCompileOutput cliOptions result
+        Right source -> do
+          let options =
+                defaultCompileLLVMOptions
+                  { compileUseEgglog = cliUseEgglog cliOptions
+                  }
+          case compileToLLVM options path source of
+            Left err -> do
+              Text.IO.hPutStrLn stderr (renderCompileLLVMError err)
+              exitFailure
+            Right result -> do
+              handleCompileOutput cliOptions result
+
+readSourceFile :: FilePath -> IO (Either Text Text)
+readSourceFile path = do
+  result <- try (Text.IO.readFile path) :: IO (Either IOException Text)
+  pure $
+    case result of
+      Left err ->
+        Left ("could not read source file " <> Text.pack path <> ": " <> Text.pack (show err))
+      Right source ->
+        Right source
 
 handleCompileOutput :: CompileCLIOptions -> LLVMCompileResult -> IO ()
 handleCompileOutput cliOptions result =
@@ -141,11 +172,54 @@ renderExitCode = \case
 usage :: Text
 usage =
   Text.unlines
-    [ "usage:"
+    [ "HeggLog compiler"
+    , ""
+    , "usage:"
+    , "  hegglog FILE"
+    , "  hegglog compile FILE [compile options]"
+    , "  hegglog FILE --emit-llvm [compile options]"
+    , ""
+    , "modes:"
+    , "  FILE"
+    , "      Run report/interpreter mode for a source file."
+    , "  compile FILE -o PROGRAM"
+    , "      Build a native executable with clang."
+    , "  compile FILE --emit-llvm [-o FILE.ll]"
+    , "      Emit textual LLVM IR."
+    , ""
+    , "examples:"
     , "  cabal run hegglog -- examples/test.hg"
-    , "  cabal run hegglog -- compile examples/test.hg --emit-llvm [-o build/test.ll] [--no-egglog] [--run-llvm]"
-    , "  cabal run hegglog -- compile examples/test.hg -o build/test [--no-egglog] [--run]"
-    , "  cabal run hegglog -- examples/test.hg --emit-llvm [-o build/test.ll] [--no-egglog] [--run-llvm]"
+    , "  cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithmetic"
+    , "  cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithmetic --run"
+    , "  cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm -o /tmp/hegglog.ll"
+    , ""
+    , "run `hegglog compile --help` for compile options."
+    ]
+
+compileUsage :: Text
+compileUsage =
+  Text.unlines
+    [ "HeggLog compile mode"
+    , ""
+    , "usage:"
+    , "  hegglog compile FILE --emit-llvm [-o FILE.ll] [--no-egglog] [--run-llvm]"
+    , "  hegglog compile FILE -o PROGRAM [--no-egglog] [--run]"
+    , "  hegglog FILE --emit-llvm [-o FILE.ll] [--no-egglog] [--run-llvm]"
+    , ""
+    , "options:"
+    , "  --emit-llvm"
+    , "      Emit textual LLVM IR instead of building a native executable."
+    , "  -o, --output PATH"
+    , "      Write LLVM IR to PATH with --emit-llvm, or build native executable PATH otherwise."
+    , "  --run"
+    , "      Build the native executable and run it. Requires -o/--output."
+    , "  --run-llvm"
+    , "      Run generated LLVM text through lli, or through a temporary clang executable."
+    , "  --no-egglog"
+    , "      Compile without Egglog optimization."
+    , ""
+    , "toolchain:"
+    , "  Native executable output requires clang. LLVM text output does not."
     ]
 
 ensureParentDirectory :: FilePath -> IO ()

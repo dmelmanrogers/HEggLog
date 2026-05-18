@@ -1,6 +1,23 @@
 # HeggLog
 
-Initial vertical slice for a tiny typed functional language in Haskell.
+HeggLog is a small typed functional language and compiler written in Haskell. It
+supports parsing, typechecking, interpretation, ANF lowering, Egglog-inspired
+optimization, LLVM IR generation, and native executable compilation for the
+supported runtime fragment.
+
+The current system has three different support levels:
+
+- Report/interpreter mode handles the full implemented source language,
+  including local higher-order functions.
+- Egglog optimization covers a pure first-order ANF subset with checked integer
+  arithmetic, comparisons, booleans, lets, variables, and conditionals.
+- LLVM/native compilation supports closed programs with printable `Int` or
+  `Bool` roots, top-level first-order calls, lambda-lifted non-capturing
+  functions, and closure-converted local function values.
+
+HeggLog is a working compiler for that supported subset. It does not yet support
+recursion, modules, algebraic data types, pattern matching, strings, arrays, or
+user-facing Hindley-Milner polymorphism.
 
 ## Roadmap
 
@@ -10,6 +27,7 @@ implementation queue.
 
 Current semantic specs:
 
+- [Current capabilities](docs/current-capabilities.md)
 - [Language specification](docs/language-spec.md)
 - [Runtime specification](docs/runtime-spec.md)
 - [Diagnostics specification](docs/diagnostics-spec.md)
@@ -19,14 +37,17 @@ Current semantic specs:
 ## Build
 
 ```bash
-cabal build
-cabal test
+cabal build all
+cabal test all
 ```
 
-CI runs `cabal build all`, `cabal test all`, `cabal check`, and
-`git diff --check` on pushes to `main`/`develop` and on pull requests.
+CI runs `cabal build all`, `cabal test all`, `cabal check`, `git diff --check`,
+and a clang-backed native executable smoke test on pushes to `main`/`develop`
+and on pull requests.
 
 ## Run
+
+Report/interpreter mode:
 
 ```bash
 cabal run hegglog -- examples/test.hg
@@ -49,8 +70,13 @@ The CLI prints:
 
 ## LLVM Backend
 
-Closed programs with `Int` or `Bool` roots can be compiled to native
-executables through `clang`:
+Emit LLVM IR:
+
+```bash
+cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm -o /tmp/hegglog.ll
+```
+
+Build a native executable through `clang`:
 
 ```bash
 cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithmetic
@@ -58,12 +84,10 @@ cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithme
 # 14
 ```
 
-Textual LLVM IR remains available behind `--emit-llvm`:
+Build and run in one command:
 
 ```bash
-cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm
-cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm -o build/arithmetic.ll
-cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm --run-llvm
+cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithmetic --run
 ```
 
 Native compile mode also supports `--no-egglog` and `--run`:

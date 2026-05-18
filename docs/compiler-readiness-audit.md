@@ -1,17 +1,12 @@
 # Compiler Readiness Audit
 
-Date: 2026-05-17
+Date: 2026-05-18
 
 This audit evaluates the current HeggLog codebase as a compiler implementation, with emphasis on end-to-end readiness, semantic correctness, optimizer safety, LLVM backend completeness, diagnostics, tests, documentation, and remaining work required for a practical v1 compiler.
 
-The audit was performed against the current working tree, not only committed `HEAD`. At audit time the worktree included uncommitted Phase 8 Egglog backend and roadmap changes in:
-
-- `docs/egglog-backend.md`
-- `docs/roadmap.md`
-- `src/Optimize/EgglogBackend/Rules.hs`
-- `test/Main.hs`
-
-Those changes materially affect this audit because they remove unsafe default Egglog rewrites and mark Phase 8 complete.
+This version of the audit is synchronized with the compiler baseline that
+includes checked LLVM division, strictness-preserving Egglog rules, and native
+executable output through `clang`.
 
 ## 1. Executive Summary
 
@@ -28,6 +23,11 @@ HeggLog is a credible partial compiler for a well-defined, typed expression lang
 - LLVM validation and execution through external LLVM tools.
 - A meaningful test suite across parser, typechecker, interpreter, optimizer, backend, goldens, and properties.
 
+For the current supported runtime fragment, HeggLog is a working compiler:
+successful supported programs can be compiled to native executables, and
+unsupported compile targets fail structurally rather than silently producing
+bad artifacts.
+
 The project now has the core artifact behavior expected of a small compiler for
 its supported subset: `hegglog compile file.hg -o program` generates LLVM IR
 and invokes `clang` to produce a native executable, while `--emit-llvm` preserves
@@ -36,7 +36,7 @@ textual LLVM output. `--run-llvm` remains available for LLVM-tool execution, and
 
 The LLVM backend is correct-looking and well tested for its intended subset: closed `Int`/`Bool` roots, `let`, `if`, checked `+`, `-`, `*`, `/`, `<`, `==`, top-level first-order calls, lambda lifting, and local closures. Checked division was a gap at the original audit time; it is now lowered directly with division-by-zero and minimum-`Int / -1` runtime checks.
 
-The optimizer story is better than the average experimental compiler at this stage. The default compiler path uses the Egglog backend when supported and falls back explicitly when unsupported. The current uncommitted Phase 8 changes also remove several unsafe default rewrites that would otherwise violate strict runtime-error preservation. This materially improves compiler trustworthiness.
+The optimizer story is better than the average experimental compiler at this stage. The default compiler path uses the Egglog backend when supported and falls back explicitly when unsupported. The current baseline removes several unsafe default rewrites that would otherwise violate strict runtime-error preservation. This materially improves compiler trustworthiness.
 
 The highest-priority readiness gaps are:
 
@@ -44,33 +44,27 @@ The highest-priority readiness gaps are:
    surface.
 2. Improve source locations for nested runtime errors.
 3. Decide the Bool executable output format before a polished v1.
-4. Add a CI lane that requires LLVM tools, including `clang`.
+4. Keep CI and release packaging aligned with the native executable workflow.
 
 ## 2. Baseline Validation
 
-Repository state observed during the audit:
+Repository state observed during the stabilization pass:
 
-- Branch: `dmelmanrogers/top-def-calls`
-- Tracking state: branch and `origin/dmelmanrogers/egglog-audit` had diverged; local branch had 36 commits not on the remote, and the remote had 6 commits not local.
-- Worktree: dirty, with the Phase 8 files listed above.
-- Recent commits:
-  - `7e11cc3 Add checked Egglog division`
-  - `f831618 Add checked Egglog subtraction`
-  - `fff77a6 Extend Egglog backend to comparisons`
-  - `6148b48 Add Egglog zero-info lattice`
-  - `61b2fbc Add Egglog join planning`
-  - `7f40768 Add Egglog provenance traces`
-  - `9c3349f Add semi-naive Egglog evaluation`
-  - `1b3972f Add optional lambda inference`
-  - `749c300 Define type inference direction`
-  - `1c9d08f Add closure conversion runtime`
+- Branch: `dmelmanrogers/egglog-strict`
+- Worktree: clean before stabilization edits.
+- Latest relevant commits:
+  - `5ab0b77 Add native executable compile mode`
+  - `5a6d184 Add checked LLVM division lowering`
+  - `88d2f5e Add sound Egglog strictness guards`
+  - `45578d4 Add compiler readiness audit`
 
 Baseline commands:
 
 | Command | Result |
 | --- | --- |
-| `git status` | Completed; dirty working tree as described above. |
-| `git log --oneline -n 10` | Completed; recent commits listed above. |
+| `git status` | Completed; working tree clean before stabilization edits. |
+| `git branch --show-current` | Completed; branch was `dmelmanrogers/egglog-strict`. |
+| `git log --oneline -n 12` | Completed; recent commits listed above. |
 | `git diff --check` | Passed. |
 | `cabal build all` | Passed. |
 | `cabal test all` | Passed. |
@@ -97,6 +91,8 @@ Representative CLI checks:
 | LLVM run | `examples/higher-order.hg` | Passed; closure output `42`. |
 | LLVM emit | `examples/llvm/arithmetic.hg --emit-llvm -o .context/audit-cli/arithmetic.ll` | Passed; wrote LLVM IR text. |
 | Native output path | `examples/llvm/arithmetic.hg -o .context/audit-cli/program` | Passed when `clang` was available; produced a native executable. |
+| Native output path | `examples/llvm/division.hg -o /tmp/hegglog-division-no-egglog --no-egglog` | Passed; output `5`. |
+| Native Bool root | `examples/llvm/bool-root.hg -o /tmp/hegglog-bool` | Passed; output `1`. |
 
 ## 3. Current End-to-End Compiler Capability
 
@@ -277,7 +273,7 @@ Strong points:
 - Extraction is deterministic.
 - The backend has a cost model and reports cost changes.
 - Unsupported features fall back instead of being miscompiled.
-- The uncommitted Phase 8 changes remove unsafe default rewrites:
+- The current strictness baseline removes unsafe default rewrites:
   - Open `x * 0 = 0`.
   - `x == x = true`.
   - `x < x = false`.
@@ -394,12 +390,15 @@ Documentation is generally in good shape for an active compiler project:
 - `docs/language-spec.md` identifies the implemented language and open decisions.
 - `docs/runtime-spec.md` documents checked Int64 semantics and runtime errors.
 - `docs/llvm-backend-spec.md` describes the v0 LLVM fragment and fallback behavior.
-- `docs/egglog-backend.md` documents the current Egglog backend and, in the dirty working tree, Phase 8 strictness improvements.
+- `docs/egglog-backend.md` documents the current Egglog backend and strictness
+  improvements.
 - `docs/roadmap.md` is being actively updated with phase status.
 
-Known inconsistency at audit time:
+Previously resolved inconsistency:
 
-- `docs/runtime-spec.md` contained an outdated claim that `x * 0 -> 0` is safe in ANF because `x` has already been evaluated. The current Egglog backend correctly treats open multiplication by zero as unsafe in the presence of strict local bindings whose right-hand side may fail. The Phase 8 strictness follow-up fixes this documentation drift.
+- `docs/runtime-spec.md` now correctly explains that open multiplication by
+  zero is not a default Egglog compiler rule because it can erase strict
+  runtime errors from local bindings.
 
 Other docs gaps:
 
@@ -545,11 +544,10 @@ Goal: preserve optimizer correctness as coverage grows.
 
 Tasks:
 
-1. Fix the stale runtime spec statement about `x * 0`.
-2. Write a compact optimizer soundness spec.
-3. Decide the production status of simplifier and e-graph paths.
-4. Expand Egglog support to top-level-definition programs where safe.
-5. Add more optimizer differential tests.
+1. Write a compact optimizer soundness spec.
+2. Decide the production status of simplifier and e-graph paths.
+3. Expand Egglog support to top-level-definition programs where safe.
+4. Add more optimizer differential tests.
 
 Exit criteria:
 
