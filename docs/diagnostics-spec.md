@@ -120,6 +120,9 @@ The Haskell 2010 target will need additional diagnostic classes:
 - runtime source attribution for lazy evaluation
 - source spans through Core/STG where possible
 
-Current status: these Haskell 2010 diagnostics are planned, not implemented.
-The existing located `.hg` parser/typechecker and LLVM unsupported-source
-diagnostics are the carry-forward baseline.
+Current status: Haskell 2010 parser, renamer, typechecker, class/instance, and
+runtime no-matching-alternative errors exist for the executable subset, and
+guard fallthrough is covered by Core/STG/native tests. Rich source-spanned
+pattern-match diagnostics and runtime source attribution through lazy
+evaluation remain planned. The existing located `.hg` parser/typechecker and
+LLVM unsupported-source diagnostics are the carry-forward baseline.

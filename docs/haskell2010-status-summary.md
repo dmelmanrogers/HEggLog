@@ -32,10 +32,12 @@ Prelude list/Bool functions, recursive top-level/local functions, recursive
 list functions, lazy constructor fields, user-defined single-parameter classes
 with concrete instances and explicit constrained functions, and built-in
 Prelude dictionaries for `Eq Int`, `Eq Bool`, `Ord Int`, `Ord Bool`, and
-executable `Num Int` methods. The following Haskell 2010 requirements are
-planned but not implemented:
+executable `Num Int` methods. Guarded RHSs, guarded case alternatives,
+as-pattern aliases, and guard-fallthrough no-match behavior are also
+implemented. The following Haskell 2010 requirements are planned but not
+implemented:
 
-- remaining pattern forms and pattern-match diagnostics
+- irrefutable/lazy pattern semantics and richer pattern-match diagnostics
 - superclasses, default methods, instance contexts, deriving, `Show`,
   `fromInteger`, overloaded literals, and numeric defaulting
 - broader Prelude/library subset
@@ -89,7 +91,9 @@ constructor patterns, list and tuple expressions/patterns/types, built-in
 Prelude data constructors, wildcard patterns, literal patterns, short-circuit
 `&&`/`||`, generated Prelude bindings for `id`, `const`, `not`, `otherwise`,
 `map`, `foldr`, `length`, `filter`, and `reverse`; dictionary-backed `Eq`,
-`Ord`, and `Num` methods for the first built-in instances; and primitive `/`.
+`Ord`, and `Num` methods for the first built-in instances; guarded RHSs and
+guarded case alternatives desugared to Bool `case`; as-pattern aliases lowered
+as local Core bindings; and primitive `/`.
 Recursive top-level functions, mutually recursive
 top-level groups, singleton self-recursive bindings, and local recursive `let`
 bindings now emit recursive Core groups in the supported subset. The initial
@@ -118,6 +122,8 @@ local factorial recursion, top-level fibonacci recursion, mutual recursion, and
 recursive list functions. It also evaluates dictionary-passed user class
 method calls and built-in `Eq`/`Ord`/`Num` class methods through generated
 selector functions and instance dictionary values.
+Core evaluation also covers guarded RHS/as-pattern programs and reports
+guard fallthrough as a no-matching-alternative runtime error.
 
 This is a reference oracle for the native path. Source-spanned Haskell 2010
 type diagnostics remain later work because the renamed AST is currently
@@ -161,7 +167,9 @@ binding groups, cases, Bool and user
 constructors, list/tuple/Prelude constructors, constructor field laziness, and
 primitive operations, and rejects invalid Core before lowering. Dictionary
 records, selectors, constrained functions, and concrete instance dictionaries
-lower through the same Core-to-STG path.
+lower through the same Core-to-STG path. Guarded RHS/as-pattern Core and
+guard-fallthrough no-match errors are covered by Core-to-STG preservation
+tests.
 
 Lowered STG runs through the in-process STG evaluator as the semantic check.
 The current executable Haskell 2010 subset is also emitted as boxed lazy STG LLVM
@@ -205,6 +213,13 @@ and compiled to native executables through the existing clang toolchain.
     comparison/arithmetic operator desugaring, Core/STG lowering/evaluation,
     native LLVM execution, and wet-tested default/no-egglog CLI runs. `Show`,
     `fromInteger`, overloaded literals, and numeric defaulting remain planned.
+15. Guarded RHS/case alternatives and as-pattern aliases. Completed for
+    multi-branch guarded function RHSs, guarded constructor/list/as-pattern case
+    alternatives, alias bindings for as-patterns in parameters and case
+    alternatives, Core/STG no-matching-alternative behavior for guard
+    fallthrough, native empty-case lowering, and wet-tested default/no-egglog
+    CLI runs. Irrefutable/lazy pattern semantics and richer source-spanned
+    pattern diagnostics remain planned.
 
 ## Where Egglog Fits
 
@@ -223,8 +238,9 @@ Core to STG-like lazy IR, emits a boxed lazy LLVM runtime with closure
 allocation, enter/apply, thunk forcing/update, Bool and user-constructor case
 dispatch, list/tuple/Prelude constructor dispatch, boxed constructor fields,
 recursive closure/thunk groups, user and built-in type class dictionary
-constructor/selector execution, and checked primitives, and invokes clang to
-produce native machine-code executables.
+constructor/selector execution, guarded RHS/as-pattern programs, empty-case
+guard-fallthrough aborts, and checked primitives, and invokes clang to produce
+native machine-code executables.
 
 ## GHC Compatibility
 
@@ -234,8 +250,10 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Broaden pattern-match support with diagnostics, guards, and remaining pattern
-forms while preserving the `.hg` compiler, Core evaluator, STG runtime,
+Add enough `Show`, `String`, `print`, `putStrLn`, and IO `main` lowering to
+make Haskell 2010 programs produce textual output through the native executable
+path while preserving the `.hg` compiler, Core evaluator, STG runtime,
 Core-to-STG lowering, native executable path, Egglog Core optimizer,
 ADT/list/tuple/Prelude/recursion/typeclass-dictionary support, built-in
-`Eq`/`Ord`/`Num` dictionary support, and wet-test baseline.
+`Eq`/`Ord`/`Num` dictionary support, guard/as-pattern support, and wet-test
+baseline.

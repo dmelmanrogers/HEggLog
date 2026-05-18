@@ -72,7 +72,9 @@ Core Prelude bindings for basic list/Bool functions, plus recursive top-level
 and local functions, plus the initial type class dictionary slice for
 user-defined single-parameter classes, concrete instances, explicit source
 constraints, dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`,
-`Ord Int`, `Ord Bool`, and executable `Num Int` class methods. A Core
+`Ord Int`, `Ord Bool`, and executable `Num Int` class methods, plus guarded
+RHSs, guarded case alternatives, as-pattern aliases, and guard-fallthrough
+no-match behavior. A Core
 reference evaluator executes validating typed Core with erased type
 abstraction/application, checked `Int` primitives, and structured runtime
 errors. An isolated STG-like IR, validator, and pure heap evaluator now model
@@ -102,7 +104,8 @@ Current status:
   functions, lambdas, application, `let`, `if`, Bool/user-constructor `case`,
   nested/list/tuple constructor patterns, list/tuple expressions, short-circuit
   Bool operators, generated Prelude list functions, primitive `/`, and
-  dictionary-backed `Eq`/`Ord`/`Num` methods, including singleton self-recursive bindings and
+  dictionary-backed `Eq`/`Ord`/`Num` methods, guarded RHSs, guarded case
+  alternatives, and as-pattern aliases, including singleton self-recursive bindings and
   mutually recursive top-level groups, user-defined single-parameter classes,
   concrete instances, explicit constraints, dictionary constructors/selectors,
   dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Ord Int`,
@@ -113,8 +116,8 @@ Current status:
   built-in Prelude constructor cases, short-circuit Bool operators, and
   guarded self recursion, local factorial recursion, top-level fibonacci
   recursion, mutual recursion, recursive list functions, user class dictionary
-  calls, built-in `Eq`/`Ord`/`Num` dictionary calls, and division-by-zero
-  reporting
+  calls, built-in `Eq`/`Ord`/`Num` dictionary calls, guarded RHS/as-pattern
+  programs, guard fallthrough no-match reporting, and division-by-zero reporting
 - Haskell 2010 STG-like lazy IR/runtime MVP: implemented and unit-tested for
   validation, lazy lets/arguments, case demand, constructor dispatch, thunk
   sharing/update behavior, single-entry thunks, black-hole detection, and
@@ -123,14 +126,16 @@ Current status:
   polymorphic type erasure, Bool/user ADT case, nested constructor patterns,
   list/tuple/Prelude constructor cases, generated Prelude list functions, lazy
   lets/arguments, recursive binding groups, forced runtime errors, and curried
-  partial application
+  partial application, plus guarded RHS/as-pattern semantics and guard
+  fallthrough errors
 - Haskell 2010 native executable path: implemented and wet-tested for
   arithmetic, polymorphic identity, lazy lets/arguments, Bool case, custom ADTs,
   `Maybe`, built-in `Maybe`/`Either`/`Ordering`, lists, tuples, Prelude list
   functions, short-circuit Bool operators, nested constructor patterns, lazy
   constructor fields, top-level/local/mutual/list recursion, forced
   division-by-zero failure, curried partial application, user-defined type
-  class dictionary calls, and built-in `Eq`/`Ord`/`Num` class dictionary calls
+  class dictionary calls, built-in `Eq`/`Ord`/`Num` class dictionary calls,
+  guarded RHS/as-pattern programs, and guard-fallthrough runtime failure
 - Haskell 2010 Egglog Core optimizer: implemented and unit/wet-tested for
   safe Core-0 arithmetic identities, checked constant folding, known Bool case
   selection, typed Core extraction/validation, provenance reporting, lazy
@@ -179,4 +184,5 @@ Current tests include:
   through `clang`
 
 Future Haskell 2010 wet tests should extend this direct executable coverage as
-remaining pattern forms, `Show`, numeric defaulting, and IO are implemented.
+irrefutable/lazy patterns, richer pattern diagnostics, `Show`, numeric
+defaulting, and IO are implemented.

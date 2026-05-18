@@ -44,10 +44,10 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Pattern-match diagnostics, guards, and remaining pattern forms.
-2. `Show`, `String`, `print`, `putStrLn`, and IO `main` lowering.
-3. `fromInteger`, overloaded literals, numeric defaulting, and broader Prelude
+1. `Show`, `String`, `print`, `putStrLn`, and IO `main` lowering.
+2. `fromInteger`, overloaded literals, numeric defaulting, and broader Prelude
    class hierarchy.
+3. Remaining pattern diagnostics and irrefutable/lazy pattern semantics.
 
 Completed Haskell 2010 roadmap work:
 
@@ -112,6 +112,12 @@ Completed Haskell 2010 roadmap work:
   overloaded comparison/arithmetic operator desugaring, Core/STG/native
   lowering, and default/no-egglog wet tests. `Show`, `fromInteger`, overloaded
   literals, and numeric defaulting remain planned.
+- Haskell 2010 guarded RHS/case alternatives and as-patterns: implemented for
+  multi-branch guards, guards after constructor/list/tuple/as-pattern case
+  alternatives, as-pattern aliases in parameters and case patterns, Core/STG
+  no-matching-alternative behavior for guard fallthrough, native empty-case
+  lowering, and default/no-egglog wet tests. Irrefutable/lazy pattern semantics
+  and richer source-spanned pattern diagnostics remain planned.
 
 ## Non-Negotiable Project Direction
 

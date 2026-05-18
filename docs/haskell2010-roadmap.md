@@ -236,7 +236,9 @@ feed constructor metadata into Core/STG/native compilation; value constructors,
 nullary and unary/multi-field constructor applications, case alternatives,
 variable patterns, wildcard patterns, literal patterns, nested constructor
 patterns, tuple patterns, and list patterns are covered by Core, STG, native,
-and wet tests. As-pattern semantics, guards, and full pattern-match diagnostics
+and wet tests. Guarded RHSs, guarded case alternatives, as-pattern aliases, and
+guard-fallthrough no-match behavior are also implemented and wet-tested.
+Irrefutable/lazy pattern semantics and richer source-spanned pattern diagnostics
 remain later work.
 
 Deliverables:
@@ -251,7 +253,8 @@ Acceptance criteria:
 - `Maybe`, `Either`, and custom ADTs compile
 - nested patterns compile
 - pattern-bound names scope correctly
-- native wet tests cover ADTs and nested patterns
+- native wet tests cover ADTs, nested patterns, guards, as-patterns, and guard
+  fallthrough
 
 ### Phase 10 - Lists, Tuples, and Prelude Core
 
@@ -394,8 +397,8 @@ Acceptance criteria:
 
 Deliverables:
 
-- operator sections, list comprehensions, arithmetic sequences, guards, and
-  where clauses
+- operator sections, list comprehensions, arithmetic sequences, remaining
+  where/declaration forms, and lazy pattern forms
 - records if included
 - `newtype`, type synonyms, deriving, and default declarations
 - foreign declarations documented as implemented, deferred, or deviating
@@ -497,10 +500,10 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. Pattern-match diagnostics, guards, and remaining pattern forms.
-2. `Show`, `String`, `print`, `putStrLn`, and IO `main` lowering.
-3. `fromInteger`, overloaded literals, numeric defaulting, and broader Prelude
+1. `Show`, `String`, `print`, `putStrLn`, and IO `main` lowering.
+2. `fromInteger`, overloaded literals, numeric defaulting, and broader Prelude
    class hierarchy.
+3. Remaining pattern diagnostics and irrefutable/lazy pattern semantics.
 4. Module graph loading, export filtering, and multi-file compilation.
 5. Haskell 2010 conformance matrix expansion for the broader executable
    surface.
@@ -566,6 +569,11 @@ Completed immediate tasks:
   generated built-in dictionaries/selectors, overloaded comparison/arithmetic
   operator desugaring, Core/STG preservation tests, native LLVM execution, and
   default/no-egglog native wet tests.
+- Haskell 2010 guarded RHS/case alternatives and as-pattern aliases, including
+  multi-branch guarded function RHSs, guarded constructor/list/tuple/as-pattern
+  case alternatives, alias bindings for as-patterns in parameters and case
+  alternatives, Core/STG guard-fallthrough no-matching-alternative behavior,
+  native empty-case lowering, and default/no-egglog native wet tests.
 
 ## Non-Negotiable Rules
 

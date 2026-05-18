@@ -163,13 +163,16 @@ patterns, list and tuple expressions/types, built-in `Maybe`, `Either`, and
 `Ordering`, generated Core Prelude bindings for `id`, `const`, `not`,
 `otherwise`, `map`, `foldr`, `length`, `filter`, and `reverse`, short-circuit
 Bool operators, recursive top-level/local binding groups, primitive `/`, and
-dictionary-backed `Eq`/`Ord`/`Num` methods. It also covers the initial type
+dictionary-backed `Eq`/`Ord`/`Num` methods, guarded RHSs, guarded case
+alternatives, as-pattern aliases, and guard-fallthrough no-match behavior. It
+also covers the initial type
 class dictionary slice: user-defined single-parameter classes, concrete
 context-free instances, explicit constrained functions, generated dictionary
 constructors/selectors, dictionary-passed method calls, and built-in `Eq Int`,
 `Eq Bool`, `Ord Int`, `Ord Bool`, and executable `Num Int` dictionaries.
-Full Haskell 2010 type classes, `Show`, numeric defaulting, remaining pattern
-forms, broader Prelude, IO, and modules remain planned. The strict
+Full Haskell 2010 type classes, `Show`, numeric defaulting, irrefutable/lazy
+patterns, richer pattern diagnostics, broader Prelude, IO, and modules remain
+planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

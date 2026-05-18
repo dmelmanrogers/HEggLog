@@ -1,10 +1,11 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after adding Haskell 2010 built-in
-Prelude class dictionary native coverage. The suite covers the existing `.hg`
-native compiler baseline and Haskell 2010 executable-subset `.hs` programs that
-compile to native executables, compare lazy runtime behavior, and run both
-default Egglog and `--no-egglog` modes for Haskell 2010 optimizer coverage.
+Recorded for the mandatory wet-test suite after adding Haskell 2010 guarded
+RHS/case alternative, as-pattern, and guard-fallthrough native coverage. The
+suite covers the existing `.hg` native compiler baseline and Haskell 2010
+executable-subset `.hs` programs that compile to native executables, compare
+lazy runtime behavior, and run both default Egglog and `--no-egglog` modes for
+Haskell 2010 optimizer coverage.
 
 Run metadata:
 
@@ -17,15 +18,15 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 94
-- Source files: 41
-- Successful source cases: 32
-- Runtime-error source cases: 6
+- HUnit checks: 99
+- Source files: 43
+- Successful source cases: 33
+- Runtime-error source cases: 7
 - Compile-error source cases: 3
-- Native compile/run checks: 70
-- Default Egglog native checks: 41
-- `--no-egglog` native checks: 29
-- Emit-LLVM checks: 12
+- Native compile/run checks: 74
+- Default Egglog native checks: 43
+- `--no-egglog` native checks: 31
+- Emit-LLVM checks: 13
 - Report/interpreter comparisons: 12
 - Failures: 0
 
@@ -106,6 +107,9 @@ Summary:
 | haskell2010-prelude-classes | `test/e2e/programs/haskell2010/prelude-classes.hs` | success | native/default | `6` | stdout `6`, stderr empty, exit 0 | pass |
 | haskell2010-prelude-classes | `test/e2e/programs/haskell2010/prelude-classes.hs` | success | native/no-egglog | `6` | stdout `6`, stderr empty, exit 0 | pass |
 | haskell2010-prelude-classes | `test/e2e/programs/haskell2010/prelude-classes.hs` | success | emit-llvm/default | `6` | LLVM compiled through clang, stdout `6`, stderr empty, exit 0 | pass |
+| haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | native/default | `15` | stdout `15`, stderr empty, exit 0 | pass |
+| haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | native/no-egglog | `15` | stdout `15`, stderr empty, exit 0 | pass |
+| haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | emit-llvm/default | `15` | LLVM compiled through clang, stdout `15`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/no-egglog | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | emit-llvm/default | `7` | LLVM compiled through clang, stdout `7`, stderr empty, exit 0 | pass |
@@ -124,6 +128,8 @@ Summary:
 | division-overflow | `test/e2e/programs/runtime-errors/division-overflow.hg` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | haskell2010-division-by-zero | `test/e2e/programs/haskell2010/division-by-zero.hs` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | haskell2010-division-by-zero | `test/e2e/programs/haskell2010/division-by-zero.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
+| haskell2010-guard-fallthrough | `test/e2e/programs/haskell2010/guard-fallthrough.hs` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
+| haskell2010-guard-fallthrough | `test/e2e/programs/haskell2010/guard-fallthrough.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | open-free-variable | `test/e2e/programs/compile-errors/open-free-variable.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |
 | type-error | `test/e2e/programs/compile-errors/type-error.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |
 | unsupported-recursion | `test/e2e/programs/unsupported/unsupported-recursion.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |

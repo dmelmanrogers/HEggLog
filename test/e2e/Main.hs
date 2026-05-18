@@ -336,6 +336,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-recursive-list" "test/e2e/programs/haskell2010/recursive-list.hs" "10" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-typeclass-dictionary" "test/e2e/programs/haskell2010/typeclass-dictionary.hs" "1" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-prelude-classes" "test/e2e/programs/haskell2010/prelude-classes.hs" "6" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-guards-as-patterns" "test/e2e/programs/haskell2010/guards-as-patterns.hs" "15" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-adt-box" "test/e2e/programs/haskell2010/adt-box.hs" "7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-adt-maybe" "test/e2e/programs/haskell2010/adt-maybe.hs" "4" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-adt-nested" "test/e2e/programs/haskell2010/adt-nested.hs" "3" [DefaultEgglog, NoEgglog] False
@@ -346,6 +347,7 @@ e2eCases =
   , runtimeErrorCase "division-by-zero" "test/e2e/programs/runtime-errors/division-by-zero.hg" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "division-overflow" "test/e2e/programs/runtime-errors/division-overflow.hg" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "haskell2010-division-by-zero" "test/e2e/programs/haskell2010/division-by-zero.hs" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-guard-fallthrough" "test/e2e/programs/haskell2010/guard-fallthrough.hs" [DefaultEgglog, NoEgglog]
   , compileErrorCase "open-free-variable" "test/e2e/programs/compile-errors/open-free-variable.hg" ["free", "unbound", "unknown", "backend"]
   , compileErrorCase "type-error" "test/e2e/programs/compile-errors/type-error.hg" ["type"]
   , compileErrorCase "unsupported-recursion" "test/e2e/programs/unsupported/unsupported-recursion.hg" ["recursive", "recursion", "unbound", "unknown"]

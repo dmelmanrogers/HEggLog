@@ -143,6 +143,7 @@ testGroups =
       , pureTest "typechecks recursive bindings" testHaskell2010Core0Recursion
       , pureTest "typechecks type class dictionaries" testHaskell2010Core0TypeClassDictionaries
       , pureTest "typechecks Prelude class dictionaries" testHaskell2010Core0PreludeClassDictionaries
+      , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       , pureTest "rejects unsupported Core-0 equality" testHaskell2010Core0UnsupportedEquality
@@ -159,9 +160,11 @@ testGroups =
       , pureTest "evaluates recursive functions and list recursion" testHaskell2010Core0EvalRecursion
       , pureTest "evaluates type class dictionary calls" testHaskell2010Core0EvalTypeClassDictionaries
       , pureTest "evaluates Prelude class dictionary calls" testHaskell2010Core0EvalPreludeClassDictionaries
+      , pureTest "evaluates guards and as-patterns" testHaskell2010Core0EvalGuardsAndAsPatterns
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
       , pureTest "reports forced division by zero" testHaskell2010Core0EvalDivisionByZero
+      , pureTest "reports guard fallthrough as no matching alternative" testHaskell2010Core0EvalGuardFallthrough
       ]
   , TestGroup
       "Haskell 2010 STG Runtime"
@@ -189,7 +192,9 @@ testGroups =
       , pureTest "preserves recursive function semantics" testHaskell2010CoreToSTGRecursion
       , pureTest "preserves type class dictionary semantics" testHaskell2010CoreToSTGTypeClassDictionaries
       , pureTest "preserves Prelude class dictionary semantics" testHaskell2010CoreToSTGPreludeClassDictionaries
+      , pureTest "preserves guard and as-pattern semantics" testHaskell2010CoreToSTGGuardsAndAsPatterns
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
+      , pureTest "preserves guard fallthrough errors" testHaskell2010CoreToSTGGuardFallthrough
       , pureTest "preserves curried partial application" testHaskell2010CoreToSTGPartialApplication
       , pureTest "rejects invalid Core before lowering" testHaskell2010CoreToSTGRejectsInvalidCore
       ]
@@ -1167,6 +1172,13 @@ testHaskell2010Core0PreludeClassDictionaries = do
   assertBool "Prelude Num Int instance dictionary is emitted" (containsBindingOccurrence "$fNumInt" coreModule)
   expectCoreEvalInt "Prelude class dictionary Core oracle" 6 =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0GuardsAndAsPatterns :: Either String ()
+testHaskell2010Core0GuardsAndAsPatterns = do
+  coreModule <- typecheckHaskell2010 haskell2010GuardAsPatternSource
+  assertBool "guarded RHS emits Bool case" (countCasesInModule coreModule >= 3)
+  assertBool "as-pattern alias is emitted" (moduleContainsVarOccurrence "xs" coreModule || moduleContainsVarOccurrence "ys" coreModule)
+  expectCoreEvalInt "guard/as-pattern Core oracle" 15 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries :: Either String ()
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
   expectUnsupported "rejects duplicate concrete instances" "duplicate instance" duplicateInstanceSource
@@ -1315,6 +1327,13 @@ testHaskell2010Core0EvalPreludeClassDictionaries =
     6
     =<< evalHaskell2010Binding "main" haskell2010PreludeClassDictionarySource
 
+testHaskell2010Core0EvalGuardsAndAsPatterns :: Either String ()
+testHaskell2010Core0EvalGuardsAndAsPatterns =
+  expectCoreEvalInt
+    "Core-0 guarded RHS/as-pattern evaluation"
+    15
+    =<< evalHaskell2010Binding "main" haskell2010GuardAsPatternSource
+
 testHaskell2010Core0EvalLazyLet :: Either String ()
 testHaskell2010Core0EvalLazyLet =
   expectCoreEvalInt
@@ -1350,6 +1369,13 @@ testHaskell2010Core0EvalDivisionByZero =
       Left H2010CoreEval.CoreEvalDivisionByZero -> Right ()
       Left err -> Left ("expected Core-0 division by zero, got: " <> show err)
       Right value -> Left ("division by zero evaluated unexpectedly: " <> show value)
+
+testHaskell2010Core0EvalGuardFallthrough :: Either String ()
+testHaskell2010Core0EvalGuardFallthrough =
+  case evalHaskell2010BindingRaw "main" haskell2010GuardFallthroughSource of
+    Left H2010CoreEval.CoreEvalNoMatchingAlternative {} -> Right ()
+    Left err -> Left ("expected Core-0 guard fallthrough, got: " <> show err)
+    Right value -> Left ("guard fallthrough evaluated unexpectedly: " <> show value)
 
 testHaskell2010STGValidatesLazyBindings :: Either String ()
 testHaskell2010STGValidatesLazyBindings =
@@ -1551,6 +1577,10 @@ testHaskell2010CoreToSTGPreludeClassDictionaries :: Either String ()
 testHaskell2010CoreToSTGPreludeClassDictionaries =
   checkCoreToSTGInt "Core-to-STG Prelude class dictionaries" 6 haskell2010PreludeClassDictionarySource
 
+testHaskell2010CoreToSTGGuardsAndAsPatterns :: Either String ()
+testHaskell2010CoreToSTGGuardsAndAsPatterns =
+  checkCoreToSTGInt "Core-to-STG guards and as-patterns" 15 haskell2010GuardAsPatternSource
+
 testHaskell2010CoreToSTGDivisionByZero :: Either String ()
 testHaskell2010CoreToSTGDivisionByZero =
   case
@@ -1562,6 +1592,13 @@ testHaskell2010CoreToSTGDivisionByZero =
       Left (Right H2010STGEval.STGEvalDivisionByZero) -> Right ()
       Left err -> Left ("expected lowered STG division by zero, got: " <> show err)
       Right value -> Left ("lowered division by zero evaluated unexpectedly: " <> show value)
+
+testHaskell2010CoreToSTGGuardFallthrough :: Either String ()
+testHaskell2010CoreToSTGGuardFallthrough =
+  case lowerAndEvalHaskell2010BindingRaw "main" haskell2010GuardFallthroughSource of
+    Left (Right H2010STGEval.STGEvalNoMatchingAlternative {}) -> Right ()
+    Left err -> Left ("expected lowered STG guard fallthrough, got: " <> show err)
+    Right value -> Left ("lowered guard fallthrough evaluated unexpectedly: " <> show value)
 
 testHaskell2010CoreToSTGPartialApplication :: Either String ()
 testHaskell2010CoreToSTGPartialApplication =
@@ -4577,6 +4614,7 @@ haskell2010NativeSuccessExamples =
   , ("recursive-list", haskell2010RecursiveListSource, "10\n")
   , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
   , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
+  , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-maybe", haskell2010PolymorphicADTSource, "4\n")
   , ("adt-nested", haskell2010NestedADTSource, "3\n")
@@ -4592,6 +4630,7 @@ haskell2010NativeExecutableExamples =
   , ("recursive-list", haskell2010RecursiveListSource, "10\n")
   , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
   , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
+  , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
   ]
 
 haskell2010ArithmeticSource :: Text
@@ -4737,6 +4776,23 @@ haskell2010PreludeClassDictionarySource =
   \  GT -> True\n\
   \  _ -> False\n\
   \main = if same 7 7 && not (same 7 8) && ordered 3 4 && compareFlag && max False True && not (min False True) then distancePlusSign 9 4 else 0\n"
+
+haskell2010GuardAsPatternSource :: Text
+haskell2010GuardAsPatternSource =
+  "module Main where\n\
+  \score n\n\
+  \  | n == 0 = 1\n\
+  \  | n < 3 = n + 10\n\
+  \  | otherwise = n + 2\n\
+  \listScore xs@(x : rest) = case xs of\n\
+  \  ys@(y : tail) | length ys == 3 -> score y + length tail + length xs + x\n\
+  \  _ -> 0\n\
+  \main = listScore [4, 5, 6]\n"
+
+haskell2010GuardFallthroughSource :: Text
+haskell2010GuardFallthroughSource =
+  "module Main where\n\
+  \main | False = 1\n"
 
 haskell2010ADTBoxSource :: Text
 haskell2010ADTBoxSource =
@@ -4977,6 +5033,10 @@ bindCountCases = \case
   H2010Core.CoreNonRec _ rhs -> countCases rhs
   H2010Core.CoreRec pairs -> sum (map (countCases . snd) pairs)
 
+countCasesInModule :: H2010Core.CoreModule -> Int
+countCasesInModule =
+  sum . map bindCountCases . H2010Core.coreModuleBinds
+
 altCountCases :: H2010Core.CoreAlt -> Int
 altCountCases (H2010Core.CoreAlt _ _ body) =
   countCases body
@@ -5050,6 +5110,10 @@ bindContainsVarOccurrence occurrence = \case
     containsVarOccurrence occurrence rhs
   H2010Core.CoreRec pairs ->
     any (containsVarOccurrence occurrence . snd) pairs
+
+moduleContainsVarOccurrence :: Text -> H2010Core.CoreModule -> Bool
+moduleContainsVarOccurrence occurrence =
+  any (bindContainsVarOccurrence occurrence) . H2010Core.coreModuleBinds
 
 altContainsVarOccurrence :: Text -> H2010Core.CoreAlt -> Bool
 altContainsVarOccurrence occurrence (H2010Core.CoreAlt _ binders body) =

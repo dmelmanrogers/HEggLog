@@ -436,9 +436,13 @@ emitCase env binder alternatives scrutineeObject = do
   let caseEnv = Map.insert (stgBinderName binder) (DirectValue scrutineeObject) env
   incoming <- emitCaseDecision caseEnv scrutineeObject tagValue alternatives resultLabel []
   startBlock resultLabel
-  resultReg <- freshRegister "case_result"
-  emit (IPhi resultReg LPtr incoming)
-  pure (OLocal LPtr resultReg)
+  case incoming of
+    [] ->
+      pure OConstNull
+    _ -> do
+      resultReg <- freshRegister "case_result"
+      emit (IPhi resultReg LPtr incoming)
+      pure (OLocal LPtr resultReg)
 
 emitCaseDecision ::
   ValueEnv ->

@@ -266,10 +266,11 @@ patternBinding = do
 
 rhsParser :: Parser Rhs
 rhsParser =
-  guardedRhs <|> unguardedRhs
+  scn *> (try guardedRhs <|> unguardedRhs)
  where
-  guardedRhs = Guarded <$> some guardedBranch
+  guardedRhs = Guarded <$> some (try guardedBranch)
   guardedBranch = do
+    scn
     void (symbol "|")
     guardExpr <- exprParser
     void (symbol "=")
@@ -446,10 +447,11 @@ altParser = do
 
 altRhsParser :: Parser Rhs
 altRhsParser =
-  guardedAltRhs <|> unguardedAltRhs
+  scn *> (try guardedAltRhs <|> unguardedAltRhs)
  where
-  guardedAltRhs = Guarded <$> some guardedBranch
+  guardedAltRhs = Guarded <$> some (try guardedBranch)
   guardedBranch = do
+    scn
     void (symbol "|")
     guardExpr <- exprParser
     void (symbol "->")

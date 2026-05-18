@@ -1059,6 +1059,23 @@ inferInstanceMethod env info instanceType methodMap method =
       unify expected (typedExprType expr)
       pure expr
 
+aliasPatternBinder :: RName -> MonoType -> TypedExpr -> TypedExpr -> TypedExpr
+aliasPatternBinder name ty scrutinee body =
+  case scrutinee of
+    TVar scrutineeName _ _ _
+      | scrutineeName == name -> body
+    _ ->
+      TLet
+        [ TypedBinding
+            { typedBindingName = name
+            , typedBindingScheme = Scheme [] [] ty
+            , typedBindingGeneralizedMetas = Map.empty
+            , typedBindingRhs = scrutinee
+            }
+        ]
+        body
+        (typedExprType body)
+
 instanceDictionaryName :: RName -> MonoType -> InferM RName
 instanceDictionaryName className instanceType =
   freshGeneratedName
@@ -1077,13 +1094,20 @@ monoTypeOccurrence = \case
 
 inferFunctionBindingExpr :: TypeEnv -> [RPat] -> RRhs -> [RDecl] -> InferM TypedExpr
 inferFunctionBindingExpr env patterns rhs whereDecls = do
-  bodyExpr <- rhsToExpr rhs whereDecls
-  inferLambda env patterns bodyExpr
+  inferLambdaRhs env patterns rhs whereDecls
 
 inferLambda :: TypeEnv -> [RPat] -> RExpr -> InferM TypedExpr
-inferLambda env patterns bodyExpr = do
+inferLambda env patterns bodyExpr =
+  inferLambdaBody env patterns (inferExpr) bodyExpr
+
+inferLambdaRhs :: TypeEnv -> [RPat] -> RRhs -> [RDecl] -> InferM TypedExpr
+inferLambdaRhs env patterns rhs whereDecls =
+  inferLambdaBody env patterns (\bodyEnv _ -> inferRhs bodyEnv rhs whereDecls) (RUnit)
+
+inferLambdaBody :: TypeEnv -> [RPat] -> (TypeEnv -> RExpr -> InferM TypedExpr) -> RExpr -> InferM TypedExpr
+inferLambdaBody env patterns inferBody bodyExpr = do
   (binders, bodyEnv, wrapPatterns) <- inferLambdaPatterns env patterns
-  body <- wrapPatterns <$> inferExpr bodyEnv bodyExpr
+  body <- wrapPatterns <$> inferBody bodyEnv bodyExpr
   pure (foldr wrapLambda body binders)
  where
   wrapLambda binder body =
@@ -1114,9 +1138,9 @@ inferLambdaPatterns initialEnv =
           patTy <- freshMeta
           binder <- freshTermBinder "$arg" patTy
           caseBinder <- freshTermBinder "$case" patTy
-          plan <- inferPatternPlan env patTy pat
           let scrutinee = TVar (typedBinderName binder) (Scheme [] [] patTy) [] patTy
-              wrapOne body =
+          plan <- inferPatternPlan env patTy scrutinee pat
+          let wrapOne body =
                 TCase
                   scrutinee
                   caseBinder
@@ -1128,16 +1152,61 @@ inferLambdaPatterns initialEnv =
                   (typedExprType body)
           go (binders <> [binder]) (patternEnv plan) (wrap . wrapOne) rest
 
-rhsToExpr :: RRhs -> [RDecl] -> InferM RExpr
-rhsToExpr rhs whereDecls =
-  case rhs of
-    RUnguarded expr ->
-      pure $
-        if null whereDecls
-          then expr
-          else RLet whereDecls expr
-    RGuarded {} ->
-      throwTypecheck (UnsupportedCore0 "guarded right-hand side")
+inferRhs :: TypeEnv -> RRhs -> [RDecl] -> InferM TypedExpr
+inferRhs env rhs whereDecls = do
+  (whereBindings, rhsEnv) <-
+    if null whereDecls
+      then pure ([], env)
+      else inferBindingGroup env whereDecls
+  body <-
+    case rhs of
+      RUnguarded expr ->
+        inferExpr rhsEnv expr
+      RGuarded branches ->
+        inferGuardedBranches rhsEnv branches
+  pure $
+    case whereBindings of
+      [] -> body
+      bindings -> TLet bindings body (typedExprType body)
+
+inferGuardedBranches :: TypeEnv -> [(RExpr, RExpr)] -> InferM TypedExpr
+inferGuardedBranches env branches = do
+  resultTy <- freshMeta
+  go resultTy branches
+ where
+  go resultTy =
+    \case
+      [] ->
+        patternMatchFailureExpr resultTy
+      (guardExpr, bodyExpr) : rest -> do
+        typedGuard <- inferExpr env guardExpr
+        unify (typedExprType typedGuard) boolMonoType
+        typedBody <- inferExpr env bodyExpr
+        unify resultTy (typedExprType typedBody)
+        falseBranch <- go resultTy rest
+        branchResultTy <- applyCurrent resultTy
+        caseBinder <- freshTermBinder "$guard" boolMonoType
+        pure
+          ( TCase
+              typedGuard
+              caseBinder
+              [ TypedAlt (ConstructorAlt trueDataConName) [] typedBody
+              , TypedAlt (ConstructorAlt falseDataConName) [] falseBranch
+              ]
+              branchResultTy
+          )
+
+patternMatchFailureExpr :: MonoType -> InferM TypedExpr
+patternMatchFailureExpr resultTy = do
+  resultTy' <- applyCurrent resultTy
+  caseBinder <- freshTermBinder "$match_fail" boolMonoType
+  pure
+    ( TCase
+        (TCon falseDataConName (Scheme [] [] boolMonoType) [] boolMonoType)
+        caseBinder
+        []
+        resultTy'
+    )
 
 inferExpr :: TypeEnv -> RExpr -> InferM TypedExpr
 inferExpr env = \case
@@ -1384,22 +1453,22 @@ builtinClassMethod classOccurrence methodOccurrence = do
         )
 
 inferCaseAlt :: TypeEnv -> MonoType -> TypedBinder -> MonoType -> RAlt -> InferM TypedAlt
-inferCaseAlt env scrutineeTy _caseBinder resultTy (RAlt pat rhs whereDecls) = do
-  plan <- inferPatternPlan env scrutineeTy pat
-  bodyExpr <- rhsToExpr rhs whereDecls
-  typedBody <- patternWrapBody plan <$> inferExpr (patternEnv plan) bodyExpr
+inferCaseAlt env scrutineeTy caseBinder resultTy (RAlt pat rhs whereDecls) = do
+  let scrutinee = TVar (typedBinderName caseBinder) (Scheme [] [] scrutineeTy) [] scrutineeTy
+  plan <- inferPatternPlan env scrutineeTy scrutinee pat
+  typedBody <- patternWrapBody plan <$> inferRhs (patternEnv plan) rhs whereDecls
   unify resultTy (typedExprType typedBody)
   pure (TypedAlt (patternAltCon plan) (patternAltBinders plan) typedBody)
 
-inferPatternPlan :: TypeEnv -> MonoType -> RPat -> InferM PatternPlan
-inferPatternPlan env expectedTy = \case
+inferPatternPlan :: TypeEnv -> MonoType -> TypedExpr -> RPat -> InferM PatternPlan
+inferPatternPlan env expectedTy scrutinee = \case
   RPVar name ->
     pure
       PatternPlan
         { patternAltCon = DefaultAlt
         , patternAltBinders = []
         , patternEnv = Map.insert name (Scheme [] [] expectedTy) env
-        , patternWrapBody = id
+        , patternWrapBody = aliasPatternBinder name expectedTy scrutinee
         }
   RPWildcard ->
     pure
@@ -1425,9 +1494,16 @@ inferPatternPlan env expectedTy = \case
   RPList patterns ->
     inferListPattern env expectedTy patterns
   RPParen pat ->
-    inferPatternPlan env expectedTy pat
-  pat ->
-    throwTypecheck (UnsupportedCore0 ("pattern " <> renderPatternShape pat))
+    inferPatternPlan env expectedTy scrutinee pat
+  RPAs name pat -> do
+    plan <- inferPatternPlan env expectedTy scrutinee pat
+    pure
+      plan
+        { patternEnv = Map.insert name (Scheme [] [] expectedTy) (patternEnv plan)
+        , patternWrapBody = aliasPatternBinder name expectedTy scrutinee . patternWrapBody plan
+        }
+  RPIrrefutable {} ->
+    throwTypecheck (UnsupportedCore0 "irrefutable pattern semantics")
 
 inferConstructorPattern :: TypeEnv -> MonoType -> RName -> [RPat] -> InferM PatternPlan
 inferConstructorPattern env expectedTy name args
@@ -1541,9 +1617,9 @@ inferFieldPattern (fieldTy, pat) =
     _ -> do
       fieldBinder <- freshTermBinder "$field" fieldTy
       nestedCaseBinder <- freshTermBinder "$case" fieldTy
-      nestedPlan <- inferPatternPlan Map.empty fieldTy pat
       let scrutinee = TVar (typedBinderName fieldBinder) (Scheme [] [] fieldTy) [] fieldTy
-          wrap body =
+      nestedPlan <- inferPatternPlan Map.empty fieldTy scrutinee pat
+      let wrap body =
             TCase
               scrutinee
               nestedCaseBinder
@@ -2110,12 +2186,18 @@ data BuiltinInstanceDictionary = BuiltinInstanceDictionary
 bindingToCore :: CoreElabEnv -> TypedBinding -> Either TypecheckError CoreBind
 bindingToCore env binding = do
   let scheme = typedBindingScheme binding
+      subst = coreElabSubst env
       ambientMetas = coreElabMetas env
       initialMetas = Map.union (typedBindingGeneralizedMetas binding) ambientMetas
-      allMetas = Map.union initialMetas (ambiguousExprMetas initialMetas (typedBindingRhs binding))
+      allMetas =
+        Map.unions
+          [ initialMetas
+          , ambiguousSchemeMetas initialMetas scheme
+          , ambiguousExprMetas initialMetas (typedBindingRhs binding)
+          ]
       envWithMetas = env {coreElabMetas = allMetas}
-  binderTy <- schemeToCoreType scheme
-  dictBinders <- dictionaryBindersFor (typedBindingName binding) scheme
+  binderTy <- schemeToCoreTypeWith subst allMetas scheme
+  dictBinders <- dictionaryBindersFor subst allMetas (typedBindingName binding) scheme
   let localDictionaries =
         [ (constraint, CVar (coreBinderName binder) (coreBinderType binder))
         | (constraint, binder) <- dictBinders
@@ -2141,6 +2223,14 @@ ambiguousExprMetas knownMetas expression =
   Map.fromList
     [ (meta, ambiguousMetaName meta)
     | meta <- Set.toList (typedExprMetaVars expression)
+    , meta `Map.notMember` knownMetas
+    ]
+
+ambiguousSchemeMetas :: Map.Map Int RName -> Scheme -> Map.Map Int RName
+ambiguousSchemeMetas knownMetas scheme =
+  Map.fromList
+    [ (meta, ambiguousMetaName meta)
+    | meta <- Set.toList (freeMetaVarsScheme scheme)
     , meta `Map.notMember` knownMetas
     ]
 
@@ -2260,12 +2350,12 @@ exprToCore env = \case
             _ -> exprType callee
      in CApp callee dictionary remainingResult
 
-dictionaryBindersFor :: RName -> Scheme -> Either TypecheckError [(ClassConstraint, CoreBinder)]
-dictionaryBindersFor owner scheme =
+dictionaryBindersFor :: Subst -> Map.Map Int RName -> RName -> Scheme -> Either TypecheckError [(ClassConstraint, CoreBinder)]
+dictionaryBindersFor subst metas owner scheme =
   traverse binderFor (zip [0 ..] (schemeConstraints scheme))
  where
   binderFor (index, constraint) = do
-    binderTy <- classConstraintCoreType Map.empty Map.empty constraint
+    binderTy <- classConstraintCoreType subst metas constraint
     let binderName =
           RName
             TermNamespace

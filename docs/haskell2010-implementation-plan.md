@@ -29,7 +29,8 @@ Implemented today: `Syntax`, `Lexer`, `Layout`, `Parser`, `Pretty`, `Names`,
 executable subset, including custom ADTs, constructor patterns, lists, tuples,
 generated Core Prelude bindings for basic list/Bool functions, and recursive
 top-level/local binding groups, plus initial user-defined single-parameter
-type class dictionaries. Broader
+type class dictionaries, built-in `Eq`/`Ord`/`Num` dictionaries, guarded RHSs,
+guarded case alternatives, and as-pattern aliases. Broader
 inference/desugaring modules for full Haskell 2010 remain planned.
 
 Implemented Core modules:
@@ -48,7 +49,8 @@ Core types live in `Haskell2010.Core.Syntax` for the current MVP. The reference
 evaluator in `Haskell2010.Core.Eval` executes validated typed Core, including
 user ADT constructors, list/tuple/Prelude constructors, generated Prelude list
 functions, recursive functions, lazy fields, and dictionary-passed user class
-method calls, as the oracle for STG/native work.
+method calls, plus guarded RHS/as-pattern programs and guard-fallthrough
+no-match errors, as the oracle for STG/native work.
 
 Implemented STG modules:
 
@@ -122,10 +124,14 @@ is built alongside them.
     Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
     Superclasses, defaults, deriving, `Show`, `fromInteger`, overloaded
     literals, and numeric defaulting remain planned.
-15. Broader Prelude subset.
-16. IO.
-17. Modules.
-18. Egglog Core optimizer. Completed for the first safe Core-0 fragment;
+15. Guarded RHS/case alternatives and as-pattern aliases. Completed for
+    multi-branch guards, guarded case alternatives, as-pattern alias binding,
+    Core/STG/native no-match behavior for guard fallthrough, and wet-tested
+    default/no-egglog CLI runs.
+16. Broader Prelude subset.
+17. IO.
+18. Modules.
+19. Egglog Core optimizer. Completed for the first safe Core-0 fragment;
     broader Core facts and rewrites remain planned.
 
 ## Tests Required Per Milestone
