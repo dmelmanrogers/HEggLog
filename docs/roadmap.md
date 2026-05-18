@@ -44,9 +44,9 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Recursive top-level and local function/data-structure coverage.
-2. Haskell 2010 conformance matrix expansion for the recursive executable surface.
-3. Type class dictionary representation.
+1. Haskell 2010 conformance matrix expansion for the broader executable surface.
+2. Type class dictionary representation.
+3. Pattern-match diagnostics, guards, and remaining pattern forms.
 
 Completed Haskell 2010 roadmap work:
 
@@ -98,6 +98,10 @@ Completed Haskell 2010 roadmap work:
   constructors/types, list and tuple expressions/patterns, short-circuiting
   Bool operators, and generated Core Prelude bindings for `id`, `const`, `not`,
   `otherwise`, `map`, `foldr`, `length`, `filter`, and `reverse`.
+- Haskell 2010 recursion coverage: implemented for singleton self-recursive
+  top-level/local bindings, mutually recursive functions, fibonacci/factorial
+  programs, cons-pattern recursive list functions, and default/no-egglog native
+  wet tests.
 
 ## Non-Negotiable Project Direction
 

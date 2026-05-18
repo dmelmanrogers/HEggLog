@@ -1,7 +1,7 @@
 # End-to-End Wet Test Results
 
 Recorded for the mandatory wet-test suite after adding Haskell 2010
-Bool/list/tuple/Prelude native coverage. The suite covers the existing `.hg`
+recursive native coverage. The suite covers the existing `.hg`
 native compiler baseline and Haskell 2010 executable-subset `.hs` programs that
 compile to native executables, compare lazy runtime behavior, and run both
 default Egglog and `--no-egglog` modes for Haskell 2010 optimizer coverage.
@@ -17,15 +17,15 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 77
-- Source files: 34
-- Successful source cases: 25
+- HUnit checks: 88
+- Source files: 39
+- Successful source cases: 30
 - Runtime-error source cases: 6
 - Compile-error source cases: 3
-- Native compile/run checks: 56
-- Default Egglog native checks: 34
-- `--no-egglog` native checks: 22
-- Emit-LLVM checks: 9
+- Native compile/run checks: 66
+- Default Egglog native checks: 39
+- `--no-egglog` native checks: 27
+- Emit-LLVM checks: 10
 - Report/interpreter comparisons: 12
 - Failures: 0
 
@@ -89,6 +89,17 @@ Summary:
 | haskell2010-prelude-maybe-ordering | `test/e2e/programs/haskell2010/prelude-maybe-ordering.hs` | success | native/no-egglog | `5` | stdout `5`, stderr empty, exit 0 | pass |
 | haskell2010-short-circuit | `test/e2e/programs/haskell2010/short-circuit.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-short-circuit | `test/e2e/programs/haskell2010/short-circuit.hs` | success | native/no-egglog | `7` | stdout `7`, stderr empty, exit 0 | pass |
+| haskell2010-guarded-self-recursion | `test/e2e/programs/haskell2010/guarded-self-recursion.hs` | success | native/default | `1` | stdout `1`, stderr empty, exit 0 | pass |
+| haskell2010-guarded-self-recursion | `test/e2e/programs/haskell2010/guarded-self-recursion.hs` | success | native/no-egglog | `1` | stdout `1`, stderr empty, exit 0 | pass |
+| haskell2010-local-factorial | `test/e2e/programs/haskell2010/local-factorial.hs` | success | native/default | `120` | stdout `120`, stderr empty, exit 0 | pass |
+| haskell2010-local-factorial | `test/e2e/programs/haskell2010/local-factorial.hs` | success | native/no-egglog | `120` | stdout `120`, stderr empty, exit 0 | pass |
+| haskell2010-local-factorial | `test/e2e/programs/haskell2010/local-factorial.hs` | success | emit-llvm/default | `120` | LLVM compiled through clang, stdout `120`, stderr empty, exit 0 | pass |
+| haskell2010-fibonacci | `test/e2e/programs/haskell2010/fibonacci.hs` | success | native/default | `21` | stdout `21`, stderr empty, exit 0 | pass |
+| haskell2010-fibonacci | `test/e2e/programs/haskell2010/fibonacci.hs` | success | native/no-egglog | `21` | stdout `21`, stderr empty, exit 0 | pass |
+| haskell2010-mutual-recursion | `test/e2e/programs/haskell2010/mutual-recursion.hs` | success | native/default | `1` | stdout `1`, stderr empty, exit 0 | pass |
+| haskell2010-mutual-recursion | `test/e2e/programs/haskell2010/mutual-recursion.hs` | success | native/no-egglog | `1` | stdout `1`, stderr empty, exit 0 | pass |
+| haskell2010-recursive-list | `test/e2e/programs/haskell2010/recursive-list.hs` | success | native/default | `10` | stdout `10`, stderr empty, exit 0 | pass |
+| haskell2010-recursive-list | `test/e2e/programs/haskell2010/recursive-list.hs` | success | native/no-egglog | `10` | stdout `10`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/no-egglog | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | emit-llvm/default | `7` | LLVM compiled through clang, stdout `7`, stderr empty, exit 0 | pass |

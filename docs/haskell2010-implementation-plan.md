@@ -27,7 +27,8 @@ src/Haskell2010/
 Implemented today: `Syntax`, `Lexer`, `Layout`, `Parser`, `Pretty`, `Names`,
 `Renamed`, `Renamer`, and a `Typecheck` source-to-Core pass for the current
 executable subset, including custom ADTs, constructor patterns, lists, tuples,
-and generated Core Prelude bindings for basic list/Bool functions. Broader
+generated Core Prelude bindings for basic list/Bool functions, and recursive
+top-level/local binding groups. Broader
 inference/desugaring modules for full Haskell 2010 remain planned.
 
 Implemented Core modules:
@@ -45,7 +46,8 @@ src/Haskell2010/Core/
 Core types live in `Haskell2010.Core.Syntax` for the current MVP. The reference
 evaluator in `Haskell2010.Core.Eval` executes validated typed Core, including
 user ADT constructors, list/tuple/Prelude constructors, generated Prelude list
-functions, and lazy fields, as the oracle for STG/native work.
+functions, recursive functions, and lazy fields, as the oracle for STG/native
+work.
 
 Implemented STG modules:
 
@@ -108,7 +110,10 @@ is built alongside them.
     bindings for `id`, `const`, `not`, `otherwise`, `map`, `foldr`, `length`,
     `filter`, and `reverse`, Core/STG/native execution, and wet-tested
     default/no-egglog CLI runs.
-13. Recursion.
+13. Recursion. Completed for singleton self-recursive bindings, mutually
+    recursive top-level groups, local recursive `let`, fibonacci/factorial
+    programs, recursive list functions with cons patterns, Core/STG/native
+    execution, and wet-tested default/no-egglog CLI runs.
 14. Broader Prelude subset.
 15. Type classes/dictionaries.
 16. IO.

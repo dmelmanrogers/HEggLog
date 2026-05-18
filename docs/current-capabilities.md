@@ -68,7 +68,8 @@ Core for the current executable subset: `Int`, `Bool`, functions, lazy
 lets/arguments, user `data` declarations, polymorphic constructors, constructor
 cases, lazy constructor fields, nested constructor patterns, list and tuple
 syntax/patterns/types, built-in `Maybe`, `Either`, `Ordering`, and generated
-Core Prelude bindings for basic list/Bool functions. A Core
+Core Prelude bindings for basic list/Bool functions, plus recursive top-level
+and local functions. A Core
 reference evaluator executes validating typed Core with erased type
 abstraction/application, checked `Int` primitives, and structured runtime
 errors. An isolated STG-like IR, validator, and pure heap evaluator now model
@@ -92,18 +93,21 @@ Current status:
 - Haskell 2010 renamer: implemented and unit-tested
 - Haskell 2010 typed Core: implemented and unit-tested as an isolated IR
 - Haskell 2010 HM typechecker: implemented and unit-tested for the first
-  executable subset, including custom ADTs, polymorphic constructors, lists,
-  tuples, and built-in Prelude data constructors
+  executable subset, including custom ADTs, polymorphic constructors, recursive
+  binding groups, lists, tuples, and built-in Prelude data constructors
 - Haskell source desugaring to typed Core: implemented and unit-tested for
   functions, lambdas, application, `let`, `if`, Bool/user-constructor `case`,
   nested/list/tuple constructor patterns, list/tuple expressions, short-circuit
   Bool operators, generated Prelude list functions, and primitive
-  arithmetic/comparison
+  arithmetic/comparison, including singleton self-recursive bindings and
+  mutually recursive top-level groups
 - Haskell 2010 Core reference evaluator: implemented and unit-tested for
   arithmetic, polymorphic instantiation, Bool and user ADT cases, lazy
   lets/arguments, lazy constructor fields, Prelude list functions, tuple and
   built-in Prelude constructor cases, short-circuit Bool operators, and
-  division-by-zero reporting
+  guarded self recursion, local factorial recursion, top-level fibonacci
+  recursion, mutual recursion, recursive list functions, and division-by-zero
+  reporting
 - Haskell 2010 STG-like lazy IR/runtime MVP: implemented and unit-tested for
   validation, lazy lets/arguments, case demand, constructor dispatch, thunk
   sharing/update behavior, single-entry thunks, black-hole detection, and
@@ -111,13 +115,14 @@ Current status:
 - Core-to-STG lowering: implemented and unit-tested for Core-0 arithmetic,
   polymorphic type erasure, Bool/user ADT case, nested constructor patterns,
   list/tuple/Prelude constructor cases, generated Prelude list functions, lazy
-  lets/arguments, forced runtime errors, and curried partial application
+  lets/arguments, recursive binding groups, forced runtime errors, and curried
+  partial application
 - Haskell 2010 native executable path: implemented and wet-tested for
   arithmetic, polymorphic identity, lazy lets/arguments, Bool case, custom ADTs,
   `Maybe`, built-in `Maybe`/`Either`/`Ordering`, lists, tuples, Prelude list
   functions, short-circuit Bool operators, nested constructor patterns, lazy
-  constructor fields, forced division-by-zero failure, and curried partial
-  application
+  constructor fields, top-level/local/mutual/list recursion, forced
+  division-by-zero failure, and curried partial application
 - Haskell 2010 Egglog Core optimizer: implemented and unit/wet-tested for
   safe Core-0 arithmetic identities, checked constant folding, known Bool case
   selection, typed Core extraction/validation, provenance reporting, lazy
@@ -160,8 +165,8 @@ Current tests include:
   `hegglog` CLI, compiles real `.hg` and executable-subset `.hs` files,
   executes native artifacts, verifies stdout/stderr/exit codes, compares
   report-mode `Result: <value>` output, runs Haskell 2010 default Egglog and
-  `--no-egglog` native cases including ADT, list, tuple, and Prelude programs,
-  and compiles selected emitted LLVM through `clang`
+  `--no-egglog` native cases including ADT, list, tuple, Prelude, and recursive
+  programs, and compiles selected emitted LLVM through `clang`
 
 Future Haskell 2010 wet tests should extend this direct executable coverage as
-remaining pattern forms, recursion, type classes, and IO are implemented.
+remaining pattern forms, type classes, and IO are implemented.

@@ -460,14 +460,20 @@ altRhsParser =
     Unguarded <$> (symbol "->" *> scn *> exprParser)
 
 patParser :: Parser Pat
-patParser =
-  choice
-    [ try asPat
-    , try irrefutablePat
-    , try conAppPat
-    , patAtom
-    ]
+patParser = do
+  lhs <-
+    choice
+      [ try asPat
+      , try irrefutablePat
+      , try conAppPat
+      , patAtom
+      ]
+  option lhs (consPat lhs)
  where
+  consPat lhs = do
+    void (symbol ":")
+    rhs <- patParser
+    pure (PCon ":" [lhs, rhs])
   asPat = do
     name <- varid
     void (symbol "@")

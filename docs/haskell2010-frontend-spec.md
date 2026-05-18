@@ -9,7 +9,8 @@ The parser/layout layer is implemented as an isolated `Haskell2010` frontend
 AST, lexer, layout parser, and parser. The renamer is implemented as a
 unique-name pass over that AST. A typed Core IR and validator are implemented
 as the target representation. The typechecker/desugarer is implemented for the
-first executable subset, including custom ADTs and constructor patterns. The
+first executable subset, including custom ADTs, constructor patterns, and
+recursive top-level/local bindings. The
 current `.hg` frontend remains separate substrate; Haskell 2010 source uses the
 `Haskell2010` pipeline.
 
@@ -150,7 +151,8 @@ application, local `let`, `if`, Bool and user-constructor `case`, custom
 patterns, list and tuple expressions/types, built-in `Maybe`, `Either`, and
 `Ordering`, generated Core Prelude bindings for `id`, `const`, `not`,
 `otherwise`, `map`, `foldr`, `length`, `filter`, and `reverse`, short-circuit
-Bool operators, and primitive arithmetic/comparison. Full Haskell 2010 type
+Bool operators, recursive top-level/local binding groups, and primitive
+arithmetic/comparison. Full Haskell 2010 type
 classes, remaining pattern forms, broader Prelude, IO, and modules remain
 planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not

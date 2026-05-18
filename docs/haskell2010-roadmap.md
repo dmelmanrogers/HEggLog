@@ -277,6 +277,13 @@ Acceptance criteria:
 
 ### Phase 11 - Recursion
 
+Status: implemented for the supported executable subset. Singleton
+self-recursive top-level and local bindings now emit recursive Core groups,
+mutual binding groups remain recursive, cons patterns parse as constructor
+patterns, and factorial, fibonacci, mutual recursion, guarded self recursion,
+and recursive list functions are covered by Core, STG, native, and wet tests.
+Nontermination remains isolated to the existing black-hole/runtime tests.
+
 Deliverables:
 
 - recursive top-level functions
@@ -472,11 +479,11 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. Recursive top-level and local function/data-structure coverage.
-2. Haskell 2010 conformance matrix expansion for the recursive executable surface.
-3. Type class dictionary representation.
-4. Pattern-match diagnostics, guards, and remaining pattern forms.
-5. IO `main`, `print`, `putStrLn`, and do-notation lowering.
+1. Haskell 2010 conformance matrix expansion for the broader executable surface.
+2. Type class dictionary representation.
+3. Pattern-match diagnostics, guards, and remaining pattern forms.
+4. IO `main`, `print`, `putStrLn`, and do-notation lowering.
+5. Module graph loading, export filtering, and multi-file compilation.
 
 Completed immediate tasks:
 
@@ -525,6 +532,10 @@ Completed immediate tasks:
   generated Core Prelude bindings for `id`, `const`, `not`, `otherwise`, `map`,
   `foldr`, `length`, `filter`, and `reverse`, with Core/STG/native and wet
   coverage.
+- Haskell 2010 recursion coverage for the executable subset, including
+  singleton self-recursive Core emission, local recursive `let` bindings,
+  top-level fibonacci recursion, mutually recursive functions, cons-pattern
+  recursive list functions, and default/no-egglog native wet tests.
 
 ## Non-Negotiable Rules
 

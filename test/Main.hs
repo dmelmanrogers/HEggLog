@@ -140,6 +140,7 @@ testGroups =
       , pureTest "typechecks user ADT constructor cases" testHaskell2010Core0ADTConstructorCase
       , pureTest "typechecks nested constructor patterns" testHaskell2010Core0NestedADTPatterns
       , pureTest "typechecks lists tuples and Prelude constructors" testHaskell2010Core0PreludeData
+      , pureTest "typechecks recursive bindings" testHaskell2010Core0Recursion
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       , pureTest "rejects unsupported Core-0 equality" testHaskell2010Core0UnsupportedEquality
       ]
@@ -152,6 +153,7 @@ testGroups =
       , pureTest "keeps unused user ADT fields lazy" testHaskell2010Core0EvalLazyADTField
       , pureTest "evaluates Prelude list functions" testHaskell2010Core0EvalPreludeLists
       , pureTest "short-circuits Bool operators" testHaskell2010Core0EvalShortCircuitBool
+      , pureTest "evaluates recursive functions and list recursion" testHaskell2010Core0EvalRecursion
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
       , pureTest "reports forced division by zero" testHaskell2010Core0EvalDivisionByZero
@@ -179,6 +181,7 @@ testGroups =
       , pureTest "preserves polymorphic ADT constructor semantics" testHaskell2010CoreToSTGPolymorphicADT
       , pureTest "preserves nested constructor pattern semantics" testHaskell2010CoreToSTGNestedADTPatterns
       , pureTest "preserves list tuple and Prelude semantics" testHaskell2010CoreToSTGPreludeData
+      , pureTest "preserves recursive function semantics" testHaskell2010CoreToSTGRecursion
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves curried partial application" testHaskell2010CoreToSTGPartialApplication
       , pureTest "rejects invalid Core before lowering" testHaskell2010CoreToSTGRejectsInvalidCore
@@ -627,7 +630,7 @@ testHaskell2010ExpressionSurfaceParsing = do
       \sections = ((1 +), (+ 1))\n\
       \typed = (pure 0 :: IO Int)\n\
       \branch = \\x -> if x then [] else [1]\n\
-      \patterns (Just x) _ (a, b) [c] name@value ~lazy 'x' = x\n"
+      \patterns (Just x) _ (a, b) [c] (h : t) name@value ~lazy 'x' = x\n"
   expectEqual "Haskell 2010 surface declaration count" 10 (length (H2010.moduleDecls parsed))
   assertBool
     "Haskell 2010 surface forms include foreign declarations"
@@ -1125,6 +1128,19 @@ testHaskell2010Core0PreludeData = do
   maybeModule <- typecheckHaskell2010 haskell2010PreludeMaybeOrderingSource
   expectCoreEvalInt "Prelude Maybe/Ordering Core oracle" 5 =<< evalHaskell2010CoreModuleBinding "main" maybeModule
 
+testHaskell2010Core0Recursion :: Either String ()
+testHaskell2010Core0Recursion = do
+  guardedModule <- typecheckHaskell2010 haskell2010GuardedSelfRecursionSource
+  case H2010Core.coreModuleBinds guardedModule of
+    [H2010Core.CoreRec [(binder, rhs)]] -> do
+      expectEqual "guarded self recursion binder" "main" (H2010Names.nameOcc (H2010Core.coreBinderName binder))
+      assertBool "guarded self recursion keeps recursive occurrence" (containsVarOccurrence "main" rhs)
+    other -> Left ("expected guarded self-recursive singleton CoreRec, got: " <> show other)
+  expectCoreEvalInt "guarded self-recursion Core oracle" 1 =<< evalHaskell2010CoreModuleBinding "main" guardedModule
+  expectCoreEvalInt "local factorial Core oracle" 120 =<< evalHaskell2010Binding "main" haskell2010LocalFactorialSource
+  expectCoreEvalInt "mutual recursion Core oracle" 1 =<< evalHaskell2010Binding "main" haskell2010MutualRecursionSource
+  expectCoreEvalInt "recursive list Core oracle" 10 =<< evalHaskell2010Binding "main" haskell2010RecursiveListSource
+
 testHaskell2010Core0TypeError :: Either String ()
 testHaskell2010Core0TypeError =
   case
@@ -1211,6 +1227,16 @@ testHaskell2010Core0EvalShortCircuitBool =
     "Core-0 Bool short-circuit evaluation"
     7
     =<< evalHaskell2010Binding "main" haskell2010ShortCircuitSource
+
+testHaskell2010Core0EvalRecursion :: Either String ()
+testHaskell2010Core0EvalRecursion =
+  sequence_
+    [ expectCoreEvalInt "Core-0 guarded self recursion" 1 =<< evalHaskell2010Binding "main" haskell2010GuardedSelfRecursionSource
+    , expectCoreEvalInt "Core-0 local factorial recursion" 120 =<< evalHaskell2010Binding "main" haskell2010LocalFactorialSource
+    , expectCoreEvalInt "Core-0 top-level fibonacci recursion" 21 =<< evalHaskell2010Binding "main" haskell2010FibonacciSource
+    , expectCoreEvalInt "Core-0 mutual recursion" 1 =<< evalHaskell2010Binding "main" haskell2010MutualRecursionSource
+    , expectCoreEvalInt "Core-0 recursive list function" 10 =<< evalHaskell2010Binding "main" haskell2010RecursiveListSource
+    ]
 
 testHaskell2010Core0EvalLazyLet :: Either String ()
 testHaskell2010Core0EvalLazyLet =
@@ -1433,6 +1459,12 @@ testHaskell2010CoreToSTGPreludeData =
     "Core-to-STG Prelude list/tuple data"
     321
     haskell2010ListPreludeSource
+
+testHaskell2010CoreToSTGRecursion :: Either String ()
+testHaskell2010CoreToSTGRecursion = do
+  checkCoreToSTGInt "Core-to-STG guarded self recursion" 1 haskell2010GuardedSelfRecursionSource
+  checkCoreToSTGInt "Core-to-STG local factorial recursion" 120 haskell2010LocalFactorialSource
+  checkCoreToSTGInt "Core-to-STG recursive list function" 10 haskell2010RecursiveListSource
 
 testHaskell2010CoreToSTGDivisionByZero :: Either String ()
 testHaskell2010CoreToSTGDivisionByZero =
@@ -4449,6 +4481,11 @@ haskell2010NativeSuccessExamples =
   , ("prelude-lists", haskell2010ListPreludeSource, "321\n")
   , ("prelude-maybe-ordering", haskell2010PreludeMaybeOrderingSource, "5\n")
   , ("short-circuit", haskell2010ShortCircuitSource, "7\n")
+  , ("guarded-self-recursion", haskell2010GuardedSelfRecursionSource, "1\n")
+  , ("local-factorial", haskell2010LocalFactorialSource, "120\n")
+  , ("fibonacci", haskell2010FibonacciSource, "21\n")
+  , ("mutual-recursion", haskell2010MutualRecursionSource, "1\n")
+  , ("recursive-list", haskell2010RecursiveListSource, "10\n")
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-maybe", haskell2010PolymorphicADTSource, "4\n")
   , ("adt-nested", haskell2010NestedADTSource, "3\n")
@@ -4461,6 +4498,7 @@ haskell2010NativeExecutableExamples =
   [ ("lazy-argument", haskell2010LazyArgumentSource, "1\n")
   , ("partial-application", haskell2010PartialApplicationSource, "1\n")
   , ("prelude-lists", haskell2010ListPreludeSource, "321\n")
+  , ("recursive-list", haskell2010RecursiveListSource, "10\n")
   ]
 
 haskell2010ArithmeticSource :: Text
@@ -4529,6 +4567,39 @@ haskell2010ShortCircuitSource :: Text
 haskell2010ShortCircuitSource =
   "module Main where\n\
   \main = if (False && ((1 / 0) == 0)) || True then 7 else 1\n"
+
+haskell2010GuardedSelfRecursionSource :: Text
+haskell2010GuardedSelfRecursionSource =
+  "module Main where\n\
+  \main = if True then 1 else main\n"
+
+haskell2010LocalFactorialSource :: Text
+haskell2010LocalFactorialSource =
+  "module Main where\n\
+  \main = let\n\
+  \  fact n = if n == 0 then 1 else n * fact (n - 1)\n\
+  \in fact 5\n"
+
+haskell2010FibonacciSource :: Text
+haskell2010FibonacciSource =
+  "module Main where\n\
+  \fib n = if n < 2 then n else fib (n - 1) + fib (n - 2)\n\
+  \main = fib 8\n"
+
+haskell2010MutualRecursionSource :: Text
+haskell2010MutualRecursionSource =
+  "module Main where\n\
+  \evenN n = if n == 0 then True else oddN (n - 1)\n\
+  \oddN n = if n == 0 then False else evenN (n - 1)\n\
+  \main = if evenN 6 then 1 else 0\n"
+
+haskell2010RecursiveListSource :: Text
+haskell2010RecursiveListSource =
+  "module Main where\n\
+  \sumList xs = case xs of\n\
+  \  [] -> 0\n\
+  \  y : ys -> y + sumList ys\n\
+  \main = sumList [1, 2, 3, 4]\n"
 
 haskell2010ADTBoxSource :: Text
 haskell2010ADTBoxSource =
@@ -4798,6 +4869,43 @@ altContainsConstructorAlt occurrence (H2010Core.CoreAlt altCon _ body) =
       H2010Names.nameOcc name == occurrence || containsConstructorAlt occurrence body
     _ ->
       containsConstructorAlt occurrence body
+
+containsVarOccurrence :: Text -> H2010Core.CoreExpr -> Bool
+containsVarOccurrence occurrence = \case
+  H2010Core.CVar name _ ->
+    H2010Names.nameOcc name == occurrence
+  H2010Core.CLam binder body _ ->
+    H2010Names.nameOcc (H2010Core.coreBinderName binder) /= occurrence
+      && containsVarOccurrence occurrence body
+  H2010Core.CApp callee arg _ ->
+    containsVarOccurrence occurrence callee || containsVarOccurrence occurrence arg
+  H2010Core.CTypeLam _ body _ ->
+    containsVarOccurrence occurrence body
+  H2010Core.CTypeApp callee _ _ ->
+    containsVarOccurrence occurrence callee
+  H2010Core.CLet bind body _ ->
+    bindContainsVarOccurrence occurrence bind || containsVarOccurrence occurrence body
+  H2010Core.CCase scrutinee binder alternatives _ ->
+    containsVarOccurrence occurrence scrutinee
+      || ( H2010Names.nameOcc (H2010Core.coreBinderName binder) /= occurrence
+             && any (altContainsVarOccurrence occurrence) alternatives
+         )
+  H2010Core.CPrimOp _ arguments _ ->
+    any (containsVarOccurrence occurrence) arguments
+  _ ->
+    False
+
+bindContainsVarOccurrence :: Text -> H2010Core.CoreBind -> Bool
+bindContainsVarOccurrence occurrence = \case
+  H2010Core.CoreNonRec _ rhs ->
+    containsVarOccurrence occurrence rhs
+  H2010Core.CoreRec pairs ->
+    any (containsVarOccurrence occurrence . snd) pairs
+
+altContainsVarOccurrence :: Text -> H2010Core.CoreAlt -> Bool
+altContainsVarOccurrence occurrence (H2010Core.CoreAlt _ binders body) =
+  all ((/= occurrence) . H2010Names.nameOcc . H2010Core.coreBinderName) binders
+    && containsVarOccurrence occurrence body
 
 countTypeApps :: H2010Core.CoreExpr -> Int
 countTypeApps = \case

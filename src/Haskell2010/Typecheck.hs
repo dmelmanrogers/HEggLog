@@ -9,6 +9,7 @@ import Control.Monad (foldM, unless)
 import Control.Monad.State.Strict (StateT, get, lift, modify, runStateT)
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -112,6 +113,7 @@ typecheckModuleToCore sourceModule = do
       inferBindingGroup Map.empty sourceDecls
   coreBinds <- traverse (bindingToCore (substitution finalState) Map.empty) typedBindings
   preludeCoreBinds <- preludeCoreBindings preludeValues
+  let sourceCoreBinds = maybe [] (: []) (bindingGroupCoreBind typedBindings coreBinds)
   coreConstructors <-
     Map.union (tupleConstructorInfos tupleArities)
       <$> constructorInfosToCore (substitution finalState) (dataConstructors finalState)
@@ -120,7 +122,7 @@ typecheckModuleToCore sourceModule = do
           { coreModuleName = rModuleName sourceModule
           , coreModuleConstructors = coreConstructors
           , coreModuleBinds =
-              case preludeCoreBinds <> coreBinds of
+              case preludeCoreBinds <> sourceCoreBinds of
                 [] -> []
                 [one] -> [one]
                 many -> [CoreRec (concatMap bindPairs many)]
@@ -1564,6 +1566,23 @@ bindPairs = \case
   CoreNonRec binder rhs -> [(binder, rhs)]
   CoreRec pairs -> pairs
 
+bindingGroupCoreBind :: [TypedBinding] -> [CoreBind] -> Maybe CoreBind
+bindingGroupCoreBind typedBindings coreBinds =
+  case (typedBindings, coreBinds) of
+    ([], []) ->
+      Nothing
+    ([binding], [coreBind])
+      | bindingIsSelfRecursive binding ->
+          Just (CoreRec (bindPairs coreBind))
+      | otherwise ->
+          Just coreBind
+    _ ->
+      Just (CoreRec (concatMap bindPairs coreBinds))
+
+bindingIsSelfRecursive :: TypedBinding -> Bool
+bindingIsSelfRecursive binding =
+  typedBindingName binding `Set.member` typedExprFreeTermNames (typedBindingRhs binding)
+
 exprToCore :: Subst -> Map.Map Int RName -> TypedExpr -> Either TypecheckError CoreExpr
 exprToCore subst metas = \case
   TVar name scheme typeArguments ty -> do
@@ -1615,11 +1634,7 @@ exprToCore subst metas = \case
     coreTy <- monoToCoreType subst metas ty
     pure
       ( CLet
-          (case coreBindings of
-            [] -> CoreRec []
-            [one] -> one
-            many -> CoreRec (concatMap bindPairs many)
-          )
+          (fromMaybe (CoreRec []) (bindingGroupCoreBind bindings coreBindings))
           coreBody
           coreTy
       )
@@ -1756,6 +1771,39 @@ typedBindingMetaVars binding =
 typedAltMetaVars :: TypedAlt -> Set.Set Int
 typedAltMetaVars (TypedAlt _ binders body) =
   Set.unions (map (freeMetaVars . typedBinderType) binders) <> typedExprMetaVars body
+
+typedExprFreeTermNames :: TypedExpr -> Set.Set RName
+typedExprFreeTermNames = \case
+  TVar name _ _ _ ->
+    Set.singleton name
+  TLit {} ->
+    Set.empty
+  TCon {} ->
+    Set.empty
+  TTuple fields _ ->
+    Set.unions (map typedExprFreeTermNames fields)
+  TList elements _ ->
+    Set.unions (map typedExprFreeTermNames elements)
+  TLam binder body _ ->
+    Set.delete (typedBinderName binder) (typedExprFreeTermNames body)
+  TApp fn arg _ ->
+    typedExprFreeTermNames fn <> typedExprFreeTermNames arg
+  TLet bindings body _ ->
+    let bindingFreeNames =
+          Set.unions (map (typedExprFreeTermNames . typedBindingRhs) bindings)
+        localNames =
+          Set.fromList (map typedBindingName bindings)
+     in (bindingFreeNames <> typedExprFreeTermNames body) `Set.difference` localNames
+  TCase scrutinee binder alternatives _ ->
+    typedExprFreeTermNames scrutinee
+      <> Set.unions (map typedAltFreeTermNames alternatives)
+      `Set.difference` Set.singleton (typedBinderName binder)
+  TPrim _ arguments _ ->
+    Set.unions (map typedExprFreeTermNames arguments)
+
+typedAltFreeTermNames :: TypedAlt -> Set.Set RName
+typedAltFreeTermNames (TypedAlt _ binders body) =
+  typedExprFreeTermNames body `Set.difference` Set.fromList (map typedBinderName binders)
 
 typedBinderName :: TypedBinder -> RName
 typedBinderName (TypedBinder name _) =

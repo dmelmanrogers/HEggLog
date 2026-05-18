@@ -85,13 +85,14 @@ Current implementation status: `Haskell2010.STG.Syntax`,
 STG runtime MVP. The evaluator models heap closures, updateable and
 single-entry thunks, sharing after update, black-hole detection, case demand,
 Bool, user-constructor, list, tuple, and Prelude-data dispatch, constructor
-fields, and checked primitive errors. `Haskell2010.STG.Lower` now lowers validating Core modules into
+fields, recursive heap bindings, and checked primitive errors.
+`Haskell2010.STG.Lower` now lowers validating Core modules into
 validating STG while erasing type abstraction/application and preserving lazy
 semantics against the STG evaluator. Native runtime object layout, LLVM
 lowering, and runtime linking are implemented for the current executable subset,
 including custom ADTs, nested constructor patterns, lists, tuples, built-in
-Prelude data constructors, and generated Core Prelude list/Bool functions; IO
-remains a future expansion.
+Prelude data constructors, generated Core Prelude list/Bool functions, and
+recursive top-level/local functions; IO remains a future expansion.
 
 ## LLVM Lowering
 
@@ -117,6 +118,7 @@ Required tests:
 - laziness
 - sharing
 - recursive thunk/black-hole behavior
+- terminating top-level/local/mutual/list recursion
 - constructor case dispatch
 - checked arithmetic and division runtime errors
 - native wet tests
