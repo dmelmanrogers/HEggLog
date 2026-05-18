@@ -10,12 +10,26 @@ module Haskell2010.Core.Syntax
   , CoreType (..)
   , boolTy
   , charTy
+  , eitherLeftDataConName
+  , eitherRightDataConName
+  , eitherTyConName
   , falseDataConName
   , funTy
   , intTy
+  , listConsDataConName
+  , listNilDataConName
+  , maybeJustDataConName
+  , maybeNothingDataConName
+  , maybeTyConName
+  , orderingEQDataConName
+  , orderingGTDataConName
+  , orderingLTDataConName
+  , orderingTy
   , stringTy
   , trueDataConName
+  , tupleDataConName
   , unitTy
+  , unitDataConName
   , exprType
   , bindersOf
   )
@@ -23,6 +37,7 @@ where
 
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
+import qualified Data.Text as Text
 import Haskell2010.Names (Namespace (..), RName (..))
 import Haskell2010.Syntax (Literal, ModuleName)
 
@@ -135,6 +150,18 @@ stringTy :: CoreType
 stringTy =
   CTyList charTy
 
+maybeTyConName :: RName
+maybeTyConName =
+  builtinTypeName "Maybe" (-4)
+
+eitherTyConName :: RName
+eitherTyConName =
+  builtinTypeName "Either" (-5)
+
+orderingTy :: CoreType
+orderingTy =
+  builtinType "Ordering" (-6)
+
 trueDataConName :: RName
 trueDataConName =
   builtinCon "True" (-10)
@@ -143,9 +170,61 @@ falseDataConName :: RName
 falseDataConName =
   builtinCon "False" (-11)
 
+listNilDataConName :: RName
+listNilDataConName =
+  builtinCon "[]" (-12)
+
+listConsDataConName :: RName
+listConsDataConName =
+  builtinCon ":" (-13)
+
+unitDataConName :: RName
+unitDataConName =
+  tupleDataConName 0
+
+maybeNothingDataConName :: RName
+maybeNothingDataConName =
+  builtinCon "Nothing" (-15)
+
+maybeJustDataConName :: RName
+maybeJustDataConName =
+  builtinCon "Just" (-16)
+
+eitherLeftDataConName :: RName
+eitherLeftDataConName =
+  builtinCon "Left" (-17)
+
+eitherRightDataConName :: RName
+eitherRightDataConName =
+  builtinCon "Right" (-18)
+
+orderingLTDataConName :: RName
+orderingLTDataConName =
+  builtinCon "LT" (-19)
+
+orderingEQDataConName :: RName
+orderingEQDataConName =
+  builtinCon "EQ" (-20)
+
+orderingGTDataConName :: RName
+orderingGTDataConName =
+  builtinCon "GT" (-21)
+
+tupleDataConName :: Int -> RName
+tupleDataConName arity =
+  builtinCon tupleOccurrence (-100 - arity)
+ where
+  tupleOccurrence
+    | arity == 0 = "()"
+    | otherwise = "(" <> Text.replicate (arity - 1) "," <> ")"
+
 builtinType :: Text -> Int -> CoreType
 builtinType occurrence unique =
-  CTyCon (RName TypeNamespace occurrence unique True)
+  CTyCon (builtinTypeName occurrence unique)
+
+builtinTypeName :: Text -> Int -> RName
+builtinTypeName occurrence unique =
+  RName TypeNamespace occurrence unique True
 
 builtinCon :: Text -> Int -> RName
 builtinCon occurrence unique =

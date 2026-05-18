@@ -44,8 +44,8 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Prelude Bool/list/tuple runtime expansion.
-2. Haskell 2010 conformance matrix expansion for the next executable surface.
+1. Recursive top-level and local function/data-structure coverage.
+2. Haskell 2010 conformance matrix expansion for the recursive executable surface.
 3. Type class dictionary representation.
 
 Completed Haskell 2010 roadmap work:
@@ -93,6 +93,11 @@ Completed Haskell 2010 roadmap work:
   constructor patterns, lazy constructor fields, Core/STG validation, native
   boxed constructor objects, and default/no-egglog wet tests for custom ADTs and
   `Maybe`.
+- Haskell 2010 Prelude Bool/list/tuple runtime expansion: implemented for
+  built-in list, tuple, unit, `Maybe`, `Either`, and `Ordering`
+  constructors/types, list and tuple expressions/patterns, short-circuiting
+  Bool operators, and generated Core Prelude bindings for `id`, `const`, `not`,
+  `otherwise`, `map`, `foldr`, `length`, `filter`, and `reverse`.
 
 ## Non-Negotiable Project Direction
 

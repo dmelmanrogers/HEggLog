@@ -75,6 +75,8 @@ data TypedExpr
   = TVar RName Scheme [MonoType] MonoType
   | TLit Literal MonoType
   | TCon RName Scheme [MonoType] MonoType
+  | TTuple [TypedExpr] MonoType
+  | TList [TypedExpr] MonoType
   | TLam TypedBinder TypedExpr MonoType
   | TApp TypedExpr TypedExpr MonoType
   | TLet [TypedBinding] TypedExpr MonoType
@@ -101,19 +103,24 @@ typecheckModuleToCore :: RHsModule -> Either TypecheckError CoreModule
 typecheckModuleToCore sourceModule = do
   let sourceDecls = rModuleDecls sourceModule
       typeConstructors = collectTypeConstructors sourceDecls
+      tupleArities = collectTupleArities sourceDecls
+      preludeValues = collectPreludeValueNames sourceDecls
   ((typedBindings, _typedEnv), finalState) <-
     runInfer typeConstructors $ do
       constructors <- collectDataConstructors sourceDecls
-      modify (\state -> state {dataConstructors = constructors})
+      modify (\state -> state {dataConstructors = Map.union constructors builtinDataConstructors})
       inferBindingGroup Map.empty sourceDecls
   coreBinds <- traverse (bindingToCore (substitution finalState) Map.empty) typedBindings
-  coreConstructors <- constructorInfosToCore (substitution finalState) (dataConstructors finalState)
+  preludeCoreBinds <- preludeCoreBindings preludeValues
+  coreConstructors <-
+    Map.union (tupleConstructorInfos tupleArities)
+      <$> constructorInfosToCore (substitution finalState) (dataConstructors finalState)
   let coreModule =
         CoreModule
           { coreModuleName = rModuleName sourceModule
           , coreModuleConstructors = coreConstructors
           , coreModuleBinds =
-              case coreBinds of
+              case preludeCoreBinds <> coreBinds of
                 [] -> []
                 [one] -> [one]
                 many -> [CoreRec (concatMap bindPairs many)]
@@ -195,6 +202,61 @@ collectDataConstructors =
             }
     pure (Map.insert constructorName info acc)
 
+builtinDataConstructors :: Map.Map RName DataConstructorInfo
+builtinDataConstructors =
+  Map.fromList
+    [ (listNilDataConName, DataConstructorInfo [a] [] listA (Scheme [a] listA))
+    ,
+      ( listConsDataConName
+      , DataConstructorInfo
+          [a]
+          [aTy, listA]
+          listA
+          (Scheme [a] (TyFun aTy (TyFun listA listA)))
+      )
+    , (unitDataConName, DataConstructorInfo [] [] unitMonoType (Scheme [] unitMonoType))
+    , (maybeNothingDataConName, DataConstructorInfo [a] [] maybeA (Scheme [a] maybeA))
+    ,
+      ( maybeJustDataConName
+      , DataConstructorInfo
+          [a]
+          [aTy]
+          maybeA
+          (Scheme [a] (TyFun aTy maybeA))
+      )
+    ,
+      ( eitherLeftDataConName
+      , DataConstructorInfo
+          [a, b]
+          [aTy]
+          eitherAB
+          (Scheme [a, b] (TyFun aTy eitherAB))
+      )
+    ,
+      ( eitherRightDataConName
+      , DataConstructorInfo
+          [a, b]
+          [bTy]
+          eitherAB
+          (Scheme [a, b] (TyFun bTy eitherAB))
+      )
+    , (orderingLTDataConName, DataConstructorInfo [] [] orderingMonoType (Scheme [] orderingMonoType))
+    , (orderingEQDataConName, DataConstructorInfo [] [] orderingMonoType (Scheme [] orderingMonoType))
+    , (orderingGTDataConName, DataConstructorInfo [] [] orderingMonoType (Scheme [] orderingMonoType))
+    ]
+ where
+  a = preludeTypeVariable "a" (-1001)
+  b = preludeTypeVariable "b" (-1002)
+  aTy = TyVar a
+  bTy = TyVar b
+  listA = TyList aTy
+  maybeA = TyApp (TyCon maybeTyConName) aTy
+  eitherAB = TyApp (TyApp (TyCon eitherTyConName) aTy) bTy
+
+preludeTypeVariable :: Text -> Int -> RName
+preludeTypeVariable occurrence unique =
+  RName TypeVariableNamespace occurrence unique True
+
 constructorInfosToCore ::
   Subst ->
   Map.Map RName DataConstructorInfo ->
@@ -206,6 +268,188 @@ constructorInfosToCore subst =
     CoreConstructorInfo (dataConstructorTyVars info)
       <$> traverse (monoToCoreType subst Map.empty) (dataConstructorFields info)
       <*> monoToCoreType subst Map.empty (dataConstructorResult info)
+
+tupleConstructorInfos :: Set.Set Int -> Map.Map RName CoreConstructorInfo
+tupleConstructorInfos =
+  Map.fromList . map (\arity -> (tupleDataConName arity, tupleConstructorInfo arity)) . Set.toList
+
+tupleConstructorInfo :: Int -> CoreConstructorInfo
+tupleConstructorInfo arity =
+  CoreConstructorInfo variables fields (CTyTuple fields)
+ where
+  variables = [preludeTypeVariable ("t" <> renderInt index) (-1100 - index) | index <- [0 .. arity - 1]]
+  fields = map CTyVar variables
+
+collectTupleArities :: [RDecl] -> Set.Set Int
+collectTupleArities =
+  Set.unions . map declTupleArities
+
+declTupleArities :: RDecl -> Set.Set Int
+declTupleArities = \case
+  RTypeSignature _ ty -> typeTupleArities ty
+  RFunctionBinding _ patterns rhs whereDecls ->
+    Set.unions (map patternTupleArities patterns)
+      <> rhsTupleArities rhs
+      <> collectTupleArities whereDecls
+  RPatternBinding pat rhs whereDecls ->
+    patternTupleArities pat <> rhsTupleArities rhs <> collectTupleArities whereDecls
+  RDataDecl _ _ constructors _ ->
+    Set.unions [Set.unions (map typeTupleArities fields) | RConDecl _ fields <- constructors]
+  RNewtypeDecl _ _ (RConDecl _ fields) _ ->
+    Set.unions (map typeTupleArities fields)
+  RTypeSynonym _ _ ty ->
+    typeTupleArities ty
+  RClassDecl constraints _ _ decls ->
+    Set.unions (map typeTupleArities constraints) <> collectTupleArities decls
+  RInstanceDecl constraints ty decls ->
+    Set.unions (map typeTupleArities (ty : constraints)) <> collectTupleArities decls
+  RDefaultDecl types ->
+    Set.unions (map typeTupleArities types)
+  RFixityDecl {} -> Set.empty
+  RForeignDecl {} -> Set.empty
+
+rhsTupleArities :: RRhs -> Set.Set Int
+rhsTupleArities = \case
+  RUnguarded expr -> exprTupleArities expr
+  RGuarded branches -> Set.unions [exprTupleArities guard <> exprTupleArities body | (guard, body) <- branches]
+
+exprTupleArities :: RExpr -> Set.Set Int
+exprTupleArities = \case
+  RVar {} -> Set.empty
+  RCon {} -> Set.empty
+  RLit {} -> Set.empty
+  RApp fn arg -> exprTupleArities fn <> exprTupleArities arg
+  RInfixApp lhs _ rhs -> exprTupleArities lhs <> exprTupleArities rhs
+  RLambda patterns body -> Set.unions (map patternTupleArities patterns) <> exprTupleArities body
+  RLet decls body -> collectTupleArities decls <> exprTupleArities body
+  RIf condition thenBranch elseBranch ->
+    exprTupleArities condition <> exprTupleArities thenBranch <> exprTupleArities elseBranch
+  RCase scrutinee alternatives ->
+    exprTupleArities scrutinee <> Set.unions (map altTupleArities alternatives)
+  RDo statements -> Set.unions (map stmtTupleArities statements)
+  RList expressions -> Set.unions (map exprTupleArities expressions)
+  RTuple expressions -> Set.insert (length expressions) (Set.unions (map exprTupleArities expressions))
+  RUnit -> Set.singleton 0
+  RParen inner -> exprTupleArities inner
+  RLeftSection expr _ -> exprTupleArities expr
+  RRightSection _ expr -> exprTupleArities expr
+  RArithmeticSeq start step end ->
+    exprTupleArities start <> foldMap exprTupleArities step <> foldMap exprTupleArities end
+  RListComp body statements -> exprTupleArities body <> Set.unions (map stmtTupleArities statements)
+  RExprTypeSig expr ty -> exprTupleArities expr <> typeTupleArities ty
+
+stmtTupleArities :: RStmt -> Set.Set Int
+stmtTupleArities = \case
+  RBindStmt pat expr -> patternTupleArities pat <> exprTupleArities expr
+  RLetStmt decls -> collectTupleArities decls
+  RExprStmt expr -> exprTupleArities expr
+
+altTupleArities :: RAlt -> Set.Set Int
+altTupleArities (RAlt pat rhs whereDecls) =
+  patternTupleArities pat <> rhsTupleArities rhs <> collectTupleArities whereDecls
+
+patternTupleArities :: RPat -> Set.Set Int
+patternTupleArities = \case
+  RPVar {} -> Set.empty
+  RPCon _ patterns -> Set.unions (map patternTupleArities patterns)
+  RPLit {} -> Set.empty
+  RPWildcard -> Set.empty
+  RPTuple patterns -> Set.insert (length patterns) (Set.unions (map patternTupleArities patterns))
+  RPList patterns -> Set.unions (map patternTupleArities patterns)
+  RPAs _ pat -> patternTupleArities pat
+  RPIrrefutable pat -> patternTupleArities pat
+  RPParen pat -> patternTupleArities pat
+
+typeTupleArities :: RHsType -> Set.Set Int
+typeTupleArities = \case
+  RTyVar {} -> Set.empty
+  RTyCon {} -> Set.empty
+  RTyApp fn arg -> typeTupleArities fn <> typeTupleArities arg
+  RTyFun arg result -> typeTupleArities arg <> typeTupleArities result
+  RTyContext constraints body -> Set.unions (map typeTupleArities constraints) <> typeTupleArities body
+  RTyTuple fields -> Set.insert (length fields) (Set.unions (map typeTupleArities fields))
+  RTyList elementType -> typeTupleArities elementType
+  RTyParen inner -> typeTupleArities inner
+
+collectPreludeValueNames :: [RDecl] -> [RName]
+collectPreludeValueNames =
+  List.nub . concatMap declPreludeValueNames
+
+declPreludeValueNames :: RDecl -> [RName]
+declPreludeValueNames = \case
+  RTypeSignature {} -> []
+  RFunctionBinding _ patterns rhs whereDecls ->
+    concatMap patternPreludeValueNames patterns <> rhsPreludeValueNames rhs <> collectPreludeValueNames whereDecls
+  RPatternBinding pat rhs whereDecls ->
+    patternPreludeValueNames pat <> rhsPreludeValueNames rhs <> collectPreludeValueNames whereDecls
+  RDataDecl {} -> []
+  RNewtypeDecl {} -> []
+  RTypeSynonym {} -> []
+  RClassDecl _ _ _ decls -> collectPreludeValueNames decls
+  RInstanceDecl _ _ decls -> collectPreludeValueNames decls
+  RDefaultDecl {} -> []
+  RFixityDecl {} -> []
+  RForeignDecl {} -> []
+
+rhsPreludeValueNames :: RRhs -> [RName]
+rhsPreludeValueNames = \case
+  RUnguarded expr -> exprPreludeValueNames expr
+  RGuarded branches -> concat [exprPreludeValueNames guard <> exprPreludeValueNames body | (guard, body) <- branches]
+
+exprPreludeValueNames :: RExpr -> [RName]
+exprPreludeValueNames = \case
+  RVar name -> [name | isSupportedPreludeValue name]
+  RCon {} -> []
+  RLit {} -> []
+  RApp fn arg -> exprPreludeValueNames fn <> exprPreludeValueNames arg
+  RInfixApp lhs _ rhs -> exprPreludeValueNames lhs <> exprPreludeValueNames rhs
+  RLambda patterns body -> concatMap patternPreludeValueNames patterns <> exprPreludeValueNames body
+  RLet decls body -> collectPreludeValueNames decls <> exprPreludeValueNames body
+  RIf condition thenBranch elseBranch ->
+    exprPreludeValueNames condition <> exprPreludeValueNames thenBranch <> exprPreludeValueNames elseBranch
+  RCase scrutinee alternatives ->
+    exprPreludeValueNames scrutinee <> concatMap altPreludeValueNames alternatives
+  RDo statements -> concatMap stmtPreludeValueNames statements
+  RList expressions -> concatMap exprPreludeValueNames expressions
+  RTuple expressions -> concatMap exprPreludeValueNames expressions
+  RUnit -> []
+  RParen inner -> exprPreludeValueNames inner
+  RLeftSection expr _ -> exprPreludeValueNames expr
+  RRightSection _ expr -> exprPreludeValueNames expr
+  RArithmeticSeq start step end ->
+    exprPreludeValueNames start <> foldMap exprPreludeValueNames step <> foldMap exprPreludeValueNames end
+  RListComp body statements -> exprPreludeValueNames body <> concatMap stmtPreludeValueNames statements
+  RExprTypeSig expr _ -> exprPreludeValueNames expr
+
+stmtPreludeValueNames :: RStmt -> [RName]
+stmtPreludeValueNames = \case
+  RBindStmt pat expr -> patternPreludeValueNames pat <> exprPreludeValueNames expr
+  RLetStmt decls -> collectPreludeValueNames decls
+  RExprStmt expr -> exprPreludeValueNames expr
+
+altPreludeValueNames :: RAlt -> [RName]
+altPreludeValueNames (RAlt pat rhs whereDecls) =
+  patternPreludeValueNames pat <> rhsPreludeValueNames rhs <> collectPreludeValueNames whereDecls
+
+patternPreludeValueNames :: RPat -> [RName]
+patternPreludeValueNames = \case
+  RPVar {} -> []
+  RPCon _ patterns -> concatMap patternPreludeValueNames patterns
+  RPLit {} -> []
+  RPWildcard -> []
+  RPTuple patterns -> concatMap patternPreludeValueNames patterns
+  RPList patterns -> concatMap patternPreludeValueNames patterns
+  RPAs _ pat -> patternPreludeValueNames pat
+  RPIrrefutable pat -> patternPreludeValueNames pat
+  RPParen pat -> patternPreludeValueNames pat
+
+isSupportedPreludeValue :: RName -> Bool
+isSupportedPreludeValue name =
+  nameExternal name && nameOcc name `elem` supportedPreludeValueOccurrences
+
+supportedPreludeValueOccurrences :: [Text]
+supportedPreludeValueOccurrences =
+  ["id", "const", "not", "otherwise", "map", "foldr", "length", "filter", "reverse"]
 
 inferBindingGroup :: TypeEnv -> [RDecl] -> InferM ([TypedBinding], TypeEnv)
 inferBindingGroup outerEnv decls = do
@@ -408,7 +652,7 @@ inferExpr env = \case
   RVar name ->
     case Map.lookup name env of
       Nothing ->
-        throwTypecheck (UnknownCore0Variable name)
+        inferPreludeValue name
       Just scheme -> do
         (instantiatedTy, typeArguments) <- instantiate scheme
         pure (TVar name scheme typeArguments instantiatedTy)
@@ -454,6 +698,17 @@ inferExpr env = \case
     caseBinder <- caseBinderFor scrutineeTy alternatives
     typedAlternatives <- traverse (inferCaseAlt env scrutineeTy caseBinder resultTy) alternatives
     pure (TCase typedScrutinee caseBinder typedAlternatives resultTy)
+  RList expressions -> do
+    elementTy <- freshMeta
+    typedElements <- traverse (inferExpr env) expressions
+    mapM_ (unify elementTy . typedExprType) typedElements
+    elementTy' <- applyCurrent elementTy
+    pure (TList typedElements (TyList elementTy'))
+  RTuple expressions -> do
+    typedFields <- traverse (inferExpr env) expressions
+    pure (TTuple typedFields (TyTuple (map typedExprType typedFields)))
+  RUnit ->
+    pure (TTuple [] unitMonoType)
   RParen inner ->
     inferExpr env inner
   RExprTypeSig inner sourceType -> do
@@ -474,22 +729,103 @@ inferConstructor name
       constructors <- dataConstructors <$> get
       case Map.lookup name constructors of
         Nothing ->
-          throwTypecheck (UnsupportedCore0 ("constructor `" <> renderRName name <> "`"))
+          case preludeConstructorInfo name of
+            Nothing ->
+              throwTypecheck (UnsupportedCore0 ("constructor `" <> renderRName name <> "`"))
+            Just (coreName, info) -> do
+              (instantiatedTy, typeArguments) <- instantiate (dataConstructorScheme info)
+              pure (TCon coreName (dataConstructorScheme info) typeArguments instantiatedTy)
         Just info -> do
           (instantiatedTy, typeArguments) <- instantiate (dataConstructorScheme info)
           pure (TCon name (dataConstructorScheme info) typeArguments instantiatedTy)
 
+inferPreludeValue :: RName -> InferM TypedExpr
+inferPreludeValue name =
+  case preludeValueScheme name of
+    Nothing ->
+      throwTypecheck (UnknownCore0Variable name)
+    Just scheme -> do
+      (instantiatedTy, typeArguments) <- instantiate scheme
+      pure (TVar name scheme typeArguments instantiatedTy)
+
+preludeConstructorInfo :: RName -> Maybe (RName, DataConstructorInfo)
+preludeConstructorInfo name
+  | not (nameExternal name) && name `Map.notMember` builtinDataConstructors = Nothing
+  | otherwise =
+      case nameOcc name of
+        "[]" -> lookupBuiltin listNilDataConName
+        ":" -> lookupBuiltin listConsDataConName
+        "()" -> lookupBuiltin unitDataConName
+        "Nothing" -> lookupBuiltin maybeNothingDataConName
+        "Just" -> lookupBuiltin maybeJustDataConName
+        "Left" -> lookupBuiltin eitherLeftDataConName
+        "Right" -> lookupBuiltin eitherRightDataConName
+        "LT" -> lookupBuiltin orderingLTDataConName
+        "EQ" -> lookupBuiltin orderingEQDataConName
+        "GT" -> lookupBuiltin orderingGTDataConName
+        _ -> Nothing
+ where
+  lookupBuiltin coreName = (coreName,) <$> Map.lookup coreName builtinDataConstructors
+
+preludeValueScheme :: RName -> Maybe Scheme
+preludeValueScheme name
+  | not (nameExternal name) = Nothing
+  | otherwise =
+      case nameOcc name of
+        "id" -> Just (Scheme [a] (TyFun aTy aTy))
+        "const" -> Just (Scheme [a, b] (TyFun aTy (TyFun bTy aTy)))
+        "not" -> Just (Scheme [] (TyFun boolMonoType boolMonoType))
+        "otherwise" -> Just (Scheme [] boolMonoType)
+        "map" -> Just (Scheme [a, b] (TyFun (TyFun aTy bTy) (TyFun listA listB)))
+        "foldr" ->
+          Just
+            ( Scheme
+                [a, b]
+                (TyFun (TyFun aTy (TyFun bTy bTy)) (TyFun bTy (TyFun listA bTy)))
+            )
+        "length" -> Just (Scheme [a] (TyFun listA intMonoType))
+        "filter" -> Just (Scheme [a] (TyFun (TyFun aTy boolMonoType) (TyFun listA listA)))
+        "reverse" -> Just (Scheme [a] (TyFun listA listA))
+        _ -> Nothing
+ where
+  a = preludeTypeVariable "a" (-1201)
+  b = preludeTypeVariable "b" (-1202)
+  aTy = TyVar a
+  bTy = TyVar b
+  listA = TyList aTy
+  listB = TyList bTy
+
 inferPrimitive :: TypeEnv -> RExpr -> RName -> RExpr -> InferM TypedExpr
 inferPrimitive env lhs op rhs =
   case nameOcc op of
+    ":" -> inferExpr env (RApp (RApp (RCon op) lhs) rhs)
     "+" -> fixedInt PrimAdd
     "-" -> fixedInt PrimSub
     "*" -> fixedInt PrimMul
     "/" -> fixedInt PrimDiv
     "<" -> fixedCompare PrimLt
     "==" -> equality
+    "&&" -> shortCircuit falseTyped trueDataConName
+    "||" -> shortCircuit trueTyped falseDataConName
     other -> throwTypecheck (UnsupportedCore0 ("operator `" <> other <> "`"))
  where
+  trueTyped = TCon trueDataConName (Scheme [] boolMonoType) [] boolMonoType
+  falseTyped = TCon falseDataConName (Scheme [] boolMonoType) [] boolMonoType
+
+  shortCircuit shortcutValue continueName = do
+    typedLhs <- inferExpr env lhs
+    unify (typedExprType typedLhs) boolMonoType
+    typedRhs <- inferExpr env rhs
+    unify (typedExprType typedRhs) boolMonoType
+    caseBinder <- freshTermBinder "$boolop" boolMonoType
+    let trueAlt
+          | continueName == trueDataConName = TypedAlt (ConstructorAlt trueDataConName) [] typedRhs
+          | otherwise = TypedAlt (ConstructorAlt trueDataConName) [] shortcutValue
+        falseAlt
+          | continueName == falseDataConName = TypedAlt (ConstructorAlt falseDataConName) [] typedRhs
+          | otherwise = TypedAlt (ConstructorAlt falseDataConName) [] shortcutValue
+    pure (TCase typedLhs caseBinder [trueAlt, falseAlt] boolMonoType)
+
   fixedInt prim = do
     typedLhs <- inferExpr env lhs
     typedRhs <- inferExpr env rhs
@@ -556,6 +892,10 @@ inferPatternPlan env expectedTy = \case
         }
   RPCon name args ->
     inferConstructorPattern env expectedTy name args
+  RPTuple patterns ->
+    inferTuplePattern env expectedTy patterns
+  RPList patterns ->
+    inferListPattern env expectedTy patterns
   RPParen pat ->
     inferPatternPlan env expectedTy pat
   pat ->
@@ -573,32 +913,66 @@ inferConstructorPattern env expectedTy name args
       constructors <- dataConstructors <$> get
       case Map.lookup name constructors of
         Nothing ->
-          throwTypecheck (UnsupportedCore0 ("constructor pattern `" <> renderRName name <> "`"))
+          case preludeConstructorInfo name of
+            Nothing ->
+              throwTypecheck (UnsupportedCore0 ("constructor pattern `" <> renderRName name <> "`"))
+            Just (coreName, info) ->
+              inferKnownConstructorPattern env expectedTy coreName args info
         Just info -> do
-          (fieldTypes, resultTy) <- instantiateConstructorPattern info
-          unless (length fieldTypes == length args) $
-            throwTypecheck
-              ( UnsupportedCore0
-                  ( "constructor pattern `"
-                      <> renderRName name
-                      <> "` expects "
-                      <> Text.pack (show (length fieldTypes))
-                      <> " fields, got "
-                      <> Text.pack (show (length args))
-                  )
-              )
-          unify expectedTy resultTy
-          fieldPlans <- traverse inferFieldPattern (zip fieldTypes args)
-          let fieldBinders = map fieldPatternBinder fieldPlans
-              env' = foldl (\acc plan -> Map.union (fieldPatternEnv plan) acc) env fieldPlans
-              wrap = foldr (.) id (map fieldPatternWrap fieldPlans)
-          pure
-            PatternPlan
-              { patternAltCon = ConstructorAlt name
-              , patternAltBinders = fieldBinders
-              , patternEnv = env'
-              , patternWrapBody = wrap
-              }
+          inferKnownConstructorPattern env expectedTy name args info
+
+inferKnownConstructorPattern :: TypeEnv -> MonoType -> RName -> [RPat] -> DataConstructorInfo -> InferM PatternPlan
+inferKnownConstructorPattern env expectedTy name args info = do
+  (fieldTypes, resultTy) <- instantiateConstructorPattern info
+  unless (length fieldTypes == length args) $
+    throwTypecheck
+      ( UnsupportedCore0
+          ( "constructor pattern `"
+              <> renderRName name
+              <> "` expects "
+              <> Text.pack (show (length fieldTypes))
+              <> " fields, got "
+              <> Text.pack (show (length args))
+          )
+      )
+  unify expectedTy resultTy
+  fieldPlans <- traverse inferFieldPattern (zip fieldTypes args)
+  let fieldBinders = map fieldPatternBinder fieldPlans
+      env' = foldl (\acc plan -> Map.union (fieldPatternEnv plan) acc) env fieldPlans
+      wrap = foldr (.) id (map fieldPatternWrap fieldPlans)
+  pure
+    PatternPlan
+      { patternAltCon = ConstructorAlt name
+      , patternAltBinders = fieldBinders
+      , patternEnv = env'
+      , patternWrapBody = wrap
+      }
+
+inferTuplePattern :: TypeEnv -> MonoType -> [RPat] -> InferM PatternPlan
+inferTuplePattern env expectedTy patterns = do
+  fieldTypes <- traverse (const freshMeta) patterns
+  unify expectedTy (TyTuple fieldTypes)
+  fieldPlans <- traverse inferFieldPattern (zip fieldTypes patterns)
+  let fieldBinders = map fieldPatternBinder fieldPlans
+      env' = foldl (\acc plan -> Map.union (fieldPatternEnv plan) acc) env fieldPlans
+      wrap = foldr (.) id (map fieldPatternWrap fieldPlans)
+  pure
+    PatternPlan
+      { patternAltCon = ConstructorAlt (tupleDataConName (length patterns))
+      , patternAltBinders = fieldBinders
+      , patternEnv = env'
+      , patternWrapBody = wrap
+      }
+
+inferListPattern :: TypeEnv -> MonoType -> [RPat] -> InferM PatternPlan
+inferListPattern env expectedTy patterns = do
+  elementTy <- freshMeta
+  unify expectedTy (TyList elementTy)
+  case patterns of
+    [] ->
+      pure (nullaryConstructorPlan env listNilDataConName)
+    headPat : tailPats ->
+      inferConstructorPattern env expectedTy listConsDataConName [headPat, RPList tailPats]
 
 nullaryConstructorPlan :: TypeEnv -> RName -> PatternPlan
 nullaryConstructorPlan env name =
@@ -712,6 +1086,10 @@ typeConstructorMonoType name = do
         "Bool" -> pure boolMonoType
         "Char" -> pure charMonoType
         "String" -> pure stringMonoType
+        "Maybe" -> pure (TyCon maybeTyConName)
+        "Either" -> pure (TyCon eitherTyConName)
+        "Ordering" -> pure orderingMonoType
+        "()" -> pure unitMonoType
         other -> throwTypecheck (UnsupportedCore0 ("type constructor `" <> other <> "`"))
 
 instantiate :: Scheme -> InferM (MonoType, [MonoType])
@@ -858,10 +1236,309 @@ replaceMetasWithVars replacements = \case
   TyList elementType ->
     TyList (replaceMetasWithVars replacements elementType)
 
+preludeCoreBindings :: [RName] -> Either TypecheckError [CoreBind]
+preludeCoreBindings names =
+  pure $
+    case pairs of
+      [] -> []
+      _ -> [CoreRec pairs]
+ where
+  pairs =
+    [ pair
+    | name <- names
+    , pair <- maybe [] (: []) (preludeCorePair name)
+    ]
+      <> [reverseGoCorePair | any ((== "reverse") . nameOcc) names]
+
+preludeCorePair :: RName -> Maybe (CoreBinder, CoreExpr)
+preludeCorePair name =
+  case nameOcc name of
+    "id" -> Just (binderFor name idTy, CTypeLam [a] (lam idX aTy (var idX aTy)) idTy)
+    "const" ->
+      Just
+        ( binderFor name constTy
+        , CTypeLam [a, b] (lam constX aTy (lam constY bTy (var constX aTy))) constTy
+        )
+    "not" ->
+      Just
+        ( binderFor name notTy
+        , lam notX boolTy $
+            boolCase
+              (var notX boolTy)
+              notCase
+              boolTy
+              (con falseDataConName boolTy)
+              (con trueDataConName boolTy)
+        )
+    "otherwise" ->
+      Just (binderFor name boolTy, con trueDataConName boolTy)
+    "map" ->
+      Just (binderFor name mapTy, mapRhs name)
+    "foldr" ->
+      Just (binderFor name foldrTy, foldrRhs name)
+    "length" ->
+      Just (binderFor name lengthTy, lengthRhs name)
+    "filter" ->
+      Just (binderFor name filterTy, filterRhs name)
+    "reverse" ->
+      Just (binderFor name reverseTy, reverseRhs)
+    _ -> Nothing
+ where
+  a = preludeTypeVariable "a" (-1201)
+  b = preludeTypeVariable "b" (-1202)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  listA = CTyList aTy
+  listB = CTyList bTy
+
+  idTy = CTyForall [a] (CTyFun aTy aTy)
+  constTy = CTyForall [a, b] (CTyFun aTy (CTyFun bTy aTy))
+  notTy = CTyFun boolTy boolTy
+  mapTy = CTyForall [a, b] (CTyFun (CTyFun aTy bTy) (CTyFun listA listB))
+  foldrTy = CTyForall [a, b] (CTyFun (CTyFun aTy (CTyFun bTy bTy)) (CTyFun bTy (CTyFun listA bTy)))
+  lengthTy = CTyForall [a] (CTyFun listA intTy)
+  filterTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun listA listA))
+  reverseTy = CTyForall [a] (CTyFun listA listA)
+
+  idX = preludeTermName "$id_x" (-3001)
+  constX = preludeTermName "$const_x" (-3002)
+  constY = preludeTermName "$const_y" (-3003)
+  notX = preludeTermName "$not_x" (-3004)
+  notCase = preludeTermName "$not_case" (-3005)
+
+  mapF = preludeTermName "$map_f" (-3010)
+  mapXs = preludeTermName "$map_xs" (-3011)
+  mapY = preludeTermName "$map_y" (-3012)
+  mapYs = preludeTermName "$map_ys" (-3013)
+  mapCase = preludeTermName "$map_case" (-3014)
+
+  foldrF = preludeTermName "$foldr_f" (-3020)
+  foldrZ = preludeTermName "$foldr_z" (-3021)
+  foldrXs = preludeTermName "$foldr_xs" (-3022)
+  foldrY = preludeTermName "$foldr_y" (-3023)
+  foldrYs = preludeTermName "$foldr_ys" (-3024)
+  foldrCase = preludeTermName "$foldr_case" (-3025)
+
+  lengthXs = preludeTermName "$length_xs" (-3030)
+  lengthY = preludeTermName "$length_y" (-3031)
+  lengthYs = preludeTermName "$length_ys" (-3032)
+  lengthCase = preludeTermName "$length_case" (-3033)
+
+  filterP = preludeTermName "$filter_p" (-3040)
+  filterXs = preludeTermName "$filter_xs" (-3041)
+  filterY = preludeTermName "$filter_y" (-3042)
+  filterYs = preludeTermName "$filter_ys" (-3043)
+  filterListCase = preludeTermName "$filter_list_case" (-3044)
+  filterBoolCase = preludeTermName "$filter_bool_case" (-3045)
+
+  reverseXs = preludeTermName "$reverse_xs" (-3050)
+
+  binderFor binderName ty = CoreBinder binderName ty
+  lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
+  var variable ty = CVar variable ty
+  con constructorName ty = CCon constructorName ty
+  boolCase scrutinee binderName resultTy trueBody falseBody =
+    CCase
+      scrutinee
+      (CoreBinder binderName boolTy)
+      [ CoreAlt (ConstructorAlt trueDataConName) [] trueBody
+      , CoreAlt (ConstructorAlt falseDataConName) [] falseBody
+      ]
+      resultTy
+  listCase scrutinee binderName elementTy resultTy nilBody headName tailName consBody =
+    CCase
+      scrutinee
+      (CoreBinder binderName (CTyList elementTy))
+      [ CoreAlt (ConstructorAlt listNilDataConName) [] nilBody
+      , CoreAlt
+          (ConstructorAlt listConsDataConName)
+          [CoreBinder headName elementTy, CoreBinder tailName (CTyList elementTy)]
+          consBody
+      ]
+      resultTy
+  specialize functionName functionTy typeArguments resultTy =
+    CTypeApp (CVar functionName functionTy) typeArguments resultTy
+  apply fn arg resultTy =
+    CApp fn arg resultTy
+  intLiteral value =
+    CLit (LInt value) intTy
+  nil elementTy =
+    constructorApp listNilDataConName [elementTy] [] (CTyList elementTy)
+  cons elementTy headExpr tailExpr =
+    constructorApp listConsDataConName [elementTy] [headExpr, tailExpr] (CTyList elementTy)
+
+  mapRhs functionName =
+    CTypeLam [a, b] (lam mapF (CTyFun aTy bTy) (lam mapXs listA mapBody)) mapTy
+   where
+    recursive =
+      apply
+        (apply (specialize functionName mapTy [aTy, bTy] (CTyFun (CTyFun aTy bTy) (CTyFun listA listB))) (var mapF (CTyFun aTy bTy)) (CTyFun listA listB))
+        (var mapYs listA)
+        listB
+    mappedHead =
+      apply (var mapF (CTyFun aTy bTy)) (var mapY aTy) bTy
+    mapBody =
+      listCase
+        (var mapXs listA)
+        mapCase
+        aTy
+        listB
+        (nil bTy)
+        mapY
+        mapYs
+        (cons bTy mappedHead recursive)
+
+  foldrRhs functionName =
+    CTypeLam [a, b] (lam foldrF (CTyFun aTy (CTyFun bTy bTy)) (lam foldrZ bTy (lam foldrXs listA foldrBody))) foldrTy
+   where
+    recursive =
+      apply
+        ( apply
+            ( apply
+                (specialize functionName foldrTy [aTy, bTy] (CTyFun (CTyFun aTy (CTyFun bTy bTy)) (CTyFun bTy (CTyFun listA bTy))))
+                (var foldrF (CTyFun aTy (CTyFun bTy bTy)))
+                (CTyFun bTy (CTyFun listA bTy))
+            )
+            (var foldrZ bTy)
+            (CTyFun listA bTy)
+        )
+        (var foldrYs listA)
+        bTy
+    foldedHead =
+      apply
+        (apply (var foldrF (CTyFun aTy (CTyFun bTy bTy))) (var foldrY aTy) (CTyFun bTy bTy))
+        recursive
+        bTy
+    foldrBody =
+      listCase
+        (var foldrXs listA)
+        foldrCase
+        aTy
+        bTy
+        (var foldrZ bTy)
+        foldrY
+        foldrYs
+        foldedHead
+
+  lengthRhs functionName =
+    CTypeLam [a] (lam lengthXs listA lengthBody) lengthTy
+   where
+    recursive =
+      apply
+        (specialize functionName lengthTy [aTy] (CTyFun listA intTy))
+        (var lengthYs listA)
+        intTy
+    lengthBody =
+      listCase
+        (var lengthXs listA)
+        lengthCase
+        aTy
+        intTy
+        (intLiteral 0)
+        lengthY
+        lengthYs
+        (CPrimOp PrimAdd [intLiteral 1, recursive] intTy)
+
+  filterRhs functionName =
+    CTypeLam [a] (lam filterP (CTyFun aTy boolTy) (lam filterXs listA filterBody)) filterTy
+   where
+    recursive =
+      apply
+        (apply (specialize functionName filterTy [aTy] (CTyFun (CTyFun aTy boolTy) (CTyFun listA listA))) (var filterP (CTyFun aTy boolTy)) (CTyFun listA listA))
+        (var filterYs listA)
+        listA
+    predicate =
+      apply (var filterP (CTyFun aTy boolTy)) (var filterY aTy) boolTy
+    filterBody =
+      listCase
+        (var filterXs listA)
+        filterListCase
+        aTy
+        listA
+        (nil aTy)
+        filterY
+        filterYs
+        ( boolCase
+            predicate
+            filterBoolCase
+            listA
+            (cons aTy (var filterY aTy) recursive)
+            recursive
+        )
+
+  reverseRhs =
+    CTypeLam [a] (lam reverseXs listA reverseBody) reverseTy
+   where
+    reverseBody =
+      apply
+        ( apply
+            (specialize reverseGoName reverseGoTy [aTy] (CTyFun listA (CTyFun listA listA)))
+            (nil aTy)
+            (CTyFun listA listA)
+        )
+        (var reverseXs listA)
+        listA
+
+reverseGoCorePair :: (CoreBinder, CoreExpr)
+reverseGoCorePair =
+  (CoreBinder reverseGoName reverseGoTy, CTypeLam [a] (lam acc listA (lam xs listA body)) reverseGoTy)
+ where
+  a = preludeTypeVariable "a" (-1201)
+  aTy = CTyVar a
+  listA = CTyList aTy
+  acc = preludeTermName "$reverse_acc" (-3051)
+  xs = preludeTermName "$reverse_go_xs" (-3052)
+  y = preludeTermName "$reverse_y" (-3053)
+  ys = preludeTermName "$reverse_ys" (-3054)
+  caseName = preludeTermName "$reverse_case" (-3055)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  var variable ty = CVar variable ty
+  apply fn arg resultTy = CApp fn arg resultTy
+  specialize functionName functionTy typeArguments resultTy =
+    CTypeApp (CVar functionName functionTy) typeArguments resultTy
+  cons elementTy headExpr tailExpr =
+    constructorApp listConsDataConName [elementTy] [headExpr, tailExpr] (CTyList elementTy)
+  body =
+    CCase
+      (var xs listA)
+      (CoreBinder caseName listA)
+      [ CoreAlt (ConstructorAlt listNilDataConName) [] (var acc listA)
+      , CoreAlt
+          (ConstructorAlt listConsDataConName)
+          [CoreBinder y aTy, CoreBinder ys listA]
+          ( apply
+              ( apply
+                  (specialize reverseGoName reverseGoTy [aTy] (CTyFun listA (CTyFun listA listA)))
+                  (cons aTy (var y aTy) (var acc listA))
+                  (CTyFun listA listA)
+              )
+              (var ys listA)
+              listA
+          )
+      ]
+      listA
+
+reverseGoName :: RName
+reverseGoName =
+  preludeTermName "$reverse_go" (-3056)
+
+reverseGoTy :: CoreType
+reverseGoTy =
+  CTyForall [a] (CTyFun listA (CTyFun listA listA))
+ where
+  a = preludeTypeVariable "a" (-1201)
+  aTy = CTyVar a
+  listA = CTyList aTy
+
+preludeTermName :: Text -> Int -> RName
+preludeTermName occurrence unique =
+  RName TermNamespace occurrence unique True
+
 bindingToCore :: Subst -> Map.Map Int RName -> TypedBinding -> Either TypecheckError CoreBind
 bindingToCore subst ambientMetas binding = do
   let scheme = typedBindingScheme binding
-      allMetas = Map.union (typedBindingGeneralizedMetas binding) ambientMetas
+      initialMetas = Map.union (typedBindingGeneralizedMetas binding) ambientMetas
+      allMetas = Map.union initialMetas (ambiguousExprMetas initialMetas (typedBindingRhs binding))
   binderTy <- schemeToCoreType scheme
   rhs <- exprToCore subst allMetas (typedBindingRhs binding)
   let rhsWithTypeLambdas =
@@ -869,6 +1546,18 @@ bindingToCore subst ambientMetas binding = do
           [] -> rhs
           variables -> CTypeLam variables rhs binderTy
   pure (CoreNonRec (CoreBinder (typedBindingName binding) binderTy) rhsWithTypeLambdas)
+
+ambiguousExprMetas :: Map.Map Int RName -> TypedExpr -> Map.Map Int RName
+ambiguousExprMetas knownMetas expression =
+  Map.fromList
+    [ (meta, ambiguousMetaName meta)
+    | meta <- Set.toList (typedExprMetaVars expression)
+    , meta `Map.notMember` knownMetas
+    ]
+
+ambiguousMetaName :: Int -> RName
+ambiguousMetaName meta =
+  RName TypeVariableNamespace ("$amb" <> renderInt meta) (2000000 + meta) False
 
 bindPairs :: CoreBind -> [(CoreBinder, CoreExpr)]
 bindPairs = \case
@@ -897,6 +1586,19 @@ exprToCore subst metas = \case
       case schemeVars scheme of
         [] -> CCon name resultTy
         _ -> CTypeApp constructorExpr coreTypeArguments resultTy
+  TTuple fields ty -> do
+    coreFields <- traverse (exprToCore subst metas) fields
+    resultTy <- monoToCoreType subst metas ty
+    fieldTypes <- case applySubst subst ty of
+      TyTuple types -> traverse (monoToCoreType subst metas) types
+      other -> Left (TypeMismatch (TyTuple []) other)
+    pure (constructorApp (tupleDataConName (length fields)) fieldTypes coreFields resultTy)
+  TList elements ty -> do
+    coreElements <- traverse (exprToCore subst metas) elements
+    elementTy <- case applySubst subst ty of
+      TyList element -> monoToCoreType subst metas element
+      other -> Left (TypeMismatch (TyList (TyMeta (-1))) other)
+    pure (listCoreExpr elementTy coreElements)
   TLam binder body ty -> do
     coreBinder <- typedBinderToCore subst metas binder
     coreBody <- exprToCore subst metas body
@@ -931,6 +1633,39 @@ exprToCore subst metas = \case
     coreArguments <- traverse (exprToCore subst metas) arguments
     coreTy <- monoToCoreType subst metas ty
     pure (CPrimOp op coreArguments coreTy)
+
+constructorApp :: RName -> [CoreType] -> [CoreExpr] -> CoreType -> CoreExpr
+constructorApp name typeArguments arguments resultTy =
+  foldl applyValue typedConstructor arguments
+ where
+  constructorTy =
+    case Map.lookup name (CoreValidate.coreConstructorTypes CoreValidate.defaultValidationEnv) of
+      Just info -> CoreValidate.constructorFunctionType info
+      Nothing
+        | name == tupleDataConName (length arguments) ->
+            CoreValidate.constructorFunctionType (tupleConstructorInfo (length arguments))
+        | otherwise ->
+            let fields = map exprType arguments
+             in CoreValidate.constructorFunctionType (CoreConstructorInfo [] fields resultTy)
+  typedConstructor =
+    case typeArguments of
+      [] -> CCon name constructorTy
+      _ -> CTypeApp (CCon name constructorTy) typeArguments (foldr CTyFun resultTy (map exprType arguments))
+  applyValue callee argument =
+    let remainingResult =
+          case exprType callee of
+            CTyFun _ result -> result
+            _ -> resultTy
+     in CApp callee argument remainingResult
+
+listCoreExpr :: CoreType -> [CoreExpr] -> CoreExpr
+listCoreExpr elementTy =
+  foldr cons nil
+ where
+  listTy = CTyList elementTy
+  nil = constructorApp listNilDataConName [elementTy] [] listTy
+  cons headExpr tailExpr =
+    constructorApp listConsDataConName [elementTy] [headExpr, tailExpr] listTy
 
 altToCore :: Subst -> Map.Map Int RName -> TypedAlt -> Either TypecheckError CoreAlt
 altToCore subst metas (TypedAlt altCon binders body) =
@@ -979,11 +1714,48 @@ typedExprType = \case
   TVar _ _ _ ty -> ty
   TLit _ ty -> ty
   TCon _ _ _ ty -> ty
+  TTuple _ ty -> ty
+  TList _ ty -> ty
   TLam _ _ ty -> ty
   TApp _ _ ty -> ty
   TLet _ _ ty -> ty
   TCase _ _ _ ty -> ty
   TPrim _ _ ty -> ty
+
+typedExprMetaVars :: TypedExpr -> Set.Set Int
+typedExprMetaVars expression =
+  freeMetaVars (typedExprType expression)
+    <> case expression of
+      TVar _ scheme typeArguments _ ->
+        freeMetaVarsScheme scheme <> Set.unions (map freeMetaVars typeArguments)
+      TLit {} -> Set.empty
+      TCon _ scheme typeArguments _ ->
+        freeMetaVarsScheme scheme <> Set.unions (map freeMetaVars typeArguments)
+      TTuple fields _ ->
+        Set.unions (map typedExprMetaVars fields)
+      TList elements _ ->
+        Set.unions (map typedExprMetaVars elements)
+      TLam binder body _ ->
+        freeMetaVars (typedBinderType binder) <> typedExprMetaVars body
+      TApp fn arg _ ->
+        typedExprMetaVars fn <> typedExprMetaVars arg
+      TLet bindings body _ ->
+        Set.unions (map typedBindingMetaVars bindings) <> typedExprMetaVars body
+      TCase scrutinee binder alternatives _ ->
+        typedExprMetaVars scrutinee
+          <> freeMetaVars (typedBinderType binder)
+          <> Set.unions (map typedAltMetaVars alternatives)
+      TPrim _ arguments _ ->
+        Set.unions (map typedExprMetaVars arguments)
+
+typedBindingMetaVars :: TypedBinding -> Set.Set Int
+typedBindingMetaVars binding =
+  freeMetaVarsScheme (typedBindingScheme binding)
+    <> typedExprMetaVars (typedBindingRhs binding)
+
+typedAltMetaVars :: TypedAlt -> Set.Set Int
+typedAltMetaVars (TypedAlt _ binders body) =
+  Set.unions (map (freeMetaVars . typedBinderType) binders) <> typedExprMetaVars body
 
 typedBinderName :: TypedBinder -> RName
 typedBinderName (TypedBinder name _) =
@@ -1046,6 +1818,14 @@ boolMonoType =
 charMonoType :: MonoType
 charMonoType =
   coreTypeToMono charTy
+
+unitMonoType :: MonoType
+unitMonoType =
+  coreTypeToMono unitTy
+
+orderingMonoType :: MonoType
+orderingMonoType =
+  coreTypeToMono orderingTy
 
 stringMonoType :: MonoType
 stringMonoType =

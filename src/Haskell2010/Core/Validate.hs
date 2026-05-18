@@ -21,7 +21,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Core.Pretty (renderCoreAltCon, renderCorePrimOp, renderCoreType)
 import Haskell2010.Core.Syntax
-import Haskell2010.Names (Namespace (..), RName, nameNamespace, renderNamespace, renderRName)
+import Haskell2010.Names (Namespace (..), RName (..), nameNamespace, renderNamespace, renderRName)
 import Haskell2010.Syntax (Literal (..))
 
 data CoreValidationEnv = CoreValidationEnv
@@ -66,10 +66,35 @@ defaultValidationEnv =
   emptyValidationEnv
     { coreConstructorTypes =
         Map.fromList
-          [ (trueDataConName, CoreConstructorInfo [] [] boolTy)
-          , (falseDataConName, CoreConstructorInfo [] [] boolTy)
-          ]
+          builtinConstructorInfos
     }
+
+builtinConstructorInfos :: [(RName, CoreConstructorInfo)]
+builtinConstructorInfos =
+  [ (trueDataConName, CoreConstructorInfo [] [] boolTy)
+  , (falseDataConName, CoreConstructorInfo [] [] boolTy)
+  , (listNilDataConName, CoreConstructorInfo [a] [] (CTyList aTy))
+  , (listConsDataConName, CoreConstructorInfo [a] [aTy, CTyList aTy] (CTyList aTy))
+  , (unitDataConName, CoreConstructorInfo [] [] unitTy)
+  , (maybeNothingDataConName, CoreConstructorInfo [a] [] maybeA)
+  , (maybeJustDataConName, CoreConstructorInfo [a] [aTy] maybeA)
+  , (eitherLeftDataConName, CoreConstructorInfo [a, b] [aTy] eitherAB)
+  , (eitherRightDataConName, CoreConstructorInfo [a, b] [bTy] eitherAB)
+  , (orderingLTDataConName, CoreConstructorInfo [] [] orderingTy)
+  , (orderingEQDataConName, CoreConstructorInfo [] [] orderingTy)
+  , (orderingGTDataConName, CoreConstructorInfo [] [] orderingTy)
+  ]
+ where
+  a = builtinTypeVariable "a" (-1001)
+  b = builtinTypeVariable "b" (-1002)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  maybeA = CTyApp (CTyCon maybeTyConName) aTy
+  eitherAB = CTyApp (CTyApp (CTyCon eitherTyConName) aTy) bTy
+
+builtinTypeVariable :: Text -> Int -> RName
+builtinTypeVariable occurrence unique =
+  RName TypeVariableNamespace occurrence unique True
 
 moduleValidationEnv :: CoreModule -> CoreValidationEnv
 moduleValidationEnv coreModule =

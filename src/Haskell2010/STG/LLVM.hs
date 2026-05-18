@@ -762,7 +762,7 @@ freshRegister prefix = do
 freshBlockLabel :: Text -> FunctionM Text
 freshBlockLabel prefix = do
   state <- get
-  let label = prefix <> Text.pack (show (nextBlock state))
+  let label = "bb_" <> prefix <> Text.pack (show (nextBlock state))
   modify' (\st -> st {nextBlock = nextBlock st + 1})
   pure label
 

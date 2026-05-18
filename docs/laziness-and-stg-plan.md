@@ -84,13 +84,14 @@ Current implementation status: `Haskell2010.STG.Syntax`,
 `Haskell2010.STG.Validate`, and `Haskell2010.STG.Eval` implement the in-process
 STG runtime MVP. The evaluator models heap closures, updateable and
 single-entry thunks, sharing after update, black-hole detection, case demand,
-Bool and user-constructor dispatch, constructor fields, and checked primitive
-errors. `Haskell2010.STG.Lower` now lowers validating Core modules into
+Bool, user-constructor, list, tuple, and Prelude-data dispatch, constructor
+fields, and checked primitive errors. `Haskell2010.STG.Lower` now lowers validating Core modules into
 validating STG while erasing type abstraction/application and preserving lazy
 semantics against the STG evaluator. Native runtime object layout, LLVM
-lowering, and runtime linking are implemented for the first executable subset,
-including custom ADTs and nested constructor patterns; lists, tuples, Prelude
-values, and IO remain future expansions.
+lowering, and runtime linking are implemented for the current executable subset,
+including custom ADTs, nested constructor patterns, lists, tuples, built-in
+Prelude data constructors, and generated Core Prelude list/Bool functions; IO
+remains a future expansion.
 
 ## LLVM Lowering
 
@@ -105,7 +106,7 @@ The lazy backend lowers STG-like IR to LLVM by using:
 - runtime linking
 
 Generated LLVM for Haskell 2010 source now includes a boxed lazy STG runtime for
-the first executable subset. The current strict `.hg` LLVM backend remains
+the current executable subset. The current strict `.hg` LLVM backend remains
 separate and does not by itself implement lazy Haskell semantics, even though it
 provides the shared LLVM and clang toolchain path.
 

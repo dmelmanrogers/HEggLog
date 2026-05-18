@@ -146,9 +146,13 @@ source-to-Core typechecker/desugarer are implemented for the first executable
 subset. The typechecker currently covers explicit signatures, HM
 generalization/instantiation, `Int`, `Bool`, top-level functions, lambdas,
 application, local `let`, `if`, Bool and user-constructor `case`, custom
-`data` declarations, polymorphic constructors, nested constructor patterns, and
-primitive arithmetic/comparison. Full Haskell 2010 type classes, lists, tuples,
-remaining pattern forms, Prelude, IO, and modules remain planned. The strict
+`data` declarations, polymorphic constructors, nested/list/tuple constructor
+patterns, list and tuple expressions/types, built-in `Maybe`, `Either`, and
+`Ordering`, generated Core Prelude bindings for `id`, `const`, `not`,
+`otherwise`, `map`, `foldr`, `length`, `filter`, and `reverse`, short-circuit
+Bool operators, and primitive arithmetic/comparison. Full Haskell 2010 type
+classes, remaining pattern forms, broader Prelude, IO, and modules remain
+planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

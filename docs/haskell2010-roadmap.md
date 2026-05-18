@@ -234,9 +234,10 @@ Acceptance criteria:
 Status: the first executable ADT slice is implemented. `data` declarations now
 feed constructor metadata into Core/STG/native compilation; value constructors,
 nullary and unary/multi-field constructor applications, case alternatives,
-variable patterns, wildcard patterns, literal patterns, and nested constructor
-patterns are covered by Core, STG, native, and wet tests. Tuple/list/as-pattern
-semantics, guards, and full pattern-match diagnostics remain later work.
+variable patterns, wildcard patterns, literal patterns, nested constructor
+patterns, tuple patterns, and list patterns are covered by Core, STG, native,
+and wet tests. As-pattern semantics, guards, and full pattern-match diagnostics
+remain later work.
 
 Deliverables:
 
@@ -253,6 +254,13 @@ Acceptance criteria:
 - native wet tests cover ADTs and nested patterns
 
 ### Phase 10 - Lists, Tuples, and Prelude Core
+
+Status: implemented for the supported executable subset. The typechecker,
+Core validator/evaluator, STG lowering/evaluator, native LLVM path, and wet
+tests now cover built-in list, tuple, unit, `Maybe`, `Either`, and `Ordering`
+constructors; list and tuple expressions/patterns/types; short-circuiting
+`&&`/`||`; and generated Core bindings for `id`, `const`, `not`, `otherwise`,
+`map`, `foldr`, `length`, `filter`, and `reverse`.
 
 Deliverables:
 
@@ -464,11 +472,11 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. Prelude Bool/list/tuple runtime expansion.
-2. Haskell 2010 conformance matrix expansion for the next executable surface.
+1. Recursive top-level and local function/data-structure coverage.
+2. Haskell 2010 conformance matrix expansion for the recursive executable surface.
 3. Type class dictionary representation.
-4. Recursive function and data structure native coverage.
-5. Pattern-match diagnostics, guards, and remaining pattern forms.
+4. Pattern-match diagnostics, guards, and remaining pattern forms.
+5. IO `main`, `print`, `putStrLn`, and do-notation lowering.
 
 Completed immediate tasks:
 
@@ -511,6 +519,12 @@ Completed immediate tasks:
   fields, constructor-field case binding, nested constructor patterns, Core/STG
   validation, boxed native constructor objects, and default/no-egglog native wet
   tests for custom ADTs and `Maybe`.
+- Haskell 2010 Prelude Bool/list/tuple runtime expansion, including built-in
+  list, tuple, unit, `Maybe`, `Either`, and `Ordering` constructors/types,
+  list and tuple expression/pattern lowering, short-circuiting `&&`/`||`, and
+  generated Core Prelude bindings for `id`, `const`, `not`, `otherwise`, `map`,
+  `foldr`, `length`, `filter`, and `reverse`, with Core/STG/native and wet
+  coverage.
 
 ## Non-Negotiable Rules
 

@@ -139,6 +139,7 @@ testGroups =
       , pureTest "desugars explicit Bool case Core" testHaskell2010Core0Case
       , pureTest "typechecks user ADT constructor cases" testHaskell2010Core0ADTConstructorCase
       , pureTest "typechecks nested constructor patterns" testHaskell2010Core0NestedADTPatterns
+      , pureTest "typechecks lists tuples and Prelude constructors" testHaskell2010Core0PreludeData
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       , pureTest "rejects unsupported Core-0 equality" testHaskell2010Core0UnsupportedEquality
       ]
@@ -149,6 +150,8 @@ testGroups =
       , pureTest "evaluates Bool case" testHaskell2010Core0EvalBoolCase
       , pureTest "evaluates user ADT constructor fields" testHaskell2010Core0EvalADTField
       , pureTest "keeps unused user ADT fields lazy" testHaskell2010Core0EvalLazyADTField
+      , pureTest "evaluates Prelude list functions" testHaskell2010Core0EvalPreludeLists
+      , pureTest "short-circuits Bool operators" testHaskell2010Core0EvalShortCircuitBool
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
       , pureTest "reports forced division by zero" testHaskell2010Core0EvalDivisionByZero
@@ -175,6 +178,7 @@ testGroups =
       , pureTest "preserves user ADT constructor pattern semantics" testHaskell2010CoreToSTGADTCase
       , pureTest "preserves polymorphic ADT constructor semantics" testHaskell2010CoreToSTGPolymorphicADT
       , pureTest "preserves nested constructor pattern semantics" testHaskell2010CoreToSTGNestedADTPatterns
+      , pureTest "preserves list tuple and Prelude semantics" testHaskell2010CoreToSTGPreludeData
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves curried partial application" testHaskell2010CoreToSTGPartialApplication
       , pureTest "rejects invalid Core before lowering" testHaskell2010CoreToSTGRejectsInvalidCore
@@ -1088,7 +1092,7 @@ testHaskell2010Core0Case = do
 testHaskell2010Core0ADTConstructorCase :: Either String ()
 testHaskell2010Core0ADTConstructorCase = do
   coreModule <- typecheckHaskell2010 haskell2010ADTBoxSource
-  expectEqual "Box constructor metadata count" 1 (Map.size (H2010Core.coreModuleConstructors coreModule))
+  expectEqual "Box user constructor metadata count" 1 (Map.size (userConstructorMetadata coreModule))
   case H2010Core.coreModuleBinds coreModule of
     [H2010Core.CoreNonRec binder rhs] -> do
       expectEqual "ADT case result type" H2010Core.intTy (H2010Core.coreBinderType binder)
@@ -1099,7 +1103,7 @@ testHaskell2010Core0ADTConstructorCase = do
 testHaskell2010Core0NestedADTPatterns :: Either String ()
 testHaskell2010Core0NestedADTPatterns = do
   coreModule <- typecheckHaskell2010 haskell2010NestedADTSource
-  expectEqual "nested ADT constructor metadata count" 2 (Map.size (H2010Core.coreModuleConstructors coreModule))
+  expectEqual "nested ADT user constructor metadata count" 2 (Map.size (userConstructorMetadata coreModule))
   case H2010Core.coreModuleBinds coreModule of
     [H2010Core.CoreNonRec binder rhs] -> do
       expectEqual "nested ADT result type" H2010Core.intTy (H2010Core.coreBinderType binder)
@@ -1107,6 +1111,19 @@ testHaskell2010Core0NestedADTPatterns = do
       assertBool "nested ADT pattern records outer constructor" (containsConstructorAlt "Wrap" rhs)
       assertBool "nested ADT pattern records inner constructor" (containsConstructorAlt "Box" rhs)
     other -> Left ("unexpected nested ADT Core module: " <> show other)
+
+userConstructorMetadata :: H2010Core.CoreModule -> Map.Map H2010Names.RName H2010Core.CoreConstructorInfo
+userConstructorMetadata =
+  Map.filterWithKey (\name _ -> not (H2010Names.nameExternal name)) . H2010Core.coreModuleConstructors
+
+testHaskell2010Core0PreludeData :: Either String ()
+testHaskell2010Core0PreludeData = do
+  tupleModule <- typecheckHaskell2010 haskell2010TupleCaseSource
+  expectCoreEvalInt "tuple-pattern Core oracle" 3 =<< evalHaskell2010CoreModuleBinding "main" tupleModule
+  listModule <- typecheckHaskell2010 haskell2010ListPreludeSource
+  expectCoreEvalInt "Prelude list Core oracle" 321 =<< evalHaskell2010CoreModuleBinding "main" listModule
+  maybeModule <- typecheckHaskell2010 haskell2010PreludeMaybeOrderingSource
+  expectCoreEvalInt "Prelude Maybe/Ordering Core oracle" 5 =<< evalHaskell2010CoreModuleBinding "main" maybeModule
 
 testHaskell2010Core0TypeError :: Either String ()
 testHaskell2010Core0TypeError =
@@ -1180,6 +1197,20 @@ testHaskell2010Core0EvalLazyADTField =
     "Core-0 lazy ADT field evaluation"
     5
     =<< evalHaskell2010Binding "main" haskell2010LazyADTFieldSource
+
+testHaskell2010Core0EvalPreludeLists :: Either String ()
+testHaskell2010Core0EvalPreludeLists =
+  expectCoreEvalInt
+    "Core-0 Prelude list function evaluation"
+    321
+    =<< evalHaskell2010Binding "main" haskell2010ListPreludeSource
+
+testHaskell2010Core0EvalShortCircuitBool :: Either String ()
+testHaskell2010Core0EvalShortCircuitBool =
+  expectCoreEvalInt
+    "Core-0 Bool short-circuit evaluation"
+    7
+    =<< evalHaskell2010Binding "main" haskell2010ShortCircuitSource
 
 testHaskell2010Core0EvalLazyLet :: Either String ()
 testHaskell2010Core0EvalLazyLet =
@@ -1395,6 +1426,13 @@ testHaskell2010CoreToSTGNestedADTPatterns =
     "Core-to-STG nested ADT patterns"
     3
     haskell2010NestedADTSource
+
+testHaskell2010CoreToSTGPreludeData :: Either String ()
+testHaskell2010CoreToSTGPreludeData =
+  checkCoreToSTGInt
+    "Core-to-STG Prelude list/tuple data"
+    321
+    haskell2010ListPreludeSource
 
 testHaskell2010CoreToSTGDivisionByZero :: Either String ()
 testHaskell2010CoreToSTGDivisionByZero =
@@ -4407,6 +4445,10 @@ haskell2010NativeSuccessExamples =
   , ("lazy-let", haskell2010LazyLetSource, "5\n")
   , ("lazy-argument", haskell2010LazyArgumentSource, "1\n")
   , ("bool-case", haskell2010BoolCaseSource, "7\n")
+  , ("tuple-case", haskell2010TupleCaseSource, "3\n")
+  , ("prelude-lists", haskell2010ListPreludeSource, "321\n")
+  , ("prelude-maybe-ordering", haskell2010PreludeMaybeOrderingSource, "5\n")
+  , ("short-circuit", haskell2010ShortCircuitSource, "7\n")
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-maybe", haskell2010PolymorphicADTSource, "4\n")
   , ("adt-nested", haskell2010NestedADTSource, "3\n")
@@ -4418,6 +4460,7 @@ haskell2010NativeExecutableExamples :: [(Text, Text, String)]
 haskell2010NativeExecutableExamples =
   [ ("lazy-argument", haskell2010LazyArgumentSource, "1\n")
   , ("partial-application", haskell2010PartialApplicationSource, "1\n")
+  , ("prelude-lists", haskell2010ListPreludeSource, "321\n")
   ]
 
 haskell2010ArithmeticSource :: Text
@@ -4452,6 +4495,40 @@ haskell2010BoolCaseSource =
   \main = case False of\n\
   \  True -> 0\n\
   \  False -> 7\n"
+
+haskell2010TupleCaseSource :: Text
+haskell2010TupleCaseSource =
+  "module Main where\n\
+  \unit x = case () of\n\
+  \  () -> x\n\
+  \main = case (unit 1, 2) of\n\
+  \  (x, y) -> x + y\n"
+
+haskell2010ListPreludeSource :: Text
+haskell2010ListPreludeSource =
+  "module Main where\n\
+  \inc x = x + 0\n\
+  \keep x = x < 4\n\
+  \add x acc = x + acc\n\
+  \main = case reverse (filter keep (map inc [1, 2, 3])) of\n\
+  \  [a, b, c] -> foldr add 0 [a * 100, b * 10, c] + length [a, b, c] - 3\n\
+  \  _ -> 0\n"
+
+haskell2010PreludeMaybeOrderingSource :: Text
+haskell2010PreludeMaybeOrderingSource =
+  "module Main where\n\
+  \main = case Right (Just LT) of\n\
+  \  Left x -> x\n\
+  \  Right value -> case value of\n\
+  \    Nothing -> 0\n\
+  \    Just LT -> 5\n\
+  \    Just EQ -> 6\n\
+  \    Just GT -> 7\n"
+
+haskell2010ShortCircuitSource :: Text
+haskell2010ShortCircuitSource =
+  "module Main where\n\
+  \main = if (False && ((1 / 0) == 0)) || True then 7 else 1\n"
 
 haskell2010ADTBoxSource :: Text
 haskell2010ADTBoxSource =

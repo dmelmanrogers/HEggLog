@@ -1,10 +1,10 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after adding Haskell 2010 ADT and
-constructor-pattern native coverage. The suite covers the existing `.hg` native
-compiler baseline and Haskell 2010 executable-subset `.hs` programs that compile
-to native executables, compare lazy runtime behavior, and run both default
-Egglog and `--no-egglog` modes for Haskell 2010 optimizer coverage.
+Recorded for the mandatory wet-test suite after adding Haskell 2010
+Bool/list/tuple/Prelude native coverage. The suite covers the existing `.hg`
+native compiler baseline and Haskell 2010 executable-subset `.hs` programs that
+compile to native executables, compare lazy runtime behavior, and run both
+default Egglog and `--no-egglog` modes for Haskell 2010 optimizer coverage.
 
 Run metadata:
 
@@ -17,15 +17,15 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 68
-- Source files: 30
-- Successful source cases: 21
+- HUnit checks: 77
+- Source files: 34
+- Successful source cases: 25
 - Runtime-error source cases: 6
 - Compile-error source cases: 3
-- Native compile/run checks: 48
-- Default Egglog native checks: 30
-- `--no-egglog` native checks: 18
-- Emit-LLVM checks: 8
+- Native compile/run checks: 56
+- Default Egglog native checks: 34
+- `--no-egglog` native checks: 22
+- Emit-LLVM checks: 9
 - Report/interpreter comparisons: 12
 - Failures: 0
 
@@ -80,6 +80,15 @@ Summary:
 | haskell2010-partial-application | `test/e2e/programs/haskell2010/partial-application.hs` | success | native/no-egglog | `1` | stdout `1`, stderr empty, exit 0 | pass |
 | haskell2010-bool-case | `test/e2e/programs/haskell2010/bool-case.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-bool-case | `test/e2e/programs/haskell2010/bool-case.hs` | success | native/no-egglog | `7` | stdout `7`, stderr empty, exit 0 | pass |
+| haskell2010-tuple-case | `test/e2e/programs/haskell2010/tuple-case.hs` | success | native/default | `3` | stdout `3`, stderr empty, exit 0 | pass |
+| haskell2010-tuple-case | `test/e2e/programs/haskell2010/tuple-case.hs` | success | native/no-egglog | `3` | stdout `3`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-lists | `test/e2e/programs/haskell2010/prelude-lists.hs` | success | native/default | `321` | stdout `321`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-lists | `test/e2e/programs/haskell2010/prelude-lists.hs` | success | native/no-egglog | `321` | stdout `321`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-lists | `test/e2e/programs/haskell2010/prelude-lists.hs` | success | emit-llvm/default | `321` | LLVM compiled through clang, stdout `321`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-maybe-ordering | `test/e2e/programs/haskell2010/prelude-maybe-ordering.hs` | success | native/default | `5` | stdout `5`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-maybe-ordering | `test/e2e/programs/haskell2010/prelude-maybe-ordering.hs` | success | native/no-egglog | `5` | stdout `5`, stderr empty, exit 0 | pass |
+| haskell2010-short-circuit | `test/e2e/programs/haskell2010/short-circuit.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
+| haskell2010-short-circuit | `test/e2e/programs/haskell2010/short-circuit.hs` | success | native/no-egglog | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/no-egglog | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | emit-llvm/default | `7` | LLVM compiled through clang, stdout `7`, stderr empty, exit 0 | pass |

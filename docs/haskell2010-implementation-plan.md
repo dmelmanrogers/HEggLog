@@ -25,8 +25,9 @@ src/Haskell2010/
 ```
 
 Implemented today: `Syntax`, `Lexer`, `Layout`, `Parser`, `Pretty`, `Names`,
-`Renamed`, `Renamer`, and a `Typecheck` source-to-Core pass for the first
-executable subset, including custom ADTs and constructor patterns. Broader
+`Renamed`, `Renamer`, and a `Typecheck` source-to-Core pass for the current
+executable subset, including custom ADTs, constructor patterns, lists, tuples,
+and generated Core Prelude bindings for basic list/Bool functions. Broader
 inference/desugaring modules for full Haskell 2010 remain planned.
 
 Implemented Core modules:
@@ -43,7 +44,8 @@ src/Haskell2010/Core/
 
 Core types live in `Haskell2010.Core.Syntax` for the current MVP. The reference
 evaluator in `Haskell2010.Core.Eval` executes validated typed Core, including
-user ADT constructors and lazy fields, as the oracle for STG/native work.
+user ADT constructors, list/tuple/Prelude constructors, generated Prelude list
+functions, and lazy fields, as the oracle for STG/native work.
 
 Implemented STG modules:
 
@@ -96,16 +98,22 @@ is built alongside them.
 7. STG IR. Completed.
 8. Lazy runtime. Completed.
 9. Core-to-STG lowering. Completed.
-10. STG-to-LLVM. Completed for the first executable subset.
+10. STG-to-LLVM. Completed for the current executable subset.
 11. ADTs/pattern matching. Completed for custom ADTs, polymorphic constructors,
     constructor cases, nested constructor patterns, lazy constructor fields,
     Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
-12. Recursion.
-13. Prelude subset.
-14. Type classes/dictionaries.
-15. IO.
-16. Modules.
-17. Egglog Core optimizer. Completed for the first safe Core-0 fragment;
+12. Lists, tuples, and Prelude Core. Completed for built-in list, tuple, unit,
+    `Maybe`, `Either`, and `Ordering` constructors/types, list and tuple
+    expressions/patterns, short-circuit Bool operators, generated Core Prelude
+    bindings for `id`, `const`, `not`, `otherwise`, `map`, `foldr`, `length`,
+    `filter`, and `reverse`, Core/STG/native execution, and wet-tested
+    default/no-egglog CLI runs.
+13. Recursion.
+14. Broader Prelude subset.
+15. Type classes/dictionaries.
+16. IO.
+17. Modules.
+18. Egglog Core optimizer. Completed for the first safe Core-0 fragment;
     broader Core facts and rewrites remain planned.
 
 ## Tests Required Per Milestone

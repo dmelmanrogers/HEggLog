@@ -325,6 +325,10 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-lazy-argument" "test/e2e/programs/haskell2010/lazy-argument.hs" "1" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-partial-application" "test/e2e/programs/haskell2010/partial-application.hs" "1" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-bool-case" "test/e2e/programs/haskell2010/bool-case.hs" "7" [DefaultEgglog, NoEgglog] False
+  , nativeOnlySuccessCase "haskell2010-tuple-case" "test/e2e/programs/haskell2010/tuple-case.hs" "3" [DefaultEgglog, NoEgglog] False
+  , nativeOnlySuccessCase "haskell2010-prelude-lists" "test/e2e/programs/haskell2010/prelude-lists.hs" "321" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-prelude-maybe-ordering" "test/e2e/programs/haskell2010/prelude-maybe-ordering.hs" "5" [DefaultEgglog, NoEgglog] False
+  , nativeOnlySuccessCase "haskell2010-short-circuit" "test/e2e/programs/haskell2010/short-circuit.hs" "7" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-adt-box" "test/e2e/programs/haskell2010/adt-box.hs" "7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-adt-maybe" "test/e2e/programs/haskell2010/adt-maybe.hs" "4" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-adt-nested" "test/e2e/programs/haskell2010/adt-nested.hs" "3" [DefaultEgglog, NoEgglog] False
