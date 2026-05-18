@@ -810,6 +810,7 @@ preludeNames =
     , "negate"
     , "abs"
     , "signum"
+    , "fromInteger"
     , "++"
     , ">>="
     , ">>"

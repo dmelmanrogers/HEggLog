@@ -12,6 +12,7 @@ import qualified Backend.Validate as BV
 import qualified CLI.Compile as CompileCLI
 import CLI.Report (CompileError (..), CompileReport (..), compileReport, renderCompileError, renderGoldenReport)
 import Control.Monad (unless)
+import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -143,6 +144,7 @@ testGroups =
       , pureTest "typechecks recursive bindings" testHaskell2010Core0Recursion
       , pureTest "typechecks type class dictionaries" testHaskell2010Core0TypeClassDictionaries
       , pureTest "typechecks Prelude class dictionaries" testHaskell2010Core0PreludeClassDictionaries
+      , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
       , pureTest "typechecks IO printing" testHaskell2010Core0IOPrinting
       , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
@@ -161,6 +163,7 @@ testGroups =
       , pureTest "evaluates recursive functions and list recursion" testHaskell2010Core0EvalRecursion
       , pureTest "evaluates type class dictionary calls" testHaskell2010Core0EvalTypeClassDictionaries
       , pureTest "evaluates Prelude class dictionary calls" testHaskell2010Core0EvalPreludeClassDictionaries
+      , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
       , pureTest "evaluates guards and as-patterns" testHaskell2010Core0EvalGuardsAndAsPatterns
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
@@ -194,6 +197,7 @@ testGroups =
       , pureTest "preserves recursive function semantics" testHaskell2010CoreToSTGRecursion
       , pureTest "preserves type class dictionary semantics" testHaskell2010CoreToSTGTypeClassDictionaries
       , pureTest "preserves Prelude class dictionary semantics" testHaskell2010CoreToSTGPreludeClassDictionaries
+      , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
       , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
       , pureTest "preserves guard and as-pattern semantics" testHaskell2010CoreToSTGGuardsAndAsPatterns
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
@@ -1067,72 +1071,72 @@ testHaskell2010Core0PolymorphicLet = do
       \use = let\n\
       \  id x = x\n\
       \in if id True then id 1 else id 2\n"
-  case H2010Core.coreModuleBinds coreModule of
-    [H2010Core.CoreNonRec binder rhs] -> do
-      expectEqual "polymorphic let result type" H2010Core.intTy (H2010Core.coreBinderType binder)
-      assertBool "polymorphic let emits type applications" (countTypeApps rhs >= 3)
-      assertBool "polymorphic let emits generalized local binding" (containsTypeLambda rhs)
-      expectEqual "polymorphic let generated Core validates" (Right ()) (H2010CoreValidate.validateExpr rhs)
-    other -> Left ("unexpected Core-0 polymorphic let module: " <> show other)
+  (binder, rhs) <- lookupCoreBindingOccurrence "use" coreModule
+  expectEqual "polymorphic let result type" H2010Core.intTy (H2010Core.coreBinderType binder)
+  assertBool "polymorphic let emits type applications" (countTypeApps rhs >= 3)
+  assertBool "polymorphic let emits generalized local binding" (containsTypeLambda rhs)
+  expectEqual
+    "polymorphic let generated Core validates"
+    (Right ())
+    (H2010CoreValidate.validateModule (H2010CoreValidate.moduleValidationEnv coreModule) coreModule)
 
 testHaskell2010Core0If :: Either String ()
 testHaskell2010Core0If = do
   coreModule <-
     typecheckHaskell2010
       "module Core0 where\n\
+      \choose :: Bool -> Int\n\
       \choose b = if b then 1 else 2\n"
-  case H2010Core.coreModuleBinds coreModule of
-    [H2010Core.CoreNonRec binder rhs] -> do
-      expectEqual
-        "if function type"
-        (H2010Core.funTy H2010Core.boolTy H2010Core.intTy)
-        (H2010Core.coreBinderType binder)
-      assertBool "if desugars to Core case" (containsCase rhs)
-    other -> Left ("unexpected Core-0 if module: " <> show other)
+  (binder, rhs) <- lookupCoreBindingOccurrence "choose" coreModule
+  expectEqual
+    "if function type"
+    (H2010Core.funTy H2010Core.boolTy H2010Core.intTy)
+    (H2010Core.coreBinderType binder)
+  assertBool "if desugars to Core case" (containsCase rhs)
 
 testHaskell2010Core0Case :: Either String ()
 testHaskell2010Core0Case = do
   coreModule <-
     typecheckHaskell2010
       "module Core0 where\n\
+      \select :: Bool -> Int\n\
       \select b = case b of\n\
       \  True -> 1\n\
       \  False -> 0\n"
-  case H2010Core.coreModuleBinds coreModule of
-    [H2010Core.CoreNonRec binder rhs] -> do
-      expectEqual
-        "case function type"
-        (H2010Core.funTy H2010Core.boolTy H2010Core.intTy)
-        (H2010Core.coreBinderType binder)
-      assertBool "explicit Bool case remains Core case" (containsCase rhs)
-    other -> Left ("unexpected Core-0 case module: " <> show other)
+  (binder, rhs) <- lookupCoreBindingOccurrence "select" coreModule
+  expectEqual
+    "case function type"
+    (H2010Core.funTy H2010Core.boolTy H2010Core.intTy)
+    (H2010Core.coreBinderType binder)
+  assertBool "explicit Bool case remains Core case" (containsCase rhs)
 
 testHaskell2010Core0ADTConstructorCase :: Either String ()
 testHaskell2010Core0ADTConstructorCase = do
   coreModule <- typecheckHaskell2010 haskell2010ADTBoxSource
   expectEqual "Box user constructor metadata count" 1 (Map.size (userConstructorMetadata coreModule))
-  case H2010Core.coreModuleBinds coreModule of
-    [H2010Core.CoreNonRec binder rhs] -> do
-      expectEqual "ADT case result type" H2010Core.intTy (H2010Core.coreBinderType binder)
-      assertBool "user ADT case emits Core case" (containsCase rhs)
-      assertBool "user ADT case records constructor alternative" (containsConstructorAlt "Box" rhs)
-    other -> Left ("unexpected user ADT Core module: " <> show other)
+  (binder, rhs) <- lookupCoreBindingOccurrence "main" coreModule
+  expectEqual "ADT case result type" H2010Core.intTy (H2010Core.coreBinderType binder)
+  assertBool "user ADT case emits Core case" (containsCase rhs)
+  assertBool "user ADT case records constructor alternative" (containsConstructorAlt "Box" rhs)
 
 testHaskell2010Core0NestedADTPatterns :: Either String ()
 testHaskell2010Core0NestedADTPatterns = do
   coreModule <- typecheckHaskell2010 haskell2010NestedADTSource
   expectEqual "nested ADT user constructor metadata count" 2 (Map.size (userConstructorMetadata coreModule))
-  case H2010Core.coreModuleBinds coreModule of
-    [H2010Core.CoreNonRec binder rhs] -> do
-      expectEqual "nested ADT result type" H2010Core.intTy (H2010Core.coreBinderType binder)
-      assertBool "nested ADT pattern emits nested Core case" (countCases rhs >= 2)
-      assertBool "nested ADT pattern records outer constructor" (containsConstructorAlt "Wrap" rhs)
-      assertBool "nested ADT pattern records inner constructor" (containsConstructorAlt "Box" rhs)
-    other -> Left ("unexpected nested ADT Core module: " <> show other)
+  (binder, rhs) <- lookupCoreBindingOccurrence "main" coreModule
+  expectEqual "nested ADT result type" H2010Core.intTy (H2010Core.coreBinderType binder)
+  assertBool "nested ADT pattern emits nested Core case" (countCases rhs >= 2)
+  assertBool "nested ADT pattern records outer constructor" (containsConstructorAlt "Wrap" rhs)
+  assertBool "nested ADT pattern records inner constructor" (containsConstructorAlt "Box" rhs)
 
 userConstructorMetadata :: H2010Core.CoreModule -> Map.Map H2010Names.RName H2010Core.CoreConstructorInfo
 userConstructorMetadata =
-  Map.filterWithKey (\name _ -> not (H2010Names.nameExternal name)) . H2010Core.coreModuleConstructors
+  Map.filterWithKey
+    ( \name _ ->
+        not (H2010Names.nameExternal name)
+          && not ("$Mk" `Text.isPrefixOf` H2010Names.nameOcc name)
+    )
+    . H2010Core.coreModuleConstructors
 
 testHaskell2010Core0PreludeData :: Either String ()
 testHaskell2010Core0PreludeData = do
@@ -1146,11 +1150,9 @@ testHaskell2010Core0PreludeData = do
 testHaskell2010Core0Recursion :: Either String ()
 testHaskell2010Core0Recursion = do
   guardedModule <- typecheckHaskell2010 haskell2010GuardedSelfRecursionSource
-  case H2010Core.coreModuleBinds guardedModule of
-    [H2010Core.CoreRec [(binder, rhs)]] -> do
-      expectEqual "guarded self recursion binder" "main" (H2010Names.nameOcc (H2010Core.coreBinderName binder))
-      assertBool "guarded self recursion keeps recursive occurrence" (containsVarOccurrence "main" rhs)
-    other -> Left ("expected guarded self-recursive singleton CoreRec, got: " <> show other)
+  (binder, rhs) <- lookupCoreBindingOccurrence "main" guardedModule
+  expectEqual "guarded self recursion binder" "main" (H2010Names.nameOcc (H2010Core.coreBinderName binder))
+  assertBool "guarded self recursion keeps recursive occurrence" (containsVarOccurrence "main" rhs)
   expectCoreEvalInt "guarded self-recursion Core oracle" 1 =<< evalHaskell2010CoreModuleBinding "main" guardedModule
   expectCoreEvalInt "local factorial Core oracle" 120 =<< evalHaskell2010Binding "main" haskell2010LocalFactorialSource
   expectCoreEvalInt "mutual recursion Core oracle" 1 =<< evalHaskell2010Binding "main" haskell2010MutualRecursionSource
@@ -1174,6 +1176,15 @@ testHaskell2010Core0PreludeClassDictionaries = do
   assertBool "Prelude Ord Int instance dictionary is emitted" (containsBindingOccurrence "$fOrdInt" coreModule)
   assertBool "Prelude Num Int instance dictionary is emitted" (containsBindingOccurrence "$fNumInt" coreModule)
   expectCoreEvalInt "Prelude class dictionary Core oracle" 6 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0NumericDefaulting :: Either String ()
+testHaskell2010Core0NumericDefaulting = do
+  coreModule <- typecheckHaskell2010 haskell2010NumericDefaultingSource
+  assertBool "Prelude Num dictionary constructor is recorded" (containsConstructorOccurrence "$MkNumDict" coreModule)
+  assertBool "Prelude Num Int instance dictionary is emitted" (containsBindingOccurrence "$fNumInt" coreModule)
+  assertBool "Prelude fromInteger selector is emitted" (containsBindingOccurrence "fromInteger" coreModule)
+  assertBool "Prelude Show Int instance dictionary is emitted" (containsBindingOccurrence "$fShowInt" coreModule)
+  expectCoreEvalIO "numeric defaulting Core oracle" "7\n47\n" =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
 testHaskell2010Core0IOPrinting :: Either String ()
 testHaskell2010Core0IOPrinting = do
@@ -1341,6 +1352,13 @@ testHaskell2010Core0EvalPreludeClassDictionaries =
     "Core-0 Prelude class dictionary evaluation"
     6
     =<< evalHaskell2010Binding "main" haskell2010PreludeClassDictionarySource
+
+testHaskell2010Core0EvalNumericDefaulting :: Either String ()
+testHaskell2010Core0EvalNumericDefaulting =
+  expectCoreEvalIO
+    "Core-0 numeric defaulting evaluation"
+    "7\n47\n"
+    =<< evalHaskell2010Binding "main" haskell2010NumericDefaultingSource
 
 testHaskell2010Core0EvalIOPrinting :: Either String ()
 testHaskell2010Core0EvalIOPrinting =
@@ -1599,6 +1617,10 @@ testHaskell2010CoreToSTGPreludeClassDictionaries :: Either String ()
 testHaskell2010CoreToSTGPreludeClassDictionaries =
   checkCoreToSTGInt "Core-to-STG Prelude class dictionaries" 6 haskell2010PreludeClassDictionarySource
 
+testHaskell2010CoreToSTGNumericDefaulting :: Either String ()
+testHaskell2010CoreToSTGNumericDefaulting =
+  checkCoreToSTGIO "Core-to-STG numeric defaulting" "7\n47\n" haskell2010NumericDefaultingSource
+
 testHaskell2010CoreToSTGIOPrinting :: Either String ()
 testHaskell2010CoreToSTGIOPrinting =
   checkCoreToSTGIO "Core-to-STG IO printing" "ok\nanswer\n42\nTrue\n" haskell2010IOPrintingSource
@@ -1762,7 +1784,7 @@ testHaskell2010CoreEgglogFoldsArithmetic = do
 
 testHaskell2010CoreEgglogFoldsKnownBoolCase :: Either String ()
 testHaskell2010CoreEgglogFoldsKnownBoolCase = do
-  result <- optimizeHaskell2010Core haskell2010BoolCaseSource
+  result <- optimizeHaskell2010CoreModule haskell2010KnownBoolCaseCoreModule
   assertBool
     "known Bool case should lower expression cost"
     (H2010CoreEgglog.coreEgglogOptimizedCost result < H2010CoreEgglog.coreEgglogOriginalCost result)
@@ -4660,6 +4682,7 @@ haskell2010NativeSuccessExamples =
   , ("recursive-list", haskell2010RecursiveListSource, "10\n")
   , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
   , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
+  , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
@@ -4677,6 +4700,7 @@ haskell2010NativeExecutableExamples =
   , ("recursive-list", haskell2010RecursiveListSource, "10\n")
   , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
   , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
+  , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
   ]
@@ -4698,6 +4722,25 @@ haskell2010PrimitiveArithmeticCoreModule =
                 H2010Core.PrimMul
                 [ H2010Core.CPrimOp H2010Core.PrimAdd [coreInt 1, coreInt 2] H2010Core.intTy
                 , coreInt 3
+                ]
+                H2010Core.intTy
+            )
+        ]
+    }
+
+haskell2010KnownBoolCaseCoreModule :: H2010Core.CoreModule
+haskell2010KnownBoolCaseCoreModule =
+  H2010Core.CoreModule
+    { H2010Core.coreModuleName = Nothing
+    , H2010Core.coreModuleConstructors = Map.empty
+    , H2010Core.coreModuleBinds =
+        [ H2010Core.CoreNonRec
+            (coreBinder (coreTerm "main" 6201) H2010Core.intTy)
+            ( H2010Core.CCase
+                (H2010Core.CCon H2010Core.falseDataConName H2010Core.boolTy)
+                (coreBinder (coreTerm "$case" 6202) H2010Core.boolTy)
+                [ H2010Core.CoreAlt (H2010Core.ConstructorAlt H2010Core.trueDataConName) [] (coreInt 0)
+                , H2010Core.CoreAlt (H2010Core.ConstructorAlt H2010Core.falseDataConName) [] (coreInt 7)
                 ]
                 H2010Core.intTy
             )
@@ -4824,6 +4867,19 @@ haskell2010PreludeClassDictionarySource =
   \  GT -> True\n\
   \  _ -> False\n\
   \main = if same 7 7 && not (same 7 8) && ordered 3 4 && compareFlag && max False True && not (min False True) then distancePlusSign 9 4 else 0\n"
+
+haskell2010NumericDefaultingSource :: Text
+haskell2010NumericDefaultingSource =
+  "module Main where\n\
+  \twice x = x + x\n\
+  \defaulted = 6\n\
+  \viaFromInteger :: Int\n\
+  \viaFromInteger = fromInteger 35\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (1 + 2 * 3)\n\
+  \  print (twice defaulted + viaFromInteger)\n\
+  \  return ()\n"
 
 haskell2010IOPrintingSource :: Text
 haskell2010IOPrintingSource =
@@ -5146,6 +5202,17 @@ containsConstructorOccurrence occurrence coreModule =
 containsBindingOccurrence :: Text -> H2010Core.CoreModule -> Bool
 containsBindingOccurrence occurrence coreModule =
   any ((== occurrence) . H2010Names.nameOcc . H2010Core.coreBinderName) (concatMap H2010Core.bindersOf (H2010Core.coreModuleBinds coreModule))
+
+lookupCoreBindingOccurrence :: Text -> H2010Core.CoreModule -> Either String (H2010Core.CoreBinder, H2010Core.CoreExpr)
+lookupCoreBindingOccurrence occurrence coreModule =
+  case List.find ((== occurrence) . H2010Names.nameOcc . H2010Core.coreBinderName . fst) (concatMap coreBindPairs (H2010Core.coreModuleBinds coreModule)) of
+    Just pair -> Right pair
+    Nothing -> Left ("missing Core binding `" <> Text.unpack occurrence <> "`")
+
+coreBindPairs :: H2010Core.CoreBind -> [(H2010Core.CoreBinder, H2010Core.CoreExpr)]
+coreBindPairs = \case
+  H2010Core.CoreNonRec binder rhs -> [(binder, rhs)]
+  H2010Core.CoreRec pairs -> pairs
 
 containsBindingPrefix :: Text -> H2010Core.CoreModule -> Bool
 containsBindingPrefix prefix coreModule =

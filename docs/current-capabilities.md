@@ -189,9 +189,9 @@ Current tests include:
   report-mode `Result: <value>` output, runs Haskell 2010 default Egglog and
   `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
   programs, user-defined type class dictionary programs, and built-in
-  `Eq`/`Ord`/`Num`/`Show` dictionary programs, plus IO printing programs, and
-  compiles selected emitted LLVM through `clang`
+  `Eq`/`Ord`/`Num`/`Show` dictionary programs, numeric-defaulting programs,
+  plus IO printing programs, and compiles selected emitted LLVM through `clang`
 
 Future Haskell 2010 wet tests should extend this direct executable coverage as
 irrefutable/lazy patterns, richer pattern diagnostics, broader `Show`/`String`
-interop, numeric defaulting, and broader IO are implemented.
+interop, and broader IO are implemented.

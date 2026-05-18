@@ -119,13 +119,15 @@ Current initial Haskell 2010 class capabilities:
   `Ord Bool`, executable `Num Int`, `Show Int`, and `Show Bool`
 - dictionary-backed built-in methods: `(==)`, `(/=)`, `compare`, `(<)`,
   `(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`,
-  `signum`, and `show`
+  `signum`, `fromInteger`, and `show`
+- overloaded integer literals through `fromInteger`
+- numeric defaulting to executable `Int` for ambiguous standard-class numeric
+  constraints in the supported `Eq`/`Ord`/`Num`/`Show` slice
 
 Remaining planned Haskell 2010 capabilities:
 
 - superclasses, default methods, deriving, and instance contexts
-- defaulting for numeric classes
-- broader `Show`, `fromInteger`, and overloaded literals
+- broader `Show`, additional numeric classes, and fuller Prelude hierarchy
 - kind checking for type constructors and classes
 
 The typechecker emits typed Core or rejects the program. It must not accept a
@@ -172,9 +174,11 @@ constructors/selectors, dictionary-passed method calls, and built-in `Eq Int`,
 `Eq Bool`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and
 `Show Bool` dictionaries. It also covers `IO`, `main :: IO ()`, `putStrLn`,
 `print`, `return`, `(>>)`, and expression-only `do` sequencing with local
-`let`. Full Haskell 2010 type classes, broader `Show`, numeric defaulting,
-irrefutable/lazy patterns, richer pattern diagnostics, broader Prelude,
-broader IO, and modules remain planned. The strict
+`let`. It also covers `fromInteger`, overloaded integer literals, numeric
+defaulting to executable `Int`, inferred constrained helper schemes, and
+SCC-based binding generalization. Full Haskell 2010 type classes, broader
+`Show`, irrefutable/lazy patterns, richer pattern diagnostics, broader
+Prelude, broader IO, and modules remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

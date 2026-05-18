@@ -123,8 +123,8 @@ is built alongside them.
     `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and `Show Bool`
     dictionaries,
     Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
-    Superclasses, defaults, deriving, broader `Show`, `fromInteger`,
-    overloaded literals, and numeric defaulting remain planned.
+    Superclasses, defaults, deriving, broader `Show`, and additional numeric
+    classes remain planned.
 15. Guarded RHS/case alternatives and as-pattern aliases. Completed for
     multi-branch guards, guarded case alternatives, as-pattern alias binding,
     Core/STG/native no-match behavior for guard fallthrough, and wet-tested
@@ -133,7 +133,10 @@ is built alongside them.
     `putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing
     with local `let`, Core/STG/native execution, and wet-tested
     default/no-egglog CLI runs.
-17. Broader Prelude subset.
+17. Numeric literals and defaulting. Completed for dictionary-backed
+    `fromInteger`, overloaded integer literals, executable `Int` defaulting,
+    inferred constrained helper schemes, SCC-based binding generalization,
+    Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
 18. Modules.
 19. Egglog Core optimizer. Completed for the first safe Core-0 fragment;
     broader Core facts and rewrites remain planned.

@@ -314,13 +314,15 @@ default Egglog and `--no-egglog` execution.
 The built-in executable Prelude class slice now supports `Eq Int`, `Eq Bool`,
 `Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool`: `(==)`, `(/=)`,
 `compare`, `(<)`, `(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`,
-`negate`, `abs`, `signum`, and `show` lower through generated dictionaries and
-selectors. `/` remains the existing checked `Int` division primitive rather
-than a `Fractional` method.
+`negate`, `abs`, `signum`, `fromInteger`, and `show` lower through generated
+dictionaries and selectors. Integer literals elaborate through `fromInteger`,
+ambiguous numeric constraints default to the executable `Int` type, and binding
+groups are dependency-sorted before generalization so helper functions can be
+specialized by later bindings. `/` remains the existing checked `Int` division
+primitive rather than a `Fractional` method.
 Remaining Phase 12 work includes superclasses, default methods, instance
 contexts, method-specific constraints/type variables, coherence diagnostics,
-deriving, `fromInteger`, overloaded literals, broader `Show` instances, and
-numeric defaulting.
+deriving, broader `Show` instances, and additional numeric classes.
 
 Deliverables:
 
@@ -511,14 +513,13 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. `fromInteger`, overloaded literals, numeric defaulting, and broader Prelude
-   class hierarchy.
-2. Remaining pattern diagnostics and irrefutable/lazy pattern semantics.
-3. Module graph loading, export filtering, and multi-file compilation.
-4. Haskell 2010 conformance matrix expansion for the broader executable
+1. Remaining pattern diagnostics and irrefutable/lazy pattern semantics.
+2. Module graph loading, export filtering, and multi-file compilation.
+3. Haskell 2010 conformance matrix expansion for the broader executable
    surface.
-5. Broader `Show`/`String` interoperability, including `Show Char`,
+4. Broader `Show`/`String` interoperability, including `Show Char`,
    `Show String`, escapes, and additional string/list library behavior.
+5. Superclass, default method, and instance-context support for type classes.
 
 Completed immediate tasks:
 

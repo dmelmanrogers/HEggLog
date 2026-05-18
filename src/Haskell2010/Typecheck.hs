@@ -8,6 +8,7 @@ where
 import Control.Monad (foldM, unless, when)
 import Control.Monad.State.Strict (StateT, get, lift, modify, runStateT)
 import Data.Foldable (traverse_)
+import qualified Data.Graph as Graph
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
@@ -125,6 +126,7 @@ data InferState = InferState
   , typeConstructors :: Map.Map RName Int
   , dataConstructors :: Map.Map RName DataConstructorInfo
   , classInfos :: Map.Map RName ClassInfo
+  , defaultTypes :: [MonoType]
   }
   deriving stock (Show, Eq)
 
@@ -141,6 +143,8 @@ typecheckModuleToCore sourceModule = do
       sourceClasses <- collectClassInfos sourceDecls
       let classes = Map.union sourceClasses builtinClassInfos
       modify (\state -> state {classInfos = classes})
+      defaults <- collectDefaultTypes sourceDecls
+      modify (\state -> state {defaultTypes = defaults})
       constructors <- collectDataConstructors sourceDecls
       modify
         ( \state ->
@@ -218,6 +222,7 @@ runInfer initialTypeConstructors action =
           , typeConstructors = initialTypeConstructors
           , dataConstructors = Map.empty
           , classInfos = Map.empty
+          , defaultTypes = [intMonoType]
           }
    in swapState <$> runStateT action initialState
  where
@@ -414,6 +419,7 @@ builtinClassInfos =
       , ("negate", -1424, TyFun numATy numATy)
       , ("abs", -1425, TyFun numATy numATy)
       , ("signum", -1426, TyFun numATy numATy)
+      , ("fromInteger", -1427, TyFun intMonoType numATy)
       ]
 
   showA = preludeTypeVariable "a" (-1331)
@@ -839,6 +845,7 @@ supportedPreludeValueOccurrences =
   , "negate"
   , "abs"
   , "signum"
+  , "fromInteger"
   ]
 
 inferBindingGroup :: TypeEnv -> [RDecl] -> InferM ([TypedBinding], TypeEnv)
@@ -848,11 +855,304 @@ inferBindingGroup outerEnv decls = do
   let bindingNames = map sourceBindingName sourceBindings
   mapM_ (ensureSignatureHasBinding bindingNames) (Map.keys signatures)
   prepared <- traverse (prepareBinding signatures) sourceBindings
-  let recursiveEnv = Map.union (Map.fromList [(preparedName binding, preparedScheme binding) | binding <- prepared]) outerEnv
-  inferred <- traverse (inferPreparedBinding recursiveEnv) prepared
-  finalized <- traverse (finalizeBinding outerEnv signatures) inferred
-  let finalizedEnv = Map.union (Map.fromList [(typedBindingName binding, typedBindingScheme binding) | binding <- finalized]) outerEnv
-  pure (finalized, finalizedEnv)
+  inferPreparedComponents outerEnv signatures prepared
+
+inferPreparedComponents :: TypeEnv -> Map.Map RName Scheme -> [PreparedBinding] -> InferM ([TypedBinding], TypeEnv)
+inferPreparedComponents outerEnv signatures prepared =
+  foldM inferComponent ([], outerEnv) (preparedBindingComponents prepared)
+ where
+  inferComponent (bindingsAcc, env) component = do
+    let recursiveEnv =
+          Map.union
+            (Map.fromList [(preparedName binding, preparedScheme binding) | binding <- component])
+            env
+    inferred <- traverse (inferPreparedBinding recursiveEnv) component
+    defaultBindingGroupConstraints inferred
+    finalized <- traverse (finalizeBinding env signatures) inferred
+    subst <- substitution <$> get
+    let groupSchemes = Map.fromList [(typedBindingName binding, typedBindingScheme binding) | binding <- finalized]
+        finalizedWithRecursiveSchemes = map (refreshBindingReferences subst groupSchemes) finalized
+        env' = Map.union groupSchemes env
+    pure (bindingsAcc <> finalizedWithRecursiveSchemes, env')
+
+preparedBindingComponents :: [PreparedBinding] -> [[PreparedBinding]]
+preparedBindingComponents prepared =
+  map flattenSCC (Graph.stronglyConnComp graphNodes)
+ where
+  bindingNames = Set.fromList (map preparedName prepared)
+  graphNodes =
+    [ ( binding
+      , preparedName binding
+      , Set.toList (preparedBindingDependencies binding `Set.intersection` bindingNames)
+      )
+    | binding <- prepared
+    ]
+  flattenSCC = \case
+    Graph.AcyclicSCC binding -> [binding]
+    Graph.CyclicSCC bindings -> bindings
+
+preparedBindingDependencies :: PreparedBinding -> Set.Set RName
+preparedBindingDependencies binding =
+  Set.unions
+    [ rhsFreeTermNames (preparedRhs binding)
+    , Set.unions (map declFreeTermNames (preparedWhereDecls binding))
+    ]
+
+declFreeTermNames :: RDecl -> Set.Set RName
+declFreeTermNames = \case
+  RFunctionBinding _ _ rhs whereDecls ->
+    rhsFreeTermNames rhs <> Set.unions (map declFreeTermNames whereDecls)
+  RPatternBinding _ rhs whereDecls ->
+    rhsFreeTermNames rhs <> Set.unions (map declFreeTermNames whereDecls)
+  RClassDecl _ _ _ decls ->
+    Set.unions (map declFreeTermNames decls)
+  RInstanceDecl _ _ decls ->
+    Set.unions (map declFreeTermNames decls)
+  _ ->
+    Set.empty
+
+rhsFreeTermNames :: RRhs -> Set.Set RName
+rhsFreeTermNames = \case
+  RUnguarded expr ->
+    exprFreeTermNames expr
+  RGuarded branches ->
+    Set.unions [exprFreeTermNames guard <> exprFreeTermNames body | (guard, body) <- branches]
+
+exprFreeTermNames :: RExpr -> Set.Set RName
+exprFreeTermNames = \case
+  RVar name -> Set.singleton name
+  RCon {} -> Set.empty
+  RLit {} -> Set.empty
+  RApp fn arg -> exprFreeTermNames fn <> exprFreeTermNames arg
+  RInfixApp lhs op rhs -> Set.insert op (exprFreeTermNames lhs <> exprFreeTermNames rhs)
+  RLambda _ body -> exprFreeTermNames body
+  RLet decls body -> Set.unions (map declFreeTermNames decls) <> exprFreeTermNames body
+  RIf condition thenBranch elseBranch ->
+    exprFreeTermNames condition <> exprFreeTermNames thenBranch <> exprFreeTermNames elseBranch
+  RCase scrutinee alternatives ->
+    exprFreeTermNames scrutinee <> Set.unions (map altFreeTermNames alternatives)
+  RDo statements ->
+    Set.unions (map stmtFreeTermNames statements)
+  RList expressions ->
+    Set.unions (map exprFreeTermNames expressions)
+  RTuple expressions ->
+    Set.unions (map exprFreeTermNames expressions)
+  RUnit ->
+    Set.empty
+  RParen inner ->
+    exprFreeTermNames inner
+  RLeftSection expr op ->
+    Set.insert op (exprFreeTermNames expr)
+  RRightSection op expr ->
+    Set.insert op (exprFreeTermNames expr)
+  RArithmeticSeq start step end ->
+    exprFreeTermNames start <> foldMap exprFreeTermNames step <> foldMap exprFreeTermNames end
+  RListComp body statements ->
+    exprFreeTermNames body <> Set.unions (map stmtFreeTermNames statements)
+  RExprTypeSig expr _ ->
+    exprFreeTermNames expr
+
+stmtFreeTermNames :: RStmt -> Set.Set RName
+stmtFreeTermNames = \case
+  RBindStmt _ expr ->
+    exprFreeTermNames expr
+  RLetStmt decls ->
+    Set.unions (map declFreeTermNames decls)
+  RExprStmt expr ->
+    exprFreeTermNames expr
+
+altFreeTermNames :: RAlt -> Set.Set RName
+altFreeTermNames (RAlt _ rhs whereDecls) =
+  rhsFreeTermNames rhs <> Set.unions (map declFreeTermNames whereDecls)
+
+defaultBindingGroupConstraints :: [InferredBinding] -> InferM ()
+defaultBindingGroupConstraints inferred = do
+  defaults <- defaultTypes <$> get
+  case defaults of
+    [] -> pure ()
+    defaultTy : _ -> do
+      subst <- substitution <$> get
+      let constraints =
+            List.nub
+              ( map
+                  (applyConstraintSubst subst)
+                  (concatMap inferredBindingClassConstraints inferred)
+              )
+          protectedMetas =
+            Set.unions
+              [ freeMetaVars (applySubst subst (typedExprType rhs))
+              | InferredBinding prepared rhs <- inferred
+              , not (canDefaultBindingResult prepared)
+              ]
+          candidates = defaultableConstraintMetas protectedMetas constraints
+      traverse_ (\meta -> unify (TyMeta meta) defaultTy) candidates
+
+inferredBindingClassConstraints :: InferredBinding -> [ClassConstraint]
+inferredBindingClassConstraints (InferredBinding _ rhs) =
+  typedExprDefaultingConstraints rhs
+
+typedExprDefaultingConstraints :: TypedExpr -> [ClassConstraint]
+typedExprDefaultingConstraints = \case
+  TVar _ scheme typeArguments _ ->
+    instantiateSchemeConstraints scheme typeArguments
+  TLit {} ->
+    []
+  TCon _ scheme typeArguments _ ->
+    instantiateSchemeConstraints scheme typeArguments
+  TTuple fields _ ->
+    concatMap typedExprDefaultingConstraints fields
+  TList elements _ ->
+    concatMap typedExprDefaultingConstraints elements
+  TLam _ body _ ->
+    typedExprDefaultingConstraints body
+  TApp fn arg _ ->
+    typedExprDefaultingConstraints fn <> typedExprDefaultingConstraints arg
+  TLet _ body _ ->
+    typedExprDefaultingConstraints body
+  TCase scrutinee _ alternatives _ ->
+    typedExprDefaultingConstraints scrutinee <> concatMap typedAltDefaultingConstraints alternatives
+  TPrim _ arguments _ ->
+    concatMap typedExprDefaultingConstraints arguments
+
+typedAltDefaultingConstraints :: TypedAlt -> [ClassConstraint]
+typedAltDefaultingConstraints (TypedAlt _ _ body) =
+  typedExprDefaultingConstraints body
+
+canDefaultBindingResult :: PreparedBinding -> Bool
+canDefaultBindingResult prepared =
+  not (preparedHasSignature prepared) && null (preparedPatterns prepared)
+
+defaultableConstraintMetas :: Set.Set Int -> [ClassConstraint] -> [Int]
+defaultableConstraintMetas protectedMetas constraints =
+  [ meta
+  | (meta, metaConstraints) <- Map.toAscList constraintsByMeta
+  , meta `Set.notMember` protectedMetas
+  , all (isDirectMetaConstraint meta) metaConstraints
+  , all (isStandardDefaultingClass . constraintClassName) metaConstraints
+  , any ((== builtinNumClassName) . constraintClassName) metaConstraints
+  ]
+ where
+  constraintsByMeta =
+    Map.fromListWith
+      (<>)
+      [ (meta, [constraint])
+      | constraint <- constraints
+      , meta <- Set.toList (freeMetaVarsConstraint constraint)
+      ]
+
+isDirectMetaConstraint :: Int -> ClassConstraint -> Bool
+isDirectMetaConstraint expectedMeta (ClassConstraint _ ty) =
+  case ty of
+    TyMeta meta -> meta == expectedMeta
+    _ -> False
+
+constraintClassName :: ClassConstraint -> RName
+constraintClassName (ClassConstraint className _) =
+  className
+
+isStandardDefaultingClass :: RName -> Bool
+isStandardDefaultingClass className =
+  className `Set.member` standardDefaultingClasses
+
+standardDefaultingClasses :: Set.Set RName
+standardDefaultingClasses =
+  Set.fromList [builtinEqClassName, builtinOrdClassName, builtinNumClassName, builtinShowClassName]
+
+refreshBindingReferences :: Subst -> Map.Map RName Scheme -> TypedBinding -> TypedBinding
+refreshBindingReferences subst schemes binding =
+  binding {typedBindingRhs = refreshExprReferences subst schemes (typedBindingRhs binding)}
+
+refreshExprReferences :: Subst -> Map.Map RName Scheme -> TypedExpr -> TypedExpr
+refreshExprReferences subst schemes = \case
+  TVar name oldScheme oldTypeArguments ty ->
+    case Map.lookup name schemes of
+      Nothing ->
+        TVar name oldScheme oldTypeArguments ty
+      Just scheme ->
+        TVar name scheme (schemeTypeArgumentsFor subst scheme ty) ty
+  TLit literal ty ->
+    TLit literal ty
+  TCon name scheme typeArguments ty ->
+    TCon name scheme typeArguments ty
+  TTuple fields ty ->
+    TTuple (map (refreshExprReferences subst schemes) fields) ty
+  TList elements ty ->
+    TList (map (refreshExprReferences subst schemes) elements) ty
+  TLam binder body ty ->
+    TLam binder (refreshExprReferences subst schemes body) ty
+  TApp fn arg ty ->
+    TApp (refreshExprReferences subst schemes fn) (refreshExprReferences subst schemes arg) ty
+  TLet bindings body ty ->
+    TLet (map (refreshBindingReferences subst schemes) bindings) (refreshExprReferences subst schemes body) ty
+  TCase scrutinee binder alternatives ty ->
+    TCase (refreshExprReferences subst schemes scrutinee) binder (map (refreshAltReferences subst schemes) alternatives) ty
+  TPrim op arguments ty ->
+    TPrim op (map (refreshExprReferences subst schemes) arguments) ty
+
+refreshAltReferences :: Subst -> Map.Map RName Scheme -> TypedAlt -> TypedAlt
+refreshAltReferences subst schemes (TypedAlt altCon binders body) =
+  TypedAlt altCon binders (refreshExprReferences subst schemes body)
+
+schemeTypeArgumentsFor :: Subst -> Scheme -> MonoType -> [MonoType]
+schemeTypeArgumentsFor subst scheme ty =
+  case matchSchemeBody subst scheme ty of
+    Just replacements ->
+      [ Map.findWithDefault (TyVar variable) variable replacements
+      | variable <- schemeVars scheme
+      ]
+    Nothing ->
+      []
+
+matchSchemeBody :: Subst -> Scheme -> MonoType -> Maybe (Map.Map RName MonoType)
+matchSchemeBody subst scheme ty =
+  matchMonoTypes (Set.fromList (schemeVars scheme)) (applySubst subst (schemeBody scheme)) (applySubst subst ty) Map.empty
+
+matchMonoTypes :: Set.Set RName -> MonoType -> MonoType -> Map.Map RName MonoType -> Maybe (Map.Map RName MonoType)
+matchMonoTypes variables patternTy actualTy replacements =
+  case patternTy of
+    TyVar name
+      | name `Set.member` variables ->
+          case Map.lookup name replacements of
+            Nothing -> Just (Map.insert name actualTy replacements)
+            Just existing
+              | existing == actualTy -> Just replacements
+              | otherwise -> Nothing
+      | patternTy == actualTy -> Just replacements
+      | otherwise -> Nothing
+    TyMeta _
+      | patternTy == actualTy -> Just replacements
+      | otherwise -> Nothing
+    TyCon name ->
+      case actualTy of
+        TyCon actualName
+          | name == actualName -> Just replacements
+        _ -> Nothing
+    TyApp patternFn patternArg ->
+      case actualTy of
+        TyApp actualFn actualArg ->
+          matchMonoTypes variables patternFn actualFn replacements
+            >>= matchMonoTypes variables patternArg actualArg
+        _ -> Nothing
+    TyFun patternArg patternResult ->
+      case actualTy of
+        TyFun actualArg actualResult ->
+          matchMonoTypes variables patternArg actualArg replacements
+            >>= matchMonoTypes variables patternResult actualResult
+        _ -> Nothing
+    TyTuple patternFields ->
+      case actualTy of
+        TyTuple actualFields
+          | length patternFields == length actualFields ->
+              foldM
+                (\acc (patternField, actualField) -> matchMonoTypes variables patternField actualField acc)
+                replacements
+                (zip patternFields actualFields)
+        _ -> Nothing
+    TyList patternElement ->
+      case actualTy of
+        TyList actualElement ->
+          matchMonoTypes variables patternElement actualElement replacements
+        _ -> Nothing
 
 data SourceBinding = SourceBinding RName [RPat] RRhs [RDecl]
   deriving stock (Show, Eq, Ord)
@@ -896,6 +1196,26 @@ validateSchemeConstraints scheme = do
   validateConstraint classes constraint@(ClassConstraint className _) =
     unless (Map.member className classes) $
       throwTypecheck (UnsupportedCore0 ("unknown type-class constraint `" <> renderClassConstraint constraint <> "`"))
+
+collectDefaultTypes :: [RDecl] -> InferM [MonoType]
+collectDefaultTypes decls =
+  case [types | RDefaultDecl types <- decls] of
+    [] ->
+      pure [intMonoType]
+    [types] ->
+      traverse defaultTypeMonoType types
+    _ ->
+      throwTypecheck (UnsupportedCore0 "multiple default declarations")
+
+defaultTypeMonoType :: RHsType -> InferM MonoType
+defaultTypeMonoType = \case
+  RTyCon name
+    | nameOcc name == "Int" -> pure intMonoType
+    | nameOcc name == "Integer" -> pure intMonoType
+  RTyParen inner ->
+    defaultTypeMonoType inner
+  other ->
+    throwTypecheck (UnsupportedCore0 ("default type " <> Text.pack (show other)))
 
 collectValueBindings :: [RDecl] -> InferM [SourceBinding]
 collectValueBindings =
@@ -982,7 +1302,7 @@ finalizeBinding outerEnv signatures (InferredBinding prepared rhs) =
           , typedBindingRhs = rhs
           }
     else do
-      generalized <- generalize outerEnv (typedExprType rhs)
+      generalized <- generalize outerEnv (typedExprDefaultingConstraints rhs) (typedExprType rhs)
       pure
         TypedBinding
           { typedBindingName = preparedName prepared
@@ -1240,6 +1560,8 @@ inferExpr env = \case
         pure (TVar name scheme typeArguments instantiatedTy)
   RCon name ->
     inferConstructor name
+  RLit (LInt value) ->
+    inferIntegerLiteral value
   RLit literal ->
     pure (TLit literal (literalMonoType literal))
   RApp fn arg -> do
@@ -1354,6 +1676,28 @@ inferPreludeValue name =
       (instantiatedTy, typeArguments) <- instantiate scheme
       pure (TVar (preludeValueCoreName name) scheme typeArguments instantiatedTy)
 
+inferIntegerLiteral :: Integer -> InferM TypedExpr
+inferIntegerLiteral value = do
+  resultTy <- freshMeta
+  method <- builtinClassMethod "Num" "fromInteger"
+  classVariable <- classMethodSingleVariable "fromInteger" method
+  let methodTy =
+        replaceTypeVars
+          (Map.singleton classVariable resultTy)
+          (schemeBody (classMethodScheme method))
+      methodExpr = TVar (classMethodName method) (classMethodScheme method) [resultTy] methodTy
+      literalExpr = TLit (LInt value) intMonoType
+  case methodTy of
+    TyFun _ result ->
+      pure (TApp methodExpr literalExpr result)
+    other ->
+      throwTypecheck
+        ( UnsupportedCore0
+            ( "built-in method `fromInteger` has unexpected type "
+                <> renderMonoType other
+            )
+        )
+
 preludeValueCoreName :: RName -> RName
 preludeValueCoreName name =
   case builtinMethodInfoByOccurrence (nameOcc name) of
@@ -1465,18 +1809,7 @@ inferPrimitive env lhs op rhs =
     unify (typedExprType typedLhs) (typedExprType typedRhs)
     argumentTy <- applyCurrent (typedExprType typedLhs)
     method <- builtinClassMethod classOccurrence methodOccurrence
-    classVariable <-
-      case schemeVars (classMethodScheme method) of
-        [variable] -> pure variable
-        variables ->
-          throwTypecheck
-            ( UnsupportedCore0
-                ( "built-in method `"
-                    <> methodOccurrence
-                    <> "` has unexpected type variables "
-                    <> Text.pack (show variables)
-                )
-            )
+    classVariable <- classMethodSingleVariable methodOccurrence method
     let methodBodyTy = replaceTypeVars (Map.singleton classVariable argumentTy) (schemeBody (classMethodScheme method))
         resultTy =
           case methodBodyTy of
@@ -1498,6 +1831,20 @@ builtinClassMethod classOccurrence methodOccurrence = do
                 <> "` for class `"
                 <> classOccurrence
                 <> "`"
+            )
+        )
+
+classMethodSingleVariable :: Text -> ClassMethodInfo -> InferM RName
+classMethodSingleVariable methodOccurrence method =
+  case schemeVars (classMethodScheme method) of
+    [variable] -> pure variable
+    variables ->
+      throwTypecheck
+        ( UnsupportedCore0
+            ( "built-in method `"
+                <> methodOccurrence
+                <> "` has unexpected type variables "
+                <> Text.pack (show variables)
             )
         )
 
@@ -1775,17 +2122,28 @@ data Generalized = Generalized
   }
   deriving stock (Show, Eq, Ord)
 
-generalize :: TypeEnv -> MonoType -> InferM Generalized
-generalize env ty = do
-  zonked <- applyCurrent ty
-  let envMetas = freeMetaVarsEnv env
-      metas = Set.toAscList (freeMetaVars zonked `Set.difference` envMetas)
+generalize :: TypeEnv -> [ClassConstraint] -> MonoType -> InferM Generalized
+generalize env constraints ty = do
+  subst <- substitution <$> get
+  let zonked = applySubst subst ty
+      zonkedConstraints = List.nub (map (applyConstraintSubst subst) constraints)
+      envMetas = freeMetaVarsEnv env
+      metasSet = freeMetaVars zonked `Set.difference` envMetas
+      metas = Set.toAscList metasSet
+      retainedConstraints =
+        [ constraint
+        | constraint <- zonkedConstraints
+        , let constraintMetas = freeMetaVarsConstraint constraint
+        , not (Set.null constraintMetas)
+        , constraintMetas `Set.isSubsetOf` metasSet
+        ]
   names <- traverse freshTypeVariableName metas
   let metaMap = Map.fromList (zip metas names)
       generalizedTy = replaceMetasWithVars metaMap zonked
+      generalizedConstraints = map (replaceConstraintMetasWithVars metaMap) retainedConstraints
   pure
     Generalized
-      { generalizedScheme = Scheme names [] generalizedTy
+      { generalizedScheme = Scheme names generalizedConstraints generalizedTy
       , generalizedMetas = metaMap
       }
 
@@ -1913,6 +2271,10 @@ replaceMetasWithVars replacements = \case
     TyTuple (map (replaceMetasWithVars replacements) fields)
   TyList elementType ->
     TyList (replaceMetasWithVars replacements elementType)
+
+replaceConstraintMetasWithVars :: Map.Map Int RName -> ClassConstraint -> ClassConstraint
+replaceConstraintMetasWithVars replacements (ClassConstraint className ty) =
+  ClassConstraint className (replaceMetasWithVars replacements ty)
 
 preludeCoreBindings :: [RName] -> Either TypecheckError [CoreBind]
 preludeCoreBindings names =
@@ -2470,7 +2832,7 @@ replaceConstraintTypeVars replacements (ClassConstraint className ty) =
 
 resolveDictionary :: CoreElabEnv -> ClassConstraint -> Either TypecheckError CoreExpr
 resolveDictionary env wanted = do
-  normalized <- normalizeConstraint (coreElabSubst env) wanted
+  normalized <- normalizeConstraint (coreElabSubst env) (coreElabMetas env) wanted
   case List.find (constraintMatches normalized . fst) (coreElabDictionaries env) of
     Just (_, dictionary) -> pure dictionary
     Nothing ->
@@ -2486,9 +2848,9 @@ resolveDictionary env wanted = do
                 )
             )
 
-normalizeConstraint :: Subst -> ClassConstraint -> Either TypecheckError ClassConstraint
-normalizeConstraint subst (ClassConstraint className ty) =
-  pure (ClassConstraint className (applySubst subst ty))
+normalizeConstraint :: Subst -> Map.Map Int RName -> ClassConstraint -> Either TypecheckError ClassConstraint
+normalizeConstraint subst metas (ClassConstraint className ty) =
+  pure (ClassConstraint className (replaceMetasWithVars metas (applySubst subst ty)))
 
 constraintMatches :: ClassConstraint -> ClassConstraint -> Bool
 constraintMatches (ClassConstraint lhsClass lhsTy) (ClassConstraint rhsClass rhsTy) =
@@ -2580,6 +2942,7 @@ builtinInstanceDictionaries classes =
         , intNegateMethod
         , intAbsMethod
         , intSignumMethod
+        , intFromIntegerMethod
         ]
     ]
 
@@ -2793,6 +3156,10 @@ intSignumMethod =
           (CLit (LInt 0) intTy)
           (CLit (LInt 1) intTy)
       )
+
+intFromIntegerMethod :: CoreExpr
+intFromIntegerMethod =
+  unaryMethod "$fromInteger_int" (-1861) intTy intTy id
 
 intShowMethod :: CoreExpr
 intShowMethod =

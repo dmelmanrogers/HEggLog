@@ -44,10 +44,10 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. `fromInteger`, overloaded literals, numeric defaulting, and broader Prelude
-   class hierarchy.
-2. Remaining pattern diagnostics and irrefutable/lazy pattern semantics.
-3. Module graph loading, export filtering, and multi-file compilation.
+1. Remaining pattern diagnostics and irrefutable/lazy pattern semantics.
+2. Module graph loading, export filtering, and multi-file compilation.
+3. Haskell 2010 conformance matrix expansion for the broader executable
+   surface.
 
 Completed Haskell 2010 roadmap work:
 
@@ -111,8 +111,10 @@ Completed Haskell 2010 roadmap work:
   `Eq Bool`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and
   `Show Bool` methods, including overloaded comparison/arithmetic/show method
   desugaring, Core/STG/native lowering, and default/no-egglog wet tests.
-  `fromInteger`, overloaded literals, broader `Show`, and numeric defaulting
-  remain planned.
+- Haskell 2010 numeric literals/defaulting: implemented for dictionary-backed
+  `fromInteger`, overloaded integer literals, executable `Int` numeric
+  defaulting, inferred constrained helper schemes, SCC-based binding
+  generalization, Core/STG/native lowering, and default/no-egglog wet tests.
 - Haskell 2010 guarded RHS/case alternatives and as-patterns: implemented for
   multi-branch guards, guards after constructor/list/tuple/as-pattern case
   alternatives, as-pattern aliases in parameters and case patterns, Core/STG

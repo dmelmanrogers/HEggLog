@@ -41,8 +41,8 @@ The following Haskell 2010 requirements are planned but not
 implemented:
 
 - irrefutable/lazy pattern semantics and richer pattern-match diagnostics
-- superclasses, default methods, instance contexts, deriving, broader `Show`,
-  `fromInteger`, overloaded literals, and numeric defaulting
+- superclasses, default methods, instance contexts, deriving, and broader
+  `Show`
 - broader Prelude/library subset
 - Haskell source desugaring beyond the current executable subset
 - broader IO, including `<-`, `(>>=)`, handles, and effects beyond stdout
@@ -109,8 +109,9 @@ dictionary arguments. Built-in `Eq Int`, `Eq Bool`, `Ord Int`, `Ord Bool`, and
 `Num Int` dictionaries cover `(==)`, `(/=)`, `compare`, `(<)`, `(<=)`, `(>)`,
 `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`, and `signum`.
 Built-in `Show Int` and `Show Bool` cover enough `show` support for `print`.
-`/` remains checked concrete `Int` division; `fromInteger`, overloaded
-literals, broader `Show`, and numeric defaulting remain planned.
+`fromInteger` is part of the executable `Num Int` dictionary, integer literals
+elaborate through it, and ambiguous numeric constraints default to `Int`.
+`/` remains checked concrete `Int` division; broader `Show` remains planned.
 
 ## What Core Evaluates Today
 
@@ -226,8 +227,9 @@ and compiled to native executables through the existing clang toolchain.
     including generated built-in dictionaries/selectors, overloaded
     comparison/arithmetic/show method desugaring, Core/STG lowering/evaluation,
     native LLVM execution, and wet-tested default/no-egglog CLI runs.
-    `fromInteger`, overloaded literals, broader `Show`, and numeric defaulting
-    remain planned.
+    `fromInteger`, overloaded integer literals, and numeric defaulting are now
+    covered for the executable `Int` numeric universe. Broader `Show` remains
+    planned.
 15. Guarded RHS/case alternatives and as-pattern aliases. Completed for
     multi-branch guarded function RHSs, guarded constructor/list/as-pattern case
     alternatives, alias bindings for as-patterns in parameters and case
@@ -240,6 +242,12 @@ and compiled to native executables through the existing clang toolchain.
     local `let`, built-in `Show Int`/`Show Bool`, Core/STG output oracles,
     native string literal and list-of-`Char` output, and wet-tested
     default/no-egglog CLI runs.
+17. Numeric literals and defaulting. Completed for dictionary-backed
+    `fromInteger`, overloaded integer literals, default declarations that map
+    the supported default set to executable `Int`, ambiguous numeric defaulting
+    for `Eq`/`Ord`/`Num`/`Show` constraints, inferred constrained helper
+    schemes, SCC-based binding generalization, Core/STG/native IO output
+    oracles, and default/no-egglog wet tests.
 
 ## Where Egglog Fits
 
@@ -272,9 +280,9 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Add `fromInteger`, overloaded literals, numeric defaulting, and the next
-broader Prelude class hierarchy slice while preserving the `.hg` compiler,
-Core evaluator, STG runtime, Core-to-STG lowering, native executable path,
-Egglog Core optimizer, ADT/list/tuple/Prelude/recursion/typeclass-dictionary
-support, built-in `Eq`/`Ord`/`Num`/`Show` dictionary support,
+Implement remaining pattern diagnostics and irrefutable/lazy pattern semantics
+while preserving the `.hg` compiler, Core evaluator, STG runtime,
+Core-to-STG lowering, native executable path, Egglog Core optimizer,
+ADT/list/tuple/Prelude/recursion/typeclass-dictionary support, built-in
+`Eq`/`Ord`/`Num`/`Show` dictionary support, numeric defaulting,
 guard/as-pattern support, IO printing support, and wet-test baseline.
