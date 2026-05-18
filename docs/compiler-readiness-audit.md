@@ -2,6 +2,17 @@
 
 Date: 2026-05-18
 
+Current note: this is a historical audit of the strict `.hg` compiler
+substrate. It is not the authoritative current Haskell 2010 status document.
+The current Haskell 2010 compiler status is tracked in
+[`haskell2010-status-summary.md`](haskell2010-status-summary.md),
+[`current-capabilities.md`](current-capabilities.md), and
+[`haskell2010-conformance-matrix.md`](haskell2010-conformance-matrix.md).
+The Haskell 2010 executable subset now has parser/layout, renaming, module
+graph loading, typed Core, typechecking/desugaring, Core evaluation, STG
+lowering/evaluation, native LLVM output, IO printing, and Core Egglog
+optimization for the documented subset.
+
 This audit predates or accompanies the Haskell 2010 pivot. It evaluates the
 existing strict `.hg` compiler baseline. The active project target is now a
 Haskell 2010 native compiler, tracked in
@@ -625,17 +636,16 @@ Exit criteria:
      path.
    - Suggested commit: `Add lazy runtime MVP`
 
-## 18. Readiness Verdict
+## 18. Historical Readiness Verdict
 
 HeggLog is ready to be described as an actively working native compiler
 baseline for the documented strict `.hg` subset, with a real typed frontend,
 optimizer stack, closure-aware backend path, LLVM execution path, native
 executable output, and mandatory wet tests.
 
-It is not yet ready to be described as a Haskell 2010 compiler, because the
-Haskell 2010 parser/layout, renamer, typechecker, typed Core, STG-like lazy IR,
-runtime, Prelude, modules, IO, and conformance suite are not implemented.
-
-The implementation direction is sound. The next best work is the Haskell 2010
-parser/layout MVP, followed by renaming, typed Core, lazy/STG runtime work, and
-then Egglog Core optimization once Core exists.
+At the time of this historical audit, it was not yet ready to be described as a
+Haskell 2010 compiler. That verdict has been superseded by later Haskell 2010
+work: the current repository compiles the documented executable Haskell 2010
+subset to native executables through LLVM and clang. Remaining Haskell 2010
+work is tracked in the current roadmap/status/conformance documents rather than
+this substrate audit.

@@ -30,27 +30,31 @@ Implemented today for the current `.hg` compiler-supported subset:
 Implemented today for the Haskell 2010 target:
 
 - layout-aware Haskell 2010 frontend
-- renamer and module/import resolution
+- renamer, module graph loading, imports, exports, qualified aliases, and
+  whole-program flattening for the executable subset
 - typed Core IR, validator, and utilities
-- Core-0 Hindley-Milner typechecker and source-to-Core desugaring for the
-  first `Int`/`Bool` subset
+- Hindley-Milner typechecker and source-to-Core desugaring for the documented
+  executable subset
 - Core-0 reference evaluator for validated typed Core
 - STG-like lazy IR and in-process runtime evaluator
-- Core-to-STG lowering for the first Core-0 subset
-- native executable output for the first Core-0 subset through a boxed lazy
+- Core-to-STG lowering for the executable subset
+- native executable output for the executable subset through a boxed lazy
   STG LLVM runtime
-- Egglog Core optimization for safe typed Core-0 fragments, with Core/STG/native
-  oracle tests and `--no-egglog` comparison coverage
-- the current executable subset now includes custom ADTs, list/tuple and
-  Prelude data constructors, recursion, user-defined dictionary-passed classes,
-  and built-in `Eq`/`Ord`/`Num` dictionary calls
+- Egglog Core optimization for safe typed Core fragments, including Core-0
+  arithmetic/Bool rewrites and known-constructor case/projection rewrites, with
+  Core/STG/native oracle tests and `--no-egglog` comparison coverage
+- custom ADTs, list/tuple and Prelude data constructors, recursion,
+  user-defined dictionary-passed classes, built-in `Eq`/`Ord`/`Num`/`Show`
+  dictionary calls, overloaded integer literals/defaulting, `main :: IO ()`,
+  `putStrLn`, `print`, and same-directory multi-file modules
 
 Planned for the broader Haskell 2010 target:
 
-- `Show`, `String`, `print`, `putStrLn`, and IO `main`
-- `fromInteger`, overloaded literals, numeric defaulting, and the broader
-  Prelude class hierarchy
-- modules, exports/imports, remaining pattern forms, and broader conformance
+- broader `Show`/`String` interoperability and library behavior
+- superclasses, default methods, instance contexts, deriving, additional
+  numeric classes, and the broader Prelude hierarchy
+- irrefutable/lazy pattern semantics, richer diagnostics, broader IO/Monad
+  support, package search paths, and broader conformance
 
 ## Quickstart
 
@@ -81,7 +85,7 @@ cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithme
 # 14
 ```
 
-Compile a Core-0 Haskell 2010 `.hs` program to a native executable:
+Compile a supported Haskell 2010 `.hs` program to a native executable:
 
 ```bash
 cabal run hegglog -- compile test/e2e/programs/haskell2010/lazy-argument.hs -o /tmp/hegglog-hs
@@ -123,16 +127,16 @@ Full documentation index:
 | Area | Status |
 | --- | --- |
 | Current `.hg` strict subset | Implemented and tested. |
-| Haskell 2010 parser/layout | Implemented as an isolated parser/layout frontend and parser-tested; connected to the Core-0 native `.hs` compile path. |
-| Haskell 2010 renamer | Implemented as an isolated unique-name pass and unit-tested; connected to the Core-0 native `.hs` compile path. |
-| Haskell 2010 typed Core | Implemented as a typed IR with validator, free-variable analysis, substitution, pretty-printer, and Core-0 source generation. |
-| Haskell 2010 Core-0 typechecker/desugarer | Implemented for explicit signatures, HM polymorphism, functions, lambdas, application, `let`, `if`, cases, ADTs, lists/tuples, recursion, user-defined class dictionaries, built-in Prelude data, generated Prelude list functions, primitive `/`, and dictionary-backed `Eq`/`Ord`/`Num` methods. |
-| Haskell 2010 Core-0 reference evaluator | Implemented for validating typed Core with lazy let/function/constructor-field thunks, erased Core type abstraction/application, Bool/user/list/tuple/Prelude-data case execution, generated Prelude functions, user and built-in class dictionary calls, checked `Int` primitives, and structured runtime errors. |
-| Haskell 2010 STG/lazy runtime | Implemented as an isolated STG-like IR, validator, pure heap evaluator, Core-to-STG lowering, and boxed LLVM/native runtime for the current executable subset, including thunks, enter/apply, constructor dispatch, dictionary constructor/selector execution, checked primitives, and native wet tests. |
+| Haskell 2010 parser/layout | Implemented as an isolated parser/layout frontend and parser-tested; connected to the executable `.hs` compile path. |
+| Haskell 2010 renamer/modules | Implemented as an isolated unique-name pass with module graph loading, export/import filtering, qualified aliases, hiding, `Thing(..)` children, and root-module `main` selection for the executable subset. |
+| Haskell 2010 typed Core | Implemented as a typed IR with validator, free-variable analysis, substitution, pretty-printer, and source generation for the executable subset. |
+| Haskell 2010 typechecker/desugarer | Implemented for explicit signatures, HM polymorphism, functions, lambdas, application, `let`, `if`, cases, ADTs, lists/tuples, recursion, user-defined class dictionaries, built-in Prelude data, generated Prelude list functions, primitive `/`, dictionary-backed `Eq`/`Ord`/`Num`/`Show` methods, numeric defaulting, guards/as-patterns, module imports, and the first IO printing slice. |
+| Haskell 2010 Core reference evaluator | Implemented for validating typed Core with lazy let/function/constructor-field thunks, erased Core type abstraction/application, Bool/user/list/tuple/Prelude-data case execution, generated Prelude functions, user and built-in class dictionary calls, IO output actions, checked `Int` primitives, and structured runtime errors. |
+| Haskell 2010 STG/lazy runtime | Implemented as an isolated STG-like IR, validator, pure heap evaluator, Core-to-STG lowering, and boxed LLVM/native runtime for the current executable subset, including thunks, enter/apply, constructor dispatch, dictionary constructor/selector execution, IO output actions, checked primitives, and native wet tests. |
 | LLVM/native backend | Implemented for the current `.hg` supported subset. |
 | Egglog ANF backend | Implemented for the current `.hg` supported subset. |
-| Egglog Core optimizer | Implemented for safe Haskell 2010 Core-0 `Int`/`Bool` fragments using the existing Egglog backend, typed Core validation, provenance, and optimized/unoptimized native agreement tests. |
-| Native wet tests | Implemented for the current `.hg` native compiler baseline and the Haskell 2010 Core-0 native path, including default Egglog and `--no-egglog` modes. |
+| Egglog Core optimizer | Implemented for safe Haskell 2010 Core fragments using typed Core validation, provenance, and optimized/unoptimized native agreement tests. Current rewrites cover Core-0 `Int`/`Bool` fragments plus known literal and saturated known-constructor case/projection rewrites. |
+| Native wet tests | Implemented for the current `.hg` native compiler baseline and the Haskell 2010 executable native path, including default Egglog and `--no-egglog` modes. |
 
 ## Current `.hg` Language Support
 
@@ -157,9 +161,14 @@ programs with printable `Int` or `Bool` roots, top-level first-order calls,
 lambda-lifted non-capturing functions, and closure-converted local function
 values. It rejects unsupported targets structurally.
 
-HeggLog does not yet support whole-program Haskell 2010 modules/imports, full
-pattern matching, full class hierarchy/defaulting/deriving, `Show`, or IO
-`main`. Lazy semantics are implemented for the current executable subset.
+HeggLog now supports same-directory whole-program Haskell 2010
+modules/imports, the documented executable pattern-matching subset, built-in
+`Show Int`/`Show Bool`, numeric defaulting for the supported executable class
+slice, and `main :: IO ()` for stdout-oriented programs. It does not yet
+support the full class hierarchy/default methods/deriving, package databases,
+irrefutable/lazy pattern semantics, broad `Show`/`String` interop, or broad
+IO/Monad libraries. Lazy semantics are implemented for the current executable
+subset.
 
 ## Existing Specs
 

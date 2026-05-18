@@ -1,12 +1,11 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after adding Haskell 2010 IO
-printing coverage for `main :: IO ()`, `putStrLn`, `print`, `return`, `(>>)`,
-and expression-only `do` sequencing. The
-suite covers the existing `.hg` native compiler baseline and Haskell 2010
-executable-subset `.hs` programs that compile to native executables, compare
-lazy runtime behavior, and run both default Egglog and `--no-egglog` modes for
-Haskell 2010 optimizer coverage.
+Recorded for the mandatory wet-test suite after the Haskell 2010 module graph
+and Core Egglog known-constructor optimizer expansion. The suite covers the
+existing `.hg` native compiler baseline and Haskell 2010 executable-subset
+`.hs` programs that compile to native executables, compare lazy runtime
+behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
+optimizer coverage.
 
 Run metadata:
 
@@ -19,15 +18,15 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 102
-- Source files: 44
-- Successful source cases: 34
+- HUnit checks: 111
+- Source files: 47
+- Successful source cases: 37
 - Runtime-error source cases: 7
 - Compile-error source cases: 3
-- Native compile/run checks: 76
-- Default Egglog native checks: 44
-- `--no-egglog` native checks: 32
-- Emit-LLVM checks: 14
+- Native compile/run checks: 82
+- Default Egglog native checks: 47
+- `--no-egglog` native checks: 35
+- Emit-LLVM checks: 17
 - Report/interpreter comparisons: 12
 - Failures: 0
 
@@ -108,6 +107,15 @@ Summary:
 | haskell2010-prelude-classes | `test/e2e/programs/haskell2010/prelude-classes.hs` | success | native/default | `6` | stdout `6`, stderr empty, exit 0 | pass |
 | haskell2010-prelude-classes | `test/e2e/programs/haskell2010/prelude-classes.hs` | success | native/no-egglog | `6` | stdout `6`, stderr empty, exit 0 | pass |
 | haskell2010-prelude-classes | `test/e2e/programs/haskell2010/prelude-classes.hs` | success | emit-llvm/default | `6` | LLVM compiled through clang, stdout `6`, stderr empty, exit 0 | pass |
+| haskell2010-numeric-defaulting | `test/e2e/programs/haskell2010/numeric-defaulting.hs` | success | native/default | `7\n47` | stdout `7\n47`, stderr empty, exit 0 | pass |
+| haskell2010-numeric-defaulting | `test/e2e/programs/haskell2010/numeric-defaulting.hs` | success | native/no-egglog | `7\n47` | stdout `7\n47`, stderr empty, exit 0 | pass |
+| haskell2010-numeric-defaulting | `test/e2e/programs/haskell2010/numeric-defaulting.hs` | success | emit-llvm/default | `7\n47` | LLVM compiled through clang, stdout `7\n47`, stderr empty, exit 0 | pass |
+| haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/default | `20` | stdout `20`, stderr empty, exit 0 | pass |
+| haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/no-egglog | `20` | stdout `20`, stderr empty, exit 0 | pass |
+| haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | emit-llvm/default | `20` | LLVM compiled through clang, stdout `20`, stderr empty, exit 0 | pass |
+| haskell2010-egglog-known-constructor | `test/e2e/programs/haskell2010/egglog-known-constructor.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
+| haskell2010-egglog-known-constructor | `test/e2e/programs/haskell2010/egglog-known-constructor.hs` | success | native/no-egglog | `7` | stdout `7`, stderr empty, exit 0 | pass |
+| haskell2010-egglog-known-constructor | `test/e2e/programs/haskell2010/egglog-known-constructor.hs` | success | emit-llvm/default | `7` | LLVM compiled through clang, stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-io-printing | `test/e2e/programs/haskell2010/io-printing.hs` | success | native/default | `ok\nanswer\n42\nTrue` | stdout `ok\nanswer\n42\nTrue`, stderr empty, exit 0 | pass |
 | haskell2010-io-printing | `test/e2e/programs/haskell2010/io-printing.hs` | success | native/no-egglog | `ok\nanswer\n42\nTrue` | stdout `ok\nanswer\n42\nTrue`, stderr empty, exit 0 | pass |
 | haskell2010-io-printing | `test/e2e/programs/haskell2010/io-printing.hs` | success | emit-llvm/default | `ok\nanswer\n42\nTrue` | LLVM compiled through clang, stdout `ok\nanswer\n42\nTrue`, stderr empty, exit 0 | pass |
