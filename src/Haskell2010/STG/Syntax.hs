@@ -14,12 +14,14 @@ module Haskell2010.STG.Syntax
   )
 where
 
-import Haskell2010.Core.Syntax (CoreAltCon, CorePrimOp, CoreType (..))
+import qualified Data.Map.Strict as Map
+import Haskell2010.Core.Syntax (CoreAltCon, CoreConstructorInfo, CorePrimOp, CoreType (..))
 import Haskell2010.Names (RName)
 import Haskell2010.Syntax (Literal)
 
 data STGProgram = STGProgram
-  { stgProgramBinds :: [STGBind]
+  { stgProgramConstructors :: Map.Map RName CoreConstructorInfo
+  , stgProgramBinds :: [STGBind]
   }
   deriving stock (Show, Eq, Ord)
 

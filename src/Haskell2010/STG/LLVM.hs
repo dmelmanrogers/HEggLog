@@ -5,7 +5,7 @@ module Haskell2010.STG.LLVM
   )
 where
 
-import Control.Monad (forM_, unless)
+import Control.Monad (forM_)
 import Control.Monad.State.Strict (StateT, get, lift, modify', runStateT)
 import Data.Char (ord)
 import qualified Data.Map.Strict as Map
@@ -97,14 +97,14 @@ initialModuleState =
     }
 
 findMain :: Text -> STGProgram -> Either STGLLVMError STGBinder
-findMain occurrence (STGProgram binds) =
+findMain occurrence (STGProgram _ binds) =
   case [binder | bind <- binds, binder <- stgBindersOf bind, nameOcc (stgBinderName binder) == occurrence] of
     [] -> Left (STGLLVMUnknownMain occurrence)
     [binder] -> Right binder
     binders -> Left (STGLLVMAmbiguousMain occurrence (map stgBinderName binders))
 
 lowerMainFunction :: STGProgram -> STGBinder -> ModuleM LLVMFunction
-lowerMainFunction (STGProgram binds) mainBinder =
+lowerMainFunction (STGProgram _ binds) mainBinder =
   runFunction "main" LI32 [] $ do
     env <- emitRecursiveGroup Map.empty (concatMap bindPairs binds)
     mainObject <- resolveName env (stgBinderName mainBinder)
@@ -221,15 +221,10 @@ emitRhsObject env binder rhs =
       object <- emitMakeThunk entry envPointer updateFlag
       pure (AllocatedBinding (stgBinderName binder) object (Just (PendingClosure envPointer captures)))
     STGConstructor name fields resultTy ->
-      case fields of
-        [] -> do
-          object <- emitNullaryConstructor name resultTy
-          pure (AllocatedBinding (stgBinderName binder) object Nothing)
-        _ ->
-          throwSTGLLVM
-            ( STGLLVMUnsupported
-                ("native STG constructor fields are planned with ADT lowering, got `" <> renderRName name <> "`")
-            )
+      do
+        fieldObjects <- traverse (emitAtomAddress env) fields
+        object <- emitConstructorObject name resultTy fieldObjects
+        pure (AllocatedBinding (stgBinderName binder) object Nothing)
 
 fillPending :: ValueEnv -> AllocatedBinding -> FunctionM ()
 fillPending env allocated =
@@ -292,7 +287,7 @@ emitAtomAddress env = \case
   STGLit literal _ ->
     emitLiteral literal
   STGCon name ty ->
-    emitNullaryConstructor name ty
+    emitConstructorObject name ty []
 
 emitLiteral :: Literal -> FunctionM LLVMOperand
 emitLiteral = \case
@@ -305,12 +300,12 @@ emitLiteral = \case
   LString {} ->
     throwSTGLLVM (STGLLVMUnsupported "native Haskell 2010 Core-0 output does not yet support String literals")
 
-emitNullaryConstructor :: RName -> CoreType -> FunctionM LLVMOperand
-emitNullaryConstructor name ty
+emitConstructorObject :: RName -> CoreType -> [LLVMOperand] -> FunctionM LLVMOperand
+emitConstructorObject name ty fields
   | ty == boolTy && name == trueDataConName = emitMakeBool (OConstInt LI1 1)
   | ty == boolTy && name == falseDataConName = emitMakeBool (OConstInt LI1 0)
   | otherwise =
-      throwSTGLLVM (STGLLVMUnsupported ("native constructor output is not implemented for `" <> renderRName name <> "`"))
+      emitMakeData name fields
 
 emitPrim :: ValueEnv -> CorePrimOp -> [STGAtom] -> FunctionM LLVMOperand
 emitPrim env op arguments =
@@ -439,7 +434,7 @@ emitCase env binder alternatives scrutineeObject = do
   tagValue <- loadObjectI64Field scrutineeObject 1 "case_payload"
   resultLabel <- freshBlockLabel "case_join"
   let caseEnv = Map.insert (stgBinderName binder) (DirectValue scrutineeObject) env
-  incoming <- emitCaseDecision caseEnv tagValue alternatives resultLabel []
+  incoming <- emitCaseDecision caseEnv scrutineeObject tagValue alternatives resultLabel []
   startBlock resultLabel
   resultReg <- freshRegister "case_result"
   emit (IPhi resultReg LPtr incoming)
@@ -448,19 +443,17 @@ emitCase env binder alternatives scrutineeObject = do
 emitCaseDecision ::
   ValueEnv ->
   LLVMOperand ->
+  LLVMOperand ->
   [STGAlt] ->
   Text ->
   [(LLVMOperand, Text)] ->
   FunctionM [(LLVMOperand, Text)]
-emitCaseDecision env tagValue alternatives resultLabel incoming =
+emitCaseDecision env scrutineeObject tagValue alternatives resultLabel incoming =
   case alternatives of
     [] -> do
       emitAbort
       pure incoming
     STGAlt altCon binders body : rest -> do
-      unless (null binders) $
-        throwSTGLLVM
-          (STGLLVMUnsupported "native STG constructor field binders are planned with ADT lowering")
       case altCon of
         DefaultAlt ->
           emitCaseBody env body resultLabel incoming
@@ -472,7 +465,7 @@ emitCaseDecision env tagValue alternatives resultLabel incoming =
           startBlock matchedLabel
           incoming' <- emitCaseBody env body resultLabel incoming
           startBlock nextLabel
-          emitCaseDecision env tagValue rest resultLabel incoming'
+          emitCaseDecision env scrutineeObject tagValue rest resultLabel incoming'
         ConstructorAlt name
           | name == trueDataConName || name == falseDataConName -> do
               matchedLabel <- freshBlockLabel "case_bool"
@@ -484,10 +477,55 @@ emitCaseDecision env tagValue alternatives resultLabel incoming =
               startBlock matchedLabel
               incoming' <- emitCaseBody env body resultLabel incoming
               startBlock nextLabel
-              emitCaseDecision env tagValue rest resultLabel incoming'
+              emitCaseDecision env scrutineeObject tagValue rest resultLabel incoming'
           | otherwise ->
-              throwSTGLLVM
-                (STGLLVMUnsupported ("native constructor case is planned with ADT lowering for `" <> renderRName name <> "`"))
+              emitConstructorCaseBranch env scrutineeObject tagValue name binders body rest resultLabel incoming
+
+emitConstructorCaseBranch ::
+  ValueEnv ->
+  LLVMOperand ->
+  LLVMOperand ->
+  RName ->
+  [STGBinder] ->
+  STGExpr ->
+  [STGAlt] ->
+  Text ->
+  [(LLVMOperand, Text)] ->
+  FunctionM [(LLVMOperand, Text)]
+emitConstructorCaseBranch env scrutineeObject tagValue name binders body rest resultLabel incoming = do
+  matchedLabel <- freshBlockLabel "case_data"
+  nextLabel <- freshBlockLabel "case_next"
+  reg <- freshRegister "case_data_match"
+  emit (IIcmp reg ICmpEq LI64 tagValue (OConstInt LI64 (constructorRuntimeTag name)))
+  terminateCurrent (TCondBr (OLocal LI1 reg) matchedLabel nextLabel)
+  startBlock matchedLabel
+  fieldEnv <- emitConstructorFieldEnv scrutineeObject env binders
+  incoming' <- emitCaseBody fieldEnv body resultLabel incoming
+  startBlock nextLabel
+  emitCaseDecision env scrutineeObject tagValue rest resultLabel incoming'
+
+emitConstructorFieldEnv :: LLVMOperand -> ValueEnv -> [STGBinder] -> FunctionM ValueEnv
+emitConstructorFieldEnv scrutineeObject env binders = do
+  fieldsPointer <- loadObjectPtrField scrutineeObject 2 "data_fields"
+  arity <- loadObjectI64Field scrutineeObject 5 "data_arity"
+  arityOk <- freshRegister "data_arity_ok"
+  emit (IIcmp arityOk ICmpEq LI64 arity (OConstInt LI64 (fromIntegral (length binders))))
+  abortLabel <- freshBlockLabel "data_arity_abort"
+  continueLabel <- freshBlockLabel "data_arity_ok"
+  terminateCurrent (TCondBr (OLocal LI1 arityOk) continueLabel abortLabel)
+
+  startBlock abortLabel
+  emitAbort
+
+  startBlock continueLabel
+  fieldBindings <- traverse (loadField fieldsPointer) (zip [0 :: Int ..] binders)
+  pure (Map.union (Map.fromList fieldBindings) env)
+ where
+  loadField fieldsPointer (index, binder) = do
+    field <- envSlotPointer (length binders) fieldsPointer index
+    reg <- freshRegister "data_field"
+    emit (ILoad reg LPtr field)
+    pure (stgBinderName binder, DirectValue (OLocal LPtr reg))
 
 emitCaseBody :: ValueEnv -> STGExpr -> Text -> [(LLVMOperand, Text)] -> FunctionM [(LLVMOperand, Text)]
 emitCaseBody env body resultLabel incoming = do
@@ -562,6 +600,25 @@ emitMakeBool :: LLVMOperand -> FunctionM LLVMOperand
 emitMakeBool value = do
   reg <- freshRegister "boxed_bool"
   emit (ICall (Just reg) LPtr (DirectCall makeBoolFunctionName) False [(LI1, value)])
+  pure (OLocal LPtr reg)
+
+emitMakeData :: RName -> [LLVMOperand] -> FunctionM LLVMOperand
+emitMakeData name fields = do
+  fieldsPointer <- emitAllocEnvSlots (length fields)
+  forM_ (zip [0 :: Int ..] fields) $ \(index, fieldObject) ->
+    emitStoreEnvSlot (length fields) fieldsPointer index fieldObject
+  reg <- freshRegister "boxed_data"
+  emit
+    ( ICall
+        (Just reg)
+        LPtr
+        (DirectCall makeDataFunctionName)
+        False
+        [ (LI64, OConstInt LI64 (constructorRuntimeTag name))
+        , (LI64, OConstInt LI64 (fromIntegral (length fields)))
+        , (LPtr, fieldsPointer)
+        ]
+    )
   pure (OLocal LPtr reg)
 
 emitMakeFunction :: Text -> LLVMOperand -> FunctionM LLVMOperand
@@ -807,6 +864,7 @@ runtimeFunctions =
   [ allocObjectFunction
   , makeIntFunction
   , makeBoolFunction
+  , makeDataFunction
   , makeFunctionFunction
   , makeThunkFunction
   , forceFunction
@@ -866,6 +924,17 @@ makeBoolFunction =
             (TRet LPtr (OLocal LPtr (Register "obj")))
         ]
     }
+
+makeDataFunction :: LLVMFunction
+makeDataFunction =
+  makeValueFunction
+    makeDataFunctionName
+    [(LI64, Register "constructor"), (LI64, Register "arity"), (LPtr, Register "fields")]
+    [ (0, LI64, OConstInt LI64 tagData)
+    , (1, LI64, OLocal LI64 (Register "constructor"))
+    , (2, LPtr, OLocal LPtr (Register "fields"))
+    , (5, LI64, OLocal LI64 (Register "arity"))
+    ]
 
 makeFunctionFunction :: LLVMFunction
 makeFunctionFunction =
@@ -1056,13 +1125,14 @@ objectField3 = objectField 3
 objectField4 = objectField 4
 objectField5 = objectField 5
 
-tagInt, tagBool, tagFunction, tagThunk, tagBlackHole, tagIndirection :: Integer
+tagInt, tagBool, tagFunction, tagThunk, tagBlackHole, tagIndirection, tagData :: Integer
 tagInt = 0
 tagBool = 1
 tagFunction = 2
 tagThunk = 3
 tagBlackHole = 4
 tagIndirection = 5
+tagData = 6
 
 updatableCode, singleEntryCode :: Integer
 updatableCode = 0
@@ -1073,10 +1143,15 @@ updateFlagCode = \case
   Updatable -> updatableCode
   SingleEntry -> singleEntryCode
 
-allocObjectFunctionName, makeIntFunctionName, makeBoolFunctionName :: Text
+constructorRuntimeTag :: RName -> Integer
+constructorRuntimeTag =
+  fromIntegral . nameUnique
+
+allocObjectFunctionName, makeIntFunctionName, makeBoolFunctionName, makeDataFunctionName :: Text
 allocObjectFunctionName = "hegglog_hs_alloc_object"
 makeIntFunctionName = "hegglog_hs_make_int"
 makeBoolFunctionName = "hegglog_hs_make_bool"
+makeDataFunctionName = "hegglog_hs_make_data"
 
 makeFunctionFunctionName, makeThunkFunctionName, forceFunctionName :: Text
 makeFunctionFunctionName = "hegglog_hs_make_function"

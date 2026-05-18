@@ -10,8 +10,9 @@ active target is Haskell 2010 source compiled to native machine-code
 executables through LLVM and clang.
 
 The current strict `.hg` compiler is the backend/middle-end substrate and
-regression baseline. It is not the final source-language endpoint and does not
-compile Haskell 2010 source today.
+regression baseline. It is not the final source-language endpoint. The Haskell
+2010 path now compiles the documented executable subset, while the full
+Haskell 2010 surface remains roadmap work.
 
 ## Current `.hg` Compiler Baseline
 
@@ -43,9 +44,9 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Broader ADT and pattern-match Core support.
-2. Prelude Bool/list/tuple runtime expansion.
-3. Haskell 2010 conformance matrix expansion for the next executable surface.
+1. Prelude Bool/list/tuple runtime expansion.
+2. Haskell 2010 conformance matrix expansion for the next executable surface.
+3. Type class dictionary representation.
 
 Completed Haskell 2010 roadmap work:
 
@@ -77,16 +78,21 @@ Completed Haskell 2010 roadmap work:
   function lowering, thunked non-atomic operands/intermediate applications,
   `let`/`letrec`, Bool cases, primitive operations, and STG evaluator
   preservation tests.
-- Haskell 2010 Core-0 native executable path: implemented as boxed STG-to-LLVM
-  lowering with closure allocation, thunk forcing/update, enter/apply, Bool
-  case dispatch, checked primitive aborts, `.hs` compile-mode integration, and
-  native wet tests for arithmetic, polymorphism, laziness, partial application,
-  Bool case, and forced division-by-zero failure.
+- Haskell 2010 native executable path for the first Core-0 slice: implemented
+  as boxed STG-to-LLVM lowering with closure allocation, thunk forcing/update,
+  enter/apply, Bool case dispatch, checked primitive aborts, `.hs`
+  compile-mode integration, and native wet tests for arithmetic, polymorphism,
+  laziness, partial application, Bool case, and forced division-by-zero failure.
 - Haskell 2010 Egglog Core optimizer: implemented for safe typed Core-0
   `Int`/`Bool` fragments with checked constant folding, safe arithmetic
   identities, known Bool case selection, typed Core extraction/validation,
   provenance, `--no-egglog` native comparison, and Core/STG/native oracle
   tests preserving laziness and forced runtime errors.
+- Haskell 2010 ADT and pattern-match Core support: implemented for custom
+  `data` declarations, polymorphic constructors, constructor cases, nested
+  constructor patterns, lazy constructor fields, Core/STG validation, native
+  boxed constructor objects, and default/no-egglog wet tests for custom ADTs and
+  `Maybe`.
 
 ## Non-Negotiable Project Direction
 

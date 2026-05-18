@@ -9,8 +9,9 @@ native machine-code executables through LLVM and clang.
 The current `.hg` compiler is the backend and middle-end substrate, the
 regression baseline, and the existing proof that native executable output,
 Egglog optimization, closure conversion infrastructure, LLVM lowering, and
-end-to-end wet testing work. It is not the final source language endpoint, and
-it does not currently compile Haskell 2010 source programs.
+end-to-end wet testing work. It is not the final source language endpoint. The
+Haskell 2010 path now compiles the documented executable subset, while the
+full Haskell 2010 surface remains roadmap work.
 
 ## Target Pipeline
 
@@ -229,6 +230,13 @@ Acceptance criteria:
 - lazy semantic wet tests pass
 
 ### Phase 9 - ADTs and Pattern Matching
+
+Status: the first executable ADT slice is implemented. `data` declarations now
+feed constructor metadata into Core/STG/native compilation; value constructors,
+nullary and unary/multi-field constructor applications, case alternatives,
+variable patterns, wildcard patterns, literal patterns, and nested constructor
+patterns are covered by Core, STG, native, and wet tests. Tuple/list/as-pattern
+semantics, guards, and full pattern-match diagnostics remain later work.
 
 Deliverables:
 
@@ -456,11 +464,11 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. Broader ADT and pattern-match Core support.
-2. Prelude Bool/list/tuple runtime expansion.
-3. Haskell 2010 conformance matrix expansion for the next executable surface.
-4. Type class dictionary representation.
-5. Recursive function and data structure native coverage.
+1. Prelude Bool/list/tuple runtime expansion.
+2. Haskell 2010 conformance matrix expansion for the next executable surface.
+3. Type class dictionary representation.
+4. Recursive function and data structure native coverage.
+5. Pattern-match diagnostics, guards, and remaining pattern forms.
 
 Completed immediate tasks:
 
@@ -481,10 +489,10 @@ Completed immediate tasks:
 - Haskell 2010 Core-to-STG lowering MVP, including validated Core-to-STG
   lowering, type erasure, curried function lowering, thunked operands, and STG
   evaluator preservation tests.
-- Haskell 2010 Core-0 native executable path, including boxed STG-to-LLVM
-  lowering, closure allocation, enter/apply, thunk forcing/update, Bool case
-  dispatch, checked primitive aborts, CLI `.hs` compile integration, and native
-  wet tests.
+- Haskell 2010 native executable path for the first Core-0 slice, including
+  boxed STG-to-LLVM lowering, closure allocation, enter/apply, thunk
+  forcing/update, Bool case dispatch, checked primitive aborts, CLI `.hs`
+  compile integration, and native wet tests.
 - Haskell 2010 Egglog Core optimizer for safe typed Core-0 `Int`/`Bool`
   fragments, including checked constant folding, safe arithmetic identities,
   known Bool case selection, typed Core extraction/validation, provenance,
@@ -498,6 +506,11 @@ Completed immediate tasks:
   translation, Core type-erasure, unary curried function lowering, thunked
   non-atomic operands and intermediate applications, Bool case lowering, and
   STG evaluator preservation tests.
+- Broader Haskell 2010 ADT and pattern-match Core support, including constructor
+  metadata from `data` declarations, polymorphic constructors, lazy constructor
+  fields, constructor-field case binding, nested constructor patterns, Core/STG
+  validation, boxed native constructor objects, and default/no-egglog native wet
+  tests for custom ADTs and `Maybe`.
 
 ## Non-Negotiable Rules
 

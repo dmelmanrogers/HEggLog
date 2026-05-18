@@ -8,6 +8,7 @@ module Haskell2010.STG.Lower
 where
 
 import Control.Monad.State.Strict (StateT, get, lift, modify, runStateT)
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Core.Pretty (renderCoreExpr)
@@ -35,13 +36,15 @@ data ValueApp = ValueApp CoreExpr CoreType
 
 lowerCoreModule :: CoreModule -> Either STGLowerError STGProgram
 lowerCoreModule coreModule =
-  case CoreValidate.validateModule CoreValidate.defaultValidationEnv coreModule of
+  case CoreValidate.validateModule (CoreValidate.moduleValidationEnv coreModule) coreModule of
     Left errors -> Left (STGLowerInvalidCore errors)
     Right () -> do
       program <-
         runLowerWith
           (namesInModule coreModule)
-          (STGProgram <$> traverse lowerBind (coreModuleBinds coreModule))
+          ( STGProgram (coreModuleConstructors coreModule)
+              <$> traverse lowerBind (coreModuleBinds coreModule)
+          )
       case STGValidate.validateProgram program of
         Left errors -> Left (STGLowerInvalidSTG errors)
         Right () -> Right program
@@ -82,6 +85,14 @@ lowerBind = \case
 
 lowerRhs :: CoreExpr -> LowerM STGRhs
 lowerRhs expression =
+  case collectConstructorApplication expression of
+    Just (name, fields, resultTy) ->
+      lowerConstructorRhs name fields resultTy
+    Nothing ->
+      lowerNonConstructorRhs expression
+
+lowerNonConstructorRhs :: CoreExpr -> LowerM STGRhs
+lowerNonConstructorRhs expression =
   case stripTypeLambdas expression of
     CLam binder body _ ->
       STGFunction [lowerBinder binder] <$> lowerExpr body
@@ -90,34 +101,46 @@ lowerRhs expression =
     other ->
       STGThunk Updatable <$> lowerExpr other
 
+lowerConstructorRhs :: RName -> [CoreExpr] -> CoreType -> LowerM STGRhs
+lowerConstructorRhs name fields resultTy = do
+  (binds, atoms) <- atomizeMany fields
+  if null binds
+    then pure (STGConstructor name atoms resultTy)
+    else STGThunk Updatable <$> constructorValueExpr binds name atoms resultTy
+
 lowerExpr :: CoreExpr -> LowerM STGExpr
 lowerExpr expression =
-  case expression of
-    CVar name ty ->
-      pure (STGAtom (STGVar name ty))
-    CLit literal ty ->
-      pure (STGAtom (STGLit literal ty))
-    CCon name ty ->
-      pure (STGAtom (STGCon name ty))
-    CLam {} ->
-      lowerLambdaValue expression
-    CApp {} ->
-      lowerApplication expression
-    CTypeLam _ body _ ->
-      lowerExpr body
-    CTypeApp fn _ ty ->
-      retagExpr ty <$> lowerExpr fn
-    CLet bind body ty ->
-      STGLet <$> lowerBind bind <*> lowerExpr body <*> pure ty
-    CCase scrutinee binder alternatives ty ->
-      STGCase
-        <$> lowerExpr scrutinee
-        <*> pure (lowerBinder binder)
-        <*> traverse lowerAlt alternatives
-        <*> pure ty
-    CPrimOp op arguments ty -> do
-      (binds, atoms) <- atomizeMany arguments
-      pure (wrapLets binds (STGPrim op atoms ty))
+  case collectConstructorApplication expression of
+    Just (name, fields, resultTy) -> do
+      (binds, atoms) <- atomizeMany fields
+      constructorValueExpr binds name atoms resultTy
+    Nothing ->
+      case expression of
+        CVar name ty ->
+          pure (STGAtom (STGVar name ty))
+        CLit literal ty ->
+          pure (STGAtom (STGLit literal ty))
+        CCon name ty ->
+          pure (STGAtom (STGCon name ty))
+        CLam {} ->
+          lowerLambdaValue expression
+        CApp {} ->
+          lowerApplication expression
+        CTypeLam _ body _ ->
+          lowerExpr body
+        CTypeApp fn _ ty ->
+          retagExpr ty <$> lowerExpr fn
+        CLet bind body ty ->
+          STGLet <$> lowerBind bind <*> lowerExpr body <*> pure ty
+        CCase scrutinee binder alternatives ty ->
+          STGCase
+            <$> lowerExpr scrutinee
+            <*> pure (lowerBinder binder)
+            <*> traverse lowerAlt alternatives
+            <*> pure ty
+        CPrimOp op arguments ty -> do
+          (binds, atoms) <- atomizeMany arguments
+          pure (wrapLets binds (STGPrim op atoms ty))
 
 lowerApplication :: CoreExpr -> LowerM STGExpr
 lowerApplication expression = do
@@ -191,6 +214,12 @@ atomFromExpr = \case
   _ ->
     Nothing
 
+constructorValueExpr :: [STGBind] -> RName -> [STGAtom] -> CoreType -> LowerM STGExpr
+constructorValueExpr prefixBinds name atoms resultTy = do
+  binder <- freshBinder resultTy
+  let constructorBind = STGNonRec binder (STGConstructor name atoms resultTy)
+  pure (wrapLets (prefixBinds <> [constructorBind]) (STGAtom (STGVar (stgBinderName binder) resultTy)))
+
 lowerLambdaValue :: CoreExpr -> LowerM STGExpr
 lowerLambdaValue expression = do
   let ty = runtimeExprType expression
@@ -234,6 +263,18 @@ collectValueApps =
       go apps fn
     other ->
       (other, apps)
+
+collectConstructorApplication :: CoreExpr -> Maybe (RName, [CoreExpr], CoreType)
+collectConstructorApplication expression =
+  case collectValueApps expression of
+    (_, []) ->
+      Nothing
+    (constructorExpr, valueApps) ->
+      case stripTypeApplications constructorExpr of
+        CCon name _ ->
+          Just (name, [argument | ValueApp argument _ <- valueApps], exprType expression)
+        _ ->
+          Nothing
 
 stripTypeLambdas :: CoreExpr -> CoreExpr
 stripTypeLambdas = \case
@@ -281,8 +322,8 @@ wrapLets binds body =
   foldr (\bind expr -> STGLet bind expr (stgExprType expr)) body binds
 
 namesInModule :: CoreModule -> [RName]
-namesInModule (CoreModule _ binds) =
-  concatMap namesInBind binds
+namesInModule (CoreModule _ constructors binds) =
+  concatMap namesInConstructorInfo (Map.elems constructors) <> concatMap namesInBind binds
 
 namesInBind :: CoreBind -> [RName]
 namesInBind = \case
@@ -336,6 +377,12 @@ namesInType = \case
   CTyForall variables body -> variables <> namesInType body
   CTyTuple fields -> concatMap namesInType fields
   CTyList elementTy -> namesInType elementTy
+
+namesInConstructorInfo :: CoreConstructorInfo -> [RName]
+namesInConstructorInfo info =
+  constructorTyVars info
+    <> concatMap namesInType (constructorFields info)
+    <> namesInType (constructorResult info)
 
 throwLower :: STGLowerError -> LowerM a
 throwLower =

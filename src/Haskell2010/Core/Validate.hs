@@ -3,9 +3,11 @@ module Haskell2010.Core.Validate
   , CoreValidationEnv (..)
   , CoreValidationError (..)
   , constructorFunctionType
+  , constructorFieldsForResult
   , defaultValidationEnv
   , emptyValidationEnv
   , literalType
+  , moduleValidationEnv
   , renderValidationError
   , validateExpr
   , validateExprWith
@@ -14,18 +16,13 @@ module Haskell2010.Core.Validate
 where
 
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Core.Pretty (renderCoreAltCon, renderCorePrimOp, renderCoreType)
 import Haskell2010.Core.Syntax
 import Haskell2010.Names (Namespace (..), RName, nameNamespace, renderNamespace, renderRName)
 import Haskell2010.Syntax (Literal (..))
-
-data CoreConstructorInfo = CoreConstructorInfo
-  { constructorFields :: [CoreType]
-  , constructorResult :: CoreType
-  }
-  deriving stock (Show, Eq, Ord)
 
 data CoreValidationEnv = CoreValidationEnv
   { coreValueTypes :: Map.Map RName CoreType
@@ -69,13 +66,20 @@ defaultValidationEnv =
   emptyValidationEnv
     { coreConstructorTypes =
         Map.fromList
-          [ (trueDataConName, CoreConstructorInfo [] boolTy)
-          , (falseDataConName, CoreConstructorInfo [] boolTy)
+          [ (trueDataConName, CoreConstructorInfo [] [] boolTy)
+          , (falseDataConName, CoreConstructorInfo [] [] boolTy)
           ]
     }
 
+moduleValidationEnv :: CoreModule -> CoreValidationEnv
+moduleValidationEnv coreModule =
+  defaultValidationEnv
+    { coreConstructorTypes =
+        Map.union (coreModuleConstructors coreModule) (coreConstructorTypes defaultValidationEnv)
+    }
+
 validateModule :: CoreValidationEnv -> CoreModule -> Either [CoreValidationError] ()
-validateModule env (CoreModule _ binds) =
+validateModule env (CoreModule _ _ binds) =
   collectValidations
     [ failWith duplicateErrors
     , collectValidations (map (validateScopedBind env moduleScope) binds)
@@ -212,11 +216,14 @@ validateAltCon env scrutineeTy altCon binders =
         Nothing ->
           Left [CoreUnknownConstructor name]
         Just info ->
-          collectValidations
-            [ checkConstructorArity name (constructorFields info) binders
-            , checkConstructorResult name scrutineeTy (constructorResult info)
-            , collectValidations (zipWith (checkConstructorField name) [0 ..] (zip (constructorFields info) binders))
-            ]
+          case constructorFieldsForResult info scrutineeTy of
+            Nothing ->
+              Left [CoreConstructorResultMismatch name scrutineeTy (constructorResult info)]
+            Just fields ->
+              collectValidations
+                [ checkConstructorArity name fields binders
+                , collectValidations (zipWith (checkConstructorField name) [0 ..] (zip fields binders))
+                ]
 
 validateApplication :: CoreType -> CoreType -> CoreType -> [Either [CoreValidationError] ()]
 validateApplication fnTy argTy resultTy =
@@ -281,8 +288,18 @@ literalType = \case
   LString {} -> stringTy
 
 constructorFunctionType :: CoreConstructorInfo -> CoreType
-constructorFunctionType (CoreConstructorInfo fields result) =
-  foldr CTyFun result fields
+constructorFunctionType (CoreConstructorInfo variables fields result) =
+  case variables of
+    [] -> body
+    _ -> CTyForall variables body
+ where
+  body =
+    foldr CTyFun result fields
+
+constructorFieldsForResult :: CoreConstructorInfo -> CoreType -> Maybe [CoreType]
+constructorFieldsForResult info actualResult = do
+  substitutions <- matchCoreType (Set.fromList (constructorTyVars info)) Map.empty (constructorResult info) actualResult
+  pure (map (substCoreType substitutions) (constructorFields info))
 
 validateBinder :: CoreBinder -> Either [CoreValidationError] ()
 validateBinder binder
@@ -333,11 +350,6 @@ checkConstructorField :: RName -> Int -> (CoreType, CoreBinder) -> Either [CoreV
 checkConstructorField name index (expected, binder)
   | expected == coreBinderType binder = Right ()
   | otherwise = Left [CoreConstructorFieldMismatch name index expected (coreBinderType binder)]
-
-checkConstructorResult :: RName -> CoreType -> CoreType -> Either [CoreValidationError] ()
-checkConstructorResult name expected actual
-  | expected == actual = Right ()
-  | otherwise = Left [CoreConstructorResultMismatch name expected actual]
 
 checkPrimitiveArity :: CorePrimOp -> Int -> [CoreExpr] -> Either [CoreValidationError] ()
 checkPrimitiveArity op expected arguments
@@ -418,6 +430,73 @@ substCoreType substitution = \case
     CTyTuple (map (substCoreType substitution) fields)
   CTyList elementTy ->
     CTyList (substCoreType substitution elementTy)
+
+matchCoreType ::
+  Set.Set RName ->
+  Map.Map RName CoreType ->
+  CoreType ->
+  CoreType ->
+  Maybe (Map.Map RName CoreType)
+matchCoreType variables substitutions expected actual =
+  case expected of
+    CTyVar name
+      | name `Set.member` variables ->
+          case Map.lookup name substitutions of
+            Nothing -> Just (Map.insert name actual substitutions)
+            Just previous
+              | previous == actual -> Just substitutions
+              | otherwise -> Nothing
+      | expected == actual -> Just substitutions
+      | otherwise -> Nothing
+    CTyCon {}
+      | expected == actual -> Just substitutions
+      | otherwise -> Nothing
+    CTyApp expectedFn expectedArg ->
+      case actual of
+        CTyApp actualFn actualArg ->
+          matchCoreType variables substitutions expectedFn actualFn
+            >>= \next -> matchCoreType variables next expectedArg actualArg
+        _ -> Nothing
+    CTyFun expectedArg expectedResult ->
+      case actual of
+        CTyFun actualArg actualResult ->
+          matchCoreType variables substitutions expectedArg actualArg
+            >>= \next -> matchCoreType variables next expectedResult actualResult
+        _ -> Nothing
+    CTyForall expectedVars expectedBody ->
+      case actual of
+        CTyForall actualVars actualBody
+          | expectedVars == actualVars ->
+              matchCoreType variables substitutions expectedBody actualBody
+        _ -> Nothing
+    CTyTuple expectedFields ->
+      case actual of
+        CTyTuple actualFields
+          | length expectedFields == length actualFields ->
+              foldMMatch variables substitutions expectedFields actualFields
+        _ -> Nothing
+    CTyList expectedElement ->
+      case actual of
+        CTyList actualElement ->
+          matchCoreType variables substitutions expectedElement actualElement
+        _ -> Nothing
+
+foldMMatch ::
+  Set.Set RName ->
+  Map.Map RName CoreType ->
+  [CoreType] ->
+  [CoreType] ->
+  Maybe (Map.Map RName CoreType)
+foldMMatch variables =
+  go
+ where
+  go substitutions [] [] =
+    Just substitutions
+  go substitutions (expected : expectedRest) (actual : actualRest) =
+    matchCoreType variables substitutions expected actual
+      >>= \next -> go next expectedRest actualRest
+  go _ _ _ =
+    Nothing
 
 duplicates :: Ord a => [a] -> [a]
 duplicates values =

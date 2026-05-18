@@ -38,6 +38,8 @@ data CoreValue
   | CoreString Text
   | CoreClosure Env CoreBinder CoreExpr
   | CoreTypeClosure Env [RName] CoreExpr
+  | CoreConstructor RName [CoreThunk]
+  | CoreData RName [CoreThunk]
   deriving stock (Show)
 
 data CoreEvalError
@@ -63,11 +65,11 @@ evalCoreExpr :: CoreExpr -> Either CoreEvalError CoreValue
 evalCoreExpr expression =
   case CoreValidate.validateExpr expression of
     Left errors -> Left (CoreEvalInvalid errors)
-    Right () -> evalExpr Map.empty expression
+    Right () -> evalExpr CoreValidate.defaultValidationEnv Map.empty expression
 
 evalCoreModuleBinding :: RName -> CoreModule -> Either CoreEvalError CoreValue
 evalCoreModuleBinding name coreModule =
-  case CoreValidate.validateModule CoreValidate.defaultValidationEnv coreModule of
+  case CoreValidate.validateModule (CoreValidate.moduleValidationEnv coreModule) coreModule of
     Left errors -> Left (CoreEvalInvalid errors)
     Right () -> evalCoreModuleBindingUnchecked name coreModule
 
@@ -75,14 +77,16 @@ evalCoreModuleBindingUnchecked :: RName -> CoreModule -> Either CoreEvalError Co
 evalCoreModuleBindingUnchecked name coreModule =
   case Map.lookup name env of
     Nothing -> Left (CoreEvalUnknownBinding name)
-    Just thunk -> force thunk
+    Just thunk -> force coreEnv thunk
  where
+  coreEnv =
+    CoreValidate.moduleValidationEnv coreModule
   env =
     moduleEnv coreModule
 
 evalCoreModuleBindingByOccurrence :: Text -> CoreModule -> Either CoreEvalError CoreValue
 evalCoreModuleBindingByOccurrence occurrence coreModule =
-  case CoreValidate.validateModule CoreValidate.defaultValidationEnv coreModule of
+  case CoreValidate.validateModule (CoreValidate.moduleValidationEnv coreModule) coreModule of
     Left errors -> Left (CoreEvalInvalid errors)
     Right () ->
       case matchingNames of
@@ -100,12 +104,12 @@ evalCoreModuleBindingByOccurrence occurrence coreModule =
     , nameOcc (coreBinderName binder) == occurrence
     ]
 
-evalExpr :: Env -> CoreExpr -> Either CoreEvalError CoreValue
-evalExpr env = \case
+evalExpr :: CoreValidate.CoreValidationEnv -> Env -> CoreExpr -> Either CoreEvalError CoreValue
+evalExpr coreEnv env = \case
   CVar name _ ->
     case Map.lookup name env of
       Nothing -> Left (CoreEvalUnknownVariable name)
-      Just thunk -> force thunk
+      Just thunk -> force coreEnv thunk
   CLit literal _ ->
     evalLiteral literal
   CCon name _
@@ -114,33 +118,60 @@ evalExpr env = \case
     | name == falseDataConName ->
         Right (CoreBool False)
     | otherwise ->
-        Left
-          (CoreEvalTypeError ("unsupported Core-0 constructor value `" <> renderRName name <> "`"))
+        evalDataConstructor coreEnv name []
   CLam binder body _ ->
     Right (CoreClosure env binder body)
   CApp function argument _ -> do
-    functionValue <- evalExpr env function
+    functionValue <- evalExpr coreEnv env function
     case functionValue of
       CoreClosure closureEnv binder body ->
-        evalExpr (Map.insert (coreBinderName binder) (Unevaluated env argument) closureEnv) body
+        evalExpr coreEnv (Map.insert (coreBinderName binder) (Unevaluated env argument) closureEnv) body
+      CoreConstructor name fields ->
+        evalDataConstructor coreEnv name (fields <> [Unevaluated env argument])
       other ->
         Left (CoreEvalTypeError ("expected Core function, got " <> renderCoreValue other))
   CTypeLam variables body _ ->
     Right (CoreTypeClosure env variables body)
   CTypeApp function _ _ -> do
-    functionValue <- evalExpr env function
+    functionValue <- evalExpr coreEnv env function
     case functionValue of
       CoreTypeClosure closureEnv _ body ->
-        evalExpr closureEnv body
+        evalExpr coreEnv closureEnv body
+      CoreConstructor {} ->
+        Right functionValue
+      CoreData {} ->
+        Right functionValue
       other ->
         Left (CoreEvalTypeError ("expected Core type function, got " <> renderCoreValue other))
   CLet bind body _ ->
-    evalExpr (extendEnv bind env) body
+    evalExpr coreEnv (extendEnv bind env) body
   CCase scrutinee binder alternatives _ -> do
-    scrutineeValue <- evalExpr env scrutinee
-    evalCaseAlternative env binder alternatives scrutineeValue
+    scrutineeValue <- evalExpr coreEnv env scrutinee
+    evalCaseAlternative coreEnv env binder alternatives scrutineeValue
   CPrimOp op arguments _ ->
-    traverse (evalExpr env) arguments >>= evalPrimitive op
+    traverse (evalExpr coreEnv env) arguments >>= evalPrimitive op
+
+evalDataConstructor ::
+  CoreValidate.CoreValidationEnv ->
+  RName ->
+  [CoreThunk] ->
+  Either CoreEvalError CoreValue
+evalDataConstructor coreEnv name fields =
+  case Map.lookup name (CoreValidate.coreConstructorTypes coreEnv) of
+    Nothing ->
+      Left (CoreEvalTypeError ("unknown Core constructor `" <> renderRName name <> "`"))
+    Just info ->
+      case compare (length fields) (length (constructorFields info)) of
+        LT -> Right (CoreConstructor name fields)
+        EQ -> Right (CoreData name fields)
+        GT ->
+          Left
+            ( CoreEvalTypeError
+                ( "too many fields for Core constructor `"
+                    <> renderRName name
+                    <> "`"
+                )
+            )
 
 evalLiteral :: Literal -> Either CoreEvalError CoreValue
 evalLiteral = \case
@@ -153,12 +184,12 @@ evalLiteral = \case
   LString value ->
     Right (CoreString value)
 
-force :: CoreThunk -> Either CoreEvalError CoreValue
-force = \case
+force :: CoreValidate.CoreValidationEnv -> CoreThunk -> Either CoreEvalError CoreValue
+force coreEnv = \case
   Evaluated value ->
     Right value
   Unevaluated env expression ->
-    evalExpr env expression
+    evalExpr coreEnv env expression
 
 moduleEnv :: CoreModule -> Env
 moduleEnv coreModule =
@@ -192,44 +223,51 @@ bindPairs = \case
   CoreNonRec binder rhs -> [(binder, rhs)]
   CoreRec pairs -> pairs
 
-evalCaseAlternative :: Env -> CoreBinder -> [CoreAlt] -> CoreValue -> Either CoreEvalError CoreValue
-evalCaseAlternative env binder alternatives scrutineeValue =
+evalCaseAlternative ::
+  CoreValidate.CoreValidationEnv ->
+  Env ->
+  CoreBinder ->
+  [CoreAlt] ->
+  CoreValue ->
+  Either CoreEvalError CoreValue
+evalCaseAlternative coreEnv env binder alternatives scrutineeValue =
   case firstMatching alternatives of
     Nothing ->
       Left (CoreEvalNoMatchingAlternative scrutineeValue)
-    Just (CoreAlt _ altBinders body) ->
-      evalExpr (extendCaseEnv binder scrutineeValue altBinders env) body
+    Just (CoreAlt _ altBinders body, fields) ->
+      evalExpr coreEnv (extendCaseEnv binder scrutineeValue altBinders fields env) body
  where
   firstMatching [] =
     Nothing
   firstMatching (alternative@(CoreAlt altCon _ _) : rest)
-    | alternativeMatches altCon scrutineeValue = Just alternative
+    | Just fields <- alternativeFields altCon scrutineeValue = Just (alternative, fields)
     | otherwise = firstMatching rest
 
-extendCaseEnv :: CoreBinder -> CoreValue -> [CoreBinder] -> Env -> Env
-extendCaseEnv binder scrutineeValue altBinders env =
-  foldr
-    (\altBinder -> Map.insert (coreBinderName altBinder) (Evaluated scrutineeValue))
+extendCaseEnv :: CoreBinder -> CoreValue -> [CoreBinder] -> [CoreThunk] -> Env -> Env
+extendCaseEnv binder scrutineeValue altBinders fields env =
+  Map.union
+    (Map.fromList (zip (map coreBinderName altBinders) fields))
     (Map.insert (coreBinderName binder) (Evaluated scrutineeValue) env)
-    altBinders
 
-alternativeMatches :: CoreAltCon -> CoreValue -> Bool
-alternativeMatches altCon value =
+alternativeFields :: CoreAltCon -> CoreValue -> Maybe [CoreThunk]
+alternativeFields altCon value =
   case (altCon, value) of
     (DefaultAlt, _) ->
-      True
+      Just []
     (LiteralAlt (LInt expected), CoreInt actual) ->
-      hintToInteger actual == expected
+      if hintToInteger actual == expected then Just [] else Nothing
     (LiteralAlt (LChar expected), CoreChar actual) ->
-      actual == expected
+      if actual == expected then Just [] else Nothing
     (LiteralAlt (LString expected), CoreString actual) ->
-      actual == expected
+      if actual == expected then Just [] else Nothing
     (ConstructorAlt name, CoreBool True) ->
-      name == trueDataConName
+      if name == trueDataConName then Just [] else Nothing
     (ConstructorAlt name, CoreBool False) ->
-      name == falseDataConName
+      if name == falseDataConName then Just [] else Nothing
+    (ConstructorAlt expectedName, CoreData actualName fields)
+      | expectedName == actualName -> Just fields
     _ ->
-      False
+      Nothing
 
 evalPrimitive :: CorePrimOp -> [CoreValue] -> Either CoreEvalError CoreValue
 evalPrimitive op values =
@@ -296,6 +334,15 @@ renderCoreValue = \case
     "<Core function>"
   CoreTypeClosure {} ->
     "<Core type function>"
+  CoreConstructor name fields ->
+    "<Core constructor " <> renderRName name <> " applied to " <> Text.pack (show (length fields)) <> " fields>"
+  CoreData name fields ->
+    renderRName name <> renderFields fields
+ where
+  renderFields fields =
+    case fields of
+      [] -> ""
+      _ -> " <" <> Text.pack (show (length fields)) <> " lazy fields>"
 
 renderCoreEvalError :: CoreEvalError -> Text
 renderCoreEvalError = \case

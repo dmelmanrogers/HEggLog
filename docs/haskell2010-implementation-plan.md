@@ -1,8 +1,9 @@
 # Haskell 2010 Implementation Plan
 
 This document translates the Haskell 2010 roadmap into concrete module
-boundaries and acceptance tests. It is a plan, not a claim that Haskell 2010
-source compilation already exists.
+boundaries and acceptance tests. Haskell 2010 source compilation now exists for
+the documented executable subset; the remaining items track the path to broader
+Haskell 2010 coverage.
 
 ## Source Layout
 
@@ -24,7 +25,8 @@ src/Haskell2010/
 ```
 
 Implemented today: `Syntax`, `Lexer`, `Layout`, `Parser`, `Pretty`, `Names`,
-`Renamed`, `Renamer`, and a Core-0 `Typecheck` source-to-Core pass. Broader
+`Renamed`, `Renamer`, and a `Typecheck` source-to-Core pass for the first
+executable subset, including custom ADTs and constructor patterns. Broader
 inference/desugaring modules for full Haskell 2010 remain planned.
 
 Implemented Core modules:
@@ -39,9 +41,9 @@ src/Haskell2010/Core/
   Subst.hs
 ```
 
-Core types live in `Haskell2010.Core.Syntax` for the current MVP. The
-reference evaluator in `Haskell2010.Core.Eval` executes validated Core-0 typed
-Core as the oracle for later STG/native work.
+Core types live in `Haskell2010.Core.Syntax` for the current MVP. The reference
+evaluator in `Haskell2010.Core.Eval` executes validated typed Core, including
+user ADT constructors and lazy fields, as the oracle for STG/native work.
 
 Implemented STG modules:
 
@@ -94,8 +96,10 @@ is built alongside them.
 7. STG IR. Completed.
 8. Lazy runtime. Completed.
 9. Core-to-STG lowering. Completed.
-10. STG-to-LLVM. Completed for the first Core-0 `Int`/`Bool` subset.
-11. ADTs/pattern matching.
+10. STG-to-LLVM. Completed for the first executable subset.
+11. ADTs/pattern matching. Completed for custom ADTs, polymorphic constructors,
+    constructor cases, nested constructor patterns, lazy constructor fields,
+    Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
 12. Recursion.
 13. Prelude subset.
 14. Type classes/dictionaries.

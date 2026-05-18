@@ -23,14 +23,16 @@ values when the root is printable.
 
 ## What Does Not Yet Compile
 
-HeggLog now compiles the first Haskell 2010 Core-0 `Int`/`Bool` subset from
-`.hs` source to native executables. The following Haskell 2010 requirements are
-planned but not implemented:
+HeggLog now compiles the first Haskell 2010 executable subset from `.hs` source
+to native executables. The subset includes `Int`, `Bool`, functions, lazy lets
+and arguments, custom ADTs, polymorphic constructors, constructor cases, nested
+constructor patterns, and lazy constructor fields. The following Haskell 2010
+requirements are planned but not implemented:
 
-- ADTs and pattern matching
+- lists, tuples, and remaining pattern forms
 - type classes and dictionary passing
 - Prelude/library subset
-- Haskell source desugaring beyond the Core-0 `Int`/`Bool` subset
+- Haskell source desugaring beyond the current executable subset
 - IO `main`
 - Haskell 2010 conformance suite
 
@@ -71,11 +73,13 @@ source outside the Core-0 subset.
 
 ## What Typechecks To Core Today
 
-The Haskell2010 Core-0 path now typechecks renamed source and emits validating
-typed Core for a first `Int`/`Bool` subset: explicit signatures, HM
-generalization and instantiation, top-level functions, lambdas, application,
-local `let`, `if` desugared to Bool `case`, explicit Bool `case`, and primitive
-`+`, `-`, `*`, `/`, `<`, and `==`.
+The Haskell2010 path now typechecks renamed source and emits validating typed
+Core for the first executable subset: explicit signatures, HM generalization
+and instantiation, top-level functions, lambdas, application, local `let`, `if`
+desugared to Bool `case`, explicit Bool and user-constructor `case`, custom
+`data` declarations, polymorphic constructors, constructor patterns, nested
+constructor patterns, wildcard patterns, literal patterns, and primitive `+`,
+`-`, `*`, `/`, `<`, and `==`.
 
 Core-0 equality is deliberately limited to first-order literal value types
 (`Int`, `Bool`, `Char`, and `String`) until class constraints and dictionaries
@@ -83,29 +87,30 @@ exist.
 
 ## What Core Evaluates Today
 
-The Core-0 reference evaluator executes validating typed Core modules and
-bindings for the first executable subset. It implements lazy let and function
-argument thunks, forces case scrutinees and primitive operands, erases Core type
-abstraction/application at runtime, evaluates Bool cases, reuses the checked
-signed `Int64` arithmetic/division helpers, and reports structured runtime
-errors such as division by zero and no matching case alternative.
+The Core reference evaluator executes validating typed Core modules and bindings
+for the first executable subset. It implements lazy let, function argument, and
+constructor field thunks, forces case scrutinees and primitive operands, erases
+Core type abstraction/application at runtime, evaluates Bool and user
+constructor cases, reuses the checked signed `Int64` arithmetic/division
+helpers, and reports structured runtime errors such as division by zero and no
+matching case alternative.
 
-This is a reference oracle only. It does not lower Core to STG, allocate/update
-native runtime thunks, or compile Haskell 2010 source to native executables.
-Source-spanned Haskell 2010 type diagnostics also remain later work because the
-renamed AST is currently spanless.
+This is a reference oracle for the native path. Source-spanned Haskell 2010
+type diagnostics remain later work because the renamed AST is currently
+spanless.
 
 ## What STG Runtime Exists Today
 
 The Haskell2010 STG layer now provides an isolated STG-like IR, validator, and
 pure heap evaluator for the lazy runtime MVP. It models function closures,
-thunk closures, constructor closures, `let`/`letrec`, case demand,
-updateable-thunk sharing, single-entry thunk re-entry, black-hole detection,
-Bool constructor dispatch, and checked `Int` primitive runtime errors.
+thunk closures, constructor closures, constructor fields, `let`/`letrec`, case
+demand, updateable-thunk sharing, single-entry thunk re-entry, black-hole
+detection, Bool and user-constructor dispatch, and checked `Int` primitive
+runtime errors.
 
-The boxed LLVM/native runtime path is implemented for the first Core-0
-`Int`/`Bool` subset. Runtime expansion for ADTs, pattern fields, Prelude data,
-and IO remains later work.
+The boxed LLVM/native runtime path is implemented for the first executable
+subset, including ADT constructor objects and lazy field projection. Runtime
+expansion for lists, tuples, Prelude data, and IO remains later work.
 
 ## What Core Optimizes Today
 
@@ -123,16 +128,16 @@ forced division by zero.
 
 ## What Lowers To STG Today
 
-The Core-to-STG lowering path translates validating Core-0 modules into
-validating STG programs. It erases Core type abstraction/application, lowers
-Core lambdas as unary curried STG functions, wraps non-atomic operands and
-intermediate applications in thunks, preserves `let`/`letrec`, cases, Bool
-constructors, and primitive operations, and rejects invalid Core before
-lowering.
+The Core-to-STG lowering path translates validating Core modules into validating
+STG programs. It erases Core type abstraction/application, lowers Core lambdas
+as unary curried STG functions, wraps non-atomic operands and intermediate
+applications in thunks, preserves `let`/`letrec`, cases, Bool and user
+constructors, constructor field laziness, and primitive operations, and rejects
+invalid Core before lowering.
 
-Lowered STG currently runs through the in-process STG evaluator as the semantic
-check. The Core-0 `Int`/`Bool` subset is now also emitted as boxed lazy STG
-LLVM and compiled to native executables through the existing clang toolchain.
+Lowered STG runs through the in-process STG evaluator as the semantic check.
+The first executable Haskell 2010 subset is also emitted as boxed lazy STG LLVM
+and compiled to native executables through the existing clang toolchain.
 
 ## First Haskell 2010 Implementation Milestones
 
@@ -146,6 +151,10 @@ LLVM and compiled to native executables through the existing clang toolchain.
 8. Core-0 native executable path. Completed.
 9. Egglog Core optimizer implementation using the Core/STG/native evaluators
    as oracle. Completed for the safe Core-0 `Int`/`Bool` fragment.
+10. Broader ADT and pattern-match Core support. Completed for custom ADTs,
+    polymorphic constructors, constructor cases, nested constructor patterns,
+    lazy constructor fields, STG lowering/evaluation, native LLVM execution,
+    and wet-tested default/no-egglog CLI runs.
 
 ## Where Egglog Fits
 
@@ -159,10 +168,11 @@ remain later Phase 15 expansion work.
 ## Where LLVM/Native Output Fits
 
 Native executable output exists for the current `.hg` supported subset and for
-the first Haskell 2010 Core-0 subset. The Haskell 2010 path lowers typed Core
-to STG-like lazy IR, emits a boxed lazy LLVM runtime with closure allocation,
-enter/apply, thunk forcing/update, Bool case dispatch, and checked primitives,
-and invokes clang to produce native machine-code executables.
+the first Haskell 2010 executable subset. The Haskell 2010 path lowers typed
+Core to STG-like lazy IR, emits a boxed lazy LLVM runtime with closure
+allocation, enter/apply, thunk forcing/update, Bool and user-constructor case
+dispatch, boxed constructor fields, and checked primitives, and invokes clang to
+produce native machine-code executables.
 
 ## GHC Compatibility
 
@@ -172,7 +182,7 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Broaden the Haskell 2010 executable surface with ADT and pattern-match Core
-support while preserving the `.hg` compiler, Core-0 evaluator, STG runtime,
-Core-to-STG lowering, native executable path, Egglog Core optimizer, and
-wet-test baseline.
+Broaden the Haskell 2010 executable surface with Prelude Bool/list/tuple runtime
+support while preserving the `.hg` compiler, Core evaluator, STG runtime,
+Core-to-STG lowering, native executable path, Egglog Core optimizer, ADT support,
+and wet-test baseline.

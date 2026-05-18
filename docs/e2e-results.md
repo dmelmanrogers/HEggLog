@@ -1,10 +1,10 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after adding the Haskell 2010
-Core-0 Egglog optimizer to the native executable path. The suite covers the
-existing `.hg` native compiler baseline and Haskell 2010 Core-0 `.hs` programs
-that compile to native executables, compare lazy runtime behavior, and run both
-default Egglog and `--no-egglog` modes for Haskell 2010 optimizer coverage.
+Recorded for the mandatory wet-test suite after adding Haskell 2010 ADT and
+constructor-pattern native coverage. The suite covers the existing `.hg` native
+compiler baseline and Haskell 2010 executable-subset `.hs` programs that compile
+to native executables, compare lazy runtime behavior, and run both default
+Egglog and `--no-egglog` modes for Haskell 2010 optimizer coverage.
 
 Run metadata:
 
@@ -17,15 +17,15 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 59
-- Source files: 26
-- Successful source cases: 17
+- HUnit checks: 68
+- Source files: 30
+- Successful source cases: 21
 - Runtime-error source cases: 6
 - Compile-error source cases: 3
-- Native compile/run checks: 40
-- Default Egglog native checks: 26
-- `--no-egglog` native checks: 14
-- Emit-LLVM checks: 7
+- Native compile/run checks: 48
+- Default Egglog native checks: 30
+- `--no-egglog` native checks: 18
+- Emit-LLVM checks: 8
 - Report/interpreter comparisons: 12
 - Failures: 0
 
@@ -80,6 +80,15 @@ Summary:
 | haskell2010-partial-application | `test/e2e/programs/haskell2010/partial-application.hs` | success | native/no-egglog | `1` | stdout `1`, stderr empty, exit 0 | pass |
 | haskell2010-bool-case | `test/e2e/programs/haskell2010/bool-case.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-bool-case | `test/e2e/programs/haskell2010/bool-case.hs` | success | native/no-egglog | `7` | stdout `7`, stderr empty, exit 0 | pass |
+| haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
+| haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/no-egglog | `7` | stdout `7`, stderr empty, exit 0 | pass |
+| haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | emit-llvm/default | `7` | LLVM compiled through clang, stdout `7`, stderr empty, exit 0 | pass |
+| haskell2010-adt-maybe | `test/e2e/programs/haskell2010/adt-maybe.hs` | success | native/default | `4` | stdout `4`, stderr empty, exit 0 | pass |
+| haskell2010-adt-maybe | `test/e2e/programs/haskell2010/adt-maybe.hs` | success | native/no-egglog | `4` | stdout `4`, stderr empty, exit 0 | pass |
+| haskell2010-adt-nested | `test/e2e/programs/haskell2010/adt-nested.hs` | success | native/default | `3` | stdout `3`, stderr empty, exit 0 | pass |
+| haskell2010-adt-nested | `test/e2e/programs/haskell2010/adt-nested.hs` | success | native/no-egglog | `3` | stdout `3`, stderr empty, exit 0 | pass |
+| haskell2010-adt-lazy-field | `test/e2e/programs/haskell2010/adt-lazy-field.hs` | success | native/default | `5` | stdout `5`, stderr empty, exit 0 | pass |
+| haskell2010-adt-lazy-field | `test/e2e/programs/haskell2010/adt-lazy-field.hs` | success | native/no-egglog | `5` | stdout `5`, stderr empty, exit 0 | pass |
 | addition-overflow | `test/e2e/programs/runtime-errors/addition-overflow.hg` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | subtraction-overflow | `test/e2e/programs/runtime-errors/subtraction-overflow.hg` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | multiplication-overflow | `test/e2e/programs/runtime-errors/multiplication-overflow.hg` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |

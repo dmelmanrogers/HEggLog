@@ -83,7 +83,7 @@ type DecodeM = StateT DecodeState (Either CoreEgglogError)
 
 optimizeCoreModuleWithEgglog :: RunConfig -> CoreModule -> Either CoreEgglogError CoreEgglogResult
 optimizeCoreModuleWithEgglog config coreModule = do
-  case CoreValidate.validateModule CoreValidate.defaultValidationEnv coreModule of
+  case CoreValidate.validateModule (CoreValidate.moduleValidationEnv coreModule) coreModule of
     Left errors -> Left (CoreEgglogInvalidInput errors)
     Right () -> Right ()
   let initialState =
@@ -96,7 +96,7 @@ optimizeCoreModuleWithEgglog config coreModule = do
   (optimizedBinds, finalState) <-
     runStateT (traverse (optimizeBind config moduleScope) (coreModuleBinds coreModule)) initialState
   let optimizedModule = coreModule {coreModuleBinds = optimizedBinds}
-  case CoreValidate.validateModule CoreValidate.defaultValidationEnv optimizedModule of
+  case CoreValidate.validateModule (CoreValidate.moduleValidationEnv optimizedModule) optimizedModule of
     Left errors -> Left (CoreEgglogInvalidOutput errors)
     Right () ->
       Right
@@ -560,7 +560,7 @@ scopeFromBind bind =
   Map.fromList [(coreBinderName binder, coreBinderType binder) | binder <- bindersOf bind]
 
 moduleCost :: CoreModule -> Int
-moduleCost (CoreModule _ binds) =
+moduleCost (CoreModule _ _ binds) =
   sum (map bindCost binds)
 
 bindCost :: CoreBind -> Int
@@ -584,7 +584,7 @@ expressionCost = \case
     2 + sum (map expressionCost arguments)
 
 nextUniqueAfterModule :: CoreModule -> Int
-nextUniqueAfterModule (CoreModule _ binds) =
+nextUniqueAfterModule (CoreModule _ _ binds) =
   maximum (1000000 : concatMap uniquesInBind binds) + 1
 
 nextUniqueAfterExpr :: CoreExpr -> Int

@@ -56,10 +56,25 @@ data TypedBinding = TypedBinding
 data TypedAlt = TypedAlt CoreAltCon [TypedBinder] TypedExpr
   deriving stock (Show, Eq, Ord)
 
+data DataConstructorInfo = DataConstructorInfo
+  { dataConstructorTyVars :: [RName]
+  , dataConstructorFields :: [MonoType]
+  , dataConstructorResult :: MonoType
+  , dataConstructorScheme :: Scheme
+  }
+  deriving stock (Show, Eq, Ord)
+
+data PatternPlan = PatternPlan
+  { patternAltCon :: CoreAltCon
+  , patternAltBinders :: [TypedBinder]
+  , patternEnv :: TypeEnv
+  , patternWrapBody :: TypedExpr -> TypedExpr
+  }
+
 data TypedExpr
   = TVar RName Scheme [MonoType] MonoType
   | TLit Literal MonoType
-  | TCon RName MonoType
+  | TCon RName Scheme [MonoType] MonoType
   | TLam TypedBinder TypedExpr MonoType
   | TApp TypedExpr TypedExpr MonoType
   | TLet [TypedBinding] TypedExpr MonoType
@@ -75,6 +90,8 @@ data InferState = InferState
   { nextMeta :: Int
   , substitution :: Subst
   , nextGeneratedUnique :: Int
+  , typeConstructors :: Map.Map RName Int
+  , dataConstructors :: Map.Map RName DataConstructorInfo
   }
   deriving stock (Show, Eq)
 
@@ -82,19 +99,26 @@ type InferM = StateT InferState (Either TypecheckError)
 
 typecheckModuleToCore :: RHsModule -> Either TypecheckError CoreModule
 typecheckModuleToCore sourceModule = do
+  let sourceDecls = rModuleDecls sourceModule
+      typeConstructors = collectTypeConstructors sourceDecls
   ((typedBindings, _typedEnv), finalState) <-
-    runInfer (inferBindingGroup Map.empty (rModuleDecls sourceModule))
+    runInfer typeConstructors $ do
+      constructors <- collectDataConstructors sourceDecls
+      modify (\state -> state {dataConstructors = constructors})
+      inferBindingGroup Map.empty sourceDecls
   coreBinds <- traverse (bindingToCore (substitution finalState) Map.empty) typedBindings
+  coreConstructors <- constructorInfosToCore (substitution finalState) (dataConstructors finalState)
   let coreModule =
         CoreModule
           { coreModuleName = rModuleName sourceModule
+          , coreModuleConstructors = coreConstructors
           , coreModuleBinds =
               case coreBinds of
                 [] -> []
                 [one] -> [one]
                 many -> [CoreRec (concatMap bindPairs many)]
           }
-  case CoreValidate.validateModule CoreValidate.defaultValidationEnv coreModule of
+  case CoreValidate.validateModule (CoreValidate.moduleValidationEnv coreModule) coreModule of
     Right () -> Right coreModule
     Left errors -> Left (CoreValidationFailed errors)
 
@@ -118,18 +142,70 @@ renderTypecheckError = \case
     "generated Core failed validation: "
       <> Text.intercalate "; " (map CoreValidate.renderValidationError errors)
 
-runInfer :: InferM a -> Either TypecheckError (a, InferState)
-runInfer action =
+runInfer :: Map.Map RName Int -> InferM a -> Either TypecheckError (a, InferState)
+runInfer initialTypeConstructors action =
   let initialState =
         InferState
           { nextMeta = 0
           , substitution = Map.empty
           , nextGeneratedUnique = 100000
+          , typeConstructors = initialTypeConstructors
+          , dataConstructors = Map.empty
           }
    in swapState <$> runStateT action initialState
  where
   swapState (value, state) =
     (value, state)
+
+collectTypeConstructors :: [RDecl] -> Map.Map RName Int
+collectTypeConstructors =
+  foldr collect Map.empty
+ where
+  collect decl acc =
+    case decl of
+      RDataDecl name params _ _ ->
+        Map.insert name (length params) acc
+      RNewtypeDecl name params _ _ ->
+        Map.insert name (length params) acc
+      _ ->
+        acc
+
+collectDataConstructors :: [RDecl] -> InferM (Map.Map RName DataConstructorInfo)
+collectDataConstructors =
+  foldM collect Map.empty
+ where
+  collect acc = \case
+    RDataDecl typeName params constructors _ ->
+      foldM (insertConstructor typeName params) acc constructors
+    RNewtypeDecl typeName params constructor _ ->
+      insertConstructor typeName params acc constructor
+    _ ->
+      pure acc
+
+  insertConstructor typeName params acc (RConDecl constructorName fields) = do
+    fieldTypes <- traverse sourceMonoType fields
+    let resultTy = foldl TyApp (TyCon typeName) (map TyVar params)
+        scheme = Scheme params (foldr TyFun resultTy fieldTypes)
+        info =
+          DataConstructorInfo
+            { dataConstructorTyVars = params
+            , dataConstructorFields = fieldTypes
+            , dataConstructorResult = resultTy
+            , dataConstructorScheme = scheme
+            }
+    pure (Map.insert constructorName info acc)
+
+constructorInfosToCore ::
+  Subst ->
+  Map.Map RName DataConstructorInfo ->
+  Either TypecheckError (Map.Map RName CoreConstructorInfo)
+constructorInfosToCore subst =
+  traverse toCore
+ where
+  toCore info =
+    CoreConstructorInfo (dataConstructorTyVars info)
+      <$> traverse (monoToCoreType subst Map.empty) (dataConstructorFields info)
+      <*> monoToCoreType subst Map.empty (dataConstructorResult info)
 
 inferBindingGroup :: TypeEnv -> [RDecl] -> InferM ([TypedBinding], TypeEnv)
 inferBindingGroup outerEnv decls = do
@@ -185,6 +261,10 @@ collectValueBindings =
     RTypeSignature {} ->
       pure acc
     RFixityDecl {} ->
+      pure acc
+    RDataDecl {} ->
+      pure acc
+    RNewtypeDecl {} ->
       pure acc
     RFunctionBinding name patterns rhs whereDecls ->
       pure (acc <> [SourceBinding name patterns rhs whereDecls])
@@ -266,17 +346,51 @@ inferFunctionBindingExpr env patterns rhs whereDecls = do
 
 inferLambda :: TypeEnv -> [RPat] -> RExpr -> InferM TypedExpr
 inferLambda env patterns bodyExpr = do
-  binders <- traverse inferPatternBinder patterns
-  let bodyEnv =
-        foldr
-          (\binder -> Map.insert (typedBinderName binder) (Scheme [] (typedBinderType binder)))
-          env
-          binders
-  body <- inferExpr bodyEnv bodyExpr
+  (binders, bodyEnv, wrapPatterns) <- inferLambdaPatterns env patterns
+  body <- wrapPatterns <$> inferExpr bodyEnv bodyExpr
   pure (foldr wrapLambda body binders)
  where
   wrapLambda binder body =
     TLam binder body (TyFun (typedBinderType binder) (typedExprType body))
+
+inferLambdaPatterns :: TypeEnv -> [RPat] -> InferM ([TypedBinder], TypeEnv, TypedExpr -> TypedExpr)
+inferLambdaPatterns initialEnv =
+  go [] initialEnv id
+ where
+  go binders env wrap = \case
+    [] ->
+      pure (binders, env, wrap)
+    pat : rest ->
+      case pat of
+        RPVar name -> do
+          binder <- TypedBinder name <$> freshMeta
+          go
+            (binders <> [binder])
+            (Map.insert name (Scheme [] (typedBinderType binder)) env)
+            wrap
+            rest
+        RPWildcard -> do
+          binder <- freshMeta >>= freshTermBinder "$wild"
+          go (binders <> [binder]) env wrap rest
+        RPParen inner ->
+          go binders env wrap (inner : rest)
+        _ -> do
+          patTy <- freshMeta
+          binder <- freshTermBinder "$arg" patTy
+          caseBinder <- freshTermBinder "$case" patTy
+          plan <- inferPatternPlan env patTy pat
+          let scrutinee = TVar (typedBinderName binder) (Scheme [] patTy) [] patTy
+              wrapOne body =
+                TCase
+                  scrutinee
+                  caseBinder
+                  [ TypedAlt
+                      (patternAltCon plan)
+                      (patternAltBinders plan)
+                      (patternWrapBody plan body)
+                  ]
+                  (typedExprType body)
+          go (binders <> [binder]) (patternEnv plan) (wrap . wrapOne) rest
 
 rhsToExpr :: RRhs -> [RDecl] -> InferM RExpr
 rhsToExpr rhs whereDecls =
@@ -335,10 +449,10 @@ inferExpr env = \case
       )
   RCase scrutinee alternatives -> do
     typedScrutinee <- inferExpr env scrutinee
-    unify (typedExprType typedScrutinee) boolMonoType
+    scrutineeTy <- applyCurrent (typedExprType typedScrutinee)
     resultTy <- freshMeta
-    caseBinder <- caseBinderFor alternatives
-    typedAlternatives <- traverse (inferBoolAlt env caseBinder resultTy) alternatives
+    caseBinder <- caseBinderFor scrutineeTy alternatives
+    typedAlternatives <- traverse (inferCaseAlt env scrutineeTy caseBinder resultTy) alternatives
     pure (TCase typedScrutinee caseBinder typedAlternatives resultTy)
   RParen inner ->
     inferExpr env inner
@@ -353,11 +467,17 @@ inferExpr env = \case
 inferConstructor :: RName -> InferM TypedExpr
 inferConstructor name
   | nameOcc name == "True" =
-      pure (TCon trueDataConName boolMonoType)
+      pure (TCon trueDataConName (Scheme [] boolMonoType) [] boolMonoType)
   | nameOcc name == "False" =
-      pure (TCon falseDataConName boolMonoType)
-  | otherwise =
-      throwTypecheck (UnsupportedCore0 ("constructor `" <> renderRName name <> "`"))
+      pure (TCon falseDataConName (Scheme [] boolMonoType) [] boolMonoType)
+  | otherwise = do
+      constructors <- dataConstructors <$> get
+      case Map.lookup name constructors of
+        Nothing ->
+          throwTypecheck (UnsupportedCore0 ("constructor `" <> renderRName name <> "`"))
+        Just info -> do
+          (instantiatedTy, typeArguments) <- instantiate (dataConstructorScheme info)
+          pure (TCon name (dataConstructorScheme info) typeArguments instantiatedTy)
 
 inferPrimitive :: TypeEnv -> RExpr -> RName -> RExpr -> InferM TypedExpr
 inferPrimitive env lhs op rhs =
@@ -399,49 +519,161 @@ inferPrimitive env lhs op rhs =
       || ty == charMonoType
       || ty == stringMonoType
 
-inferBoolAlt :: TypeEnv -> TypedBinder -> MonoType -> RAlt -> InferM TypedAlt
-inferBoolAlt env caseBinder resultTy (RAlt pat rhs whereDecls) = do
-  (altCon, extraBinders, env') <- boolAltPattern env caseBinder pat
+inferCaseAlt :: TypeEnv -> MonoType -> TypedBinder -> MonoType -> RAlt -> InferM TypedAlt
+inferCaseAlt env scrutineeTy _caseBinder resultTy (RAlt pat rhs whereDecls) = do
+  plan <- inferPatternPlan env scrutineeTy pat
   bodyExpr <- rhsToExpr rhs whereDecls
-  typedBody <- inferExpr env' bodyExpr
+  typedBody <- patternWrapBody plan <$> inferExpr (patternEnv plan) bodyExpr
   unify resultTy (typedExprType typedBody)
-  pure (TypedAlt altCon extraBinders typedBody)
+  pure (TypedAlt (patternAltCon plan) (patternAltBinders plan) typedBody)
 
-boolAltPattern :: TypeEnv -> TypedBinder -> RPat -> InferM (CoreAltCon, [TypedBinder], TypeEnv)
-boolAltPattern env caseBinder = \case
-  RPCon name []
-    | nameOcc name == "True" ->
-        pure (ConstructorAlt trueDataConName, [], env)
-    | nameOcc name == "False" ->
-        pure (ConstructorAlt falseDataConName, [], env)
-  RPWildcard ->
-    pure (DefaultAlt, [], env)
+inferPatternPlan :: TypeEnv -> MonoType -> RPat -> InferM PatternPlan
+inferPatternPlan env expectedTy = \case
   RPVar name ->
-    let binder = TypedBinder name (typedBinderType caseBinder)
-     in pure (DefaultAlt, [], Map.insert name (Scheme [] (typedBinderType binder)) env)
+    pure
+      PatternPlan
+        { patternAltCon = DefaultAlt
+        , patternAltBinders = []
+        , patternEnv = Map.insert name (Scheme [] expectedTy) env
+        , patternWrapBody = id
+        }
+  RPWildcard ->
+    pure
+      PatternPlan
+        { patternAltCon = DefaultAlt
+        , patternAltBinders = []
+        , patternEnv = env
+        , patternWrapBody = id
+        }
+  RPLit literal -> do
+    unify expectedTy (literalMonoType literal)
+    pure
+      PatternPlan
+        { patternAltCon = LiteralAlt literal
+        , patternAltBinders = []
+        , patternEnv = env
+        , patternWrapBody = id
+        }
+  RPCon name args ->
+    inferConstructorPattern env expectedTy name args
   RPParen pat ->
-    boolAltPattern env caseBinder pat
+    inferPatternPlan env expectedTy pat
   pat ->
-    throwTypecheck (UnsupportedCore0 ("case pattern " <> renderPatternShape pat))
+    throwTypecheck (UnsupportedCore0 ("pattern " <> renderPatternShape pat))
 
-caseBinderFor :: [RAlt] -> InferM TypedBinder
-caseBinderFor alternatives =
+inferConstructorPattern :: TypeEnv -> MonoType -> RName -> [RPat] -> InferM PatternPlan
+inferConstructorPattern env expectedTy name args
+  | nameOcc name == "True" && null args = do
+      unify expectedTy boolMonoType
+      pure (nullaryConstructorPlan env trueDataConName)
+  | nameOcc name == "False" && null args = do
+      unify expectedTy boolMonoType
+      pure (nullaryConstructorPlan env falseDataConName)
+  | otherwise = do
+      constructors <- dataConstructors <$> get
+      case Map.lookup name constructors of
+        Nothing ->
+          throwTypecheck (UnsupportedCore0 ("constructor pattern `" <> renderRName name <> "`"))
+        Just info -> do
+          (fieldTypes, resultTy) <- instantiateConstructorPattern info
+          unless (length fieldTypes == length args) $
+            throwTypecheck
+              ( UnsupportedCore0
+                  ( "constructor pattern `"
+                      <> renderRName name
+                      <> "` expects "
+                      <> Text.pack (show (length fieldTypes))
+                      <> " fields, got "
+                      <> Text.pack (show (length args))
+                  )
+              )
+          unify expectedTy resultTy
+          fieldPlans <- traverse inferFieldPattern (zip fieldTypes args)
+          let fieldBinders = map fieldPatternBinder fieldPlans
+              env' = foldl (\acc plan -> Map.union (fieldPatternEnv plan) acc) env fieldPlans
+              wrap = foldr (.) id (map fieldPatternWrap fieldPlans)
+          pure
+            PatternPlan
+              { patternAltCon = ConstructorAlt name
+              , patternAltBinders = fieldBinders
+              , patternEnv = env'
+              , patternWrapBody = wrap
+              }
+
+nullaryConstructorPlan :: TypeEnv -> RName -> PatternPlan
+nullaryConstructorPlan env name =
+  PatternPlan
+    { patternAltCon = ConstructorAlt name
+    , patternAltBinders = []
+    , patternEnv = env
+    , patternWrapBody = id
+    }
+
+data FieldPatternPlan = FieldPatternPlan
+  { fieldPatternBinder :: TypedBinder
+  , fieldPatternEnv :: TypeEnv
+  , fieldPatternWrap :: TypedExpr -> TypedExpr
+  }
+
+inferFieldPattern :: (MonoType, RPat) -> InferM FieldPatternPlan
+inferFieldPattern (fieldTy, pat) =
+  case pat of
+    RPVar name ->
+      let binder = TypedBinder name fieldTy
+       in pure
+            FieldPatternPlan
+              { fieldPatternBinder = binder
+              , fieldPatternEnv = Map.singleton name (Scheme [] fieldTy)
+              , fieldPatternWrap = id
+              }
+    RPWildcard -> do
+      binder <- freshTermBinder "$field" fieldTy
+      pure
+        FieldPatternPlan
+          { fieldPatternBinder = binder
+          , fieldPatternEnv = Map.empty
+          , fieldPatternWrap = id
+          }
+    RPParen inner ->
+      inferFieldPattern (fieldTy, inner)
+    _ -> do
+      fieldBinder <- freshTermBinder "$field" fieldTy
+      nestedCaseBinder <- freshTermBinder "$case" fieldTy
+      nestedPlan <- inferPatternPlan Map.empty fieldTy pat
+      let scrutinee = TVar (typedBinderName fieldBinder) (Scheme [] fieldTy) [] fieldTy
+          wrap body =
+            TCase
+              scrutinee
+              nestedCaseBinder
+              [ TypedAlt
+                  (patternAltCon nestedPlan)
+                  (patternAltBinders nestedPlan)
+                  (patternWrapBody nestedPlan body)
+              ]
+              (typedExprType body)
+      pure
+        FieldPatternPlan
+          { fieldPatternBinder = fieldBinder
+          , fieldPatternEnv = patternEnv nestedPlan
+          , fieldPatternWrap = wrap
+          }
+
+instantiateConstructorPattern :: DataConstructorInfo -> InferM ([MonoType], MonoType)
+instantiateConstructorPattern info = do
+  replacements <- traverse (\name -> (name,) <$> freshMeta) (dataConstructorTyVars info)
+  let replacementMap = Map.fromList replacements
+  pure
+    ( map (replaceTypeVars replacementMap) (dataConstructorFields info)
+    , replaceTypeVars replacementMap (dataConstructorResult info)
+    )
+
+caseBinderFor :: MonoType -> [RAlt] -> InferM TypedBinder
+caseBinderFor scrutineeTy alternatives =
   case [name | RAlt (RPVar name) _ _ <- alternatives] of
     name : _ ->
-      pure (TypedBinder name boolMonoType)
+      pure (TypedBinder name scrutineeTy)
     [] ->
-      freshTermBinder "$case" boolMonoType
-
-inferPatternBinder :: RPat -> InferM TypedBinder
-inferPatternBinder = \case
-  RPVar name ->
-    TypedBinder name <$> freshMeta
-  RPWildcard ->
-    freshMeta >>= freshTermBinder "$wild"
-  RPParen pat ->
-    inferPatternBinder pat
-  pat ->
-    throwTypecheck (UnsupportedCore0 ("lambda/function pattern " <> renderPatternShape pat))
+      freshTermBinder "$case" scrutineeTy
 
 sourceScheme :: RHsType -> InferM Scheme
 sourceScheme sourceType = do
@@ -470,13 +702,17 @@ sourceMonoType = \case
     sourceMonoType inner
 
 typeConstructorMonoType :: RName -> InferM MonoType
-typeConstructorMonoType name =
-  case nameOcc name of
-    "Int" -> pure intMonoType
-    "Bool" -> pure boolMonoType
-    "Char" -> pure charMonoType
-    "String" -> pure stringMonoType
-    other -> throwTypecheck (UnsupportedCore0 ("type constructor `" <> other <> "`"))
+typeConstructorMonoType name = do
+  knownTypes <- typeConstructors <$> get
+  if Map.member name knownTypes
+    then pure (TyCon name)
+    else
+      case nameOcc name of
+        "Int" -> pure intMonoType
+        "Bool" -> pure boolMonoType
+        "Char" -> pure charMonoType
+        "String" -> pure stringMonoType
+        other -> throwTypecheck (UnsupportedCore0 ("type constructor `" <> other <> "`"))
 
 instantiate :: Scheme -> InferM (MonoType, [MonoType])
 instantiate (Scheme variables body) = do
@@ -652,8 +888,15 @@ exprToCore subst metas = \case
         _ -> CTypeApp varExpr coreTypeArguments resultTy
   TLit literal ty ->
     CLit literal <$> monoToCoreType subst metas ty
-  TCon name ty ->
-    CCon name <$> monoToCoreType subst metas ty
+  TCon name scheme typeArguments ty -> do
+    constructorTy <- schemeToCoreTypeWith subst metas scheme
+    resultTy <- monoToCoreType subst metas ty
+    coreTypeArguments <- traverse (monoToCoreType subst metas) typeArguments
+    let constructorExpr = CCon name constructorTy
+    pure $
+      case schemeVars scheme of
+        [] -> CCon name resultTy
+        _ -> CTypeApp constructorExpr coreTypeArguments resultTy
   TLam binder body ty -> do
     coreBinder <- typedBinderToCore subst metas binder
     coreBody <- exprToCore subst metas body
@@ -735,7 +978,7 @@ typedExprType :: TypedExpr -> MonoType
 typedExprType = \case
   TVar _ _ _ ty -> ty
   TLit _ ty -> ty
-  TCon _ ty -> ty
+  TCon _ _ _ ty -> ty
   TLam _ _ ty -> ty
   TApp _ _ ty -> ty
   TLet _ _ ty -> ty

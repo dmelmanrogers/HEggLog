@@ -43,11 +43,11 @@ data STGValidationError
 type Scope = Map.Map RName CoreType
 
 validateProgram :: STGProgram -> Either [STGValidationError] ()
-validateProgram =
-  validateProgramWith CoreValidate.defaultValidationEnv
+validateProgram program =
+  validateProgramWith (programValidationEnv program) program
 
 validateProgramWith :: CoreValidate.CoreValidationEnv -> STGProgram -> Either [STGValidationError] ()
-validateProgramWith env (STGProgram binds) =
+validateProgramWith env (STGProgram _ binds) =
   collectValidations
     [ failWith duplicateErrors
     , collectValidations (map (validateScopedBind env moduleScope) binds)
@@ -162,15 +162,12 @@ validateAtom env scope = \case
       Nothing ->
         Left [STGUnknownConstructor name]
       Just info
-        | null (CoreValidate.constructorFields info) ->
-            checkType (CoreValidate.constructorResult info) ty
+        | Just [] <- CoreValidate.constructorFieldsForResult info ty ->
+            Right ()
+        | Just expectedFields <- CoreValidate.constructorFieldsForResult info ty ->
+            Left [STGConstructorArityMismatch name (length expectedFields) 0]
         | otherwise ->
-            Left
-              [ STGConstructorArityMismatch
-                  name
-                  (length (CoreValidate.constructorFields info))
-                  0
-              ]
+            Left [STGConstructorResultMismatch name (CoreValidate.constructorResult info) ty]
 
 validateConstructorRhs ::
   CoreValidate.CoreValidationEnv ->
@@ -184,15 +181,17 @@ validateConstructorRhs env scope name fields resultTy =
     Nothing ->
       Left [STGUnknownConstructor name]
     Just info ->
-      collectValidations $
-        [ checkConstructorArity name (CoreValidate.constructorFields info) fields
-        , checkType (CoreValidate.constructorResult info) resultTy
-        ]
-          <> map (validateAtom env scope) fields
-          <> zipWith
-            (checkConstructorField name)
-            [0 ..]
-            (zip (CoreValidate.constructorFields info) (map stgAtomType fields))
+      case CoreValidate.constructorFieldsForResult info resultTy of
+        Nothing ->
+          Left [STGConstructorResultMismatch name (CoreValidate.constructorResult info) resultTy]
+        Just expectedFields ->
+          collectValidations $
+            [checkConstructorArity name expectedFields fields]
+              <> map (validateAtom env scope) fields
+              <> zipWith
+                (checkConstructorField name)
+                [0 ..]
+                (zip expectedFields (map stgAtomType fields))
 
 validateCalleeApplication :: Scope -> RName -> [STGAtom] -> CoreType -> Either [STGValidationError] ()
 validateCalleeApplication scope callee arguments resultTy =
@@ -256,15 +255,18 @@ validateAltCon env scrutineeTy altCon binders =
         Nothing ->
           Left [STGUnknownConstructor name]
         Just info ->
-          collectValidations
-            [ checkAltArity altCon (length (CoreValidate.constructorFields info)) binders
-            , checkType (CoreValidate.constructorResult info) scrutineeTy
-            , collectValidations $
-                zipWith
-                  (checkAltField name)
-                  [0 ..]
-                  (zip (CoreValidate.constructorFields info) binders)
-            ]
+          case CoreValidate.constructorFieldsForResult info scrutineeTy of
+            Nothing ->
+              Left [STGConstructorResultMismatch name (CoreValidate.constructorResult info) scrutineeTy]
+            Just expectedFields ->
+              collectValidations
+                [ checkAltArity altCon (length expectedFields) binders
+                , collectValidations $
+                    zipWith
+                      (checkAltField name)
+                      [0 ..]
+                      (zip expectedFields binders)
+                ]
 
 validatePrimitive :: CorePrimOp -> [STGAtom] -> CoreType -> [Either [STGValidationError] ()]
 validatePrimitive op arguments resultTy =
@@ -359,6 +361,13 @@ checkPrimitiveArity op expected arguments
  where
   actual =
     length arguments
+
+programValidationEnv :: STGProgram -> CoreValidate.CoreValidationEnv
+programValidationEnv program =
+  CoreValidate.defaultValidationEnv
+    { CoreValidate.coreConstructorTypes =
+        Map.union (stgProgramConstructors program) (CoreValidate.coreConstructorTypes CoreValidate.defaultValidationEnv)
+    }
 
 checkPrimitiveArgument ::
   CorePrimOp ->

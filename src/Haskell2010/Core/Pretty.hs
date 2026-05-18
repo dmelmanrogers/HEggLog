@@ -16,7 +16,7 @@ import Haskell2010.Names (renderRName)
 import Haskell2010.Syntax (Literal (..), ModuleName (..))
 
 renderCoreModule :: CoreModule -> Text
-renderCoreModule (CoreModule maybeName binds) =
+renderCoreModule (CoreModule maybeName _ binds) =
   Text.unlines $
     header <> map renderCoreBind binds
  where

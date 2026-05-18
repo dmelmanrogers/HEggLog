@@ -137,6 +137,8 @@ testGroups =
       , pureTest "generalizes local let polymorphism" testHaskell2010Core0PolymorphicLet
       , pureTest "desugars if to Bool case Core" testHaskell2010Core0If
       , pureTest "desugars explicit Bool case Core" testHaskell2010Core0Case
+      , pureTest "typechecks user ADT constructor cases" testHaskell2010Core0ADTConstructorCase
+      , pureTest "typechecks nested constructor patterns" testHaskell2010Core0NestedADTPatterns
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       , pureTest "rejects unsupported Core-0 equality" testHaskell2010Core0UnsupportedEquality
       ]
@@ -145,6 +147,8 @@ testGroups =
       [ pureTest "evaluates arithmetic Core-0 source" testHaskell2010Core0EvalArithmetic
       , pureTest "evaluates polymorphic identity instantiation" testHaskell2010Core0EvalPolymorphicIdentity
       , pureTest "evaluates Bool case" testHaskell2010Core0EvalBoolCase
+      , pureTest "evaluates user ADT constructor fields" testHaskell2010Core0EvalADTField
+      , pureTest "keeps unused user ADT fields lazy" testHaskell2010Core0EvalLazyADTField
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
       , pureTest "reports forced division by zero" testHaskell2010Core0EvalDivisionByZero
@@ -168,6 +172,9 @@ testGroups =
       , pureTest "preserves lazy let semantics" testHaskell2010CoreToSTGLazyLet
       , pureTest "preserves lazy function argument semantics" testHaskell2010CoreToSTGLazyArgument
       , pureTest "preserves Bool case semantics" testHaskell2010CoreToSTGBoolCase
+      , pureTest "preserves user ADT constructor pattern semantics" testHaskell2010CoreToSTGADTCase
+      , pureTest "preserves polymorphic ADT constructor semantics" testHaskell2010CoreToSTGPolymorphicADT
+      , pureTest "preserves nested constructor pattern semantics" testHaskell2010CoreToSTGNestedADTPatterns
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves curried partial application" testHaskell2010CoreToSTGPartialApplication
       , pureTest "rejects invalid Core before lowering" testHaskell2010CoreToSTGRejectsInvalidCore
@@ -1078,6 +1085,29 @@ testHaskell2010Core0Case = do
       assertBool "explicit Bool case remains Core case" (containsCase rhs)
     other -> Left ("unexpected Core-0 case module: " <> show other)
 
+testHaskell2010Core0ADTConstructorCase :: Either String ()
+testHaskell2010Core0ADTConstructorCase = do
+  coreModule <- typecheckHaskell2010 haskell2010ADTBoxSource
+  expectEqual "Box constructor metadata count" 1 (Map.size (H2010Core.coreModuleConstructors coreModule))
+  case H2010Core.coreModuleBinds coreModule of
+    [H2010Core.CoreNonRec binder rhs] -> do
+      expectEqual "ADT case result type" H2010Core.intTy (H2010Core.coreBinderType binder)
+      assertBool "user ADT case emits Core case" (containsCase rhs)
+      assertBool "user ADT case records constructor alternative" (containsConstructorAlt "Box" rhs)
+    other -> Left ("unexpected user ADT Core module: " <> show other)
+
+testHaskell2010Core0NestedADTPatterns :: Either String ()
+testHaskell2010Core0NestedADTPatterns = do
+  coreModule <- typecheckHaskell2010 haskell2010NestedADTSource
+  expectEqual "nested ADT constructor metadata count" 2 (Map.size (H2010Core.coreModuleConstructors coreModule))
+  case H2010Core.coreModuleBinds coreModule of
+    [H2010Core.CoreNonRec binder rhs] -> do
+      expectEqual "nested ADT result type" H2010Core.intTy (H2010Core.coreBinderType binder)
+      assertBool "nested ADT pattern emits nested Core case" (countCases rhs >= 2)
+      assertBool "nested ADT pattern records outer constructor" (containsConstructorAlt "Wrap" rhs)
+      assertBool "nested ADT pattern records inner constructor" (containsConstructorAlt "Box" rhs)
+    other -> Left ("unexpected nested ADT Core module: " <> show other)
+
 testHaskell2010Core0TypeError :: Either String ()
 testHaskell2010Core0TypeError =
   case
@@ -1136,6 +1166,20 @@ testHaskell2010Core0EvalBoolCase =
       \main = case False of\n\
       \  True -> 0\n\
       \  False -> 7\n"
+
+testHaskell2010Core0EvalADTField :: Either String ()
+testHaskell2010Core0EvalADTField =
+  expectCoreEvalInt
+    "Core-0 user ADT field evaluation"
+    7
+    =<< evalHaskell2010Binding "main" haskell2010ADTBoxSource
+
+testHaskell2010Core0EvalLazyADTField :: Either String ()
+testHaskell2010Core0EvalLazyADTField =
+  expectCoreEvalInt
+    "Core-0 lazy ADT field evaluation"
+    5
+    =<< evalHaskell2010Binding "main" haskell2010LazyADTFieldSource
 
 testHaskell2010Core0EvalLazyLet :: Either String ()
 testHaskell2010Core0EvalLazyLet =
@@ -1330,6 +1374,27 @@ testHaskell2010CoreToSTGBoolCase =
     \main = case False of\n\
     \  True -> 0\n\
     \  False -> 7\n"
+
+testHaskell2010CoreToSTGADTCase :: Either String ()
+testHaskell2010CoreToSTGADTCase =
+  checkCoreToSTGInt
+    "Core-to-STG user ADT case"
+    7
+    haskell2010ADTBoxSource
+
+testHaskell2010CoreToSTGPolymorphicADT :: Either String ()
+testHaskell2010CoreToSTGPolymorphicADT =
+  checkCoreToSTGInt
+    "Core-to-STG polymorphic ADT case"
+    4
+    haskell2010PolymorphicADTSource
+
+testHaskell2010CoreToSTGNestedADTPatterns :: Either String ()
+testHaskell2010CoreToSTGNestedADTPatterns =
+  checkCoreToSTGInt
+    "Core-to-STG nested ADT patterns"
+    3
+    haskell2010NestedADTSource
 
 testHaskell2010CoreToSTGDivisionByZero :: Either String ()
 testHaskell2010CoreToSTGDivisionByZero =
@@ -4342,6 +4407,10 @@ haskell2010NativeSuccessExamples =
   , ("lazy-let", haskell2010LazyLetSource, "5\n")
   , ("lazy-argument", haskell2010LazyArgumentSource, "1\n")
   , ("bool-case", haskell2010BoolCaseSource, "7\n")
+  , ("adt-box", haskell2010ADTBoxSource, "7\n")
+  , ("adt-maybe", haskell2010PolymorphicADTSource, "4\n")
+  , ("adt-nested", haskell2010NestedADTSource, "3\n")
+  , ("adt-lazy-field", haskell2010LazyADTFieldSource, "5\n")
   , ("partial-application", haskell2010PartialApplicationSource, "1\n")
   ]
 
@@ -4383,6 +4452,36 @@ haskell2010BoolCaseSource =
   \main = case False of\n\
   \  True -> 0\n\
   \  False -> 7\n"
+
+haskell2010ADTBoxSource :: Text
+haskell2010ADTBoxSource =
+  "module Main where\n\
+  \data Box = Box Int\n\
+  \main = case Box 7 of\n\
+  \  Box x -> x\n"
+
+haskell2010PolymorphicADTSource :: Text
+haskell2010PolymorphicADTSource =
+  "module Main where\n\
+  \data Maybe a = Nothing | Just a\n\
+  \main = case Just 4 of\n\
+  \  Nothing -> 0\n\
+  \  Just x -> x\n"
+
+haskell2010NestedADTSource :: Text
+haskell2010NestedADTSource =
+  "module Main where\n\
+  \data Box = Box Int\n\
+  \data Wrap = Wrap Box\n\
+  \main = case Wrap (Box 3) of\n\
+  \  Wrap (Box x) -> x\n"
+
+haskell2010LazyADTFieldSource :: Text
+haskell2010LazyADTFieldSource =
+  "module Main where\n\
+  \data Box = Box Int\n\
+  \main = case Box (1 / 0) of\n\
+  \  Box _ -> 5\n"
 
 haskell2010PartialApplicationSource :: Text
 haskell2010PartialApplicationSource =
@@ -4452,7 +4551,7 @@ stgThunkBinding binder updateFlag expression =
 
 stgMainProgram :: H2010STG.STGExpr -> H2010STG.STGProgram
 stgMainProgram expression =
-  H2010STG.STGProgram [stgThunkBinding stgMainBinder H2010STG.Updatable expression]
+  H2010STG.STGProgram Map.empty [stgThunkBinding stgMainBinder H2010STG.Updatable expression]
 
 stgMainBinder :: H2010STG.STGBinder
 stgMainBinder =
@@ -4465,6 +4564,7 @@ stgUnusedBadBinder =
 stgLazyFunctionArgumentProgram :: H2010STG.STGProgram
 stgLazyFunctionArgumentProgram =
   H2010STG.STGProgram
+    Map.empty
     [ H2010STG.STGNonRec constBinder constRhs
     , stgThunkBinding stgMainBinder H2010STG.Updatable mainBody
     ]
@@ -4512,6 +4612,7 @@ stgRecursiveBinder =
 stgBlackHoleProgram :: H2010STG.STGProgram
 stgBlackHoleProgram =
   H2010STG.STGProgram
+    Map.empty
     [ H2010STG.STGRec
         [ ( stgRecursiveBinder
           , H2010STG.STGThunk H2010STG.Updatable (H2010STG.STGAtom (stgVar stgRecursiveBinder))
@@ -4573,6 +4674,53 @@ bindContainsCase :: H2010Core.CoreBind -> Bool
 bindContainsCase = \case
   H2010Core.CoreNonRec _ rhs -> containsCase rhs
   H2010Core.CoreRec pairs -> any (containsCase . snd) pairs
+
+countCases :: H2010Core.CoreExpr -> Int
+countCases = \case
+  H2010Core.CCase scrutinee _ alternatives _ ->
+    1 + countCases scrutinee + sum (map altCountCases alternatives)
+  H2010Core.CLam _ body _ -> countCases body
+  H2010Core.CApp callee arg _ -> countCases callee + countCases arg
+  H2010Core.CTypeLam _ body _ -> countCases body
+  H2010Core.CTypeApp callee _ _ -> countCases callee
+  H2010Core.CLet bind body _ -> bindCountCases bind + countCases body
+  H2010Core.CPrimOp _ arguments _ -> sum (map countCases arguments)
+  _ -> 0
+
+bindCountCases :: H2010Core.CoreBind -> Int
+bindCountCases = \case
+  H2010Core.CoreNonRec _ rhs -> countCases rhs
+  H2010Core.CoreRec pairs -> sum (map (countCases . snd) pairs)
+
+altCountCases :: H2010Core.CoreAlt -> Int
+altCountCases (H2010Core.CoreAlt _ _ body) =
+  countCases body
+
+containsConstructorAlt :: Text -> H2010Core.CoreExpr -> Bool
+containsConstructorAlt occurrence = \case
+  H2010Core.CCase scrutinee _ alternatives _ ->
+    containsConstructorAlt occurrence scrutinee
+      || any (altContainsConstructorAlt occurrence) alternatives
+  H2010Core.CLam _ body _ -> containsConstructorAlt occurrence body
+  H2010Core.CApp callee arg _ -> containsConstructorAlt occurrence callee || containsConstructorAlt occurrence arg
+  H2010Core.CTypeLam _ body _ -> containsConstructorAlt occurrence body
+  H2010Core.CTypeApp callee _ _ -> containsConstructorAlt occurrence callee
+  H2010Core.CLet bind body _ -> bindContainsConstructorAlt occurrence bind || containsConstructorAlt occurrence body
+  H2010Core.CPrimOp _ arguments _ -> any (containsConstructorAlt occurrence) arguments
+  _ -> False
+
+bindContainsConstructorAlt :: Text -> H2010Core.CoreBind -> Bool
+bindContainsConstructorAlt occurrence = \case
+  H2010Core.CoreNonRec _ rhs -> containsConstructorAlt occurrence rhs
+  H2010Core.CoreRec pairs -> any (containsConstructorAlt occurrence . snd) pairs
+
+altContainsConstructorAlt :: Text -> H2010Core.CoreAlt -> Bool
+altContainsConstructorAlt occurrence (H2010Core.CoreAlt altCon _ body) =
+  case altCon of
+    H2010Core.ConstructorAlt name ->
+      H2010Names.nameOcc name == occurrence || containsConstructorAlt occurrence body
+    _ ->
+      containsConstructorAlt occurrence body
 
 countTypeApps :: H2010Core.CoreExpr -> Int
 countTypeApps = \case

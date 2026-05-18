@@ -3,6 +3,7 @@ module Haskell2010.Core.Syntax
   , CoreAltCon (..)
   , CoreBind (..)
   , CoreBinder (..)
+  , CoreConstructorInfo (..)
   , CoreExpr (..)
   , CoreModule (..)
   , CorePrimOp (..)
@@ -20,13 +21,22 @@ module Haskell2010.Core.Syntax
   )
 where
 
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import Haskell2010.Names (Namespace (..), RName (..))
 import Haskell2010.Syntax (Literal, ModuleName)
 
 data CoreModule = CoreModule
   { coreModuleName :: Maybe ModuleName
+  , coreModuleConstructors :: Map.Map RName CoreConstructorInfo
   , coreModuleBinds :: [CoreBind]
+  }
+  deriving stock (Show, Eq, Ord)
+
+data CoreConstructorInfo = CoreConstructorInfo
+  { constructorTyVars :: [RName]
+  , constructorFields :: [CoreType]
+  , constructorResult :: CoreType
   }
   deriving stock (Show, Eq, Ord)
 

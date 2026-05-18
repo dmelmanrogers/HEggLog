@@ -198,7 +198,7 @@ evalLiteral = \case
     Right (STGString value)
 
 allocateProgramEnv :: STGProgram -> EvalM RuntimeEnv
-allocateProgramEnv (STGProgram binds) =
+allocateProgramEnv (STGProgram _ binds) =
   foldM allocateBind Map.empty binds
 
 allocateBind :: RuntimeEnv -> STGBind -> EvalM RuntimeEnv

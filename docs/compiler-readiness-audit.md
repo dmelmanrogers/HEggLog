@@ -200,7 +200,7 @@ The implemented language is enough to exercise a real compiler pipeline, but it 
 | Function-valued roots | Yes | Yes | Source yes | Yes | No | No | Yes | Some | LLVM rejects function-valued program roots. |
 | Recursion | No | No | No | No | No | No | No | No | Not a current source feature. |
 | Open programs | No source execution | Rejected if unbound | No | ANF fragments yes | Egglog fragments yes | No | Partial | Partial | Useful internally but not a source artifact mode. |
-| ADTs/patterns/modules | No | No | No | No | No | No | No | No | Out of scope today. |
+| ADTs/patterns/modules | No | No | No | No | No | No | No | No | Out of scope for `.hg`; the separate Haskell 2010 path now has an initial ADT/pattern slice. |
 
 ## 6. Pipeline Inventory
 
@@ -493,7 +493,7 @@ To claim HeggLog is a fully working compiler for its current source language, th
 Items not required for a v1 of the current language, but required for a larger general-purpose language:
 
 - Recursion.
-- ADTs and pattern matching.
+- Broader ADTs and pattern matching.
 - Modules/imports.
 - Strings and aggregate data types.
 - Better package/build support.
