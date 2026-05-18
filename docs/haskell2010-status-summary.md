@@ -23,15 +23,14 @@ values when the root is printable.
 
 ## What Does Not Yet Compile
 
-HeggLog does not yet compile Haskell 2010 `.hs` source to native
-executables. The following Haskell 2010 requirements are planned but not
-implemented:
+HeggLog now compiles the first Haskell 2010 Core-0 `Int`/`Bool` subset from
+`.hs` source to native executables. The following Haskell 2010 requirements are
+planned but not implemented:
 
 - ADTs and pattern matching
 - type classes and dictionary passing
 - Prelude/library subset
 - Haskell source desugaring beyond the Core-0 `Int`/`Bool` subset
-- native lazy runtime path
 - IO `main`
 - Haskell 2010 conformance suite
 
@@ -104,8 +103,9 @@ thunk closures, constructor closures, `let`/`letrec`, case demand,
 updateable-thunk sharing, single-entry thunk re-entry, black-hole detection,
 Bool constructor dispatch, and checked `Int` primitive runtime errors.
 
-This is not yet the native runtime system. Runtime C/LLVM closure layout,
-runtime linking, and Haskell 2010 native wet tests remain later work.
+The boxed LLVM/native runtime path is implemented for the first Core-0
+`Int`/`Bool` subset. Runtime expansion for ADTs, pattern fields, Prelude data,
+and IO remains later work.
 
 ## What Lowers To STG Today
 
@@ -117,7 +117,8 @@ constructors, and primitive operations, and rejects invalid Core before
 lowering.
 
 Lowered STG currently runs through the in-process STG evaluator as the semantic
-check. It is not yet emitted as LLVM or linked into a native Haskell executable.
+check. The Core-0 `Int`/`Bool` subset is now also emitted as boxed lazy STG
+LLVM and compiled to native executables through the existing clang toolchain.
 
 ## First Haskell 2010 Implementation Milestones
 
@@ -128,8 +129,9 @@ check. It is not yet emitted as LLVM or linked into a native Haskell executable.
 5. Core-0 reference evaluator. Completed.
 6. Lazy/STG runtime MVP. Completed.
 7. Core-to-STG lowering MVP. Completed.
-8. Core-0 native executable path.
-9. Egglog Core optimizer implementation using the Core/STG evaluators as oracle.
+8. Core-0 native executable path. Completed.
+9. Egglog Core optimizer implementation using the Core/STG/native evaluators
+   as oracle.
 
 ## Where Egglog Fits
 
@@ -139,9 +141,11 @@ adapter that preserves laziness, bottom, and runtime-error behavior.
 
 ## Where LLVM/Native Output Fits
 
-Native executable output already exists for the current `.hg` supported subset.
-The Haskell 2010 path will lower typed Core to STG-like lazy IR, link a runtime,
-emit LLVM IR, and invoke clang to produce native machine-code executables.
+Native executable output exists for the current `.hg` supported subset and for
+the first Haskell 2010 Core-0 subset. The Haskell 2010 path lowers typed Core
+to STG-like lazy IR, emits a boxed lazy LLVM runtime with closure allocation,
+enter/apply, thunk forcing/update, Bool case dispatch, and checked primitives,
+and invokes clang to produce native machine-code executables.
 
 ## GHC Compatibility
 
@@ -151,6 +155,6 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Build the Core-0 native executable path while preserving the current `.hg`
-compiler, Core-0 reference evaluator, STG runtime MVP, Core-to-STG lowering,
-and wet-test baseline.
+Build the Egglog Core optimizer while preserving the current `.hg` compiler,
+Core-0 reference evaluator, STG runtime MVP, Core-to-STG lowering, Core-0
+native executable path, and wet-test baseline.

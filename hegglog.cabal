@@ -80,11 +80,13 @@ executable hegglog
       Haskell2010.Layout
       Haskell2010.Lexer
       Haskell2010.Names
+      Haskell2010.Native
       Haskell2010.Parser
       Haskell2010.Pretty
       Haskell2010.Renamed
       Haskell2010.Renamer
       Haskell2010.STG.Eval
+      Haskell2010.STG.LLVM
       Haskell2010.STG.Lower
       Haskell2010.STG.Syntax
       Haskell2010.STG.Validate
@@ -174,11 +176,13 @@ test-suite hegglog-test
       Haskell2010.Layout
       Haskell2010.Lexer
       Haskell2010.Names
+      Haskell2010.Native
       Haskell2010.Parser
       Haskell2010.Pretty
       Haskell2010.Renamed
       Haskell2010.Renamer
       Haskell2010.STG.Eval
+      Haskell2010.STG.LLVM
       Haskell2010.STG.Lower
       Haskell2010.STG.Syntax
       Haskell2010.STG.Validate

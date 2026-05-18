@@ -93,7 +93,7 @@ is built alongside them.
 7. STG IR. Completed.
 8. Lazy runtime. Completed.
 9. Core-to-STG lowering. Completed.
-10. STG-to-LLVM.
+10. STG-to-LLVM. Completed for the first Core-0 `Int`/`Bool` subset.
 11. ADTs/pattern matching.
 12. Recursion.
 13. Prelude subset.

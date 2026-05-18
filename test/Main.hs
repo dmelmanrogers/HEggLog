@@ -35,6 +35,7 @@ import qualified Haskell2010.Core.Subst as H2010CoreSubst
 import qualified Haskell2010.Core.Syntax as H2010Core
 import qualified Haskell2010.Core.Validate as H2010CoreValidate
 import qualified Haskell2010.Names as H2010Names
+import qualified Haskell2010.Native as H2010Native
 import qualified Haskell2010.Parser as H2010Parser
 import qualified Haskell2010.Renamed as H2010Renamed
 import qualified Haskell2010.Renamer as H2010Renamer
@@ -169,6 +170,13 @@ testGroups =
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves curried partial application" testHaskell2010CoreToSTGPartialApplication
       , pureTest "rejects invalid Core before lowering" testHaskell2010CoreToSTGRejectsInvalidCore
+      ]
+  , TestGroup
+      "Haskell 2010 Native Output"
+      [ pureTest "emits boxed lazy STG runtime LLVM" testHaskell2010NativeLLVMShape
+      , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
+      , ioTest "native executable preserves lazy Core-0 semantics" testHaskell2010NativeExecutableExecution
+      , ioTest "native runtime errors fail when forced" testHaskell2010NativeRuntimeError
       ]
   , TestGroup
       "Typechecker"
@@ -1348,6 +1356,98 @@ testHaskell2010CoreToSTGRejectsInvalidCore =
   isUnbound = \case
     H2010CoreValidate.CoreUnboundVariable {} -> True
     _ -> False
+
+testHaskell2010NativeLLVMShape :: Either String ()
+testHaskell2010NativeLLVMShape = do
+  llvmText <- compileHaskell2010NativeText haskell2010PartialApplicationSource
+  assertBool "native LLVM defines lazy force runtime" ("define ptr @hegglog_hs_force" `Text.isInfixOf` llvmText)
+  assertBool "native LLVM allocates thunks" ("@hegglog_hs_make_thunk" `Text.isInfixOf` llvmText)
+  assertBool "native LLVM boxes Int results" ("@hegglog_hs_make_int" `Text.isInfixOf` llvmText)
+  assertBool "native LLVM enters closures indirectly" ("call ptr %fun_code" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeLLVMExecution :: IO (Either String ())
+testHaskell2010NativeLLVMExecution = do
+  tools <- LLVMTools.findLLVMTools
+  firstFailureIO (check tools) haskell2010NativeSuccessExamples
+ where
+  check tools (label, source, expectedStdout) =
+    case compileHaskell2010Native source of
+      Left err ->
+        pure (Left err)
+      Right result -> do
+        let llvmText = H2010Native.haskell2010LLVMText result
+        assemblyResult <- LLVMTools.validateLLVMText tools llvmText
+        runResult <- LLVMTools.runLLVMText tools llvmText
+        pure $
+          checkLLVMAssemblyResult ("<haskell2010-native-" <> Text.unpack label <> ">") assemblyResult
+            *> case runResult of
+              LLVMTools.LLVMRunSkipped {} ->
+                Right ()
+              LLVMTools.LLVMRunFailed stdoutText stderrText ->
+                Left
+                  ( "Haskell 2010 LLVM execution failed for "
+                      <> Text.unpack label
+                      <> "\nstdout:\n"
+                      <> stdoutText
+                      <> "\nstderr:\n"
+                      <> stderrText
+                  )
+              LLVMTools.LLVMRunSucceeded stdoutText ->
+                expectEqual ("Haskell 2010 native LLVM stdout for " <> Text.unpack label) expectedStdout stdoutText
+
+testHaskell2010NativeExecutableExecution :: IO (Either String ())
+testHaskell2010NativeExecutableExecution = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} -> do
+      createDirectoryIfMissing True ".context/native-tests"
+      firstFailureIO (check tools) haskell2010NativeExecutableExamples
+ where
+  check tools (label, source, expectedStdout) =
+    case compileHaskell2010Native source of
+      Left err ->
+        pure (Left err)
+      Right result -> do
+        let outputPath = ".context/native-tests/haskell2010-" <> Text.unpack label
+        buildResult <- LLVMTools.buildNativeExecutable tools (H2010Native.haskell2010LLVMText result) outputPath
+        runBuiltNative outputPath buildResult $ \runResult ->
+          case runResult of
+            LLVMTools.NativeRunSucceeded stdoutText ->
+              expectEqual ("Haskell 2010 native stdout for " <> Text.unpack label) expectedStdout stdoutText
+            LLVMTools.NativeRunFailed code stdoutText stderrText ->
+              Left
+                ( "Haskell 2010 native execution failed for "
+                    <> outputPath
+                    <> " with "
+                    <> show code
+                    <> "\nstdout:\n"
+                    <> stdoutText
+                    <> "\nstderr:\n"
+                    <> stderrText
+                )
+            LLVMTools.NativeRunIOError message ->
+              Left ("Haskell 2010 native execution I/O error for " <> outputPath <> ": " <> message)
+
+testHaskell2010NativeRuntimeError :: IO (Either String ())
+testHaskell2010NativeRuntimeError = do
+  tools <- LLVMTools.findLLVMTools
+  case compileHaskell2010Native haskell2010DivisionByZeroSource of
+    Left err ->
+      pure (Left err)
+    Right result -> do
+      assemblyResult <- LLVMTools.validateLLVMText tools (H2010Native.haskell2010LLVMText result)
+      runResult <- LLVMTools.runLLVMText tools (H2010Native.haskell2010LLVMText result)
+      pure $
+        checkLLVMAssemblyResult "<haskell2010-native-division-by-zero>" assemblyResult
+          *> case runResult of
+            LLVMTools.LLVMRunSkipped {} ->
+              Right ()
+            LLVMTools.LLVMRunFailed {} ->
+              Right ()
+            LLVMTools.LLVMRunSucceeded stdoutText ->
+              Left ("expected forced Haskell 2010 division by zero to fail, got stdout:\n" <> stdoutText)
 
 testHigherOrderType :: Either String ()
 testHigherOrderType = do
@@ -4016,6 +4116,78 @@ checkCoreToSTGInt label expected source = do
   stgValue <- lowerAndEvalHaskell2010Binding "main" source
   expectCoreEvalInt (label <> " Core oracle") expected coreValue
   expectSTGInt (label <> " STG value") expected stgValue
+
+compileHaskell2010Native :: Text -> Either String H2010Native.Haskell2010LLVMResult
+compileHaskell2010Native source =
+  mapLeft
+    (Text.unpack . H2010Native.renderHaskell2010LLVMError)
+    (H2010Native.compileHaskell2010ToLLVM "<haskell2010-native-test>" source)
+
+compileHaskell2010NativeText :: Text -> Either String Text
+compileHaskell2010NativeText source =
+  H2010Native.haskell2010LLVMText <$> compileHaskell2010Native source
+
+haskell2010NativeSuccessExamples :: [(Text, Text, String)]
+haskell2010NativeSuccessExamples =
+  [ ("arithmetic", haskell2010ArithmeticSource, "9\n")
+  , ("polymorphic-id", haskell2010PolymorphicIdentitySource, "42\n")
+  , ("lazy-let", haskell2010LazyLetSource, "5\n")
+  , ("lazy-argument", haskell2010LazyArgumentSource, "1\n")
+  , ("bool-case", haskell2010BoolCaseSource, "7\n")
+  , ("partial-application", haskell2010PartialApplicationSource, "1\n")
+  ]
+
+haskell2010NativeExecutableExamples :: [(Text, Text, String)]
+haskell2010NativeExecutableExamples =
+  [ ("lazy-argument", haskell2010LazyArgumentSource, "1\n")
+  , ("partial-application", haskell2010PartialApplicationSource, "1\n")
+  ]
+
+haskell2010ArithmeticSource :: Text
+haskell2010ArithmeticSource =
+  "module Main where\n\
+  \main = (1 + 2) * 3\n"
+
+haskell2010PolymorphicIdentitySource :: Text
+haskell2010PolymorphicIdentitySource =
+  "module Main where\n\
+  \id :: a -> a\n\
+  \id x = x\n\
+  \main = id 42\n"
+
+haskell2010LazyLetSource :: Text
+haskell2010LazyLetSource =
+  "module Main where\n\
+  \main = let\n\
+  \  x = 1 / 0\n\
+  \in 5\n"
+
+haskell2010LazyArgumentSource :: Text
+haskell2010LazyArgumentSource =
+  "module Main where\n\
+  \const :: a -> b -> a\n\
+  \const x y = x\n\
+  \main = const 1 (1 / 0)\n"
+
+haskell2010BoolCaseSource :: Text
+haskell2010BoolCaseSource =
+  "module Main where\n\
+  \main = case False of\n\
+  \  True -> 0\n\
+  \  False -> 7\n"
+
+haskell2010PartialApplicationSource :: Text
+haskell2010PartialApplicationSource =
+  "module Main where\n\
+  \const :: a -> b -> a\n\
+  \const x y = x\n\
+  \one = const 1\n\
+  \main = one (1 / 0)\n"
+
+haskell2010DivisionByZeroSource :: Text
+haskell2010DivisionByZeroSource =
+  "module Main where\n\
+  \main = 1 / 0\n"
 
 expectSTGInt :: String -> Integer -> H2010STGEval.STGValue -> Either String ()
 expectSTGInt label expected = \case

@@ -36,6 +36,7 @@ data E2ECase = E2ECase
   , expected :: Expected
   , egglogModes :: [EgglogMode]
   , alsoEmitLLVM :: Bool
+  , includeReport :: Bool
   }
   deriving stock (Show, Eq)
 
@@ -96,7 +97,7 @@ caseTests hegglog clang e2eCase =
       _ -> []
   reportTests =
     case expected e2eCase of
-      ExpectSuccess {} ->
+      ExpectSuccess {} | includeReport e2eCase ->
         [ TestLabel (Text.unpack (caseName e2eCase) <> " report") $
             TestCase (runReportCase hegglog e2eCase)
         ]
@@ -269,6 +270,18 @@ successCase name path expectedStdout modes emitLLVM =
     , expected = ExpectSuccess expectedStdout
     , egglogModes = modes
     , alsoEmitLLVM = emitLLVM
+    , includeReport = True
+    }
+
+nativeOnlySuccessCase :: Text -> FilePath -> Text -> [EgglogMode] -> Bool -> E2ECase
+nativeOnlySuccessCase name path expectedStdout modes emitLLVM =
+  E2ECase
+    { caseName = name
+    , sourcePath = path
+    , expected = ExpectSuccess expectedStdout
+    , egglogModes = modes
+    , alsoEmitLLVM = emitLLVM
+    , includeReport = False
     }
 
 runtimeErrorCase :: Text -> FilePath -> [EgglogMode] -> E2ECase
@@ -279,6 +292,7 @@ runtimeErrorCase name path modes =
     , expected = ExpectRuntimeError
     , egglogModes = modes
     , alsoEmitLLVM = False
+    , includeReport = False
     }
 
 compileErrorCase :: Text -> FilePath -> [Text] -> E2ECase
@@ -289,6 +303,7 @@ compileErrorCase name path categories =
     , expected = ExpectCompileError categories
     , egglogModes = [DefaultEgglog]
     , alsoEmitLLVM = False
+    , includeReport = False
     }
 
 e2eCases :: [E2ECase]
@@ -305,11 +320,17 @@ e2eCases =
   , successCase "higher-order" "test/e2e/programs/higher-order.hg" "42" [DefaultEgglog] False
   , successCase "egglog-beneficial" "test/e2e/programs/egglog-beneficial.hg" "14" [DefaultEgglog, NoEgglog] False
   , successCase "boolean-reasoning" "test/e2e/programs/boolean-reasoning.hg" "1" [DefaultEgglog] False
+  , nativeOnlySuccessCase "haskell2010-arithmetic" "test/e2e/programs/haskell2010/arithmetic.hs" "9" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-lazy-let" "test/e2e/programs/haskell2010/lazy-let.hs" "5" [DefaultEgglog] False
+  , nativeOnlySuccessCase "haskell2010-lazy-argument" "test/e2e/programs/haskell2010/lazy-argument.hs" "1" [DefaultEgglog] True
+  , nativeOnlySuccessCase "haskell2010-partial-application" "test/e2e/programs/haskell2010/partial-application.hs" "1" [DefaultEgglog] False
+  , nativeOnlySuccessCase "haskell2010-bool-case" "test/e2e/programs/haskell2010/bool-case.hs" "7" [DefaultEgglog] False
   , runtimeErrorCase "addition-overflow" "test/e2e/programs/runtime-errors/addition-overflow.hg" [DefaultEgglog]
   , runtimeErrorCase "subtraction-overflow" "test/e2e/programs/runtime-errors/subtraction-overflow.hg" [DefaultEgglog]
   , runtimeErrorCase "multiplication-overflow" "test/e2e/programs/runtime-errors/multiplication-overflow.hg" [DefaultEgglog]
   , runtimeErrorCase "division-by-zero" "test/e2e/programs/runtime-errors/division-by-zero.hg" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "division-overflow" "test/e2e/programs/runtime-errors/division-overflow.hg" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-division-by-zero" "test/e2e/programs/haskell2010/division-by-zero.hs" [DefaultEgglog]
   , compileErrorCase "open-free-variable" "test/e2e/programs/compile-errors/open-free-variable.hg" ["free", "unbound", "unknown", "backend"]
   , compileErrorCase "type-error" "test/e2e/programs/compile-errors/type-error.hg" ["type"]
   , compileErrorCase "unsupported-recursion" "test/e2e/programs/unsupported/unsupported-recursion.hg" ["recursive", "recursion", "unbound", "unknown"]

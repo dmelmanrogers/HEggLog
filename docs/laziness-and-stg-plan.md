@@ -88,7 +88,8 @@ Bool constructor dispatch, and checked primitive errors.
 `Haskell2010.STG.Lower` now lowers validating Core-0 modules into validating
 STG while erasing type abstraction/application and preserving lazy semantics
 against the STG evaluator. Native runtime object layout, LLVM lowering, and
-runtime linking remain later work.
+runtime linking are implemented for the first Core-0 `Int`/`Bool` subset and
+remain to be expanded for ADTs, pattern matching, Prelude values, and IO.
 
 ## LLVM Lowering
 
@@ -102,10 +103,10 @@ The lazy backend lowers STG-like IR to LLVM by using:
 - heap allocation
 - runtime linking
 
-Generated LLVM for Haskell 2010 source must link the runtime system. The current
-strict `.hg` LLVM backend does not by itself implement lazy Haskell semantics,
-even though it already proves the project can emit LLVM and produce native
-executables through `clang`.
+Generated LLVM for Haskell 2010 source now includes a boxed lazy STG runtime for
+the first Core-0 subset. The current strict `.hg` LLVM backend remains separate
+and does not by itself implement lazy Haskell semantics, even though it provides
+the shared LLVM and clang toolchain path.
 
 ## Testing
 

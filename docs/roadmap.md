@@ -43,9 +43,9 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Core-0 native executable path.
-2. Egglog Core optimizer implementation using the Core/STG evaluators as oracle.
-3. Broader ADT and pattern-match Core support.
+1. Egglog Core optimizer implementation using the Core/STG/native evaluators as oracle.
+2. Broader ADT and pattern-match Core support.
+3. Prelude Bool/list/tuple runtime expansion.
 
 Completed Haskell 2010 roadmap work:
 
@@ -77,6 +77,11 @@ Completed Haskell 2010 roadmap work:
   function lowering, thunked non-atomic operands/intermediate applications,
   `let`/`letrec`, Bool cases, primitive operations, and STG evaluator
   preservation tests.
+- Haskell 2010 Core-0 native executable path: implemented as boxed STG-to-LLVM
+  lowering with closure allocation, thunk forcing/update, enter/apply, Bool
+  case dispatch, checked primitive aborts, `.hs` compile-mode integration, and
+  native wet tests for arithmetic, polymorphism, laziness, partial application,
+  Bool case, and forced division-by-zero failure.
 
 ## Non-Negotiable Project Direction
 
