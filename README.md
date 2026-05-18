@@ -27,7 +27,7 @@ Implemented today for the current `.hg` compiler-supported subset:
   artifacts, verify stdout/stderr/exit codes, compare report-mode
   `Result: <value>` output, and compile selected emitted LLVM through `clang`
 
-Planned for the Haskell 2010 target:
+Implemented today for the Haskell 2010 target:
 
 - layout-aware Haskell 2010 frontend
 - renamer and module/import resolution
@@ -39,8 +39,12 @@ Planned for the Haskell 2010 target:
 - Core-to-STG lowering for the first Core-0 subset
 - native executable output for the first Core-0 subset through a boxed lazy
   STG LLVM runtime
+- Egglog Core optimization for safe typed Core-0 fragments, with Core/STG/native
+  oracle tests and `--no-egglog` comparison coverage
+
+Planned for the broader Haskell 2010 target:
+
 - full Haskell 2010 class constraints and dictionaries
-- Egglog optimizer over typed Core
 - broader runtime-linked LLVM/native executable output for `.hs` programs
 
 ## Quickstart
@@ -92,8 +96,8 @@ Compile without Egglog optimization:
 cabal run hegglog -- compile examples/llvm/division.hg -o /tmp/hegglog-division --no-egglog
 ```
 
-Do not use Haskell 2010 `.hs` examples as working compile commands yet. Haskell
-2010 source support is the active roadmap, not the current frontend.
+The same `--no-egglog` flag disables the Haskell 2010 Core optimizer for `.hs`
+Core-0 programs.
 
 ## Haskell 2010 Roadmap
 
@@ -122,8 +126,8 @@ Full documentation index:
 | Haskell 2010 STG/lazy runtime | Implemented as an isolated STG-like IR, validator, pure heap evaluator, Core-to-STG lowering, and boxed LLVM/native runtime for the Core-0 `Int`/`Bool` subset, including thunks, enter/apply, Bool case dispatch, checked primitives, and native wet tests. |
 | LLVM/native backend | Implemented for the current `.hg` supported subset. |
 | Egglog ANF backend | Implemented for the current `.hg` supported subset. |
-| Egglog Core optimizer | Planned for the Haskell 2010 Core pipeline. |
-| Native wet tests | Implemented for the current `.hg` native compiler baseline; Haskell 2010 wet tests will be added with Haskell 2010 features. |
+| Egglog Core optimizer | Implemented for safe Haskell 2010 Core-0 `Int`/`Bool` fragments using the existing Egglog backend, typed Core validation, provenance, and optimized/unoptimized native agreement tests. |
+| Native wet tests | Implemented for the current `.hg` native compiler baseline and the Haskell 2010 Core-0 native path, including default Egglog and `--no-egglog` modes. |
 
 ## Current `.hg` Language Support
 
@@ -148,8 +152,10 @@ programs with printable `Int` or `Bool` roots, top-level first-order calls,
 lambda-lifted non-capturing functions, and closure-converted local function
 values. It rejects unsupported targets structurally.
 
-HeggLog does not yet support Haskell 2010 modules, imports, ADTs, pattern
-matching, classes/instances, Prelude, IO `main`, or lazy semantics.
+HeggLog does not yet support whole-program Haskell 2010 modules/imports, ADTs,
+general pattern matching, classes/instances, Prelude data/functions, or IO
+`main`. Lazy semantics are implemented for the current Core-0 executable
+subset.
 
 ## Existing Specs
 

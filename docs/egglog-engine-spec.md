@@ -11,22 +11,26 @@ rebuild, rule evaluation, extraction, and provenance/debug tracing.
 The engine is not tied to the current `.hg` frontend and must remain independent
 of the future Haskell 2010 frontend.
 
-## Current Adapter
+## Current Adapters
 
-The current production compiler adapter is the `.hg` ANF Egglog backend in
+The current production `.hg` compiler adapter is the ANF Egglog backend in
 `Optimize.EgglogBackend.*`. It encodes a typed, pure ANF fragment into Egglog
 sorts, runs strictness-safe rules, extracts valid ANF, and checks type and
 runtime-error preservation.
 
-This backend optimizes the current `.hg` compiler-supported subset only. It
-does not optimize Haskell 2010 Core.
+The Haskell 2010 compiler has an initial typed Core adapter in
+`Optimize.CoreEgglog`. It encodes safe Core-0 `Int`/`Bool` fragments through
+the existing ANF Egglog backend, decodes extracted representatives back to
+typed Core, validates the extracted Core, and records selected rewrite
+provenance. It is deliberately conservative: unsupported or lazy-sensitive Core
+is left unchanged.
 
-## Future Haskell 2010 Adapter
+## Full Haskell 2010 Adapter Direction
 
-The Haskell 2010 compiler will add a typed Core Egglog adapter, described in
+The broader typed Core Egglog adapter is described in
 [`egglog-core-optimizer-plan.md`](egglog-core-optimizer-plan.md).
 
-The future adapter is responsible for:
+The full adapter remains responsible for:
 
 - Core schema and encoding
 - Core facts

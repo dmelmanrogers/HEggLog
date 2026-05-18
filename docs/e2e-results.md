@@ -1,9 +1,10 @@
 # End-to-End Wet Test Results
 
 Recorded for the mandatory wet-test suite after adding the Haskell 2010
-Core-0 native executable path. The suite covers the existing `.hg` native
-compiler baseline and Haskell 2010 Core-0 `.hs` programs that compile to native
-executables and compare lazy runtime behavior.
+Core-0 Egglog optimizer to the native executable path. The suite covers the
+existing `.hg` native compiler baseline and Haskell 2010 Core-0 `.hs` programs
+that compile to native executables, compare lazy runtime behavior, and run both
+default Egglog and `--no-egglog` modes for Haskell 2010 optimizer coverage.
 
 Run metadata:
 
@@ -16,14 +17,14 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 54
+- HUnit checks: 59
 - Source files: 26
 - Successful source cases: 17
 - Runtime-error source cases: 6
 - Compile-error source cases: 3
-- Native compile/run checks: 35
+- Native compile/run checks: 40
 - Default Egglog native checks: 26
-- `--no-egglog` native checks: 9
+- `--no-egglog` native checks: 14
 - Emit-LLVM checks: 7
 - Report/interpreter comparisons: 12
 - Failures: 0
@@ -71,10 +72,14 @@ Summary:
 | haskell2010-arithmetic | `test/e2e/programs/haskell2010/arithmetic.hs` | success | native/no-egglog | `9` | stdout `9`, stderr empty, exit 0 | pass |
 | haskell2010-arithmetic | `test/e2e/programs/haskell2010/arithmetic.hs` | success | emit-llvm/default | `9` | LLVM compiled through clang, stdout `9`, stderr empty, exit 0 | pass |
 | haskell2010-lazy-let | `test/e2e/programs/haskell2010/lazy-let.hs` | success | native/default | `5` | stdout `5`, stderr empty, exit 0 | pass |
+| haskell2010-lazy-let | `test/e2e/programs/haskell2010/lazy-let.hs` | success | native/no-egglog | `5` | stdout `5`, stderr empty, exit 0 | pass |
 | haskell2010-lazy-argument | `test/e2e/programs/haskell2010/lazy-argument.hs` | success | native/default | `1` | stdout `1`, stderr empty, exit 0 | pass |
+| haskell2010-lazy-argument | `test/e2e/programs/haskell2010/lazy-argument.hs` | success | native/no-egglog | `1` | stdout `1`, stderr empty, exit 0 | pass |
 | haskell2010-lazy-argument | `test/e2e/programs/haskell2010/lazy-argument.hs` | success | emit-llvm/default | `1` | LLVM compiled through clang, stdout `1`, stderr empty, exit 0 | pass |
 | haskell2010-partial-application | `test/e2e/programs/haskell2010/partial-application.hs` | success | native/default | `1` | stdout `1`, stderr empty, exit 0 | pass |
+| haskell2010-partial-application | `test/e2e/programs/haskell2010/partial-application.hs` | success | native/no-egglog | `1` | stdout `1`, stderr empty, exit 0 | pass |
 | haskell2010-bool-case | `test/e2e/programs/haskell2010/bool-case.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
+| haskell2010-bool-case | `test/e2e/programs/haskell2010/bool-case.hs` | success | native/no-egglog | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | addition-overflow | `test/e2e/programs/runtime-errors/addition-overflow.hg` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | subtraction-overflow | `test/e2e/programs/runtime-errors/subtraction-overflow.hg` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | multiplication-overflow | `test/e2e/programs/runtime-errors/multiplication-overflow.hg` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
@@ -83,6 +88,7 @@ Summary:
 | division-overflow | `test/e2e/programs/runtime-errors/division-overflow.hg` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | division-overflow | `test/e2e/programs/runtime-errors/division-overflow.hg` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | haskell2010-division-by-zero | `test/e2e/programs/haskell2010/division-by-zero.hs` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
+| haskell2010-division-by-zero | `test/e2e/programs/haskell2010/division-by-zero.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | open-free-variable | `test/e2e/programs/compile-errors/open-free-variable.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |
 | type-error | `test/e2e/programs/compile-errors/type-error.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |
 | unsupported-recursion | `test/e2e/programs/unsupported/unsupported-recursion.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |

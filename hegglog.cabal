@@ -97,6 +97,7 @@ executable hegglog
       IR.ANF.Validate
       IR.Core
       Optimize.EgglogBackend
+      Optimize.CoreEgglog
       Optimize.EgglogBackend.Encode
       Optimize.EgglogBackend.Extract
       Optimize.EgglogBackend.Fragment
@@ -193,6 +194,7 @@ test-suite hegglog-test
       IR.ANF.Validate
       IR.Core
       Optimize.EgglogBackend
+      Optimize.CoreEgglog
       Optimize.EgglogBackend.Encode
       Optimize.EgglogBackend.Extract
       Optimize.EgglogBackend.Fragment

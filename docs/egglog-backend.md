@@ -2,11 +2,13 @@
 
 This document describes the current `.hg` ANF Egglog backend. It is distinct
 from the generic Egglog kernel in [egglog-engine-spec.md](egglog-engine-spec.md)
-and from the planned Haskell 2010 typed Core optimizer in
+and is reused by the initial Haskell 2010 typed Core optimizer described in
 [egglog-core-optimizer-plan.md](egglog-core-optimizer-plan.md).
 
 The current backend optimizes the existing strict `.hg` compiler-supported
-subset only. It does not optimize Haskell 2010 Core.
+subset directly. Haskell 2010 Core optimization goes through
+`Optimize.CoreEgglog`, which conservatively adapts safe Core-0 fragments to this
+backend and decodes extracted results back into typed Core.
 
 The Egglog backend is an isolated compiler optimization backend for a typed,
 pure ANF fragment. It does not replace the existing simplifier or the older

@@ -324,6 +324,13 @@ Acceptance criteria:
 
 ### Phase 15 - Egglog Core Optimizer
 
+Status: the first safe Core-0 optimizer slice is implemented. It optimizes
+typed `Int`/`Bool` Core fragments before STG lowering, extracts validating Core,
+reports provenance, preserves laziness/bottom by skipping unsafe fragments, and
+is checked against Core, STG, and optimized/unoptimized native execution.
+Broader ADT, dictionary, strictness, and constructor facts remain part of the
+full Phase 15 expansion.
+
 Deliverables:
 
 - Core-to-Egglog schema, Core encoding, typed Core facts, Core rewrite rules,
@@ -449,11 +456,11 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. Egglog Core optimizer implementation using the Core/STG/native evaluators as oracle.
-2. Broader ADT and pattern-match Core support.
-3. Prelude Bool/list/tuple runtime expansion.
-4. Haskell 2010 conformance matrix expansion.
-5. Type class dictionary representation.
+1. Broader ADT and pattern-match Core support.
+2. Prelude Bool/list/tuple runtime expansion.
+3. Haskell 2010 conformance matrix expansion for the next executable surface.
+4. Type class dictionary representation.
+5. Recursive function and data structure native coverage.
 
 Completed immediate tasks:
 
@@ -478,6 +485,11 @@ Completed immediate tasks:
   lowering, closure allocation, enter/apply, thunk forcing/update, Bool case
   dispatch, checked primitive aborts, CLI `.hs` compile integration, and native
   wet tests.
+- Haskell 2010 Egglog Core optimizer for safe typed Core-0 `Int`/`Bool`
+  fragments, including checked constant folding, safe arithmetic identities,
+  known Bool case selection, typed Core extraction/validation, provenance,
+  `--no-egglog` comparison, Core/STG/native oracle tests, lazy let preservation,
+  and strict bottom preservation.
 - Haskell 2010 Lazy/STG runtime MVP, including STG syntax, validation,
   function closures, updateable and single-entry thunk closures, constructor
   closures, `let`/`letrec`, case demand, thunk sharing, black-hole detection,

@@ -68,16 +68,17 @@ src/Runtime/ or runtime/
   hegglog_rts.h
 ```
 
-Proposed Core Egglog adapter:
+Implemented Core Egglog adapter:
 
 ```text
-src/Optimize/CoreEgglog/
-  Schema.hs
-  Encode.hs
-  Rules.hs
-  Extract.hs
-  Facts.hs
+src/Optimize/CoreEgglog.hs
 ```
+
+It currently adapts safe typed Core-0 `Int`/`Bool` fragments to the existing
+ANF Egglog backend, decodes extracted ANF back into validating typed Core, and
+records selected rewrite provenance. Splitting this module into schema,
+encoding, facts, rules, and extraction submodules remains useful once ADTs,
+dictionaries, strictness facts, and broader Core rewrites are added.
 
 The existing `.hg` modules remain intact and isolated while Haskell 2010 support
 is built alongside them.
@@ -100,7 +101,8 @@ is built alongside them.
 14. Type classes/dictionaries.
 15. IO.
 16. Modules.
-17. Egglog Core optimizer.
+17. Egglog Core optimizer. Completed for the first safe Core-0 fragment;
+    broader Core facts and rewrites remain planned.
 
 ## Tests Required Per Milestone
 

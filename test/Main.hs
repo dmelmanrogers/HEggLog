@@ -52,6 +52,7 @@ import IR.Core (CoreNode (..), CoreProgram (..), lower)
 import qualified Optimize.EgglogBackend as OEB
 import qualified Optimize.EgglogBackend.Rules as OER
 import qualified Optimize.EgglogBackend.Schema as OES
+import qualified Optimize.CoreEgglog as H2010CoreEgglog
 import qualified Optimize.EGraph as EG
 import Optimize.Rewrite
   ( RewriteDiagnostic (..)
@@ -177,6 +178,14 @@ testGroups =
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
       , ioTest "native executable preserves lazy Core-0 semantics" testHaskell2010NativeExecutableExecution
       , ioTest "native runtime errors fail when forced" testHaskell2010NativeRuntimeError
+      ]
+  , TestGroup
+      "Haskell 2010 Core Egglog Optimizer"
+      [ pureTest "folds safe Core-0 arithmetic with provenance" testHaskell2010CoreEgglogFoldsArithmetic
+      , pureTest "folds Bool case over known constructor" testHaskell2010CoreEgglogFoldsKnownBoolCase
+      , pureTest "preserves lazy let semantics through optimized Core and STG" testHaskell2010CoreEgglogPreservesLazyLet
+      , pureTest "does not erase strict bottom dependencies" testHaskell2010CoreEgglogPreservesStrictBottom
+      , ioTest "optimized and unoptimized native output agree" testHaskell2010CoreEgglogNativeAgreement
       ]
   , TestGroup
       "Typechecker"
@@ -1448,6 +1457,170 @@ testHaskell2010NativeRuntimeError = do
               Right ()
             LLVMTools.LLVMRunSucceeded stdoutText ->
               Left ("expected forced Haskell 2010 division by zero to fail, got stdout:\n" <> stdoutText)
+
+testHaskell2010CoreEgglogFoldsArithmetic :: Either String ()
+testHaskell2010CoreEgglogFoldsArithmetic = do
+  result <- optimizeHaskell2010Core haskell2010ArithmeticSource
+  assertBool
+    "arithmetic Core optimizer should lower expression cost"
+    (H2010CoreEgglog.coreEgglogOptimizedCost result < H2010CoreEgglog.coreEgglogOriginalCost result)
+  assertBool
+    "arithmetic Core optimizer should record applied rules"
+    (not (null (H2010CoreEgglog.coreEgglogAppliedRules result)))
+  expectCoreEvalInt
+    "optimized arithmetic Core oracle"
+    9
+    =<< evalHaskell2010CoreModuleBinding "main" (H2010CoreEgglog.coreEgglogOptimizedModule result)
+  stgProgram <- lowerOptimizedCoreToSTG result
+  expectSTGInt
+    "optimized arithmetic STG oracle"
+    9
+    =<< evalSTGBinding "main" stgProgram
+
+testHaskell2010CoreEgglogFoldsKnownBoolCase :: Either String ()
+testHaskell2010CoreEgglogFoldsKnownBoolCase = do
+  result <- optimizeHaskell2010Core haskell2010BoolCaseSource
+  assertBool
+    "known Bool case should lower expression cost"
+    (H2010CoreEgglog.coreEgglogOptimizedCost result < H2010CoreEgglog.coreEgglogOriginalCost result)
+  assertBool
+    "known Bool case should explain the selected rewrite"
+    (any ("iif-known-false" `Text.isInfixOf`) (H2010CoreEgglog.coreEgglogAppliedRules result))
+  expectCoreEvalInt
+    "optimized Bool case Core oracle"
+    7
+    =<< evalHaskell2010CoreModuleBinding "main" (H2010CoreEgglog.coreEgglogOptimizedModule result)
+  stgProgram <- lowerOptimizedCoreToSTG result
+  expectSTGInt
+    "optimized Bool case STG oracle"
+    7
+    =<< evalSTGBinding "main" stgProgram
+
+testHaskell2010CoreEgglogPreservesLazyLet :: Either String ()
+testHaskell2010CoreEgglogPreservesLazyLet = do
+  result <- optimizeHaskell2010Core haskell2010LazyLetSource
+  expectCoreEvalInt
+    "optimized lazy-let Core oracle"
+    5
+    =<< evalHaskell2010CoreModuleBinding "main" (H2010CoreEgglog.coreEgglogOptimizedModule result)
+  stgProgram <- lowerOptimizedCoreToSTG result
+  expectSTGInt
+    "optimized lazy-let STG oracle"
+    5
+    =<< evalSTGBinding "main" stgProgram
+
+testHaskell2010CoreEgglogPreservesStrictBottom :: Either String ()
+testHaskell2010CoreEgglogPreservesStrictBottom = do
+  result <-
+    optimizeHaskell2010Core
+      "module Optimize where\n\
+      \f x = x * 0\n\
+      \main = f (1 / 0)\n"
+  case evalHaskell2010CoreModuleBindingRaw "main" (H2010CoreEgglog.coreEgglogOptimizedModule result) of
+    Left H2010CoreEval.CoreEvalDivisionByZero -> Right ()
+    Left err ->
+      Left ("expected optimized Core to preserve forced division by zero, got: " <> show err)
+    Right value ->
+      Left ("optimized Core erased strict bottom dependency and returned: " <> show value)
+
+data ExpectedNativeOutcome
+  = ExpectedNativeStdout String
+  | ExpectedNativeRuntimeError
+  deriving stock (Show, Eq)
+
+data ObservedNativeOutcome
+  = ObservedNativeStdout String
+  | ObservedNativeRuntimeError
+  deriving stock (Show, Eq)
+
+testHaskell2010CoreEgglogNativeAgreement :: IO (Either String ())
+testHaskell2010CoreEgglogNativeAgreement = do
+  tools <- LLVMTools.findLLVMTools
+  firstFailureIO (check tools) haskell2010CoreEgglogNativeAgreementCases
+ where
+  check tools (label, source, expected) =
+    case (compileHaskell2010Native source, compileHaskell2010NativeWithOptions noEgglogNativeOptions source) of
+      (Left err, _) ->
+        pure (Left ("optimized native compile failed for " <> Text.unpack label <> ": " <> err))
+      (_, Left err) ->
+        pure (Left ("unoptimized native compile failed for " <> Text.unpack label <> ": " <> err))
+      (Right optimized, Right unoptimized) -> do
+        optimizedOutcome <-
+          runExpectedHaskell2010LLVM
+            ("<haskell2010-core-egglog-optimized-" <> Text.unpack label <> ">")
+            expected
+            tools
+            (H2010Native.haskell2010LLVMText optimized)
+        unoptimizedOutcome <-
+          runExpectedHaskell2010LLVM
+            ("<haskell2010-core-egglog-unoptimized-" <> Text.unpack label <> ">")
+            expected
+            tools
+            (H2010Native.haskell2010LLVMText unoptimized)
+        pure $ case (optimizedOutcome, unoptimizedOutcome) of
+          (Right (Just opt), Right (Just noOpt)) ->
+            expectEqual ("optimized/unoptimized native outcome for " <> Text.unpack label) noOpt opt
+          (Right Nothing, _) ->
+            Right ()
+          (_, Right Nothing) ->
+            Right ()
+          (Left err, _) ->
+            Left err
+          (_, Left err) ->
+            Left err
+
+haskell2010CoreEgglogNativeAgreementCases :: [(Text, Text, ExpectedNativeOutcome)]
+haskell2010CoreEgglogNativeAgreementCases =
+  [ ("arithmetic", haskell2010ArithmeticSource, ExpectedNativeStdout "9\n")
+  , ("bool-case", haskell2010BoolCaseSource, ExpectedNativeStdout "7\n")
+  , ("lazy-let", haskell2010LazyLetSource, ExpectedNativeStdout "5\n")
+  , ("division-by-zero", haskell2010DivisionByZeroSource, ExpectedNativeRuntimeError)
+  ]
+
+noEgglogNativeOptions :: H2010Native.Haskell2010NativeOptions
+noEgglogNativeOptions =
+  H2010Native.defaultHaskell2010NativeOptions {H2010Native.haskell2010UseEgglog = False}
+
+runExpectedHaskell2010LLVM ::
+  String ->
+  ExpectedNativeOutcome ->
+  LLVMTools.LLVMTools ->
+  Text ->
+  IO (Either String (Maybe ObservedNativeOutcome))
+runExpectedHaskell2010LLVM label expected tools llvmText = do
+  assemblyResult <- LLVMTools.validateLLVMText tools llvmText
+  runResult <- LLVMTools.runLLVMText tools llvmText
+  pure $
+    checkLLVMAssemblyResult label assemblyResult
+      *> observeRunResult expected label runResult
+
+observeRunResult ::
+  ExpectedNativeOutcome ->
+  String ->
+  LLVMTools.LLVMRunResult ->
+  Either String (Maybe ObservedNativeOutcome)
+observeRunResult expected label = \case
+  LLVMTools.LLVMRunSkipped {} ->
+    Right Nothing
+  LLVMTools.LLVMRunSucceeded stdoutText ->
+    case expected of
+      ExpectedNativeStdout expectedStdout -> do
+        expectEqual (label <> " stdout") expectedStdout stdoutText
+        Right (Just (ObservedNativeStdout stdoutText))
+      ExpectedNativeRuntimeError ->
+        Left (label <> " should have failed at runtime, got stdout:\n" <> stdoutText)
+  LLVMTools.LLVMRunFailed stdoutText stderrText ->
+    case expected of
+      ExpectedNativeRuntimeError ->
+        Right (Just ObservedNativeRuntimeError)
+      ExpectedNativeStdout {} ->
+        Left
+          ( label
+              <> " failed unexpectedly\nstdout:\n"
+              <> stdoutText
+              <> "\nstderr:\n"
+              <> stderrText
+          )
 
 testHigherOrderType :: Either String ()
 testHigherOrderType = do
@@ -4050,6 +4223,13 @@ typecheckHaskell2010Raw source = do
   renamed <- mapLeft (error . Text.unpack . H2010Renamer.renderRenameError) (renameHaskell2010Raw source)
   H2010Typecheck.typecheckModuleToCore renamed
 
+optimizeHaskell2010Core :: Text -> Either String H2010CoreEgglog.CoreEgglogResult
+optimizeHaskell2010Core source = do
+  coreModule <- typecheckHaskell2010 source
+  mapLeft
+    (Text.unpack . H2010CoreEgglog.renderCoreEgglogError)
+    (H2010CoreEgglog.optimizeCoreModuleWithEgglog EEV.defaultRunConfig coreModule)
+
 evalHaskell2010Binding :: Text -> Text -> Either String H2010CoreEval.CoreValue
 evalHaskell2010Binding binding source =
   mapLeft (Text.unpack . H2010CoreEval.renderCoreEvalError) (evalHaskell2010BindingRaw binding source)
@@ -4058,6 +4238,21 @@ evalHaskell2010BindingRaw :: Text -> Text -> Either H2010CoreEval.CoreEvalError 
 evalHaskell2010BindingRaw binding source = do
   coreModule <- mapLeft (error . Text.unpack . H2010Typecheck.renderTypecheckError) (typecheckHaskell2010Raw source)
   H2010CoreEval.evalCoreModuleBindingByOccurrence binding coreModule
+
+evalHaskell2010CoreModuleBinding ::
+  Text ->
+  H2010Core.CoreModule ->
+  Either String H2010CoreEval.CoreValue
+evalHaskell2010CoreModuleBinding binding =
+  mapLeft (Text.unpack . H2010CoreEval.renderCoreEvalError)
+    . evalHaskell2010CoreModuleBindingRaw binding
+
+evalHaskell2010CoreModuleBindingRaw ::
+  Text ->
+  H2010Core.CoreModule ->
+  Either H2010CoreEval.CoreEvalError H2010CoreEval.CoreValue
+evalHaskell2010CoreModuleBindingRaw =
+  H2010CoreEval.evalCoreModuleBindingByOccurrence
 
 expectCoreEvalInt :: String -> Integer -> H2010CoreEval.CoreValue -> Either String ()
 expectCoreEvalInt label expected = \case
@@ -4097,6 +4292,12 @@ lowerHaskell2010ToSTG source = do
       (typecheckHaskell2010Raw source)
   mapLeft (Text.unpack . H2010STGLower.renderSTGLowerError) (H2010STGLower.lowerCoreModule coreModule)
 
+lowerOptimizedCoreToSTG :: H2010CoreEgglog.CoreEgglogResult -> Either String H2010STG.STGProgram
+lowerOptimizedCoreToSTG result =
+  mapLeft
+    (Text.unpack . H2010STGLower.renderSTGLowerError)
+    (H2010STGLower.lowerCoreModule (H2010CoreEgglog.coreEgglogOptimizedModule result))
+
 lowerAndEvalHaskell2010Binding :: Text -> Text -> Either String H2010STGEval.STGValue
 lowerAndEvalHaskell2010Binding binding source = do
   stgProgram <- lowerHaskell2010ToSTG source
@@ -4119,9 +4320,16 @@ checkCoreToSTGInt label expected source = do
 
 compileHaskell2010Native :: Text -> Either String H2010Native.Haskell2010LLVMResult
 compileHaskell2010Native source =
+  compileHaskell2010NativeWithOptions H2010Native.defaultHaskell2010NativeOptions source
+
+compileHaskell2010NativeWithOptions ::
+  H2010Native.Haskell2010NativeOptions ->
+  Text ->
+  Either String H2010Native.Haskell2010LLVMResult
+compileHaskell2010NativeWithOptions options source =
   mapLeft
     (Text.unpack . H2010Native.renderHaskell2010LLVMError)
-    (H2010Native.compileHaskell2010ToLLVM "<haskell2010-native-test>" source)
+    (H2010Native.compileHaskell2010ToLLVMWithOptions options "<haskell2010-native-test>" source)
 
 compileHaskell2010NativeText :: Text -> Either String Text
 compileHaskell2010NativeText source =

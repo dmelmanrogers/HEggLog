@@ -76,7 +76,10 @@ type abstraction/application and preserving lazy semantics. The Haskell 2010
 native path now emits LLVM for the first Core-0 `Int`/`Bool` subset using boxed
 values, updateable and single-entry thunks, function closures, enter/apply,
 Bool case dispatch, and checked primitive aborts, then uses the existing clang
-toolchain path to produce native executables.
+toolchain path to produce native executables. The Haskell 2010 native path now
+runs an Egglog Core optimizer by default for safe typed Core-0 fragments before
+STG lowering; `--no-egglog` disables that optimizer for comparison and
+debugging.
 
 Current status:
 
@@ -101,6 +104,11 @@ Current status:
 - Haskell 2010 native executable path: implemented and wet-tested for Core-0
   arithmetic, polymorphic identity, lazy lets/arguments, Bool case, forced
   division-by-zero failure, and curried partial application
+- Haskell 2010 Egglog Core optimizer: implemented and unit/wet-tested for
+  safe Core-0 arithmetic identities, checked constant folding, known Bool case
+  selection, typed Core extraction/validation, provenance reporting, lazy
+  let preservation, strict bottom preservation, and optimized/unoptimized
+  native agreement
 - Haskell 2010 conformance suite: planned
 
 Progress is tracked in
@@ -135,10 +143,11 @@ Current tests include:
   golden, and property tests
 - native executable tests in the normal Cabal suite
 - `e2e-wet-test`, included in `cabal test all`, which invokes the built
-  `hegglog` CLI, compiles real `.hg` files, executes native artifacts, verifies
-  stdout/stderr/exit codes, compares report-mode `Result: <value>` output, and
-  compiles selected emitted LLVM through `clang`
+  `hegglog` CLI, compiles real `.hg` and Core-0 `.hs` files, executes native
+  artifacts, verifies stdout/stderr/exit codes, compares report-mode
+  `Result: <value>` output, runs Haskell 2010 default Egglog and `--no-egglog`
+  native cases, and compiles selected emitted LLVM through `clang`
 
-Haskell 2010 wet tests will be added as Haskell 2010 features are implemented.
-Those tests must compile `.hs` files to native executables and execute the
-artifacts directly.
+Future Haskell 2010 wet tests should extend this direct executable coverage as
+ADTs, pattern matching, Prelude data, recursion, type classes, and IO are
+implemented.

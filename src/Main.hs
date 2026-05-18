@@ -8,7 +8,15 @@ import Control.Exception (IOException, try)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
-import Haskell2010.Native (compileHaskell2010ToLLVM, haskell2010LLVMText, renderHaskell2010LLVMError)
+import Haskell2010.Native
+  ( compileHaskell2010ToLLVMWithOptions
+  , defaultHaskell2010NativeOptions
+  , haskell2010LLVMText
+  , haskell2010OptimizationStatus
+  , haskell2010UseEgglog
+  , renderHaskell2010LLVMError
+  , renderHaskell2010OptimizationStatus
+  )
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (getArgs)
 import System.Exit (ExitCode (..), exitFailure)
@@ -95,14 +103,14 @@ data CompiledLLVMOutput = CompiledLLVMOutput
 compileSourceToLLVM :: CompileLLVMOptions -> FilePath -> Text -> Either Text CompiledLLVMOutput
 compileSourceToLLVM options path source
   | isHaskell2010Source path =
-      case compileHaskell2010ToLLVM path source of
+      case compileHaskell2010ToLLVMWithOptions haskellOptions path source of
         Left err ->
           Left (renderHaskell2010LLVMError err)
         Right result ->
           Right
             CompiledLLVMOutput
               { compiledLLVMText = haskell2010LLVMText result
-              , compiledStatus = "haskell2010: Core-0 STG native path; egglog: not applied"
+              , compiledStatus = renderHaskell2010OptimizationStatus (haskell2010OptimizationStatus result)
               }
   | otherwise =
       case compileToLLVM options path source of
@@ -114,6 +122,11 @@ compileSourceToLLVM options path source
               { compiledLLVMText = llvmText result
               , compiledStatus = renderLLVMOptimizationStatus (llvmOptimizationStatus result)
               }
+ where
+  haskellOptions =
+    defaultHaskell2010NativeOptions
+      { haskell2010UseEgglog = compileUseEgglog options
+      }
 
 isHaskell2010Source :: FilePath -> Bool
 isHaskell2010Source path =

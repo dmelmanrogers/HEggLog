@@ -43,9 +43,9 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Egglog Core optimizer implementation using the Core/STG/native evaluators as oracle.
-2. Broader ADT and pattern-match Core support.
-3. Prelude Bool/list/tuple runtime expansion.
+1. Broader ADT and pattern-match Core support.
+2. Prelude Bool/list/tuple runtime expansion.
+3. Haskell 2010 conformance matrix expansion for the next executable surface.
 
 Completed Haskell 2010 roadmap work:
 
@@ -82,6 +82,11 @@ Completed Haskell 2010 roadmap work:
   case dispatch, checked primitive aborts, `.hs` compile-mode integration, and
   native wet tests for arithmetic, polymorphism, laziness, partial application,
   Bool case, and forced division-by-zero failure.
+- Haskell 2010 Egglog Core optimizer: implemented for safe typed Core-0
+  `Int`/`Bool` fragments with checked constant folding, safe arithmetic
+  identities, known Bool case selection, typed Core extraction/validation,
+  provenance, `--no-egglog` native comparison, and Core/STG/native oracle
+  tests preserving laziness and forced runtime errors.
 
 ## Non-Negotiable Project Direction
 

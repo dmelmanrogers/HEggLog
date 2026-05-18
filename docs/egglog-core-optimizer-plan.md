@@ -2,9 +2,11 @@
 
 ## Purpose
 
-Egglog remains central. The current ANF Egglog backend is the prototype for the
-optimization strategy over a strict `.hg` intermediate form. The Haskell 2010
-compiler will use Egglog over typed Core.
+Egglog remains central. The current ANF Egglog backend is the prototype and now
+also the execution engine for the first Haskell 2010 typed Core optimizer
+slice. The implemented `Optimize.CoreEgglog` adapter optimizes safe Core-0
+`Int`/`Bool` fragments before STG lowering and leaves unsupported or
+lazy-sensitive Core unchanged.
 
 ## Pipeline Position
 
@@ -26,7 +28,12 @@ lazy semantics and bottom behavior.
 
 ## Core Egglog Schema
 
-Planned sorts and facts:
+The implemented first slice reuses the typed ANF Egglog schema for safe
+Core-0 fragments and translates extracted ANF representatives back into typed
+Core. The full Core-native schema is still planned for broader Haskell 2010
+features.
+
+Planned full Core sorts and facts:
 
 - `CoreExpr`
 - `CoreType`
@@ -69,7 +76,16 @@ Bottom and runtime-error preservation are part of the optimizer contract.
 
 ## Optimizations
 
-Planned optimizations:
+Implemented for Core-0 `Int`/`Bool` fragments:
+
+- checked constant folding through the existing Egglog integer facts
+- safe arithmetic identities such as adding or multiplying by identity values
+- case-of-known Bool constructor
+- typed extraction back to Core
+- selected-rule provenance and fragment cost reporting
+- `--no-egglog` native comparison coverage
+
+Planned full Core optimizations:
 
 - constant folding when total and safe
 - case-of-known-constructor
@@ -80,7 +96,9 @@ Planned optimizations:
 - dead branch elimination with guards
 
 Every optimization must be validated against typed Core, a reference evaluator
-or semantic oracle, and native wet tests once the executable path exists.
+or semantic oracle, and native wet tests. The current Core-0 implementation is
+checked by Core evaluator tests, STG evaluator tests, and optimized versus
+unoptimized native execution tests.
 
 ## Extraction
 

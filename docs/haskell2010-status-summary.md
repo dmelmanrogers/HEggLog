@@ -107,6 +107,20 @@ The boxed LLVM/native runtime path is implemented for the first Core-0
 `Int`/`Bool` subset. Runtime expansion for ADTs, pattern fields, Prelude data,
 and IO remains later work.
 
+## What Core Optimizes Today
+
+The Haskell 2010 native path now runs a typed Core Egglog optimizer before
+STG lowering unless `--no-egglog` is selected. The implemented adapter supports
+safe Core-0 `Int`/`Bool` fragments, including checked constant folding, safe
+arithmetic identities, known Bool case selection, typed Core extraction,
+post-extraction Core validation, and provenance reporting. It deliberately
+skips lazy-sensitive or unsupported Core shapes instead of forcing a rewrite.
+
+The optimizer is tested against Core evaluation, lowered STG evaluation, and
+native LLVM execution in both default and `--no-egglog` modes. Tests also cover
+lazy let preservation and a strict-bottom case where `x * 0` must not erase a
+forced division by zero.
+
 ## What Lowers To STG Today
 
 The Core-to-STG lowering path translates validating Core-0 modules into
@@ -131,13 +145,16 @@ LLVM and compiled to native executables through the existing clang toolchain.
 7. Core-to-STG lowering MVP. Completed.
 8. Core-0 native executable path. Completed.
 9. Egglog Core optimizer implementation using the Core/STG/native evaluators
-   as oracle.
+   as oracle. Completed for the safe Core-0 `Int`/`Bool` fragment.
 
 ## Where Egglog Fits
 
-The existing ANF Egglog backend proves the project can use an Egglog-style
-optimizer in the compiler. The Haskell 2010 path will add a typed Core Egglog
-adapter that preserves laziness, bottom, and runtime-error behavior.
+The existing ANF Egglog backend is now reused by a typed Haskell 2010 Core
+adapter for safe Core-0 fragments. The adapter preserves laziness, bottom, and
+runtime-error behavior by validating Core before and after extraction and by
+omitting unsafe rewrites unless the fragment has facts strong enough to justify
+them. Broader Core facts for ADTs, dictionaries, and full pattern matching
+remain later Phase 15 expansion work.
 
 ## Where LLVM/Native Output Fits
 
@@ -155,6 +172,7 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Build the Egglog Core optimizer while preserving the current `.hg` compiler,
-Core-0 reference evaluator, STG runtime MVP, Core-to-STG lowering, Core-0
-native executable path, and wet-test baseline.
+Broaden the Haskell 2010 executable surface with ADT and pattern-match Core
+support while preserving the `.hg` compiler, Core-0 evaluator, STG runtime,
+Core-to-STG lowering, native executable path, Egglog Core optimizer, and
+wet-test baseline.
