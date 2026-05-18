@@ -28,6 +28,11 @@ import qualified Egglog.Sort as ES
 import qualified Egglog.Value as EV
 import Eval.ANFInterpreter (ANFValue (..), evalANF)
 import Eval.Interpreter (RuntimeError (..), Value (..), eval, evalProgram, renderRuntimeError, renderValue)
+import qualified Haskell2010.Core.FreeVars as H2010CoreFreeVars
+import qualified Haskell2010.Core.Pretty as H2010CorePretty
+import qualified Haskell2010.Core.Subst as H2010CoreSubst
+import qualified Haskell2010.Core.Syntax as H2010Core
+import qualified Haskell2010.Core.Validate as H2010CoreValidate
 import qualified Haskell2010.Names as H2010Names
 import qualified Haskell2010.Parser as H2010Parser
 import qualified Haskell2010.Renamed as H2010Renamed
@@ -104,6 +109,18 @@ testGroups =
       , pureTest "rejects chained non-associative operators" testHaskell2010RenamerNonAssociativeFixity
       , pureTest "detects ambiguous explicit imports" testHaskell2010RenamerAmbiguousImport
       , pureTest "resolves qualified explicit imports" testHaskell2010RenamerQualifiedImport
+      ]
+  , TestGroup
+      "Haskell 2010 Core"
+      [ pureTest "validates typed identity lambda" testHaskell2010CoreValidIdentity
+      , pureTest "rejects application argument mismatch" testHaskell2010CoreAppMismatch
+      , pureTest "rejects unbound variables" testHaskell2010CoreUnboundVariable
+      , pureTest "validates let scope and rejects duplicate binders" testHaskell2010CoreLetScopeAndDuplicates
+      , pureTest "validates recursive binding scope" testHaskell2010CoreRecursiveScope
+      , pureTest "checks case alternative result types" testHaskell2010CoreCaseAlternativeMismatch
+      , pureTest "computes free variables through binders" testHaskell2010CoreFreeVariables
+      , pureTest "substitution avoids bound variables" testHaskell2010CoreSubstitution
+      , pureTest "renders stable typed Core text" testHaskell2010CorePretty
       ]
   , TestGroup
       "Typechecker"
@@ -728,6 +745,197 @@ testHaskell2010RenamerQualifiedImport = do
       expectEqual "qualified import occurrence" "A.x" (H2010Names.nameOcc importedX)
       assertBool "qualified import is external" (H2010Names.nameExternal importedX)
     other -> Left ("unexpected qualified import module: " <> show other)
+
+testHaskell2010CoreValidIdentity :: Either String ()
+testHaskell2010CoreValidIdentity = do
+  let x = coreTerm "x" 100
+      binder = coreBinder x H2010Core.intTy
+      identity =
+        H2010Core.CLam
+          binder
+          (H2010Core.CVar x H2010Core.intTy)
+          (H2010Core.funTy H2010Core.intTy H2010Core.intTy)
+  expectEqual
+    "identity Core type"
+    (H2010Core.funTy H2010Core.intTy H2010Core.intTy)
+    (H2010Core.exprType identity)
+  expectEqual "identity Core validates" (Right ()) (H2010CoreValidate.validateExpr identity)
+
+testHaskell2010CoreAppMismatch :: Either String ()
+testHaskell2010CoreAppMismatch = do
+  let f = coreTerm "f" 101
+      fTy = H2010Core.funTy H2010Core.intTy H2010Core.intTy
+      fBinder = coreBinder f fTy
+      expression =
+        H2010Core.CLam
+          fBinder
+          ( H2010Core.CApp
+              (H2010Core.CVar f fTy)
+              (H2010Core.CCon H2010Core.trueDataConName H2010Core.boolTy)
+              H2010Core.intTy
+          )
+          (H2010Core.funTy fTy H2010Core.intTy)
+  expectCoreValidationError
+    "Core application argument mismatch"
+    ( \case
+        H2010CoreValidate.CoreAppArgumentMismatch expected actual ->
+          expected == H2010Core.intTy && actual == H2010Core.boolTy
+        _ -> False
+    )
+    (H2010CoreValidate.validateExpr expression)
+
+testHaskell2010CoreUnboundVariable :: Either String ()
+testHaskell2010CoreUnboundVariable = do
+  let x = coreTerm "x" 102
+  expectCoreValidationError
+    "Core unbound variable"
+    ( \case
+        H2010CoreValidate.CoreUnboundVariable name -> name == x
+        _ -> False
+    )
+    (H2010CoreValidate.validateExpr (H2010Core.CVar x H2010Core.intTy))
+
+testHaskell2010CoreLetScopeAndDuplicates :: Either String ()
+testHaskell2010CoreLetScopeAndDuplicates = do
+  let x = coreTerm "x" 103
+      xBinder = coreBinder x H2010Core.intTy
+      validLet =
+        H2010Core.CLet
+          (H2010Core.CoreNonRec xBinder (coreInt 41))
+          ( H2010Core.CPrimOp
+              H2010Core.PrimAdd
+              [H2010Core.CVar x H2010Core.intTy, coreInt 1]
+              H2010Core.intTy
+          )
+          H2010Core.intTy
+      duplicateLet =
+        H2010Core.CLet
+          (H2010Core.CoreRec [(xBinder, coreInt 1), (xBinder, coreInt 2)])
+          (H2010Core.CVar x H2010Core.intTy)
+          H2010Core.intTy
+  expectEqual "Core let validates" (Right ()) (H2010CoreValidate.validateExpr validLet)
+  expectCoreValidationError
+    "Core duplicate binder"
+    ( \case
+        H2010CoreValidate.CoreDuplicateBinder name -> name == x
+        _ -> False
+    )
+    (H2010CoreValidate.validateExpr duplicateLet)
+
+testHaskell2010CoreRecursiveScope :: Either String ()
+testHaskell2010CoreRecursiveScope = do
+  let f = coreTerm "f" 104
+      x = coreTerm "x" 105
+      fTy = H2010Core.funTy H2010Core.intTy H2010Core.intTy
+      fBinder = coreBinder f fTy
+      xBinder = coreBinder x H2010Core.intTy
+      rhs =
+        H2010Core.CLam
+          xBinder
+          ( H2010Core.CApp
+              (H2010Core.CVar f fTy)
+              (H2010Core.CVar x H2010Core.intTy)
+              H2010Core.intTy
+          )
+          fTy
+      expression =
+        H2010Core.CLet
+          (H2010Core.CoreRec [(fBinder, rhs)])
+          (H2010Core.CVar f fTy)
+          fTy
+  expectEqual "Core recursive binding validates" (Right ()) (H2010CoreValidate.validateExpr expression)
+
+testHaskell2010CoreCaseAlternativeMismatch :: Either String ()
+testHaskell2010CoreCaseAlternativeMismatch = do
+  let scrutinee = coreTerm "scrutinee" 106
+      caseBinder = coreBinder scrutinee H2010Core.boolTy
+      expression =
+        H2010Core.CCase
+          coreTrue
+          caseBinder
+          [ H2010Core.CoreAlt (H2010Core.ConstructorAlt H2010Core.trueDataConName) [] (coreInt 1)
+          , H2010Core.CoreAlt (H2010Core.ConstructorAlt H2010Core.falseDataConName) [] coreTrue
+          ]
+          H2010Core.intTy
+  expectCoreValidationError
+    "Core case alternative result mismatch"
+    ( \case
+        H2010CoreValidate.CoreAlternativeTypeMismatch (H2010Core.ConstructorAlt name) expected actual ->
+          name == H2010Core.falseDataConName
+            && expected == H2010Core.intTy
+            && actual == H2010Core.boolTy
+        _ -> False
+    )
+    (H2010CoreValidate.validateExpr expression)
+
+testHaskell2010CoreFreeVariables :: Either String ()
+testHaskell2010CoreFreeVariables = do
+  let x = coreTerm "x" 107
+      y = coreTerm "y" 108
+      z = coreTerm "z" 109
+      xBinder = coreBinder x H2010Core.intTy
+      yBinder = coreBinder y H2010Core.intTy
+      expression =
+        H2010Core.CLam
+          xBinder
+          ( H2010Core.CLet
+              (H2010Core.CoreNonRec yBinder (H2010Core.CVar z H2010Core.intTy))
+              ( H2010Core.CPrimOp
+                  H2010Core.PrimAdd
+                  [H2010Core.CVar x H2010Core.intTy, H2010Core.CVar y H2010Core.intTy]
+                  H2010Core.intTy
+              )
+              H2010Core.intTy
+          )
+          (H2010Core.funTy H2010Core.intTy H2010Core.intTy)
+  expectEqual "Core free variables" (Set.singleton z) (H2010CoreFreeVars.freeVarsExpr expression)
+
+testHaskell2010CoreSubstitution :: Either String ()
+testHaskell2010CoreSubstitution = do
+  let x = coreTerm "x" 110
+      z = coreTerm "z" 111
+      xBinder = coreBinder x H2010Core.intTy
+      replacement = coreInt 3
+      shadowed =
+        H2010Core.CLam
+          xBinder
+          (H2010Core.CVar x H2010Core.intTy)
+          (H2010Core.funTy H2010Core.intTy H2010Core.intTy)
+      letExpression =
+        H2010Core.CLet
+          (H2010Core.CoreNonRec xBinder (H2010Core.CVar z H2010Core.intTy))
+          (H2010Core.CVar x H2010Core.intTy)
+          H2010Core.intTy
+      expectedLet =
+        H2010Core.CLet
+          (H2010Core.CoreNonRec xBinder replacement)
+          (H2010Core.CVar x H2010Core.intTy)
+          H2010Core.intTy
+      captureRisk =
+        H2010Core.CLam
+          xBinder
+          (H2010Core.CVar z H2010Core.intTy)
+          (H2010Core.funTy H2010Core.intTy H2010Core.intTy)
+  expectEqual "Core substitution skips shadowed lambda binder" shadowed (H2010CoreSubst.substExpr x replacement shadowed)
+  expectEqual "Core substitution rewrites nonrecursive let RHS" expectedLet (H2010CoreSubst.substExpr z replacement letExpression)
+  case H2010CoreSubst.substExpr z (H2010Core.CVar x H2010Core.intTy) captureRisk of
+    H2010Core.CLam renamedBinder (H2010Core.CVar bodyName _) _ ->
+      assertBool "Core substitution alpha-renames capture-risk binder" (H2010Core.coreBinderName renamedBinder /= x)
+        *> expectEqual "Core substitution keeps replacement free" x bodyName
+    other -> Left ("unexpected Core substitution alpha-renamed expression: " <> show other)
+
+testHaskell2010CorePretty :: Either String ()
+testHaskell2010CorePretty = do
+  let x = coreTerm "x" 100
+      expression =
+        H2010Core.CLam
+          (coreBinder x H2010Core.intTy)
+          (H2010Core.CVar x H2010Core.intTy)
+          (H2010Core.funTy H2010Core.intTy H2010Core.intTy)
+  expectEqualText
+    "Core pretty output"
+    "(\\x#100 : Int#-1 -> x#100 : Int#-1) : Int#-1 -> Int#-1"
+    (H2010CorePretty.renderCoreExpr expression)
 
 testHigherOrderType :: Either String ()
 testHigherOrderType = do
@@ -3320,6 +3528,34 @@ expectRenameError label expected source =
   case renameHaskell2010Raw source of
     Left actual -> expectEqual label expected actual
     Right renamed -> Left (label <> "\nexpected rename error, got module:\n" <> show renamed)
+
+coreTerm :: Text -> Int -> H2010Names.RName
+coreTerm occurrence uniqueId =
+  H2010Names.RName H2010Names.TermNamespace occurrence uniqueId False
+
+coreBinder :: H2010Names.RName -> H2010Core.CoreType -> H2010Core.CoreBinder
+coreBinder =
+  H2010Core.CoreBinder
+
+coreInt :: Integer -> H2010Core.CoreExpr
+coreInt value =
+  H2010Core.CLit (H2010.LInt value) H2010Core.intTy
+
+coreTrue :: H2010Core.CoreExpr
+coreTrue =
+  H2010Core.CCon H2010Core.trueDataConName H2010Core.boolTy
+
+expectCoreValidationError ::
+  String ->
+  (H2010CoreValidate.CoreValidationError -> Bool) ->
+  Either [H2010CoreValidate.CoreValidationError] () ->
+  Either String ()
+expectCoreValidationError label predicate validation =
+  case validation of
+    Left errors
+      | any predicate errors -> Right ()
+      | otherwise -> Left (label <> "\nunexpected Core validation errors: " <> show errors)
+    Right () -> Left (label <> "\nexpected Core validation failure")
 
 factsFor :: Text -> Either String [Fact]
 factsFor source =

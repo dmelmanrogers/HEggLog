@@ -31,8 +31,9 @@ Planned for the Haskell 2010 target:
 
 - layout-aware Haskell 2010 frontend
 - renamer and module/import resolution
+- typed Core IR, validator, and utilities
 - Hindley-Milner typechecker with Haskell 2010 class constraints
-- typed Core
+- source-to-Core desugaring
 - STG-like lazy IR and runtime
 - Egglog optimizer over typed Core
 - runtime-linked LLVM/native executable output for `.hs` programs
@@ -102,7 +103,8 @@ Full documentation index:
 | Current `.hg` strict subset | Implemented and tested. |
 | Haskell 2010 parser/layout | Implemented as an isolated parser/layout frontend and parser-tested; not yet connected to compilation. |
 | Haskell 2010 renamer | Implemented as an isolated unique-name pass and unit-tested; not yet connected to compilation. |
-| Haskell 2010 Core/STG/lazy runtime | Planned; not implemented. |
+| Haskell 2010 typed Core | Implemented as an isolated typed IR with validator, free-variable analysis, substitution, and pretty-printer; not yet generated from source. |
+| Haskell 2010 STG/lazy runtime | Planned; not implemented. |
 | LLVM/native backend | Implemented for the current `.hg` supported subset. |
 | Egglog ANF backend | Implemented for the current `.hg` supported subset. |
 | Egglog Core optimizer | Planned for the Haskell 2010 Core pipeline. |

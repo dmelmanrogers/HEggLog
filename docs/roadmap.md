@@ -43,9 +43,9 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Typed Core MVP.
+1. Core-0 Haskell typechecker/desugarer integration.
 2. Lazy/STG runtime MVP.
-3. Egglog Core optimizer plan implementation after Core exists.
+3. Egglog Core optimizer implementation after Haskell source emits Core.
 
 Completed Haskell 2010 roadmap work:
 
@@ -54,6 +54,11 @@ Completed Haskell 2010 roadmap work:
 - Haskell 2010 renamer MVP: implemented as an isolated unique-name pass with
   lexical scopes, namespace separation, duplicate/unbound diagnostics, explicit
   import ambiguity checks, and fixity resolution.
+- Haskell 2010 typed Core MVP: implemented as an isolated typed Core IR with
+  expression type metadata, primitive operations, constructors, lambdas,
+  applications, nonrecursive and recursive lets, cases, a validator,
+  free-variable analysis, capture-aware substitution, pretty-printing, and
+  unit tests.
 
 ## Non-Negotiable Project Direction
 

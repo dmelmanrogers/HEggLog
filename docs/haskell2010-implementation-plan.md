@@ -27,17 +27,18 @@ Implemented today: `Syntax`, `Lexer`, `Layout`, `Parser`, `Pretty`, `Names`,
 `Renamed`, and `Renamer`. The typechecker, inference, and desugaring modules
 remain planned.
 
-Proposed Core modules:
+Implemented Core modules:
 
 ```text
-src/Core/
+src/Haskell2010/Core/
   Syntax.hs
-  Types.hs
   Validate.hs
   Pretty.hs
   FreeVars.hs
   Subst.hs
 ```
+
+Core types live in `Haskell2010.Core.Syntax` for the current MVP.
 
 Proposed STG modules:
 
@@ -75,8 +76,8 @@ is built alongside them.
 
 1. Parser/layout.
 2. Renamer.
-3. Core IR.
-4. Core validator.
+3. Core IR. Completed.
+4. Core validator. Completed.
 5. Desugarer.
 6. HM typechecker.
 7. Core evaluator or reference interpreter.

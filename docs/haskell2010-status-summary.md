@@ -30,7 +30,8 @@ HeggLog does not yet compile Haskell 2010 `.hs` source. The following Haskell
 - ADTs and pattern matching
 - type classes and dictionary passing
 - Prelude/library subset
-- lazy Core/STG/runtime path
+- Haskell source desugaring to typed Core
+- lazy STG/runtime path
 - IO `main`
 - Haskell 2010 conformance suite
 
@@ -56,13 +57,28 @@ infix expressions according to declared and Prelude fixities.
 Whole-program module graph loading, open import export discovery, hiding
 semantics, and full Prelude surface coverage remain later module-system work.
 
+## What Core Exists Today
+
+The Haskell2010 Core layer now provides an isolated typed Core IR with Core
+types, expression-level type metadata, variables, literals, constructors,
+lambdas, applications, nonrecursive and recursive lets, cases, and primitive
+operations. It includes a validator for unique binders, resolved variables,
+type annotations, function application, primitive signatures, constructor
+arities, and case alternative result types, plus free-variable analysis,
+capture-aware substitution, and a stable pretty-printer.
+
+This Core layer is tested directly but is not yet generated from Haskell 2010
+source. The typechecker/desugarer integration remains the next source-pipeline
+milestone.
+
 ## First Haskell 2010 Implementation Milestones
 
 1. Haskell 2010 parser/layout MVP. Completed.
 2. Renamer MVP. Completed.
-3. Typed Core MVP.
-4. Lazy/STG runtime MVP.
-5. Egglog Core optimizer implementation after Core exists.
+3. Typed Core MVP. Completed.
+4. Core-0 Haskell typechecker/desugarer integration.
+5. Lazy/STG runtime MVP.
+6. Egglog Core optimizer implementation after Haskell source emits Core.
 
 ## Where Egglog Fits
 
@@ -84,5 +100,5 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Build the typed Core MVP while preserving the current `.hg` compiler and
-wet-test baseline.
+Build Core-0 Haskell typechecker/desugarer integration while preserving the
+current `.hg` compiler and wet-test baseline.

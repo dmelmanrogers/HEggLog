@@ -61,16 +61,19 @@ Not implemented in the current `.hg` language:
 Haskell 2010 compilation is the active roadmap. A Haskell2010 parser/layout
 frontend now exists and produces an isolated source AST, and the renamer now
 produces a unique-name resolved AST with lexical scopes, namespace separation,
-import ambiguity checks, and fixity resolution. The Haskell 2010 typechecker,
-Core/STG pipeline, lazy runtime, and executable conformance tests are not yet
+import ambiguity checks, and fixity resolution. An isolated typed Core IR,
+validator, free-variable pass, substitution pass, and pretty-printer now exist
+and are unit-tested. The Haskell 2010 typechecker, source-to-Core desugarer,
+STG pipeline, lazy runtime, and executable conformance tests are not yet
 implemented.
 
 Current status:
 
 - Haskell 2010 parser/layout: parsed and parser-tested
 - Haskell 2010 renamer: implemented and unit-tested
+- Haskell 2010 typed Core: implemented and unit-tested as an isolated IR
 - Haskell 2010 HM typechecker: not started
-- typed Haskell Core: planned
+- Haskell source desugaring to typed Core: not started
 - STG-like lazy IR/runtime: planned
 - Haskell 2010 native executable path: planned
 - Haskell 2010 conformance suite: planned

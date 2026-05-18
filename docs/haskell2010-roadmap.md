@@ -449,17 +449,19 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. Typed Core MVP.
-2. Lazy runtime MVP.
-3. Core validator and desugarer MVP.
-4. Haskell 2010 typechecker MVP.
-5. Core-to-STG lowering MVP.
+1. Core-0 Haskell typechecker/desugarer integration.
+2. Core reference evaluator.
+3. Lazy runtime MVP.
+4. Core-to-STG lowering MVP.
+5. Egglog Core optimizer implementation after Haskell source emits Core.
 
 Completed immediate tasks:
 
 - Commit roadmap pivot.
 - Haskell 2010 parser/layout MVP.
 - Haskell 2010 renamer MVP.
+- Haskell 2010 typed Core MVP, including Core syntax, Core types, validator,
+  pretty-printer, free-variable analysis, and capture-aware substitution.
 
 ## Non-Negotiable Rules
 
