@@ -73,8 +73,11 @@ executable hegglog
       Eval.Interpreter
       Haskell2010.Layout
       Haskell2010.Lexer
+      Haskell2010.Names
       Haskell2010.Parser
       Haskell2010.Pretty
+      Haskell2010.Renamed
+      Haskell2010.Renamer
       Haskell2010.Syntax
       IR.ANF
       IR.ANF.Resolved
@@ -153,8 +156,11 @@ test-suite hegglog-test
       Eval.Interpreter
       Haskell2010.Layout
       Haskell2010.Lexer
+      Haskell2010.Names
       Haskell2010.Parser
       Haskell2010.Pretty
+      Haskell2010.Renamed
+      Haskell2010.Renamer
       Haskell2010.Syntax
       IR.ANF
       IR.ANF.Resolved

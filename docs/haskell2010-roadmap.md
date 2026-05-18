@@ -449,16 +449,17 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. Renamer MVP.
-2. Typed Core MVP.
-3. Lazy runtime MVP.
-4. Core validator and desugarer MVP.
-5. Haskell 2010 typechecker MVP.
+1. Typed Core MVP.
+2. Lazy runtime MVP.
+3. Core validator and desugarer MVP.
+4. Haskell 2010 typechecker MVP.
+5. Core-to-STG lowering MVP.
 
 Completed immediate tasks:
 
 - Commit roadmap pivot.
 - Haskell 2010 parser/layout MVP.
+- Haskell 2010 renamer MVP.
 
 ## Non-Negotiable Rules
 

@@ -26,7 +26,6 @@ values when the root is printable.
 HeggLog does not yet compile Haskell 2010 `.hs` source. The following Haskell
 2010 requirements are planned but not implemented:
 
-- renamer and module/import resolution
 - Haskell Hindley-Milner typechecker
 - ADTs and pattern matching
 - type classes and dictionary passing
@@ -45,10 +44,22 @@ declarations, lambdas, application, unresolved infix expressions, `if`, `case`,
 `let`, `where`, `do`, lists, tuples, sections, arithmetic sequences, list
 comprehensions, guards, patterns, and common Haskell type syntax.
 
+## What Is Renamed Today
+
+The Haskell2010 renamer resolves parser AST names into a unique-name AST. It
+handles top-level, local `let`/`where`, lambda, pattern, class-method, and
+instance-method scopes; separates term, constructor, type, type-variable,
+class, and module namespaces; reports duplicate binders, unbound names, and
+ambiguous explicit imports; resolves qualified explicit imports; and resolves
+infix expressions according to declared and Prelude fixities.
+
+Whole-program module graph loading, open import export discovery, hiding
+semantics, and full Prelude surface coverage remain later module-system work.
+
 ## First Haskell 2010 Implementation Milestones
 
 1. Haskell 2010 parser/layout MVP. Completed.
-2. Renamer MVP.
+2. Renamer MVP. Completed.
 3. Typed Core MVP.
 4. Lazy/STG runtime MVP.
 5. Egglog Core optimizer implementation after Core exists.
@@ -73,5 +84,5 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Build the Haskell 2010 renamer MVP while preserving the current `.hg` compiler
-and wet-test baseline.
+Build the typed Core MVP while preserving the current `.hg` compiler and
+wet-test baseline.

@@ -341,8 +341,8 @@ atomExpr =
     [ try parenExpr
     , try listExpr
     , literalExpr
-    , Con <$> qconid
     , Var <$> qvarid
+    , Con <$> qconid
     ]
 
 literalExpr :: Parser Expr

@@ -101,7 +101,7 @@ Full documentation index:
 | --- | --- |
 | Current `.hg` strict subset | Implemented and tested. |
 | Haskell 2010 parser/layout | Implemented as an isolated parser/layout frontend and parser-tested; not yet connected to compilation. |
-| Haskell 2010 renamer | Planned; not implemented. |
+| Haskell 2010 renamer | Implemented as an isolated unique-name pass and unit-tested; not yet connected to compilation. |
 | Haskell 2010 Core/STG/lazy runtime | Planned; not implemented. |
 | LLVM/native backend | Implemented for the current `.hg` supported subset. |
 | Egglog ANF backend | Implemented for the current `.hg` supported subset. |

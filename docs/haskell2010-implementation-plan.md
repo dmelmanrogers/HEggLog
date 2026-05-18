@@ -6,7 +6,7 @@ source compilation already exists.
 
 ## Source Layout
 
-Proposed frontend modules:
+Frontend modules:
 
 ```text
 src/Haskell2010/
@@ -15,15 +15,17 @@ src/Haskell2010/
   Layout.hs
   Parser.hs
   Pretty.hs
-  Errors.hs
   Names.hs
-  Scope.hs
+  Renamed.hs
   Renamer.hs
-  Fixity.hs
   Typecheck.hs
   Infer.hs
   Desugar.hs
 ```
+
+Implemented today: `Syntax`, `Lexer`, `Layout`, `Parser`, `Pretty`, `Names`,
+`Renamed`, and `Renamer`. The typechecker, inference, and desugaring modules
+remain planned.
 
 Proposed Core modules:
 

@@ -28,7 +28,10 @@ import qualified Egglog.Sort as ES
 import qualified Egglog.Value as EV
 import Eval.ANFInterpreter (ANFValue (..), evalANF)
 import Eval.Interpreter (RuntimeError (..), Value (..), eval, evalProgram, renderRuntimeError, renderValue)
+import qualified Haskell2010.Names as H2010Names
 import qualified Haskell2010.Parser as H2010Parser
+import qualified Haskell2010.Renamed as H2010Renamed
+import qualified Haskell2010.Renamer as H2010Renamer
 import qualified Haskell2010.Syntax as H2010
 import IR.ANF
 import qualified IR.ANF.Resolved as RANF
@@ -88,6 +91,19 @@ testGroups =
       , pureTest "Haskell 2010 expression surface forms parse" testHaskell2010ExpressionSurfaceParsing
       , pureTest "Haskell 2010 malformed layout is rejected" testHaskell2010MalformedLayout
       , pureTest "Haskell 2010 imports after declarations are rejected" testHaskell2010ImportAfterDecl
+      ]
+  , TestGroup
+      "Haskell 2010 Renamer"
+      [ pureTest "resolves lexical shadowing to unique names" testHaskell2010RenamerShadowing
+      , pureTest "rejects duplicate top-level bindings" testHaskell2010RenamerDuplicateTopLevel
+      , pureTest "rejects unbound variables" testHaskell2010RenamerUnboundVariable
+      , pureTest "separates term constructor type and class namespaces" testHaskell2010RenamerNamespaces
+      , pureTest "scopes pattern binders over guarded RHS" testHaskell2010RenamerPatternScope
+      , pureTest "resolves right-associative fixity" testHaskell2010RenamerRightAssociativeFixity
+      , pureTest "resolves operator precedence" testHaskell2010RenamerFixityPrecedence
+      , pureTest "rejects chained non-associative operators" testHaskell2010RenamerNonAssociativeFixity
+      , pureTest "detects ambiguous explicit imports" testHaskell2010RenamerAmbiguousImport
+      , pureTest "resolves qualified explicit imports" testHaskell2010RenamerQualifiedImport
       ]
   , TestGroup
       "Typechecker"
@@ -554,6 +570,164 @@ testHaskell2010ImportAfterDecl =
     of
       Left _ -> Right ()
       Right parsed -> Left ("import after declaration parsed unexpectedly: " <> show parsed)
+
+testHaskell2010RenamerShadowing :: Either String ()
+testHaskell2010RenamerShadowing = do
+  renamed <-
+    renameHaskell2010
+      "module Scope where\n\
+      \x = 1\n\
+      \f x =\n\
+      \  let\n\
+      \    y = x\n\
+      \  in y\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [ H2010Renamed.RFunctionBinding topX [] _ []
+      , H2010Renamed.RFunctionBinding _ [H2010Renamed.RPVar paramX] (H2010Renamed.RUnguarded (H2010Renamed.RLet [H2010Renamed.RFunctionBinding yBinder [] (H2010Renamed.RUnguarded (H2010Renamed.RVar rhsX)) []] (H2010Renamed.RVar bodyY))) []
+      ] -> do
+        assertBool "parameter shadows top-level x" (H2010Names.nameUnique topX /= H2010Names.nameUnique paramX)
+        expectEqual "let rhs x resolves to parameter" paramX rhsX
+        expectEqual "let body resolves to y binder" yBinder bodyY
+    other -> Left ("unexpected renamed shadowing module: " <> show other)
+
+testHaskell2010RenamerDuplicateTopLevel :: Either String ()
+testHaskell2010RenamerDuplicateTopLevel =
+  expectRenameError
+    "duplicate top-level binding"
+    (H2010Renamer.DuplicateName H2010Names.TermNamespace "x")
+    "module Dup where\n\
+    \x = 1\n\
+    \x = 2\n"
+
+testHaskell2010RenamerUnboundVariable :: Either String ()
+testHaskell2010RenamerUnboundVariable =
+  expectRenameError
+    "unbound variable"
+    (H2010Renamer.UnboundName H2010Names.TermNamespace "y")
+    "module Unbound where\n\
+    \x = y\n"
+
+testHaskell2010RenamerNamespaces :: Either String ()
+testHaskell2010RenamerNamespaces = do
+  renamed <-
+    renameHaskell2010
+      "module Namespaces where\n\
+      \data T a = T a\n\
+      \class C a where\n\
+      \  c :: a -> a\n\
+      \instance C (T Int) where\n\
+      \  c x = x\n\
+      \id :: a -> a\n\
+      \id x = x\n\
+      \use T = c T\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [ H2010Renamed.RDataDecl typeT [typeA] [H2010Renamed.RConDecl conT [H2010Renamed.RTyVar fieldA]] []
+      , H2010Renamed.RClassDecl [] classC classA [H2010Renamed.RTypeSignature [methodC] _]
+      , H2010Renamed.RInstanceDecl [] (H2010Renamed.RTyApp (H2010Renamed.RTyCon instanceClassC) _) [H2010Renamed.RFunctionBinding instanceMethodC [H2010Renamed.RPVar instanceX] (H2010Renamed.RUnguarded (H2010Renamed.RVar instanceUseX)) []]
+      , H2010Renamed.RTypeSignature [idSig] _
+      , H2010Renamed.RFunctionBinding idBinder [H2010Renamed.RPVar idParam] (H2010Renamed.RUnguarded (H2010Renamed.RVar idUse)) []
+      , H2010Renamed.RFunctionBinding _ [H2010Renamed.RPCon useConT []] (H2010Renamed.RUnguarded (H2010Renamed.RApp (H2010Renamed.RVar useMethodC) (H2010Renamed.RCon useExprT))) []
+      ] -> do
+        expectEqual "type parameter scopes over constructor field" typeA fieldA
+        expectEqual "class type variable namespace" H2010Names.TypeVariableNamespace (H2010Names.nameNamespace classA)
+        expectEqual "instance constraint resolves class" classC instanceClassC
+        expectEqual "instance method resolves class method" methodC instanceMethodC
+        expectEqual "instance method body resolves parameter" instanceX instanceUseX
+        expectEqual "signature resolves id binder" idBinder idSig
+        expectEqual "id body resolves parameter" idParam idUse
+        expectEqual "pattern constructor T resolves data constructor" conT useConT
+        expectEqual "expression constructor T resolves data constructor" conT useExprT
+        expectEqual "method use resolves class method" methodC useMethodC
+        assertBool "type and constructor namespaces differ" (H2010Names.nameUnique typeT /= H2010Names.nameUnique conT)
+        expectEqual "type namespace" H2010Names.TypeNamespace (H2010Names.nameNamespace typeT)
+        expectEqual "constructor namespace" H2010Names.ConstructorNamespace (H2010Names.nameNamespace conT)
+    other -> Left ("unexpected namespace renamed module: " <> show other)
+
+testHaskell2010RenamerPatternScope :: Either String ()
+testHaskell2010RenamerPatternScope = do
+  renamed <-
+    renameHaskell2010
+      "module Patterns where\n\
+      \data Maybe a = Nothing | Just a\n\
+      \f (Just x) | x == x = x\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [ H2010Renamed.RDataDecl {}
+      , H2010Renamed.RFunctionBinding _ [H2010Renamed.RPParen (H2010Renamed.RPCon _ [H2010Renamed.RPVar patX])] (H2010Renamed.RGuarded [(H2010Renamed.RInfixApp (H2010Renamed.RVar guardX1) _ (H2010Renamed.RVar guardX2), H2010Renamed.RVar bodyX)]) []
+      ] -> do
+        expectEqual "first guard x resolves to pattern binder" patX guardX1
+        expectEqual "second guard x resolves to pattern binder" patX guardX2
+        expectEqual "body x resolves to pattern binder" patX bodyX
+    other -> Left ("unexpected renamed pattern module: " <> show other)
+
+testHaskell2010RenamerRightAssociativeFixity :: Either String ()
+testHaskell2010RenamerRightAssociativeFixity = do
+  renamed <-
+    renameHaskell2010
+      "module Fix where\n\
+      \f a b c = a : b : c\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [H2010Renamed.RFunctionBinding _ [H2010Renamed.RPVar argA, H2010Renamed.RPVar argB, H2010Renamed.RPVar argC] (H2010Renamed.RUnguarded expr) []] ->
+      case expr of
+        H2010Renamed.RInfixApp (H2010Renamed.RVar useA) colon1 (H2010Renamed.RInfixApp (H2010Renamed.RVar useB) colon2 (H2010Renamed.RVar useC)) -> do
+          expectEqual "right fixity lhs" argA useA
+          expectEqual "right fixity middle" argB useB
+          expectEqual "right fixity rhs" argC useC
+          expectEqual "same cons operator" colon1 colon2
+          expectEqual "cons operator namespace" H2010Names.ConstructorNamespace (H2010Names.nameNamespace colon1)
+        otherExpr -> Left ("expected right-associated cons tree, got: " <> show otherExpr)
+    other -> Left ("unexpected renamed fixity module: " <> show other)
+
+testHaskell2010RenamerFixityPrecedence :: Either String ()
+testHaskell2010RenamerFixityPrecedence = do
+  renamed <-
+    renameHaskell2010
+      "module Fix where\n\
+      \f a b c = a : b + c\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [H2010Renamed.RFunctionBinding _ [H2010Renamed.RPVar argA, H2010Renamed.RPVar argB, H2010Renamed.RPVar argC] (H2010Renamed.RUnguarded expr) []] ->
+      case expr of
+        H2010Renamed.RInfixApp (H2010Renamed.RVar useA) consOp (H2010Renamed.RInfixApp (H2010Renamed.RVar useB) plusOp (H2010Renamed.RVar useC)) -> do
+          expectEqual "precedence lhs" argA useA
+          expectEqual "precedence middle" argB useB
+          expectEqual "precedence rhs" argC useC
+          expectEqual "outer operator is cons" ":" (H2010Names.nameOcc consOp)
+          expectEqual "inner operator is plus" "+" (H2010Names.nameOcc plusOp)
+        otherExpr -> Left ("expected cons outside plus by precedence, got: " <> show otherExpr)
+    other -> Left ("unexpected renamed precedence module: " <> show other)
+
+testHaskell2010RenamerNonAssociativeFixity :: Either String ()
+testHaskell2010RenamerNonAssociativeFixity =
+  case renameHaskell2010Raw "module BadFix where\nf a b c = a == b == c\n" of
+    Left H2010Renamer.InvalidFixityUse {} -> Right ()
+    Left err -> Left ("expected non-associative fixity error, got: " <> show err)
+    Right renamed -> Left ("non-associative chain renamed unexpectedly: " <> show renamed)
+
+testHaskell2010RenamerAmbiguousImport :: Either String ()
+testHaskell2010RenamerAmbiguousImport =
+  case
+    renameHaskell2010Raw
+      "module Imports where\n\
+      \import A (x)\n\
+      \import B (x)\n\
+      \y = x\n"
+    of
+      Left (H2010Renamer.AmbiguousName H2010Names.TermNamespace "x" names)
+        | length names == 2 -> Right ()
+      Left err -> Left ("expected ambiguous import error, got: " <> show err)
+      Right renamed -> Left ("ambiguous import renamed unexpectedly: " <> show renamed)
+
+testHaskell2010RenamerQualifiedImport :: Either String ()
+testHaskell2010RenamerQualifiedImport = do
+  renamed <-
+    renameHaskell2010
+      "module Imports where\n\
+      \import qualified A as A (x)\n\
+      \y = A.x\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar importedX)) []] -> do
+      expectEqual "qualified import occurrence" "A.x" (H2010Names.nameOcc importedX)
+      assertBool "qualified import is external" (H2010Names.nameExternal importedX)
+    other -> Left ("unexpected qualified import module: " <> show other)
 
 testHigherOrderType :: Either String ()
 testHigherOrderType = do
@@ -3131,6 +3305,21 @@ parseHaskell2010 =
 parseHaskell2010At :: FilePath -> Text -> Either String H2010.HsModule
 parseHaskell2010At path source =
   mapLeft errorBundlePretty (H2010Parser.parseSourceModule path source)
+
+renameHaskell2010 :: Text -> Either String H2010Renamed.RHsModule
+renameHaskell2010 source =
+  mapLeft (Text.unpack . H2010Renamer.renderRenameError) (renameHaskell2010Raw source)
+
+renameHaskell2010Raw :: Text -> Either H2010Renamer.RenameError H2010Renamed.RHsModule
+renameHaskell2010Raw source = do
+  parsed <- mapLeft (error . errorBundlePretty) (H2010Parser.parseSourceModule "<haskell2010-renamer-test>" source)
+  H2010Renamer.renameModule parsed
+
+expectRenameError :: String -> H2010Renamer.RenameError -> Text -> Either String ()
+expectRenameError label expected source =
+  case renameHaskell2010Raw source of
+    Left actual -> expectEqual label expected actual
+    Right renamed -> Left (label <> "\nexpected rename error, got module:\n" <> show renamed)
 
 factsFor :: Text -> Either String [Fact]
 factsFor source =

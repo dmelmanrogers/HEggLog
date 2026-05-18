@@ -6,9 +6,9 @@ The Haskell2010 frontend parses, lays out, renames, and typechecks Haskell 2010
 source before desugaring into typed Core.
 
 The parser/layout layer is implemented as an isolated `Haskell2010` frontend
-AST, lexer, layout parser, and parser. Renaming, typechecking, and desugaring
-remain planned. The current `.hg` frontend still does not compile Haskell 2010
-source.
+AST, lexer, layout parser, and parser. The renamer is implemented as a
+unique-name pass over that AST. Typechecking and desugaring remain planned. The
+current `.hg` frontend still does not compile Haskell 2010 source.
 
 ## Lexer and Layout
 
@@ -55,6 +55,14 @@ silently desugar to the wrong language.
 
 The renamer assigns unique names and resolves every occurrence against the
 correct namespace.
+
+Current implementation status: the renamer emits a separate renamed AST and
+handles lexical scopes, top-level scopes, `let`, `where`, lambda and pattern
+scopes, class methods, instance methods, separated term/constructor/type/type
+variable/class/module namespaces, duplicate and unbound-name diagnostics,
+ambiguous explicit-import diagnostics, qualified explicit imports, and fixity
+resolution. Whole-program module loading, open import export discovery, hiding
+semantics, and complete Prelude coverage remain later module-system work.
 
 Required namespaces and scopes:
 
