@@ -100,6 +100,12 @@ The Haskell 2010 compiler requires a separate frontend typechecker:
 - defaulting
 - kind checking for type constructors/classes
 
+The Haskell 2010 typechecker now has an explicit kind representation for the
+next increment: `*`, kind arrows, rendered kinds, derived constructor arity, and
+type-constructor metadata for user declarations and the supported built-in
+constructors. This is representation infrastructure only; full kind
+inference/checking remains the next Haskell 2010 typechecker task.
+
 The existing optional monomorphic lambda parameter inference is carry-forward
 infrastructure and a useful implementation reference, but it is not Haskell
 2010 typechecking. Haskell 2010 progress is tracked in

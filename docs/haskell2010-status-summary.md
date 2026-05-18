@@ -99,7 +99,9 @@ Prelude data constructors, wildcard patterns, literal patterns, short-circuit
 `Ord`, and `Num` methods for the first built-in instances; guarded RHSs and
 guarded case alternatives desugared to Bool `case`; as-pattern aliases lowered
 as local Core bindings; `IO` actions for `putStrLn`, `print`, `return`, `(>>)`,
-expression-only `do` sequencing; built-in `Show Int` and `Show Bool`
+expression-only `do` sequencing; left and right operator sections over the
+supported infix subset desugared to generated Core lambdas; built-in `Show Int`
+and `Show Bool`
 dictionaries; and primitive `/`.
 Recursive top-level functions, mutually recursive
 top-level groups, singleton self-recursive bindings, and local recursive `let`
@@ -113,6 +115,8 @@ dictionary arguments. Built-in `Eq Int`, `Eq Bool`, `Ord Int`, `Ord Bool`, and
 Built-in `Show Int` and `Show Bool` cover enough `show` support for `print`.
 `fromInteger` is part of the executable `Num Int` dictionary, integer literals
 elaborate through it, and ambiguous numeric constraints default to `Int`.
+Type constructors now carry explicit `*`/arrow-kind metadata for user and
+supported built-in types; full kind inference/checking remains planned.
 `/` remains checked concrete `Int` division; broader `Show` remains planned.
 
 ## What Core Evaluates Today
@@ -131,8 +135,9 @@ local factorial recursion, top-level fibonacci recursion, mutual recursion, and
 recursive list functions. It also evaluates dictionary-passed user class
 method calls and built-in `Eq`/`Ord`/`Num` class methods through generated
 selector functions and instance dictionary values.
-Core evaluation also covers guarded RHS/as-pattern programs and reports
-guard fallthrough as a no-matching-alternative runtime error.
+Core evaluation also covers guarded RHS/as-pattern programs and operator
+sections, including lazy Boolean sections. It reports guard fallthrough as a
+no-matching-alternative runtime error.
 It now models IO output for `putStrLn`, `print`, `return`, `(>>)`, and
 expression-only `do` sequencing so Core remains the oracle for native
 `main :: IO ()` execution.

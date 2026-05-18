@@ -434,8 +434,8 @@ Acceptance criteria:
 
 Deliverables:
 
-- operator sections, list comprehensions, arithmetic sequences, remaining
-  where/declaration forms, and lazy pattern forms
+- list comprehensions, arithmetic sequences, remaining where/declaration forms,
+  and lazy pattern forms
 - records if included
 - `newtype`, type synonyms, deriving, and default declarations
 - foreign declarations documented as implemented, deferred, or deviating

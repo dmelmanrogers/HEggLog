@@ -2558,7 +2558,7 @@
     {
       "id": "CORE-021",
       "title": "desugar sections",
-      "status": "not started",
+      "status": "complete",
       "category": "core",
       "depends_on": [
         "REN-001"
@@ -2566,7 +2566,7 @@
       "blocks": [],
       "milestone": "M3",
       "acceptance_criteria": [
-        "desugar sections is implemented, completed, or explicitly documented according to status `not started`.",
+        "desugar sections is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -2966,7 +2966,7 @@
     {
       "id": "TYPE-011",
       "title": "kind representation",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "CORE-002",
@@ -2975,7 +2975,7 @@
       "blocks": [],
       "milestone": "M4",
       "acceptance_criteria": [
-        "kind representation is implemented, completed, or explicitly documented according to status `not started`.",
+        "kind representation is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

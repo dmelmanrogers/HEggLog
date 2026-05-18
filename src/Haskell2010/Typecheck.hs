@@ -1,5 +1,12 @@
 module Haskell2010.Typecheck
-  ( TypecheckError (..)
+  ( Kind (..)
+  , TypeConstructorInfo (..)
+  , TypecheckError (..)
+  , kindArity
+  , kindFromArity
+  , renderKind
+  , typeConstructorArity
+  , typeConstructorInfo
   , renderTypecheckError
   , typecheckModuleToCore
   )
@@ -20,6 +27,46 @@ import qualified Haskell2010.Core.Validate as CoreValidate
 import Haskell2010.Names
 import Haskell2010.Renamed
 import Haskell2010.Syntax (Literal (..))
+
+data Kind
+  = StarKind
+  | KindArrow Kind Kind
+  deriving stock (Show, Eq, Ord)
+
+newtype TypeConstructorInfo = TypeConstructorInfo
+  { typeConstructorKind :: Kind
+  }
+  deriving stock (Show, Eq, Ord)
+
+typeConstructorInfo :: Int -> TypeConstructorInfo
+typeConstructorInfo arity =
+  TypeConstructorInfo (kindFromArity arity)
+
+typeConstructorArity :: TypeConstructorInfo -> Int
+typeConstructorArity =
+  kindArity . typeConstructorKind
+
+kindFromArity :: Int -> Kind
+kindFromArity arity
+  | arity <= 0 = StarKind
+  | otherwise = KindArrow StarKind (kindFromArity (arity - 1))
+
+kindArity :: Kind -> Int
+kindArity = \case
+  StarKind -> 0
+  KindArrow _ result -> 1 + kindArity result
+
+renderKind :: Kind -> Text
+renderKind =
+  renderRight
+ where
+  renderRight = \case
+    StarKind -> "*"
+    KindArrow argument result -> renderArgument argument <> " -> " <> renderRight result
+
+  renderArgument = \case
+    StarKind -> "*"
+    arrow@KindArrow {} -> "(" <> renderRight arrow <> ")"
 
 data TypecheckError
   = UnsupportedCore0 Text
@@ -123,7 +170,7 @@ data InferState = InferState
   { nextMeta :: Int
   , substitution :: Subst
   , nextGeneratedUnique :: Int
-  , typeConstructors :: Map.Map RName Int
+  , typeConstructors :: Map.Map RName TypeConstructorInfo
   , dataConstructors :: Map.Map RName DataConstructorInfo
   , classInfos :: Map.Map RName ClassInfo
   , defaultTypes :: [MonoType]
@@ -212,7 +259,7 @@ renderTypecheckError = \case
     "generated Core failed validation: "
       <> Text.intercalate "; " (map CoreValidate.renderValidationError errors)
 
-runInfer :: Map.Map RName Int -> InferM a -> Either TypecheckError (a, InferState)
+runInfer :: Map.Map RName TypeConstructorInfo -> InferM a -> Either TypecheckError (a, InferState)
 runInfer initialTypeConstructors action =
   let initialState =
         InferState
@@ -229,16 +276,16 @@ runInfer initialTypeConstructors action =
   swapState (value, state) =
     (value, state)
 
-collectTypeConstructors :: [RDecl] -> Map.Map RName Int
+collectTypeConstructors :: [RDecl] -> Map.Map RName TypeConstructorInfo
 collectTypeConstructors =
   foldr collect Map.empty
  where
   collect decl acc =
     case decl of
       RDataDecl name params _ _ ->
-        Map.insert name (length params) acc
+        Map.insert name (typeConstructorInfo (length params)) acc
       RNewtypeDecl name params _ _ ->
-        Map.insert name (length params) acc
+        Map.insert name (typeConstructorInfo (length params)) acc
       _ ->
         acc
 
@@ -1617,6 +1664,10 @@ inferExpr env = \case
     pure (TTuple [] unitMonoType)
   RParen inner ->
     inferExpr env inner
+  RLeftSection sectionExpr op ->
+    inferSection env "$section_rhs" (\hole -> RInfixApp sectionExpr op hole)
+  RRightSection op sectionExpr ->
+    inferSection env "$section_lhs" (\hole -> RInfixApp hole op sectionExpr)
   RExprTypeSig inner sourceType -> do
     scheme <- sourceScheme sourceType
     unless (null (schemeConstraints scheme)) $
@@ -1626,6 +1677,18 @@ inferExpr env = \case
     pure typedInner
   unsupported ->
     throwTypecheck (UnsupportedCore0 ("expression " <> Text.pack (show unsupported)))
+
+inferSection :: TypeEnv -> Text -> (RExpr -> RExpr) -> InferM TypedExpr
+inferSection env argumentOccurrence buildBody = do
+  argumentTy <- freshMeta
+  binder <- freshTermBinder argumentOccurrence argumentTy
+  let binderName = typedBinderName binder
+      bodyEnv = Map.insert binderName (Scheme [] [] argumentTy) env
+  body <- inferExpr bodyEnv (buildBody (RVar binderName))
+  argumentTy' <- applyCurrent argumentTy
+  resultTy <- applyCurrent (typedExprType body)
+  let binder' = TypedBinder binderName argumentTy'
+  pure (TLam binder' body (TyFun argumentTy' resultTy))
 
 inferDo :: TypeEnv -> [RStmt] -> InferM TypedExpr
 inferDo _ [] =
@@ -2094,9 +2157,18 @@ sourceMonoType = \case
 typeConstructorMonoType :: RName -> InferM MonoType
 typeConstructorMonoType name = do
   knownTypes <- typeConstructors <$> get
-  if Map.member name knownTypes
-    then pure (TyCon name)
-    else
+  case Map.lookup name knownTypes of
+    Just _ ->
+      pure (TyCon name)
+    Nothing ->
+      builtinTypeConstructorMonoType name
+
+builtinTypeConstructorMonoType :: RName -> InferM MonoType
+builtinTypeConstructorMonoType name =
+  case builtinTypeConstructorInfo name of
+    Nothing ->
+      throwTypecheck (UnsupportedCore0 ("type constructor `" <> nameOcc name <> "`"))
+    Just _ ->
       case nameOcc name of
         "Int" -> pure intMonoType
         "Bool" -> pure boolMonoType
@@ -2108,6 +2180,23 @@ typeConstructorMonoType name = do
         "Ordering" -> pure orderingMonoType
         "()" -> pure unitMonoType
         other -> throwTypecheck (UnsupportedCore0 ("type constructor `" <> other <> "`"))
+
+builtinTypeConstructorInfo :: RName -> Maybe TypeConstructorInfo
+builtinTypeConstructorInfo name
+  | not (nameExternal name) = Nothing
+  | otherwise =
+      typeConstructorInfo
+        <$> case nameOcc name of
+          "Int" -> Just 0
+          "Bool" -> Just 0
+          "Char" -> Just 0
+          "String" -> Just 0
+          "IO" -> Just 1
+          "Maybe" -> Just 1
+          "Either" -> Just 2
+          "Ordering" -> Just 0
+          "()" -> Just 0
+          _ -> Nothing
 
 instantiate :: Scheme -> InferM (MonoType, [MonoType])
 instantiate (Scheme variables _ body) = do

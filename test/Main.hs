@@ -137,7 +137,8 @@ testGroups =
       ]
   , TestGroup
       "Haskell 2010 Core-0 Typechecker"
-      [ pureTest "typechecks explicit polymorphic identity" testHaskell2010Core0Identity
+      [ pureTest "represents type constructor kinds" testHaskell2010KindRepresentation
+      , pureTest "typechecks explicit polymorphic identity" testHaskell2010Core0Identity
       , pureTest "typechecks explicit polymorphic const" testHaskell2010Core0Const
       , pureTest "generalizes local let polymorphism" testHaskell2010Core0PolymorphicLet
       , pureTest "desugars if to Bool case Core" testHaskell2010Core0If
@@ -152,6 +153,7 @@ testGroups =
       , pureTest "typechecks multi-module imports" testHaskell2010Core0MultiModuleImports
       , pureTest "typechecks IO printing" testHaskell2010Core0IOPrinting
       , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
+      , pureTest "desugars operator sections to Core lambdas" testHaskell2010Core0Sections
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       , pureTest "rejects unsupported Core-0 equality" testHaskell2010Core0UnsupportedEquality
@@ -172,6 +174,7 @@ testGroups =
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
       , pureTest "evaluates guards and as-patterns" testHaskell2010Core0EvalGuardsAndAsPatterns
+      , pureTest "evaluates operator sections" testHaskell2010Core0EvalSections
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
       , pureTest "reports forced division by zero" testHaskell2010Core0EvalDivisionByZero
@@ -207,6 +210,7 @@ testGroups =
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
       , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
       , pureTest "preserves guard and as-pattern semantics" testHaskell2010CoreToSTGGuardsAndAsPatterns
+      , pureTest "preserves operator section semantics" testHaskell2010CoreToSTGSections
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves guard fallthrough errors" testHaskell2010CoreToSTGGuardFallthrough
       , pureTest "preserves curried partial application" testHaskell2010CoreToSTGPartialApplication
@@ -1135,6 +1139,21 @@ testHaskell2010Core0PolymorphicLet = do
     (Right ())
     (H2010CoreValidate.validateModule (H2010CoreValidate.moduleValidationEnv coreModule) coreModule)
 
+testHaskell2010KindRepresentation :: Either String ()
+testHaskell2010KindRepresentation = do
+  let star = H2010Typecheck.StarKind
+      unary = H2010Typecheck.KindArrow star star
+      binary = H2010Typecheck.KindArrow star unary
+      higher = H2010Typecheck.KindArrow unary star
+      unaryInfo = H2010Typecheck.typeConstructorInfo 1
+      binaryInfo = H2010Typecheck.typeConstructorInfo 2
+  expectEqual "nullary kind" star (H2010Typecheck.kindFromArity 0)
+  expectEqual "unary kind" unary (H2010Typecheck.typeConstructorKind unaryInfo)
+  expectEqual "binary kind" binary (H2010Typecheck.typeConstructorKind binaryInfo)
+  expectEqual "binary arity" 2 (H2010Typecheck.typeConstructorArity binaryInfo)
+  expectEqual "render binary kind" "* -> * -> *" (H2010Typecheck.renderKind binary)
+  expectEqual "render higher-kinded argument" "(* -> *) -> *" (H2010Typecheck.renderKind higher)
+
 testHaskell2010Core0If :: Either String ()
 testHaskell2010Core0If = do
   coreModule <-
@@ -1266,6 +1285,26 @@ testHaskell2010Core0GuardsAndAsPatterns = do
   assertBool "guarded RHS emits Bool case" (countCasesInModule coreModule >= 3)
   assertBool "as-pattern alias is emitted" (moduleContainsVarOccurrence "xs" coreModule || moduleContainsVarOccurrence "ys" coreModule)
   expectCoreEvalInt "guard/as-pattern Core oracle" 15 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0Sections :: Either String ()
+testHaskell2010Core0Sections = do
+  coreModule <- typecheckHaskell2010 haskell2010SectionsSource
+  (leftBinder, leftRhs) <- lookupCoreBindingOccurrence "left" coreModule
+  (rightBinder, rightRhs) <- lookupCoreBindingOccurrence "right" coreModule
+  (overBinder, overRhs) <- lookupCoreBindingOccurrence "over" coreModule
+  (shortBinder, shortRhs) <- lookupCoreBindingOccurrence "short" coreModule
+  expectEqual "left section type" intToInt (H2010Core.coreBinderType leftBinder)
+  expectEqual "right section type" intToInt (H2010Core.coreBinderType rightBinder)
+  expectEqual "comparison right section type" (H2010Core.funTy H2010Core.intTy H2010Core.boolTy) (H2010Core.coreBinderType overBinder)
+  expectEqual "short-circuit left section type" (H2010Core.funTy H2010Core.boolTy H2010Core.boolTy) (H2010Core.coreBinderType shortBinder)
+  assertBool "left section emits Core lambda" (containsTermLambda leftRhs)
+  assertBool "right section emits Core lambda" (containsTermLambda rightRhs)
+  assertBool "comparison section emits Core lambda" (containsTermLambda overRhs)
+  assertBool "short-circuit section emits Core lambda" (containsTermLambda shortRhs)
+  assertBool "short-circuit section keeps lazy Bool case" (containsCase shortRhs)
+  expectCoreEvalInt "operator section Core oracle" 6 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+ where
+  intToInt = H2010Core.funTy H2010Core.intTy H2010Core.intTy
 
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries :: Either String ()
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
@@ -1443,6 +1482,13 @@ testHaskell2010Core0EvalGuardsAndAsPatterns =
     "Core-0 guarded RHS/as-pattern evaluation"
     15
     =<< evalHaskell2010Binding "main" haskell2010GuardAsPatternSource
+
+testHaskell2010Core0EvalSections :: Either String ()
+testHaskell2010Core0EvalSections =
+  expectCoreEvalInt
+    "Core-0 operator section evaluation"
+    6
+    =<< evalHaskell2010Binding "main" haskell2010SectionsSource
 
 testHaskell2010Core0EvalLazyLet :: Either String ()
 testHaskell2010Core0EvalLazyLet =
@@ -1705,6 +1751,10 @@ testHaskell2010CoreToSTGIOPrinting =
 testHaskell2010CoreToSTGGuardsAndAsPatterns :: Either String ()
 testHaskell2010CoreToSTGGuardsAndAsPatterns =
   checkCoreToSTGInt "Core-to-STG guards and as-patterns" 15 haskell2010GuardAsPatternSource
+
+testHaskell2010CoreToSTGSections :: Either String ()
+testHaskell2010CoreToSTGSections =
+  checkCoreToSTGInt "Core-to-STG operator sections" 6 haskell2010SectionsSource
 
 testHaskell2010CoreToSTGDivisionByZero :: Either String ()
 testHaskell2010CoreToSTGDivisionByZero =
@@ -4824,6 +4874,7 @@ haskell2010NativeSuccessExamples =
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
+  , ("sections", haskell2010SectionsSource, "6\n")
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-maybe", haskell2010PolymorphicADTSource, "4\n")
   , ("adt-nested", haskell2010NestedADTSource, "3\n")
@@ -4842,6 +4893,7 @@ haskell2010NativeExecutableExamples =
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
+  , ("sections", haskell2010SectionsSource, "6\n")
   ]
 
 haskell2010ArithmeticSource :: Text
@@ -4968,6 +5020,19 @@ haskell2010ShortCircuitSource :: Text
 haskell2010ShortCircuitSource =
   "module Main where\n\
   \main = if (False && ((1 / 0) == 0)) || True then 7 else 1\n"
+
+haskell2010SectionsSource :: Text
+haskell2010SectionsSource =
+  "module Main where\n\
+  \left :: Int -> Int\n\
+  \left = (1 +)\n\
+  \right :: Int -> Int\n\
+  \right = (+ 1)\n\
+  \over :: Int -> Bool\n\
+  \over = (> 3)\n\
+  \short :: Bool -> Bool\n\
+  \short = (False &&)\n\
+  \main = if short ((1 / 0) == 0) then 0 else if over (right 3) then left (right 4) else 0\n"
 
 haskell2010GuardedSelfRecursionSource :: Text
 haskell2010GuardedSelfRecursionSource =
@@ -5309,14 +5374,35 @@ containsTypeLambda = \case
   H2010Core.CPrimOp _ arguments _ -> any containsTypeLambda arguments
   _ -> False
 
+containsTermLambda :: H2010Core.CoreExpr -> Bool
+containsTermLambda = \case
+  H2010Core.CLam {} -> True
+  H2010Core.CApp callee arg _ -> containsTermLambda callee || containsTermLambda arg
+  H2010Core.CTypeLam _ body _ -> containsTermLambda body
+  H2010Core.CTypeApp callee _ _ -> containsTermLambda callee
+  H2010Core.CLet bind body _ -> bindContainsTermLambda bind || containsTermLambda body
+  H2010Core.CCase scrutinee _ alternatives _ ->
+    containsTermLambda scrutinee || any altContainsTermLambda alternatives
+  H2010Core.CPrimOp _ arguments _ -> any containsTermLambda arguments
+  _ -> False
+
 bindContainsTypeLambda :: H2010Core.CoreBind -> Bool
 bindContainsTypeLambda = \case
   H2010Core.CoreNonRec _ rhs -> containsTypeLambda rhs
   H2010Core.CoreRec pairs -> any (containsTypeLambda . snd) pairs
 
+bindContainsTermLambda :: H2010Core.CoreBind -> Bool
+bindContainsTermLambda = \case
+  H2010Core.CoreNonRec _ rhs -> containsTermLambda rhs
+  H2010Core.CoreRec pairs -> any (containsTermLambda . snd) pairs
+
 altContainsTypeLambda :: H2010Core.CoreAlt -> Bool
 altContainsTypeLambda (H2010Core.CoreAlt _ _ body) =
   containsTypeLambda body
+
+altContainsTermLambda :: H2010Core.CoreAlt -> Bool
+altContainsTermLambda (H2010Core.CoreAlt _ _ body) =
+  containsTermLambda body
 
 containsCase :: H2010Core.CoreExpr -> Bool
 containsCase = \case

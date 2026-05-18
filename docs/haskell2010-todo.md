@@ -211,26 +211,26 @@ Rules:
 
 # Next 20 Implementation Tasks
 
-1. FRONT-001 — Haskell 2010 token model: Every parser and diagnostic task depends on a stable token vocabulary.
-2. FRONT-007 — layout rule implementation: Layout controls whether real Haskell source can be parsed without artificial braces.
-3. FRONT-009 — module header parser: Module headers define source-unit identity before import/module work.
-4. FRONT-012 — top-level declaration parser: Top-level declarations are the root of signatures, bindings, data, classes, and instances.
-5. FRONT-016 — expression parser: Expression parsing is the common input to typechecking, Core, and later semantics.
-6. FRONT-027 — pattern parser: Pattern syntax is required by functions, cases, ADTs, and list/tuple work.
-7. FRONT-029 — data/newtype/type parser: Data/newtype/type declarations feed constructors, kinds, and typechecking.
-8. FRONT-030 — class/instance parser: Class/instance syntax gates dictionary and Prelude work.
-9. REN-001 — unique name representation: Unique names are the boundary between syntax and all later compiler passes.
-10. REN-007 — local lexical scope: Local scope correctness prevents downstream ambiguity and capture bugs.
-11. REN-011 — top-level binding scope: Top-level scope is required before whole modules can typecheck.
-12. REN-022 — fixity declaration collection: Fixity declarations must be collected before infix expressions can be reassociated correctly.
-13. CORE-001 — Core name/binder model: Core binders define the typed IR identity model.
-14. CORE-002 — Core type representation: Core types are required by validation, typechecker output, and optimizer safety.
-15. CORE-003 — Core expression representation: Core expressions are the central IR for desugaring, Egglog, and STG lowering.
-16. TYPE-001 — type variable representation: Type variables are the base representation for HM inference.
-17. TYPE-003 — unification: Unification is the core algorithmic step for HM inference.
-18. TYPE-007 — expression inference: Expression inference turns parsed/renamed programs into typed Core inputs.
-19. STG-001 — STG syntax: STG syntax is the boundary for lazy runtime semantics.
-20. RTS-002 — closure header design: Closure headers are the native runtime ABI foundation.
+1. TYPE-012 — kind inference/checking: Turns parsed kind-bearing types into validated typechecker inputs.
+2. TYPE-013 — type synonym expansion: Needed before synonym use can typecheck beyond renamed source.
+3. TYPE-014 — newtype typing: Required before `newtype` can move from renamed syntax to executable semantics.
+4. TYPE-016 — constraint representation: Finish the explicit internal model used by class constraints, diagnostics, and dictionary elaboration.
+5. TYPE-017 — class constraints placeholder: Close the remaining placeholder behavior so constraints are represented deliberately.
+6. TYPE-019 — monomorphism restriction decision/documentation: Decide and document the supported Haskell 2010 behavior before broader defaulting work.
+7. TYPE-020 — type error diagnostics with spans: Preserve source attribution through typechecking failures.
+8. TYPE-021 — property tests for inference: Add invariant coverage around the growing inference surface.
+9. RTS-009 — process-lifetime arena or GC decision: Set the memory-management direction for native lazy runtime objects.
+10. RTS-019 — runtime leak/ownership documentation: Document ownership guarantees before expanding runtime allocation pressure.
+11. ADT-004 — newtype representation: Define runtime/Core representation for `newtype`.
+12. ADT-005 — record field labels: Add the name-resolution and selector surface required for records.
+13. PAT-008 — irrefutable/lazy patterns: Implement lazy pattern semantics rather than only parsed/renamed syntax.
+14. PAT-014 — exhaustiveness warning placeholder: Establish the diagnostic placeholder for later pattern coverage checking.
+15. CORE-REC-004 — recursive pattern bindings: Desugar recursive pattern bindings through the Core recursion model.
+16. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
+17. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
+18. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
+19. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
+20. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
 
 # Task Backlog
 
@@ -4759,7 +4759,7 @@ Notes:
 ## CORE-021 — desugar sections
 
 Status:
-- not started
+- complete
 
 Category:
 - core
@@ -4788,7 +4788,7 @@ Files likely touched:
 - `test/Main.hs`
 
 Acceptance criteria:
-- desugar sections is implemented, completed, or explicitly documented according to status `not started`.
+- desugar sections is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -4804,7 +4804,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M3 (Typed Core). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M3 (Typed Core). Left and right operator sections desugar through generated typed Core lambdas that reuse the existing infix operator inference path.
 
 ## CORE-022 — desugar list/tuple syntax placeholders
 
@@ -5473,7 +5473,7 @@ Notes:
 ## TYPE-011 — kind representation
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -5502,7 +5502,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- kind representation is implemented, completed, or explicitly documented according to status `not started`.
+- kind representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -5518,7 +5518,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M4 (HM typechecker). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M4 (HM typechecker). The typechecker now represents `*`, kind arrows, rendered kinds, derived kind arity, and type-constructor info for user and supported built-in type constructors. Full kind inference/checking remains TYPE-012.
 
 ## TYPE-012 — kind inference/checking
 

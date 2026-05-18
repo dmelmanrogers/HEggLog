@@ -110,6 +110,19 @@
       "notes": "Explicit case over Bool."
     },
     {
+      "name": "expressions.sections",
+      "sourceFile": "test/haskell2010/conformance/expressions/sections.hs",
+      "category": "expressions",
+      "expectedStatus": "native-success",
+      "expectedStdout": "6\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Left and right operator sections desugar to typed Core lambdas, including lazy Boolean section semantics."
+    },
+    {
       "name": "modules.single-module-main",
       "sourceFile": "test/haskell2010/conformance/modules/single-module-main.hs",
       "category": "modules",

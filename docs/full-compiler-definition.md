@@ -43,6 +43,11 @@ A full Haskell 2010 compiler requires:
 - conformance and wet tests
 - documented deviations
 
+The current executable Haskell 2010 subset includes typed Core desugaring for
+left and right operator sections over the supported infix operator subset.
+Sections lower to generated lambdas and then continue through the existing
+Core, STG, LLVM, and native execution pipeline.
+
 The success criterion is documented in
 [`haskell2010-roadmap.md`](haskell2010-roadmap.md): `hegglog compile Main.hs -o
 main` must produce a native executable whose behavior matches the implemented
