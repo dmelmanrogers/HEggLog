@@ -1,9 +1,13 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test baseline added on top of commit `59e9b81`
-(`Merge pull request #9 from drewmelmanrogers/dmelmanrogers/v0-2-main`). The
-final commit hash for these changes is reported after commit creation because a
-commit cannot contain its own final hash.
+Recorded for the mandatory `.hg` wet-test baseline committed as `240d3a1`
+(`Add mandatory end-to-end wet testing`) on top of commit `59e9b81`
+(`Merge pull request #9 from dmelmanrogers/dmelmanrogers/egglog-strict`).
+
+These results validate the existing `.hg` native compiler baseline. Haskell
+2010 wet tests will be added as Haskell 2010 features are implemented, and those
+future tests must compile `.hs` files to native executables and compare
+behavior.
 
 Run metadata:
 

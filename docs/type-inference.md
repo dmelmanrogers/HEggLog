@@ -1,9 +1,10 @@
 # Type Inference Direction
 
-This document records the Phase 7 type-system direction. It is intentionally
-conservative: HeggLog now has local closures in LLVM, so inference must preserve
-the backend's explicit monomorphic representation instead of introducing
-polymorphism that the compiler cannot specialize yet.
+This document records the current `.hg` type-system direction and distinguishes
+it from the future Haskell 2010 typechecker. It is intentionally conservative:
+the current `.hg` compiler now has local closures in LLVM, so inference must
+preserve the backend's explicit monomorphic representation instead of exposing
+polymorphism that the current compiler cannot specialize yet.
 
 ## Current Decision
 
@@ -86,3 +87,21 @@ The next type-system increment should specify backend monomorphization before
 exposing polymorphic lets or optional top-level signatures. Until that exists,
 the roadmap can move on to the Egglog backend work without blocking on more
 type-system surface area.
+
+## Haskell 2010 Typechecker Target
+
+The Haskell 2010 compiler requires a separate frontend typechecker:
+
+- Hindley-Milner inference for Haskell source
+- polymorphic let
+- explicit signatures
+- type classes and constraints
+- dictionary passing
+- defaulting
+- kind checking for type constructors/classes
+
+The existing optional monomorphic lambda parameter inference is carry-forward
+infrastructure and a useful implementation reference, but it is not Haskell
+2010 typechecking. Haskell 2010 progress is tracked in
+[haskell2010-conformance-matrix.md](haskell2010-conformance-matrix.md) and
+[haskell2010-frontend-spec.md](haskell2010-frontend-spec.md).

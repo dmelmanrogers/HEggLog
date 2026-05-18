@@ -1,5 +1,13 @@
 # HeggLog Egglog Backend
 
+This document describes the current `.hg` ANF Egglog backend. It is distinct
+from the generic Egglog kernel in [egglog-engine-spec.md](egglog-engine-spec.md)
+and from the planned Haskell 2010 typed Core optimizer in
+[egglog-core-optimizer-plan.md](egglog-core-optimizer-plan.md).
+
+The current backend optimizes the existing strict `.hg` compiler-supported
+subset only. It does not optimize Haskell 2010 Core.
+
 The Egglog backend is an isolated compiler optimization backend for a typed,
 pure ANF fragment. It does not replace the existing simplifier or the older
 e-graph prototype. The backend proves a narrower path:
@@ -215,6 +223,11 @@ For supported closed ANF programs, the backend checks:
 - successful results and runtime errors are preserved
 - extraction is deterministic in tests
 - optimized cost does not exceed original cost after saturation
+
+If cost-driven extraction produces ANF that fails semantic validation, the
+optimizer conservatively returns the original ANF and records semantic fallback
+provenance. That preserves strict runtime-error dependencies instead of
+turning an optimizer extraction mistake into a miscompile.
 
 ## Remaining Gaps
 

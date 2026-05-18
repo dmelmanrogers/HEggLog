@@ -1786,6 +1786,7 @@ testEgglogBackendPreservesStrictRuntimeErrors = do
   assertRuntimePreservedNotExpression "zero times division by zero" (AAtom (AInt 0)) (ALet xName (APrim Div (AInt 1) (AInt 0)) (APrim Mul (AInt 0) (AVar xName)))
   assertRuntimePreserved "integer equality with itself" (ALet xName (APrim Div (AInt 8) (AInt 0)) (APrim Eq (AVar xName) (AVar xName)))
   assertRuntimePreserved "integer less-than with itself" (ALet xName (APrim Div (AInt 8) (AInt 0)) (APrim Lt (AVar xName) (AVar xName)))
+  assertRuntimePreserved "dead division-by-zero let" (ALet xName (APrim Div (AInt 5) (AInt 0)) (AAtom (ABool False)))
   assertRuntimePreservedNotExpression "same branch if with erroring condition" (AAtom (AInt 5)) (ALet dName (APrim Div (AInt 1) (AInt 0)) (ALet cName (APrim Eq (AVar dName) (AInt 0)) (AIf (AVar cName) (AAtom (AInt 5)) (AAtom (AInt 5)))))
   assertRuntimePreserved "same int if branches" (ALet dName erroringDiv (ALet cName (APrim Lt (AInt 0) (AVar dName)) (AIf (AVar cName) (AAtom (AInt 1)) (AAtom (AInt 1)))))
   assertRuntimePreserved "boolean equality with itself" (ALet dName erroringDiv (ALet bName (APrim Lt (AInt 0) (AVar dName)) (APrim Eq (AVar bName) (AVar bName))))

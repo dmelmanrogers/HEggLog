@@ -6,6 +6,11 @@ case. It invokes the built `hegglog` executable as a subprocess, compiles real
 `.hg` files from disk, checks the produced artifacts, executes native binaries
 directly, and asserts exit code, stdout, and stderr behavior.
 
+Current wet tests validate the existing `.hg` native compiler baseline. Haskell
+2010 wet tests will be added as Haskell 2010 features are implemented. Future
+Haskell 2010 wet tests must compile `.hs` files to native executables and
+compare behavior through direct artifact execution.
+
 This suite complements the existing unit, property, differential, and golden
 tests. Internal tests prove compiler passes and invariants in isolation. Wet
 tests prove that the packaged CLI, file IO, LLVM emission, `clang` toolchain

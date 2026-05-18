@@ -199,14 +199,24 @@ optimizeWithEgglog config expression = do
   let runResult = encodedRunResult encodedRun
   (optimized, extractedRoot) <- extractOptimizedANFWithRoot encoded encodedRun
   optimizedTy <- mapLeft ReconstructedTypeError (inferANFTypeText (encodedFreeVariableTypes encoded) optimized)
-  checkSemantics expression optimized
+  -- Extraction is cost-driven, so semantic validation remains the final guard
+  -- against dropping strict runtime-error dependencies.
+  let semanticFallback = either Just (const Nothing) (checkSemantics expression optimized)
+      finalOptimized =
+        case semanticFallback of
+          Just {} -> expression
+          Nothing -> optimized
+      finalType =
+        case semanticFallback of
+          Just {} -> encodedRootType encoded
+          Nothing -> optimizedTy
   pure
     EgglogOptimizationResult
       { originalANF = expression
       , resolvedANF = resolved
-      , optimizedANF = optimized
+      , optimizedANF = finalOptimized
       , originalType = encodedRootType encoded
-      , optimizedType = optimizedTy
+      , optimizedType = finalType
       , runStats =
           RunStats
             { runIterations = resultIterations runResult
@@ -216,12 +226,14 @@ optimizeWithEgglog config expression = do
       , extractionStats =
           ExtractionStats
             { originalCost = anfCost expression
-            , optimizedCost = anfCost optimized
+            , optimizedCost = anfCost finalOptimized
             }
       , appliedRules = map AppliedRuleSummary (resultAppliedRules runResult)
       , functionEntries = sum (Map.elems (encodedRunFunctionTableSizes encodedRun))
-      , provenanceTrace = optimizationProvenance encoded encodedRun extractedRoot optimized
-      , unsupportedReason = Nothing
+      , provenanceTrace =
+          maybe [] (\err -> ["semantic fallback: " <> renderEgglogBackendError err]) semanticFallback
+            <> optimizationProvenance encoded encodedRun extractedRoot finalOptimized
+      , unsupportedReason = semanticFallback
       }
 
 tryOptimizeWithEgglog :: RunConfig -> AExpr -> EgglogOptimizationAttempt

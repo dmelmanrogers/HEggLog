@@ -1,5 +1,14 @@
 # HeggLog LLVM Backend
 
+This document describes the LLVM/native backend for the current strict `.hg`
+compiler-supported subset. The backend emits LLVM IR and can produce native
+executables through `clang` for that subset.
+
+The Haskell 2010 target will reuse the LLVM/native direction, but Haskell 2010
+lowering requires typed Core, an STG-like lazy IR, runtime linking, and lazy
+runtime support. The current strict backend is not sufficient for lazy Haskell
+semantics by itself.
+
 The LLVM backend is the first executable code generation path for HeggLog. It is
 intentionally narrow but now includes a first closure runtime pass: it compiles
 closed, pure programs with first-order roots, ordered top-level functions,

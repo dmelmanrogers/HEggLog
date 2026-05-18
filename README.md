@@ -1,84 +1,64 @@
 # HeggLog
 
-HeggLog is a small typed functional language and compiler written in Haskell. It
-supports parsing, typechecking, interpretation, ANF lowering, Egglog-inspired
-optimization, LLVM IR generation, and native executable compilation for the
-supported runtime fragment.
+HeggLog is a Haskell 2010 native compiler project implemented in Haskell. The
+current repository contains a working native compiler for a strict `.hg` subset,
+including Egglog-inspired optimization, LLVM IR generation, native executable
+output, and end-to-end wet tests. That compiler is the substrate for the active
+Haskell 2010 compiler roadmap: layout-aware parsing, renaming, Hindley-Milner
+typechecking, typed Core, Egglog Core optimization, STG-like lazy lowering,
+runtime support, and LLVM machine-code output.
 
-The current system has three different support levels:
+The active target is Haskell 2010 source to native executables through LLVM and
+clang. Current `.hg` support is not Haskell 2010 and does not claim GHC
+compatibility.
 
-- Report/interpreter mode handles the full implemented source language,
-  including local higher-order functions.
-- Egglog optimization covers a pure first-order ANF subset with checked integer
-  arithmetic, comparisons, booleans, lets, variables, and conditionals.
-- LLVM/native compilation supports closed programs with printable `Int` or
-  `Bool` roots, top-level first-order calls, lambda-lifted non-capturing
-  functions, and closure-converted local function values.
+## Current Status
 
-HeggLog is a working compiler for that supported subset. It does not yet support
-recursion, modules, algebraic data types, pattern matching, strings, arrays, or
-user-facing Hindley-Milner polymorphism.
+Implemented today for the current `.hg` compiler-supported subset:
 
-## Roadmap
+- parsing, typechecking, and report/interpreter mode
+- ANF and resolved ANF
+- Egglog optimization for supported strict ANF fragments
+- checked signed `Int64` runtime semantics
+- top-level first-order functions, lambda lifting, and local closure conversion
+- LLVM IR generation
+- native executable output through `clang`
+- mandatory black-box wet tests that compile real `.hg` files, execute native
+  artifacts, verify stdout/stderr/exit codes, compare report-mode
+  `Result: <value>` output, and compile selected emitted LLVM through `clang`
 
-The living development roadmap is in [docs/roadmap.md](docs/roadmap.md). It
-tracks the implemented compiler baseline, remaining semantic work, and the next
-implementation queue.
+Planned for the Haskell 2010 target:
 
-Current semantic specs:
+- layout-aware Haskell 2010 frontend
+- renamer and module/import resolution
+- Hindley-Milner typechecker with Haskell 2010 class constraints
+- typed Core
+- STG-like lazy IR and runtime
+- Egglog optimizer over typed Core
+- runtime-linked LLVM/native executable output for `.hs` programs
 
-- [Current capabilities](docs/current-capabilities.md)
-- [Language specification](docs/language-spec.md)
-- [Runtime specification](docs/runtime-spec.md)
-- [Diagnostics specification](docs/diagnostics-spec.md)
-- [LLVM backend specification](docs/llvm-backend-spec.md)
-- [Type inference direction](docs/type-inference.md)
-- [End-to-end wet testing](docs/e2e-wet-testing.md)
-- [Recorded wet-test results](docs/e2e-results.md)
+## Quickstart
 
-## Build
+Build and test:
 
 ```bash
 cabal build all
 cabal test all
 ```
 
-CI runs `cabal build all`, `cabal test all`, `cabal check`, `git diff --check`,
-and mandatory clang-backed end-to-end wet tests on pushes to `main`/`develop`
-and on pull requests.
+Run the mandatory end-to-end wet-test path:
 
-## Run
+```bash
+scripts/e2e-wet-test.sh
+```
 
-Report/interpreter mode:
+Run current `.hg` report/interpreter mode:
 
 ```bash
 cabal run hegglog -- examples/test.hg
 ```
 
-The CLI prints:
-
-- parsed AST
-- type
-- result
-- ANF IR
-- inferred analysis facts
-- optimized ANF IR
-- applied rewrite trace
-- report-only e-graph optimized ANF IR, or a structured unsupported-fragment
-  message
-- Egglog optimizer status, optimized ANF, costs, bounded run/rebuild stats, and
-  structured unsupported/failure reasons
-- lowered Core IR
-
-## LLVM Backend
-
-Emit LLVM IR:
-
-```bash
-cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm -o /tmp/hegglog.ll
-```
-
-Build a native executable through `clang`:
+Compile a current supported `.hg` program to a native executable:
 
 ```bash
 cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithmetic
@@ -86,147 +66,95 @@ cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithme
 # 14
 ```
 
-Build and run in one command:
+Emit LLVM IR instead of a native executable:
 
 ```bash
-cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithmetic --run
+cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm -o /tmp/hegglog-arithmetic.ll
 ```
 
-Native compile mode also supports `--no-egglog` and `--run`:
+Compile without Egglog optimization:
 
 ```bash
 cabal run hegglog -- compile examples/llvm/division.hg -o /tmp/hegglog-division --no-egglog
-cabal run hegglog -- compile examples/llvm/division.hg -o /tmp/hegglog-division --run
 ```
 
-The LLVM v0 backend supports `Int`, `Bool`, `let`, `if`, `+`, `-`, `*`, `/`,
-`<`, `==`, ordered top-level first-order functions, saturated direct calls,
-lambda lifting for eligible non-capturing lambdas, and closure conversion for
-local function values. Function-valued roots, partial or over-applied top-level
-calls, top-level function values, recursion, and free variables are rejected
-structurally. `Int` is a checked signed 64-bit value across the interpreter,
-optimizers, backend IR, and LLVM lowering; overflow and division errors are
-reported by interpreters and abort in generated LLVM.
+Do not use Haskell 2010 `.hs` examples as working compile commands yet. Haskell
+2010 source support is the active roadmap, not the current frontend.
 
-See `docs/llvm-backend.md` for CLI behavior and LLVM toolchain notes, and
-`docs/llvm-backend-spec.md` for the backend semantic contract.
+## Haskell 2010 Roadmap
 
-## Language MVP
+- [Haskell 2010 roadmap](docs/haskell2010-roadmap.md)
+- [Haskell 2010 conformance matrix](docs/haskell2010-conformance-matrix.md)
+- [Haskell 2010 implementation plan](docs/haskell2010-implementation-plan.md)
+- [Haskell 2010 frontend specification](docs/haskell2010-frontend-spec.md)
+- [Haskell 2010 status summary](docs/haskell2010-status-summary.md)
+- [Laziness and STG plan](docs/laziness-and-stg-plan.md)
+- [Egglog Core optimizer plan](docs/egglog-core-optimizer-plan.md)
 
-Supported source forms:
+Full documentation index:
 
-- integer and boolean literals
+- [docs/index.md](docs/index.md)
+
+## Current Compiler vs Haskell 2010 Target
+
+| Area | Status |
+| --- | --- |
+| Current `.hg` strict subset | Implemented and tested. |
+| Haskell 2010 parser/layout | Planned; not implemented. |
+| Haskell 2010 renamer | Planned; not implemented. |
+| Haskell 2010 Core/STG/lazy runtime | Planned; not implemented. |
+| LLVM/native backend | Implemented for the current `.hg` supported subset. |
+| Egglog ANF backend | Implemented for the current `.hg` supported subset. |
+| Egglog Core optimizer | Planned for the Haskell 2010 Core pipeline. |
+| Native wet tests | Implemented for the current `.hg` native compiler baseline; Haskell 2010 wet tests will be added with Haskell 2010 features. |
+
+## Current `.hg` Language Support
+
+Report/interpreter mode supports the implemented strict expression language:
+
+- checked signed `Int64`
+- `Bool`
 - variables
-- `let` bindings
-- `if` / `then` / `else`
-- arithmetic operators: `+`, `-`, `*`, `/`
-- comparison operators: `<`, `==`
-- lambda expressions: `\x : Int -> x + 1` or `\x -> x + 1`
-- function application: `f x`
-- top-level first-order functions: `def inc(x : Int) : Int = x + 1; inc 41`
-- function types: `Int -> Int`
-- parentheses
+- nonrecursive `let`
+- `if`
+- integer `+`, `-`, `*`, and `/`
+- integer `<`
+- `==` over `Int` and `Bool`
+- lambda expressions
+- function application
+- ordered nonrecursive top-level first-order function definitions
+- local higher-order functions
+- optional lambda parameter annotations when monomorphic inference is concrete
 
-Top-level function parameter and return annotations are required. Lambda
-parameter annotations are optional when the compiler can infer a concrete
-monomorphic type; ambiguous lambdas are rejected with source-spanned
-diagnostics. Polymorphic lets and optional top-level signatures are tracked in
-`docs/type-inference.md`.
+The LLVM/native backend is narrower than report mode. It supports closed
+programs with printable `Int` or `Bool` roots, top-level first-order calls,
+lambda-lifted non-capturing functions, and closure-converted local function
+values. It rejects unsupported targets structurally.
 
-## Architecture
+HeggLog does not yet support Haskell 2010 modules, imports, ADTs, pattern
+matching, classes/instances, Prelude, IO `main`, or lazy semantics.
 
-- `Syntax.*` owns parsed source syntax and pretty-printing.
-- `Syntax.Located` carries source ranges for diagnostics while preserving the
-  unspanned AST used by semantic passes.
-- `Typecheck.Infer` performs the production environment-based typecheck and
-  exposes source elaboration for optional lambda annotations.
-- `Typecheck.Principal` contains the Algorithm W-style principal-type engine
-  and the located elaborator that resolves source lambdas to explicit backend
-  types.
-- `Eval.*` interprets checked expressions into runtime values.
-- `IR.ANF` makes evaluation order explicit by atomizing primitive and
-  application operands, and represents top-level functions/direct calls for the
-  first-order backend path.
-- `Analysis.*` defines relational facts over ANF terms. This keeps future
-  egglog-style optimization grounded in analysis facts instead of a bare rewrite
-  engine.
-- `IR.Core` lowers syntax into explicit Core nodes for future equality
-  saturation work.
-- `Optimize.Placeholder` is isolated from parsing, typechecking, and eval. This
-  is where future egglog extraction and rewrite passes should live.
-- `Optimize.Rewrite` describes future conditional rewrites. Guards such as
-  `NonZero x` are preferable to globally unsound rules like unconditional
-  `x / x => 1`.
-- `Optimize.Simplify` is a small fact-aware ANF rewrite engine. It validates
-  optimizer input and output, records applied rules, and is intentionally
-  replaceable by a future e-graph or egglog backend.
-- `Optimize.EGraph` is an isolated prototype e-graph backend for a pure
-  first-order ANF fragment. It supports arithmetic, boolean literals,
-  variables, and simple `if` terms; lambdas and applications return structured
-  unsupported-fragment diagnostics.
-- `IR.ANF.Resolved` alpha-resolves ANF binders into deterministic binder ids and
-  explicit free variables. It is generic ANF infrastructure, not tied to the
-  Egglog backend.
-- `Egglog.*` is a standalone typed equality-saturation kernel with user sorts,
-  function declarations, merge behavior, rebuild, rule evaluation, and
-  extraction.
-- `Optimize.EgglogBackend` is the compiler adapter from resolved ANF into the
-  Egglog kernel. It classifies a typed first-order fragment, encodes integer and
-  boolean terms into separate Egglog sorts, runs compiler rules as `Rule` data,
-  extracts back to valid ANF, and reports structured unsupported/failure states.
-- `Backend.LambdaLift` rewrites eligible non-capturing lambdas into generated
-  top-level first-order functions before backend lowering.
-- `Backend.ClosureConvert` lowers remaining local function values into closure
-  allocation, environment access, and indirect closure calls.
-- `Backend.*` lowers ANF or closure-converted programs into a typed backend IR
-  and then into deterministic textual LLVM IR with source top-level functions
-  and a small C-compatible printing `main`.
+## Existing Specs
 
-Binder-aware equality saturation remains future work. Lambda rewrites require
-alpha equivalence, capture avoidance, beta-reduction discipline, and extraction
-cost models before they can be optimized safely.
+- [Current capabilities](docs/current-capabilities.md)
+- [Full compiler definition](docs/full-compiler-definition.md)
+- [Language specification for `.hg`](docs/language-spec.md)
+- [Runtime specification](docs/runtime-spec.md)
+- [Diagnostics specification](docs/diagnostics-spec.md)
+- [Optimizer specification](docs/optimizer-spec.md)
+- [Egglog engine specification](docs/egglog-engine-spec.md)
+- [Egglog backend](docs/egglog-backend.md)
+- [LLVM backend](docs/llvm-backend.md)
+- [LLVM backend specification](docs/llvm-backend-spec.md)
+- [Type inference direction](docs/type-inference.md)
+- [End-to-end wet testing](docs/e2e-wet-testing.md)
+- [Recorded wet-test results](docs/e2e-results.md)
 
-## Test Harness
+## CI
 
-The test suite is grouped by compiler concern:
-
-- parser precedence, grouping, and top-level definitions
-- structured negative typechecking cases, including top-level duplicate and
-  forward-reference errors
-- parser/typechecker/backend diagnostic location and golden formatting
-- source-vs-ANF semantic preservation
-- ANF validation and invariants
-- relational fact inference
-- fact-aware simplification and semantic preservation
-- e-graph insertion, union/find, extraction, rewrite behavior, unsupported
-  fragments, and semantic preservation on the supported fragment
-- Egglog kernel invariants, resolved ANF binding behavior, backend encoding,
-  compiler rules, extraction/reconstruction, structured unsupported reporting,
-  deterministic optimization, and semantic preservation on supported programs
-- LLVM backend validation, structured unsupported cases, direct top-level calls,
-  lambda lifting, deterministic SSA/phi lowering, selected LLVM golden files,
-  and optional execution checks against the interpreter when LLVM tools are
-  available
-- selected golden CLI output sections
-- QuickCheck properties for ANF validation after lowering and Egglog semantic
-  preservation on generated supported ANF fragments
-- black-box end-to-end wet tests that invoke the built `hegglog` CLI, compile
-  real `.hg` files, produce native executables, execute those artifacts, verify
-  stdout/stderr/exit codes, compare report-mode `Result: <value>` output, and
-  compile selected emitted LLVM through `clang`
-
-Negative type fixtures live in `examples/type-errors/`. Golden fixtures live in
-`test/golden/`. Wet-test programs live in `test/e2e/programs/`.
-
-Run the mandatory wet-test path with:
-
-```bash
-scripts/e2e-wet-test.sh
-```
-
-The wet suite is also a Cabal test suite named `e2e-wet-test`, so
-`cabal test all` includes it. `clang` is required; missing `clang` is a test
-failure, not a skip.
+CI runs `cabal build all`, `cabal test all`, `cabal check`, `git diff --check`,
+and mandatory clang-backed end-to-end wet tests on pushes to `main`/`develop`
+and on pull requests.
 
 ## License
 

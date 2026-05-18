@@ -1,8 +1,13 @@
 # LLVM Backend Specification
 
-This specification defines the current HeggLog LLVM backend contract. It is
-normative for the v0 backend fragment; `docs/llvm-backend.md` remains the
-operational guide for CLI use and toolchain workflow.
+This specification defines the current HeggLog LLVM backend contract for the
+strict `.hg` compiler-supported subset. It is normative for the v0 backend
+fragment; `docs/llvm-backend.md` remains the operational guide for CLI use and
+toolchain workflow.
+
+The future Haskell 2010 backend will still use LLVM/native machine-code output,
+but it must lower from STG-like lazy IR and link a runtime system. This current
+strict backend does not implement lazy Haskell semantics on its own.
 
 ## Scope
 
@@ -305,3 +310,7 @@ change:
 - runtime declarations
 - external tool expectations
 - differential or golden test obligations
+
+Haskell 2010 lowering must also update this specification or add a successor
+spec covering STG-to-LLVM lowering, runtime linking, constructor/thunk layout,
+enter/apply convention, and lazy runtime diagnostics.

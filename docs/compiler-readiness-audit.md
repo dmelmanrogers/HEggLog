@@ -2,15 +2,23 @@
 
 Date: 2026-05-18
 
+This audit predates or accompanies the Haskell 2010 pivot. It evaluates the
+existing strict `.hg` compiler baseline. The active project target is now a
+Haskell 2010 native compiler, tracked in
+[`haskell2010-roadmap.md`](haskell2010-roadmap.md) and
+[`haskell2010-conformance-matrix.md`](haskell2010-conformance-matrix.md).
+
 This audit evaluates the current HeggLog codebase as a compiler implementation, with emphasis on end-to-end readiness, semantic correctness, optimizer safety, LLVM backend completeness, diagnostics, tests, documentation, and remaining work required for a practical v1 compiler.
 
 This version of the audit is synchronized with the compiler baseline that
-includes checked LLVM division, strictness-preserving Egglog rules, and native
-executable output through `clang`.
+includes checked LLVM division, strictness-preserving Egglog rules, native
+executable output through `clang`, and mandatory end-to-end wet testing.
 
 ## 1. Executive Summary
 
-HeggLog is a credible partial compiler for a well-defined, typed expression language subset. It currently has the major pieces expected of a small compiler:
+HeggLog is a credible native compiler baseline for a well-defined, typed
+strict `.hg` expression-language subset. It currently has the major pieces
+expected of a small compiler:
 
 - Located parsing for source files.
 - Type inference and elaboration, including optional lambda annotations.
@@ -21,6 +29,7 @@ HeggLog is a credible partial compiler for a well-defined, typed expression lang
 - Backend IR validation, LLVM text emission, and native executable output
   through `clang`.
 - LLVM validation and execution through external LLVM tools.
+- Mandatory wet tests for native executable artifacts.
 - A meaningful test suite across parser, typechecker, interpreter, optimizer, backend, goldens, and properties.
 
 For the current supported runtime fragment, HeggLog is a working compiler:
@@ -36,15 +45,23 @@ textual LLVM output. `--run-llvm` remains available for LLVM-tool execution, and
 
 The LLVM backend is correct-looking and well tested for its intended subset: closed `Int`/`Bool` roots, `let`, `if`, checked `+`, `-`, `*`, `/`, `<`, `==`, top-level first-order calls, lambda lifting, and local closures. Checked division was a gap at the original audit time; it is now lowered directly with division-by-zero and minimum-`Int / -1` runtime checks.
 
-The optimizer story is better than the average experimental compiler at this stage. The default compiler path uses the Egglog backend when supported and falls back explicitly when unsupported. The current baseline removes several unsafe default rewrites that would otherwise violate strict runtime-error preservation. This materially improves compiler trustworthiness.
+The optimizer story is stronger than a typical early compiler at this stage.
+The default compiler path uses the Egglog backend when supported and falls back
+explicitly when unsupported. The current baseline removes several unsafe default
+rewrites that would otherwise violate strict runtime-error preservation. This
+materially improves compiler trustworthiness.
 
-The highest-priority readiness gaps are:
+For the current `.hg` substrate, the highest-priority readiness gaps are:
 
 1. Normalize CLI commands into a polished `check`/`run`/`compile`/`report`
    surface.
 2. Improve source locations for nested runtime errors.
-3. Decide the Bool executable output format before a polished v1.
+3. Decide the Bool executable output format before a polished substrate
+   release.
 4. Keep CI and release packaging aligned with the native executable workflow.
+
+For the active project target, the next readiness frontier is the Haskell 2010
+frontend/Core/STG/lazy-runtime path.
 
 ## 2. Baseline Validation
 
@@ -575,38 +592,50 @@ Exit criteria:
 
 ## 17. Recommended Next Five Implementation Tasks
 
-1. Normalize the CLI command model.
-   - Files likely affected: `src/Main.hs`, `src/CLI/Report.hs`, README, CLI/golden tests.
-   - Acceptance: `check`, `run`, `compile`, and `report` have clear stdout/stderr and exit-code behavior.
-   - Suggested commit: `Normalize compiler CLI commands`
+1. Commit the roadmap pivot.
+   - Files likely affected: docs and README.
+   - Acceptance: the project identity, Haskell 2010 target, `.hg` substrate,
+     Egglog role, and LLVM/native output role are clear and internally
+     consistent.
+   - Suggested commit: `Set Haskell 2010 native compiler roadmap`
 
-2. Add process-level CLI artifact tests.
-   - Files likely affected: test harness, README examples, CI config.
-   - Acceptance: CLI tests prove `compile -o`, `--emit-llvm -o`, `--run`, and
-     missing-toolchain behavior at the executable boundary.
-   - Suggested commit: `Test compiler artifact CLI`
+2. Build the Haskell 2010 parser/layout MVP.
+   - Files likely affected: `src/Haskell2010/*`, tests, docs.
+   - Acceptance: layout-sensitive parsing works for a documented Core-0 source
+     subset while the existing `.hg` parser still works.
+   - Suggested commit: `Add Haskell 2010 parser layout MVP`
 
-3. Track precise runtime-error source spans.
-   - Files likely affected: located syntax, ANF/source mapping, interpreters, compile diagnostics, tests.
-   - Acceptance: nested runtime errors report the smallest useful source expression.
-   - Suggested commit: `Track runtime error source spans`
+3. Add the renamer MVP.
+   - Files likely affected: `src/Haskell2010/Names.hs`,
+     `src/Haskell2010/Scope.hs`, `src/Haskell2010/Renamer.hs`, tests.
+   - Acceptance: every accepted occurrence resolves to a unique binder or
+     fails with a source-spanned diagnostic.
+   - Suggested commit: `Add Haskell 2010 renamer MVP`
 
-4. Finalize v1 docs and CI tooling.
-   - Files likely affected: docs, README, CI config, examples.
-   - Acceptance: docs no longer contradict current strictness rules; CI exercises LLVM tools; v1 language subset is explicit.
-   - Suggested commit: `Finalize compiler v1 docs`
+4. Add typed Core MVP.
+   - Files likely affected: `src/Core/*`, `src/Haskell2010/Desugar.hs`, tests.
+   - Acceptance: parsed/renamed Core-0 programs desugar to validated typed
+     Core.
+   - Suggested commit: `Add typed Core MVP`
+
+5. Start the lazy/STG runtime MVP.
+   - Files likely affected: `src/STG/*`, runtime files, LLVM backend
+     integration, tests.
+   - Acceptance: Core-0 lazy examples validate and run through a native wet
+     path.
+   - Suggested commit: `Add lazy runtime MVP`
 
 ## 18. Readiness Verdict
 
-HeggLog is ready to be described as an actively working compiler prototype with
-a real typed frontend, optimizer stack, closure-aware backend path, LLVM
-execution path, and native executable output for a defined subset.
+HeggLog is ready to be described as an actively working native compiler
+baseline for the documented strict `.hg` subset, with a real typed frontend,
+optimizer stack, closure-aware backend path, LLVM execution path, native
+executable output, and mandatory wet tests.
 
-It is not yet ready to be described as a complete compiler in the ordinary
-user-facing sense because the CLI surface, process-level artifact tests, runtime
-diagnostic precision, Bool output policy, and LLVM-tool CI story still need
-polish.
+It is not yet ready to be described as a Haskell 2010 compiler, because the
+Haskell 2010 parser/layout, renamer, typechecker, typed Core, STG-like lazy IR,
+runtime, Prelude, modules, IO, and conformance suite are not implemented.
 
-The implementation direction is sound. The next best work is closing the
-remaining usability gaps: CLI normalization, process-level artifact tests,
-precise runtime diagnostics, and final docs/CI reconciliation.
+The implementation direction is sound. The next best work is the Haskell 2010
+parser/layout MVP, followed by renaming, typed Core, lazy/STG runtime work, and
+then Egglog Core optimization once Core exists.

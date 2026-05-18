@@ -1,7 +1,25 @@
 # HeggLog Language Specification
 
-This document describes the language implemented by the current codebase. Future
-features are explicitly marked as decisions or planned work.
+This document describes the strict `.hg` language implemented by the current
+compiler substrate. Future features are explicitly marked as decisions or
+planned work.
+
+# Relation to Haskell 2010
+
+This specification describes the current `.hg` compiler-supported substrate. It
+is not Haskell 2010.
+
+Haskell 2010 source support is tracked separately:
+
+- [Haskell 2010 roadmap](haskell2010-roadmap.md)
+- [Haskell 2010 frontend specification](haskell2010-frontend-spec.md)
+- [Laziness and STG plan](laziness-and-stg-plan.md)
+
+The current `.hg` language uses strict call-by-value evaluation. Haskell 2010
+requires non-strict semantics, so the future Haskell 2010 compiler requires
+typed Core, STG-like lazy lowering, and a lazy runtime. Current `.hg` behavior
+remains useful as a backend/middle-end substrate and regression baseline, but
+it is not the final source-language endpoint.
 
 ## Source Unit
 

@@ -1,8 +1,39 @@
 # HeggLog Runtime Specification
 
-This document describes the current runtime behavior and the intended direction
-for future runtime features. The current runtime is mostly interpreter behavior
-plus the small C/LLVM-facing runtime surface emitted by the LLVM backend.
+This document describes the current strict `.hg` runtime behavior and the
+intended runtime direction for the Haskell 2010 native compiler target. The
+current runtime is mostly interpreter behavior plus the small C/LLVM-facing
+runtime surface emitted by the LLVM backend.
+
+## Current Runtime
+
+The current runtime belongs to the strict `.hg` compiler-supported subset. It
+supports checked signed `Int64`, `Bool`, closures where currently supported by
+the interpreter and LLVM closure-conversion path, native executable printing,
+checked arithmetic/division, and runtime-error behavior for overflow and
+division failures.
+
+Native executable runtime errors currently call `abort`, exit nonzero, and do
+not print a rich runtime diagnostic. The wet tests record that current
+convention.
+
+## Haskell 2010 Runtime Target
+
+The Haskell 2010 runtime target requires:
+
+- lazy thunks
+- sharing and update
+- constructor closures
+- recursive heap bindings for `letrec`
+- black holes or documented equivalent behavior
+- case as demand
+- IO
+- heap management through a GC, arena, reference counting, or another explicit
+  allocation model
+
+The current strict runtime is not sufficient for Haskell 2010 laziness. The
+planned STG/runtime path is documented in
+[laziness-and-stg-plan.md](laziness-and-stg-plan.md).
 
 ## Current Runtime Values
 
