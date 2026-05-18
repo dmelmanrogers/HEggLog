@@ -1,7 +1,8 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after adding Haskell 2010 guarded
-RHS/case alternative, as-pattern, and guard-fallthrough native coverage. The
+Recorded for the mandatory wet-test suite after adding Haskell 2010 IO
+printing coverage for `main :: IO ()`, `putStrLn`, `print`, `return`, `(>>)`,
+and expression-only `do` sequencing. The
 suite covers the existing `.hg` native compiler baseline and Haskell 2010
 executable-subset `.hs` programs that compile to native executables, compare
 lazy runtime behavior, and run both default Egglog and `--no-egglog` modes for
@@ -18,15 +19,15 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 99
-- Source files: 43
-- Successful source cases: 33
+- HUnit checks: 102
+- Source files: 44
+- Successful source cases: 34
 - Runtime-error source cases: 7
 - Compile-error source cases: 3
-- Native compile/run checks: 74
-- Default Egglog native checks: 43
-- `--no-egglog` native checks: 31
-- Emit-LLVM checks: 13
+- Native compile/run checks: 76
+- Default Egglog native checks: 44
+- `--no-egglog` native checks: 32
+- Emit-LLVM checks: 14
 - Report/interpreter comparisons: 12
 - Failures: 0
 
@@ -107,6 +108,9 @@ Summary:
 | haskell2010-prelude-classes | `test/e2e/programs/haskell2010/prelude-classes.hs` | success | native/default | `6` | stdout `6`, stderr empty, exit 0 | pass |
 | haskell2010-prelude-classes | `test/e2e/programs/haskell2010/prelude-classes.hs` | success | native/no-egglog | `6` | stdout `6`, stderr empty, exit 0 | pass |
 | haskell2010-prelude-classes | `test/e2e/programs/haskell2010/prelude-classes.hs` | success | emit-llvm/default | `6` | LLVM compiled through clang, stdout `6`, stderr empty, exit 0 | pass |
+| haskell2010-io-printing | `test/e2e/programs/haskell2010/io-printing.hs` | success | native/default | `ok\nanswer\n42\nTrue` | stdout `ok\nanswer\n42\nTrue`, stderr empty, exit 0 | pass |
+| haskell2010-io-printing | `test/e2e/programs/haskell2010/io-printing.hs` | success | native/no-egglog | `ok\nanswer\n42\nTrue` | stdout `ok\nanswer\n42\nTrue`, stderr empty, exit 0 | pass |
+| haskell2010-io-printing | `test/e2e/programs/haskell2010/io-printing.hs` | success | emit-llvm/default | `ok\nanswer\n42\nTrue` | LLVM compiled through clang, stdout `ok\nanswer\n42\nTrue`, stderr empty, exit 0 | pass |
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | native/default | `15` | stdout `15`, stderr empty, exit 0 | pass |
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | native/no-egglog | `15` | stdout `15`, stderr empty, exit 0 | pass |
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | emit-llvm/default | `15` | LLVM compiled through clang, stdout `15`, stderr empty, exit 0 | pass |

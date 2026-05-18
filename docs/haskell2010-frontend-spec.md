@@ -116,16 +116,16 @@ Current initial Haskell 2010 class capabilities:
 - instance lookup
 - dictionary-passing elaboration
 - generated built-in dictionaries for `Eq Int`, `Eq Bool`, `Ord Int`,
-  `Ord Bool`, and executable `Num Int`
+  `Ord Bool`, executable `Num Int`, `Show Int`, and `Show Bool`
 - dictionary-backed built-in methods: `(==)`, `(/=)`, `compare`, `(<)`,
   `(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`,
-  and `signum`
+  `signum`, and `show`
 
 Remaining planned Haskell 2010 capabilities:
 
 - superclasses, default methods, deriving, and instance contexts
 - defaulting for numeric classes
-- `Show`, `fromInteger`, and overloaded literals
+- broader `Show`, `fromInteger`, and overloaded literals
 - kind checking for type constructors and classes
 
 The typechecker emits typed Core or rejects the program. It must not accept a
@@ -169,10 +169,12 @@ also covers the initial type
 class dictionary slice: user-defined single-parameter classes, concrete
 context-free instances, explicit constrained functions, generated dictionary
 constructors/selectors, dictionary-passed method calls, and built-in `Eq Int`,
-`Eq Bool`, `Ord Int`, `Ord Bool`, and executable `Num Int` dictionaries.
-Full Haskell 2010 type classes, `Show`, numeric defaulting, irrefutable/lazy
-patterns, richer pattern diagnostics, broader Prelude, IO, and modules remain
-planned. The strict
+`Eq Bool`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and
+`Show Bool` dictionaries. It also covers `IO`, `main :: IO ()`, `putStrLn`,
+`print`, `return`, `(>>)`, and expression-only `do` sequencing with local
+`let`. Full Haskell 2010 type classes, broader `Show`, numeric defaulting,
+irrefutable/lazy patterns, richer pattern diagnostics, broader Prelude,
+broader IO, and modules remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

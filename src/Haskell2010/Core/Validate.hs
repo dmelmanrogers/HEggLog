@@ -280,6 +280,11 @@ validatePrimitive op arguments resultTy =
     PrimDiv -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
     PrimLt -> validateFixedPrimitive op [intTy, intTy] boolTy arguments resultTy
     PrimNegate -> validateFixedPrimitive op [intTy] intTy arguments resultTy
+    PrimShowInt -> validateFixedPrimitive op [intTy] stringTy arguments resultTy
+    PrimShowBool -> validateFixedPrimitive op [boolTy] stringTy arguments resultTy
+    PrimPutStrLn -> validateFixedPrimitive op [stringTy] (ioTy unitTy) arguments resultTy
+    PrimIOThen -> validateIOThenPrimitive op arguments resultTy
+    PrimIOReturn -> validateIOReturnPrimitive op arguments resultTy
     PrimEq ->
       [ checkPrimitiveArity op 2 arguments
       , validatePrimitiveEq op arguments
@@ -305,6 +310,39 @@ validatePrimitiveEq op arguments =
       | lhsTy == rhsTy -> Right ()
       | otherwise -> Left [CorePrimitiveArgumentMismatch op 1 lhsTy rhsTy]
     _ -> Right ()
+
+validateIOThenPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateIOThenPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 2 arguments
+  , case map exprType arguments of
+      [firstTy, secondTy]
+        | Just _ <- ioResultType firstTy
+        , Just _ <- ioResultType secondTy ->
+            checkPrimitiveResult op secondTy resultTy
+        | Just _ <- ioResultType firstTy ->
+            Left [CorePrimitiveArgumentMismatch op 1 (ioTy (CTyVar unknownIOTypeVariable)) secondTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ioTy (CTyVar unknownIOTypeVariable)) firstTy]
+      _ -> Right ()
+  ]
+
+validateIOReturnPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateIOReturnPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [valueTy] -> checkPrimitiveResult op (ioTy valueTy) resultTy
+      _ -> Right ()
+  ]
+
+ioResultType :: CoreType -> Maybe CoreType
+ioResultType = \case
+  CTyApp (CTyCon name) resultTy
+    | name == ioTyConName -> Just resultTy
+  _ -> Nothing
+
+unknownIOTypeVariable :: RName
+unknownIOTypeVariable =
+  RName TypeVariableNamespace "$io" (-7999) True
 
 literalType :: Literal -> CoreType
 literalType = \case

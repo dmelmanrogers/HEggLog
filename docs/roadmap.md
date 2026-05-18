@@ -44,10 +44,10 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. `Show`, `String`, `print`, `putStrLn`, and IO `main` lowering.
-2. `fromInteger`, overloaded literals, numeric defaulting, and broader Prelude
+1. `fromInteger`, overloaded literals, numeric defaulting, and broader Prelude
    class hierarchy.
-3. Remaining pattern diagnostics and irrefutable/lazy pattern semantics.
+2. Remaining pattern diagnostics and irrefutable/lazy pattern semantics.
+3. Module graph loading, export filtering, and multi-file compilation.
 
 Completed Haskell 2010 roadmap work:
 
@@ -108,16 +108,22 @@ Completed Haskell 2010 roadmap work:
   constrained functions, generated dictionary constructors/selectors, Core
   dictionary arguments, STG/native lowering, and default/no-egglog wet tests.
 - Haskell 2010 built-in Prelude class dictionaries: implemented for `Eq Int`,
-  `Eq Bool`, `Ord Int`, `Ord Bool`, and executable `Num Int` methods, including
-  overloaded comparison/arithmetic operator desugaring, Core/STG/native
-  lowering, and default/no-egglog wet tests. `Show`, `fromInteger`, overloaded
-  literals, and numeric defaulting remain planned.
+  `Eq Bool`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and
+  `Show Bool` methods, including overloaded comparison/arithmetic/show method
+  desugaring, Core/STG/native lowering, and default/no-egglog wet tests.
+  `fromInteger`, overloaded literals, broader `Show`, and numeric defaulting
+  remain planned.
 - Haskell 2010 guarded RHS/case alternatives and as-patterns: implemented for
   multi-branch guards, guards after constructor/list/tuple/as-pattern case
   alternatives, as-pattern aliases in parameters and case patterns, Core/STG
   no-matching-alternative behavior for guard fallthrough, native empty-case
   lowering, and default/no-egglog wet tests. Irrefutable/lazy pattern semantics
   and richer source-spanned pattern diagnostics remain planned.
+- Haskell 2010 IO printing slice: implemented `IO` typechecking and native
+  `main :: IO ()` entrypoint execution, `putStrLn`, `print`, `return`, `(>>)`,
+  expression-only `do` sequencing with local `let`, built-in `Show Int` and
+  `Show Bool` dictionaries, Core/STG IO reference values, native string
+  literal objects for output, and default/no-egglog wet tests.
 
 ## Non-Negotiable Project Direction
 

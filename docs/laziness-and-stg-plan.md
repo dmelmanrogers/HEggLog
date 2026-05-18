@@ -94,7 +94,10 @@ including custom ADTs, nested constructor patterns, lists, tuples, built-in
 Prelude data constructors, generated Core Prelude list/Bool functions, and
 recursive top-level/local functions. User-defined type class dictionaries lower
 as ordinary constructor closures with selector/method calls in the initial
-dictionary slice. IO remains a future expansion.
+dictionary slice. The first IO action layer is implemented for `main :: IO ()`,
+`putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing, native
+string literal and list-of-`Char` output, and built-in `Show Int`/`Show Bool`;
+broader IO remains a future expansion.
 
 ## LLVM Lowering
 

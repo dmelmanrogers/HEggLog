@@ -34,15 +34,18 @@ with concrete instances and explicit constrained functions, and built-in
 Prelude dictionaries for `Eq Int`, `Eq Bool`, `Ord Int`, `Ord Bool`, and
 executable `Num Int` methods. Guarded RHSs, guarded case alternatives,
 as-pattern aliases, and guard-fallthrough no-match behavior are also
-implemented. The following Haskell 2010 requirements are planned but not
+implemented. The first IO printing slice is implemented for `IO`,
+`main :: IO ()`, `putStrLn`, `print`, `return`, `(>>)`, expression-only `do`
+sequencing with local `let`, and built-in `Show Int`/`Show Bool` dictionaries.
+The following Haskell 2010 requirements are planned but not
 implemented:
 
 - irrefutable/lazy pattern semantics and richer pattern-match diagnostics
-- superclasses, default methods, instance contexts, deriving, `Show`,
+- superclasses, default methods, instance contexts, deriving, broader `Show`,
   `fromInteger`, overloaded literals, and numeric defaulting
 - broader Prelude/library subset
 - Haskell source desugaring beyond the current executable subset
-- IO `main`
+- broader IO, including `<-`, `(>>=)`, handles, and effects beyond stdout
 - Haskell 2010 conformance suite
 
 ## What Is Parsed Today
@@ -93,7 +96,9 @@ Prelude data constructors, wildcard patterns, literal patterns, short-circuit
 `map`, `foldr`, `length`, `filter`, and `reverse`; dictionary-backed `Eq`,
 `Ord`, and `Num` methods for the first built-in instances; guarded RHSs and
 guarded case alternatives desugared to Bool `case`; as-pattern aliases lowered
-as local Core bindings; and primitive `/`.
+as local Core bindings; `IO` actions for `putStrLn`, `print`, `return`, `(>>)`,
+expression-only `do` sequencing; built-in `Show Int` and `Show Bool`
+dictionaries; and primitive `/`.
 Recursive top-level functions, mutually recursive
 top-level groups, singleton self-recursive bindings, and local recursive `let`
 bindings now emit recursive Core groups in the supported subset. The initial
@@ -103,8 +108,9 @@ emitting dictionary constructor values, selector functions, and explicit Core
 dictionary arguments. Built-in `Eq Int`, `Eq Bool`, `Ord Int`, `Ord Bool`, and
 `Num Int` dictionaries cover `(==)`, `(/=)`, `compare`, `(<)`, `(<=)`, `(>)`,
 `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`, and `signum`.
-`/` remains checked concrete `Int` division; `Show`, `fromInteger`, overloaded
-literals, and numeric defaulting remain planned.
+Built-in `Show Int` and `Show Bool` cover enough `show` support for `print`.
+`/` remains checked concrete `Int` division; `fromInteger`, overloaded
+literals, broader `Show`, and numeric defaulting remain planned.
 
 ## What Core Evaluates Today
 
@@ -124,6 +130,9 @@ method calls and built-in `Eq`/`Ord`/`Num` class methods through generated
 selector functions and instance dictionary values.
 Core evaluation also covers guarded RHS/as-pattern programs and reports
 guard fallthrough as a no-matching-alternative runtime error.
+It now models IO output for `putStrLn`, `print`, `return`, `(>>)`, and
+expression-only `do` sequencing so Core remains the oracle for native
+`main :: IO ()` execution.
 
 This is a reference oracle for the native path. Source-spanned Haskell 2010
 type diagnostics remain later work because the renamed AST is currently
@@ -141,7 +150,10 @@ re-entry, black-hole detection, Bool and user-constructor dispatch, and checked
 The boxed LLVM/native runtime path is implemented for the current executable
 subset, including ADT constructor objects, list/tuple/Prelude data constructor
 objects, lazy field projection, and type class dictionary values as ordinary
-constructor closures. Runtime expansion for IO remains later work.
+constructor closures. The first IO action layer is implemented for
+output-oriented programs: STG can represent and evaluate IO output actions, and
+native `main :: IO ()` forces the compiled action instead of auto-printing a
+scalar root.
 
 ## What Core Optimizes Today
 
@@ -165,11 +177,12 @@ as unary curried STG functions, wraps non-atomic operands and intermediate
 applications in thunks, preserves `let`/`letrec`, recursive top-level and local
 binding groups, cases, Bool and user
 constructors, list/tuple/Prelude constructors, constructor field laziness, and
-primitive operations, and rejects invalid Core before lowering. Dictionary
+primitive operations, including the initial IO primitives, and rejects invalid
+Core before lowering. Dictionary
 records, selectors, constrained functions, and concrete instance dictionaries
 lower through the same Core-to-STG path. Guarded RHS/as-pattern Core and
 guard-fallthrough no-match errors are covered by Core-to-STG preservation
-tests.
+tests, alongside IO output preservation tests.
 
 Lowered STG runs through the in-process STG evaluator as the semantic check.
 The current executable Haskell 2010 subset is also emitted as boxed lazy STG LLVM
@@ -208,11 +221,13 @@ and compiled to native executables through the existing clang toolchain.
     dictionary arguments, STG lowering/evaluation, native LLVM execution, and
     wet-tested default/no-egglog CLI runs.
 14. Built-in Prelude class dictionary coverage. Completed for `Eq Int`,
-    `Eq Bool`, `Ord Int`, `Ord Bool`, and executable `Num Int` methods,
+    `Eq Bool`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and
+    `Show Bool` methods,
     including generated built-in dictionaries/selectors, overloaded
-    comparison/arithmetic operator desugaring, Core/STG lowering/evaluation,
-    native LLVM execution, and wet-tested default/no-egglog CLI runs. `Show`,
-    `fromInteger`, overloaded literals, and numeric defaulting remain planned.
+    comparison/arithmetic/show method desugaring, Core/STG lowering/evaluation,
+    native LLVM execution, and wet-tested default/no-egglog CLI runs.
+    `fromInteger`, overloaded literals, broader `Show`, and numeric defaulting
+    remain planned.
 15. Guarded RHS/case alternatives and as-pattern aliases. Completed for
     multi-branch guarded function RHSs, guarded constructor/list/as-pattern case
     alternatives, alias bindings for as-patterns in parameters and case
@@ -220,6 +235,11 @@ and compiled to native executables through the existing clang toolchain.
     fallthrough, native empty-case lowering, and wet-tested default/no-egglog
     CLI runs. Irrefutable/lazy pattern semantics and richer source-spanned
     pattern diagnostics remain planned.
+16. IO printing and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
+    `putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing with
+    local `let`, built-in `Show Int`/`Show Bool`, Core/STG output oracles,
+    native string literal and list-of-`Char` output, and wet-tested
+    default/no-egglog CLI runs.
 
 ## Where Egglog Fits
 
@@ -239,7 +259,9 @@ allocation, enter/apply, thunk forcing/update, Bool and user-constructor case
 dispatch, list/tuple/Prelude constructor dispatch, boxed constructor fields,
 recursive closure/thunk groups, user and built-in type class dictionary
 constructor/selector execution, guarded RHS/as-pattern programs, empty-case
-guard-fallthrough aborts, and checked primitives, and invokes clang to produce
+guard-fallthrough aborts, `putStrLn`/`print` output for `IO ()` programs with
+native string literal objects, list-of-`Char` traversal, and built-in
+`Show Int`/`Show Bool`, and checked primitives, and invokes clang to produce
 native machine-code executables.
 
 ## GHC Compatibility
@@ -250,10 +272,9 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Add enough `Show`, `String`, `print`, `putStrLn`, and IO `main` lowering to
-make Haskell 2010 programs produce textual output through the native executable
-path while preserving the `.hg` compiler, Core evaluator, STG runtime,
-Core-to-STG lowering, native executable path, Egglog Core optimizer,
-ADT/list/tuple/Prelude/recursion/typeclass-dictionary support, built-in
-`Eq`/`Ord`/`Num` dictionary support, guard/as-pattern support, and wet-test
-baseline.
+Add `fromInteger`, overloaded literals, numeric defaulting, and the next
+broader Prelude class hierarchy slice while preserving the `.hg` compiler,
+Core evaluator, STG runtime, Core-to-STG lowering, native executable path,
+Egglog Core optimizer, ADT/list/tuple/Prelude/recursion/typeclass-dictionary
+support, built-in `Eq`/`Ord`/`Num`/`Show` dictionary support,
+guard/as-pattern support, IO printing support, and wet-test baseline.

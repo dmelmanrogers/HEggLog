@@ -510,6 +510,11 @@ corePrimToANF = \case
   PrimEq -> Just Eq
   PrimLt -> Just Lt
   PrimNegate -> Nothing
+  PrimShowInt -> Nothing
+  PrimShowBool -> Nothing
+  PrimPutStrLn -> Nothing
+  PrimIOThen -> Nothing
+  PrimIOReturn -> Nothing
 
 anfPrimToCore :: BinOp -> CorePrimOp
 anfPrimToCore = \case

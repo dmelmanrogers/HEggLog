@@ -36,6 +36,7 @@ data CoreValue
   | CoreBool Bool
   | CoreChar Char
   | CoreString Text
+  | CoreIO [Text]
   | CoreClosure Env CoreBinder CoreExpr
   | CoreTypeClosure Env [RName] CoreExpr
   | CoreConstructor RName [CoreThunk]
@@ -149,7 +150,7 @@ evalExpr coreEnv env = \case
     scrutineeValue <- evalExpr coreEnv env scrutinee
     evalCaseAlternative coreEnv env binder alternatives scrutineeValue
   CPrimOp op arguments _ ->
-    traverse (evalExpr coreEnv env) arguments >>= evalPrimitive op
+    traverse (evalExpr coreEnv env) arguments >>= evalPrimitive coreEnv op
 
 evalDataConstructor ::
   CoreValidate.CoreValidationEnv ->
@@ -269,8 +270,8 @@ alternativeFields altCon value =
     _ ->
       Nothing
 
-evalPrimitive :: CorePrimOp -> [CoreValue] -> Either CoreEvalError CoreValue
-evalPrimitive op values =
+evalPrimitive :: CoreValidate.CoreValidationEnv -> CorePrimOp -> [CoreValue] -> Either CoreEvalError CoreValue
+evalPrimitive coreEnv op values =
   case (op, values) of
     (PrimAdd, [CoreInt lhs, CoreInt rhs]) ->
       checkedIntValue (addHInt lhs rhs)
@@ -289,6 +290,18 @@ evalPrimitive op values =
       Right (CoreBool (ltHInt lhs rhs))
     (PrimNegate, [CoreInt value]) ->
       checkedIntValue (subHInt zero value)
+    (PrimShowInt, [CoreInt value]) ->
+      Right (CoreString (renderHInt value))
+    (PrimShowBool, [CoreBool True]) ->
+      Right (CoreString "True")
+    (PrimShowBool, [CoreBool False]) ->
+      Right (CoreString "False")
+    (PrimPutStrLn, [value]) ->
+      CoreIO . (: []) . (<> "\n") <$> coreStringText coreEnv value
+    (PrimIOThen, [CoreIO first, CoreIO second]) ->
+      Right (CoreIO (first <> second))
+    (PrimIOReturn, [_]) ->
+      Right (CoreIO [])
     _ ->
       Left (CoreEvalTypeError ("invalid Core primitive operands for " <> renderCorePrimOpName op))
  where
@@ -300,6 +313,23 @@ evalPrimitive op values =
     case mkHIntLiteral 0 of
       Right value -> value
       Left err -> error (Text.unpack (renderIntError err))
+
+coreStringText :: CoreValidate.CoreValidationEnv -> CoreValue -> Either CoreEvalError Text
+coreStringText coreEnv = \case
+  CoreString value ->
+    Right value
+  CoreData name []
+    | name == listNilDataConName ->
+        Right ""
+  CoreData name [headThunk, tailThunk]
+    | name == listConsDataConName -> do
+        headValue <- force coreEnv headThunk
+        tailValue <- force coreEnv tailThunk
+        case headValue of
+          CoreChar char -> Text.cons char <$> coreStringText coreEnv tailValue
+          other -> Left (CoreEvalTypeError ("expected Char in String list, got " <> renderCoreValue other))
+  other ->
+    Left (CoreEvalTypeError ("expected String, got " <> renderCoreValue other))
 
 valueEquals :: CoreValue -> CoreValue -> Either CoreEvalError Bool
 valueEquals lhs rhs =
@@ -330,6 +360,8 @@ renderCoreValue = \case
     Text.pack (show value)
   CoreString value ->
     Text.pack (show (Text.unpack value))
+  CoreIO chunks ->
+    "<Core IO " <> Text.pack (show (Text.unpack (Text.concat chunks))) <> ">"
   CoreClosure {} ->
     "<Core function>"
   CoreTypeClosure {} ->
@@ -378,3 +410,8 @@ renderCorePrimOpName = \case
   PrimEq -> "=="
   PrimLt -> "<"
   PrimNegate -> "negate#"
+  PrimShowInt -> "showInt#"
+  PrimShowBool -> "showBool#"
+  PrimPutStrLn -> "putStrLn#"
+  PrimIOThen -> "thenIO#"
+  PrimIOReturn -> "returnIO#"

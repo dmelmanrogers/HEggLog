@@ -16,6 +16,8 @@ module Haskell2010.Core.Syntax
   , falseDataConName
   , funTy
   , intTy
+  , ioTy
+  , ioTyConName
   , listConsDataConName
   , listNilDataConName
   , maybeJustDataConName
@@ -106,6 +108,11 @@ data CorePrimOp
   | PrimEq
   | PrimLt
   | PrimNegate
+  | PrimShowInt
+  | PrimShowBool
+  | PrimPutStrLn
+  | PrimIOThen
+  | PrimIOReturn
   deriving stock (Show, Eq, Ord)
 
 exprType :: CoreExpr -> CoreType
@@ -161,6 +168,14 @@ eitherTyConName =
 orderingTy :: CoreType
 orderingTy =
   builtinType "Ordering" (-6)
+
+ioTyConName :: RName
+ioTyConName =
+  builtinTypeName "IO" (-7)
+
+ioTy :: CoreType -> CoreType
+ioTy =
+  CTyApp (CTyCon ioTyConName)
 
 trueDataConName :: RName
 trueDataConName =

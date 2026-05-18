@@ -16,7 +16,7 @@ import qualified Data.Text as Text
 import Haskell2010.Core.Pretty (renderCoreAltCon, renderCorePrimOp, renderCoreType)
 import Haskell2010.Core.Syntax
 import qualified Haskell2010.Core.Validate as CoreValidate
-import Haskell2010.Names (Namespace (..), RName, nameNamespace, renderNamespace, renderRName)
+import Haskell2010.Names (Namespace (..), RName (..), nameNamespace, renderNamespace, renderRName)
 import Haskell2010.STG.Syntax
 
 data STGValidationError
@@ -277,6 +277,11 @@ validatePrimitive op arguments resultTy =
     PrimDiv -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
     PrimLt -> validateFixedPrimitive op [intTy, intTy] boolTy arguments resultTy
     PrimNegate -> validateFixedPrimitive op [intTy] intTy arguments resultTy
+    PrimShowInt -> validateFixedPrimitive op [intTy] stringTy arguments resultTy
+    PrimShowBool -> validateFixedPrimitive op [boolTy] stringTy arguments resultTy
+    PrimPutStrLn -> validateFixedPrimitive op [stringTy] (ioTy unitTy) arguments resultTy
+    PrimIOThen -> validateIOThenPrimitive op arguments resultTy
+    PrimIOReturn -> validateIOReturnPrimitive op arguments resultTy
     PrimEq ->
       [ checkPrimitiveArity op 2 arguments
       , validatePrimitiveEq op arguments
@@ -306,6 +311,39 @@ validatePrimitiveEq op arguments =
  where
   supportsEquality ty =
     ty == intTy || ty == boolTy || ty == charTy || ty == stringTy
+
+validateIOThenPrimitive :: CorePrimOp -> [STGAtom] -> CoreType -> [Either [STGValidationError] ()]
+validateIOThenPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 2 arguments
+  , case map stgAtomType arguments of
+      [firstTy, secondTy]
+        | Just _ <- ioResultType firstTy
+        , Just _ <- ioResultType secondTy ->
+            checkPrimitiveResult op secondTy resultTy
+        | Just _ <- ioResultType firstTy ->
+            Left [STGPrimitiveArgumentMismatch op 1 (ioTy (CTyVar unknownIOTypeVariable)) secondTy]
+        | otherwise ->
+            Left [STGPrimitiveArgumentMismatch op 0 (ioTy (CTyVar unknownIOTypeVariable)) firstTy]
+      _ -> Right ()
+  ]
+
+validateIOReturnPrimitive :: CorePrimOp -> [STGAtom] -> CoreType -> [Either [STGValidationError] ()]
+validateIOReturnPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map stgAtomType arguments of
+      [valueTy] -> checkPrimitiveResult op (ioTy valueTy) resultTy
+      _ -> Right ()
+  ]
+
+ioResultType :: CoreType -> Maybe CoreType
+ioResultType = \case
+  CTyApp (CTyCon name) resultTy
+    | name == ioTyConName -> Just resultTy
+  _ -> Nothing
+
+unknownIOTypeVariable :: RName
+unknownIOTypeVariable =
+  RName TypeVariableNamespace "$io" (-7999) True
 
 checkConstructorArity :: RName -> [CoreType] -> [STGAtom] -> Either [STGValidationError] ()
 checkConstructorArity name expectedFields actualFields

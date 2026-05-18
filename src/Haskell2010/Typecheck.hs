@@ -374,6 +374,7 @@ builtinClassInfos =
     [ (builtinEqClassName, eqInfo)
     , (builtinOrdClassName, ordInfo)
     , (builtinNumClassName, numInfo)
+    , (builtinShowClassName, showInfo)
     ]
  where
   eqA = preludeTypeVariable "a" (-1301)
@@ -415,6 +416,15 @@ builtinClassInfos =
       , ("signum", -1426, TyFun numATy numATy)
       ]
 
+  showA = preludeTypeVariable "a" (-1331)
+  showATy = TyVar showA
+  showInfo =
+    builtinClassInfo
+      builtinShowClassName
+      showA
+      [ ("show", -1431, TyFun showATy stringMonoType)
+      ]
+
 builtinClassInfo :: RName -> RName -> [(Text, Int, MonoType)] -> ClassInfo
 builtinClassInfo className classVariable methodSpecs =
   ClassInfo
@@ -445,6 +455,10 @@ builtinNumClassName :: RName
 builtinNumClassName =
   preludeClassName "Num" (-1320)
 
+builtinShowClassName :: RName
+builtinShowClassName =
+  preludeClassName "Show" (-1330)
+
 preludeClassName :: Text -> Int -> RName
 preludeClassName occurrence unique =
   RName ClassNamespace occurrence unique True
@@ -456,6 +470,7 @@ canonicalClassName name
         "Eq" -> builtinEqClassName
         "Ord" -> builtinOrdClassName
         "Num" -> builtinNumClassName
+        "Show" -> builtinShowClassName
         _ -> name
   | otherwise = name
 
@@ -472,6 +487,7 @@ builtinClassInfoByOccurrence occurrence = do
           "Eq" -> builtinEqClassName
           "Ord" -> builtinOrdClassName
           "Num" -> builtinNumClassName
+          "Show" -> builtinShowClassName
           _ -> RName ClassNamespace occurrence 0 True
   case Map.lookup className classes of
     Just info -> pure info
@@ -747,7 +763,7 @@ exprPreludeValueNames = \case
   RCon {} -> []
   RLit {} -> []
   RApp fn arg -> exprPreludeValueNames fn <> exprPreludeValueNames arg
-  RInfixApp lhs _ rhs -> exprPreludeValueNames lhs <> exprPreludeValueNames rhs
+  RInfixApp lhs op rhs -> [op | isSupportedPreludeValue op] <> exprPreludeValueNames lhs <> exprPreludeValueNames rhs
   RLambda patterns body -> concatMap patternPreludeValueNames patterns <> exprPreludeValueNames body
   RLet decls body -> collectPreludeValueNames decls <> exprPreludeValueNames body
   RIf condition thenBranch elseBranch ->
@@ -759,8 +775,8 @@ exprPreludeValueNames = \case
   RTuple expressions -> concatMap exprPreludeValueNames expressions
   RUnit -> []
   RParen inner -> exprPreludeValueNames inner
-  RLeftSection expr _ -> exprPreludeValueNames expr
-  RRightSection _ expr -> exprPreludeValueNames expr
+  RLeftSection expr op -> [op | isSupportedPreludeValue op] <> exprPreludeValueNames expr
+  RRightSection op expr -> [op | isSupportedPreludeValue op] <> exprPreludeValueNames expr
   RArithmeticSeq start step end ->
     exprPreludeValueNames start <> foldMap exprPreludeValueNames step <> foldMap exprPreludeValueNames end
   RListComp body statements -> exprPreludeValueNames body <> concatMap stmtPreludeValueNames statements
@@ -803,6 +819,11 @@ supportedPreludeValueOccurrences =
   , "length"
   , "filter"
   , "reverse"
+  , "show"
+  , "putStrLn"
+  , "print"
+  , "return"
+  , ">>"
   , "=="
   , "/="
   , "<"
@@ -1259,6 +1280,8 @@ inferExpr env = \case
     caseBinder <- caseBinderFor scrutineeTy alternatives
     typedAlternatives <- traverse (inferCaseAlt env scrutineeTy caseBinder resultTy) alternatives
     pure (TCase typedScrutinee caseBinder typedAlternatives resultTy)
+  RDo statements ->
+    inferDo env statements
   RList expressions -> do
     elementTy <- freshMeta
     typedElements <- traverse (inferExpr env) expressions
@@ -1281,6 +1304,26 @@ inferExpr env = \case
     pure typedInner
   unsupported ->
     throwTypecheck (UnsupportedCore0 ("expression " <> Text.pack (show unsupported)))
+
+inferDo :: TypeEnv -> [RStmt] -> InferM TypedExpr
+inferDo _ [] =
+  throwTypecheck (UnsupportedCore0 "empty do expression")
+inferDo env [RExprStmt expr] =
+  inferExpr env expr
+inferDo env (RExprStmt expr : rest) = do
+  first <- inferExpr env expr
+  restExpr <- inferDo env rest
+  firstResult <- freshMeta
+  restResult <- freshMeta
+  unify (typedExprType first) (ioMonoType firstResult)
+  unify (typedExprType restExpr) (ioMonoType restResult)
+  pure (TPrim PrimIOThen [first, restExpr] (typedExprType restExpr))
+inferDo env (RLetStmt decls : rest) = do
+  (bindings, env') <- inferBindingGroup env decls
+  body <- inferDo env' rest
+  pure (TLet bindings body (typedExprType body))
+inferDo _ (RBindStmt {} : _) =
+  throwTypecheck (UnsupportedCore0 "do bind statements")
 
 inferConstructor :: RName -> InferM TypedExpr
 inferConstructor name
@@ -1359,6 +1402,10 @@ preludeValueScheme name
             "length" -> Just (Scheme [a] [] (TyFun listA intMonoType))
             "filter" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun listA listA)))
             "reverse" -> Just (Scheme [a] [] (TyFun listA listA))
+            "putStrLn" -> Just (Scheme [] [] (TyFun stringMonoType ioUnit))
+            "print" -> Just (Scheme [a] [ClassConstraint builtinShowClassName aTy] (TyFun aTy ioUnit))
+            "return" -> Just (Scheme [a] [] (TyFun aTy (ioMonoType aTy)))
+            ">>" -> Just (Scheme [a, b] [] (TyFun (ioMonoType aTy) (TyFun (ioMonoType bTy) (ioMonoType bTy))))
             _ -> Nothing
  where
   a = preludeTypeVariable "a" (-1201)
@@ -1367,6 +1414,7 @@ preludeValueScheme name
   bTy = TyVar b
   listA = TyList aTy
   listB = TyList bTy
+  ioUnit = ioMonoType unitMonoType
 
 inferPrimitive :: TypeEnv -> RExpr -> RName -> RExpr -> InferM TypedExpr
 inferPrimitive env lhs op rhs =
@@ -1382,6 +1430,7 @@ inferPrimitive env lhs op rhs =
     ">=" -> overloadedBinary "Ord" ">="
     "==" -> overloadedBinary "Eq" "=="
     "/=" -> overloadedBinary "Eq" "/="
+    ">>" -> inferExpr env (RApp (RApp (RVar op) lhs) rhs)
     "&&" -> shortCircuit falseTyped trueDataConName
     "||" -> shortCircuit trueTyped falseDataConName
     other -> throwTypecheck (UnsupportedCore0 ("operator `" <> other <> "`"))
@@ -1706,6 +1755,7 @@ typeConstructorMonoType name = do
         "Bool" -> pure boolMonoType
         "Char" -> pure charMonoType
         "String" -> pure stringMonoType
+        "IO" -> pure (TyCon ioTyConName)
         "Maybe" -> pure (TyCon maybeTyConName)
         "Either" -> pure (TyCon eitherTyConName)
         "Ordering" -> pure orderingMonoType
@@ -1910,14 +1960,32 @@ preludeCorePair name =
       Just (binderFor name filterTy, filterRhs name)
     "reverse" ->
       Just (binderFor name reverseTy, reverseRhs)
+    "putStrLn" ->
+      Just
+        ( binderFor name putStrLnTy
+        , lam putStrLnS stringTy (CPrimOp PrimPutStrLn [var putStrLnS stringTy] ioUnitTy)
+        )
+    "print" ->
+      Just (binderFor name printTy, printRhs)
+    "return" ->
+      Just (binderFor name returnTy, CTypeLam [a] (lam returnX aTy (CPrimOp PrimIOReturn [var returnX aTy] (ioTy aTy))) returnTy)
+    ">>" ->
+      Just (binderFor name thenTy, thenRhs)
     _ -> Nothing
  where
   a = preludeTypeVariable "a" (-1201)
   b = preludeTypeVariable "b" (-1202)
   aTy = CTyVar a
   bTy = CTyVar b
+  showMethodA = preludeTypeVariable "a" (-1331)
+  showMethodATy = CTyVar showMethodA
   listA = CTyList aTy
   listB = CTyList bTy
+  ioUnitTy = ioTy unitTy
+  ioA = ioTy aTy
+  ioB = ioTy bTy
+  showDictA = CTyApp (CTyCon (classDictionaryTypeName builtinShowClassName)) aTy
+  showMethodDictA = CTyApp (CTyCon (classDictionaryTypeName builtinShowClassName)) showMethodATy
 
   idTy = CTyForall [a] (CTyFun aTy aTy)
   constTy = CTyForall [a, b] (CTyFun aTy (CTyFun bTy aTy))
@@ -1927,6 +1995,11 @@ preludeCorePair name =
   lengthTy = CTyForall [a] (CTyFun listA intTy)
   filterTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun listA listA))
   reverseTy = CTyForall [a] (CTyFun listA listA)
+  putStrLnTy = CTyFun stringTy ioUnitTy
+  showTy = CTyForall [showMethodA] (CTyFun showMethodDictA (CTyFun showMethodATy stringTy))
+  printTy = CTyForall [a] (CTyFun showDictA (CTyFun aTy ioUnitTy))
+  returnTy = CTyForall [a] (CTyFun aTy ioA)
+  thenTy = CTyForall [a, b] (CTyFun ioA (CTyFun ioB ioB))
 
   idX = preludeTermName "$id_x" (-3001)
   constX = preludeTermName "$const_x" (-3002)
@@ -1960,6 +2033,12 @@ preludeCorePair name =
   filterBoolCase = preludeTermName "$filter_bool_case" (-3045)
 
   reverseXs = preludeTermName "$reverse_xs" (-3050)
+  putStrLnS = preludeTermName "$putStrLn_s" (-3060)
+  printDict = preludeTermName "$print_dict" (-3061)
+  printX = preludeTermName "$print_x" (-3062)
+  returnX = preludeTermName "$return_x" (-3063)
+  thenFirst = preludeTermName "$then_first" (-3064)
+  thenSecond = preludeTermName "$then_second" (-3065)
 
   binderFor binderName ty = CoreBinder binderName ty
   lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
@@ -2106,6 +2185,22 @@ preludeCorePair name =
         )
         (var reverseXs listA)
         listA
+
+  printRhs =
+    CTypeLam [a] (lam printDict showDictA (lam printX aTy printBody)) printTy
+   where
+    showFunction =
+      apply
+        (CTypeApp (CVar (preludeTermName "show" (-1431)) showTy) [aTy] (CTyFun showDictA (CTyFun aTy stringTy)))
+        (var printDict showDictA)
+        (CTyFun aTy stringTy)
+    shownValue =
+      apply showFunction (var printX aTy) stringTy
+    printBody =
+      CPrimOp PrimPutStrLn [shownValue] ioUnitTy
+
+  thenRhs =
+    CTypeLam [a, b] (lam thenFirst ioA (lam thenSecond ioB (CPrimOp PrimIOThen [var thenFirst ioA, var thenSecond ioB] ioB))) thenTy
 
 reverseGoCorePair :: (CoreBinder, CoreExpr)
 reverseGoCorePair =
@@ -2431,6 +2526,7 @@ builtinInstanceDictionaries classes =
     [ maybe [] eqInstances (Map.lookup builtinEqClassName classes)
     , maybe [] ordInstances (Map.lookup builtinOrdClassName classes)
     , maybe [] numInstances (Map.lookup builtinNumClassName classes)
+    , maybe [] showInstances (Map.lookup builtinShowClassName classes)
     ]
  where
   eqInstances info =
@@ -2485,6 +2581,19 @@ builtinInstanceDictionaries classes =
         , intAbsMethod
         , intSignumMethod
         ]
+    ]
+
+  showInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fShowInt" (-1531))
+        [intShowMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        boolMonoType
+        (preludeTermName "$fShowBool" (-1532))
+        [boolShowMethod]
     ]
 
 builtinInstanceDictionaryRefs :: [BuiltinInstanceDictionary] -> [InstanceDictionaryRef]
@@ -2684,6 +2793,14 @@ intSignumMethod =
           (CLit (LInt 0) intTy)
           (CLit (LInt 1) intTy)
       )
+
+intShowMethod :: CoreExpr
+intShowMethod =
+  unaryPrimMethod "$show_int" (-1841) intTy stringTy PrimShowInt
+
+boolShowMethod :: CoreExpr
+boolShowMethod =
+  unaryPrimMethod "$show_bool" (-1851) boolTy stringTy PrimShowBool
 
 binaryPrimMethod :: Text -> Int -> CoreType -> CoreType -> CorePrimOp -> CoreExpr
 binaryPrimMethod occurrence unique argumentTy resultTy prim =
@@ -3054,6 +3171,10 @@ orderingMonoType =
 stringMonoType :: MonoType
 stringMonoType =
   coreTypeToMono stringTy
+
+ioMonoType :: MonoType -> MonoType
+ioMonoType resultTy =
+  TyApp (TyCon ioTyConName) resultTy
 
 coreTypeToMono :: CoreType -> MonoType
 coreTypeToMono = \case

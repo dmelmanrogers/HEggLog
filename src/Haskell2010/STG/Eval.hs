@@ -47,6 +47,7 @@ data STGValue
   | STGBool Bool
   | STGChar Char
   | STGString Text
+  | STGIO [Text]
   | STGData RName [STGHeapAddress]
   | STGFunctionValue STGHeapAddress
   deriving stock (Show, Eq, Ord)
@@ -358,27 +359,38 @@ alternativeFields altCon value =
 
 evalPrimitive :: CorePrimOp -> [STGValue] -> EvalM STGValue
 evalPrimitive op values =
-  liftEither $
-    case (op, values) of
-      (PrimAdd, [STGInt lhs, STGInt rhs]) ->
-        checkedIntValue (addHInt lhs rhs)
-      (PrimSub, [STGInt lhs, STGInt rhs]) ->
-        checkedIntValue (subHInt lhs rhs)
-      (PrimMul, [STGInt lhs, STGInt rhs]) ->
-        checkedIntValue (mulHInt lhs rhs)
-      (PrimDiv, [STGInt _, STGInt rhs])
-        | hintToInteger rhs == 0 ->
-            Left STGEvalDivisionByZero
-      (PrimDiv, [STGInt lhs, STGInt rhs]) ->
-        checkedIntValue (divHInt lhs rhs)
-      (PrimEq, [lhs, rhs]) ->
-        STGBool <$> valueEquals lhs rhs
-      (PrimLt, [STGInt lhs, STGInt rhs]) ->
-        Right (STGBool (ltHInt lhs rhs))
-      (PrimNegate, [STGInt value]) ->
-        checkedIntValue (subHInt zero value)
-      _ ->
-        Left (STGEvalTypeError ("invalid STG primitive operands for " <> renderCorePrimOpName op))
+  case (op, values) of
+    (PrimAdd, [STGInt lhs, STGInt rhs]) ->
+      liftEither (checkedIntValue (addHInt lhs rhs))
+    (PrimSub, [STGInt lhs, STGInt rhs]) ->
+      liftEither (checkedIntValue (subHInt lhs rhs))
+    (PrimMul, [STGInt lhs, STGInt rhs]) ->
+      liftEither (checkedIntValue (mulHInt lhs rhs))
+    (PrimDiv, [STGInt _, STGInt rhs])
+      | hintToInteger rhs == 0 ->
+          throwEval STGEvalDivisionByZero
+    (PrimDiv, [STGInt lhs, STGInt rhs]) ->
+      liftEither (checkedIntValue (divHInt lhs rhs))
+    (PrimEq, [lhs, rhs]) ->
+      liftEither (STGBool <$> valueEquals lhs rhs)
+    (PrimLt, [STGInt lhs, STGInt rhs]) ->
+      pure (STGBool (ltHInt lhs rhs))
+    (PrimNegate, [STGInt value]) ->
+      liftEither (checkedIntValue (subHInt zero value))
+    (PrimShowInt, [STGInt value]) ->
+      pure (STGString (renderHInt value))
+    (PrimShowBool, [STGBool True]) ->
+      pure (STGString "True")
+    (PrimShowBool, [STGBool False]) ->
+      pure (STGString "False")
+    (PrimPutStrLn, [value]) ->
+      STGIO . (: []) . (<> "\n") <$> stgStringText value
+    (PrimIOThen, [STGIO first, STGIO second]) ->
+      pure (STGIO (first <> second))
+    (PrimIOReturn, [_]) ->
+      pure (STGIO [])
+    _ ->
+      throwEval (STGEvalTypeError ("invalid STG primitive operands for " <> renderCorePrimOpName op))
  where
   checkedIntValue =
     \case
@@ -388,6 +400,23 @@ evalPrimitive op values =
     case mkHIntLiteral 0 of
       Right value -> value
       Left err -> error (Text.unpack (renderIntError err))
+
+stgStringText :: STGValue -> EvalM Text
+stgStringText = \case
+  STGString value ->
+    pure value
+  STGData name []
+    | name == listNilDataConName ->
+        pure ""
+  STGData name [headAddress, tailAddress]
+    | name == listConsDataConName -> do
+        headValue <- forceAddress headAddress
+        tailValue <- forceAddress tailAddress
+        case headValue of
+          STGChar char -> Text.cons char <$> stgStringText tailValue
+          other -> typeError ("expected Char in String list, got " <> renderSTGValue other)
+  other ->
+    typeError ("expected String, got " <> renderSTGValue other)
 
 valueEquals :: STGValue -> STGValue -> Either STGEvalError Bool
 valueEquals lhs rhs =
@@ -484,6 +513,8 @@ renderSTGValue = \case
     Text.pack (show value)
   STGString value ->
     Text.pack (show (Text.unpack value))
+  STGIO chunks ->
+    "<STG IO " <> Text.pack (show (Text.unpack (Text.concat chunks))) <> ">"
   STGData name fields ->
     renderRName name <> "/" <> Text.pack (show (length fields))
   STGFunctionValue address ->
@@ -536,3 +567,8 @@ renderCorePrimOpName = \case
   PrimEq -> "=="
   PrimLt -> "<"
   PrimNegate -> "negate#"
+  PrimShowInt -> "showInt#"
+  PrimShowBool -> "showBool#"
+  PrimPutStrLn -> "putStrLn#"
+  PrimIOThen -> "thenIO#"
+  PrimIOReturn -> "returnIO#"

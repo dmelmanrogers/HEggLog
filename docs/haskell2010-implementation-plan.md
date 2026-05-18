@@ -120,16 +120,20 @@ is built alongside them.
 14. Type classes/dictionaries. Completed for user-defined single-parameter
     classes, concrete context-free instances, explicit constraints, generated
     dictionary constructors/selectors, built-in `Eq Int`, `Eq Bool`,
-    `Ord Int`, `Ord Bool`, and executable `Num Int` dictionaries,
+    `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and `Show Bool`
+    dictionaries,
     Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
-    Superclasses, defaults, deriving, `Show`, `fromInteger`, overloaded
-    literals, and numeric defaulting remain planned.
+    Superclasses, defaults, deriving, broader `Show`, `fromInteger`,
+    overloaded literals, and numeric defaulting remain planned.
 15. Guarded RHS/case alternatives and as-pattern aliases. Completed for
     multi-branch guards, guarded case alternatives, as-pattern alias binding,
     Core/STG/native no-match behavior for guard fallthrough, and wet-tested
     default/no-egglog CLI runs.
-16. Broader Prelude subset.
-17. IO.
+16. IO printing and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
+    `putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing
+    with local `let`, Core/STG/native execution, and wet-tested
+    default/no-egglog CLI runs.
+17. Broader Prelude subset.
 18. Modules.
 19. Egglog Core optimizer. Completed for the first safe Core-0 fragment;
     broader Core facts and rewrites remain planned.

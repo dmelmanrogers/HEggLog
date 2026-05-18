@@ -111,6 +111,11 @@ renderCorePrimOp = \case
   PrimEq -> "=="
   PrimLt -> "<"
   PrimNegate -> "negate#"
+  PrimShowInt -> "showInt#"
+  PrimShowBool -> "showBool#"
+  PrimPutStrLn -> "putStrLn#"
+  PrimIOThen -> "thenIO#"
+  PrimIOReturn -> "returnIO#"
 
 renderCoreType :: CoreType -> Text
 renderCoreType =

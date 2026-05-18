@@ -143,6 +143,10 @@ Current behavior:
 - `Int` roots are printed with `printf("%lld\n", value)`.
 - `Bool` roots are zero-extended to `i32` and printed with `printf("%d\n",
   value)`.
+- In the Haskell 2010 path, `main :: IO ()` roots execute the compiled IO
+  action instead of scalar root printing. The implemented IO subset supports
+  `putStrLn`, `print` through `Show Int`/`Show Bool`, `return`, `(>>)`, and
+  expression-only `do` sequencing.
 
 The interpreter/report mode prints values through Haskell renderers:
 

@@ -74,7 +74,9 @@ user-defined single-parameter classes, concrete instances, explicit source
 constraints, dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`,
 `Ord Int`, `Ord Bool`, and executable `Num Int` class methods, plus guarded
 RHSs, guarded case alternatives, as-pattern aliases, and guard-fallthrough
-no-match behavior. A Core
+no-match behavior, plus the first IO printing slice for `IO`, `main :: IO ()`,
+`putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing, and
+built-in `Show Int`/`Show Bool`. A Core
 reference evaluator executes validating typed Core with erased type
 abstraction/application, checked `Int` primitives, and structured runtime
 errors. An isolated STG-like IR, validator, and pure heap evaluator now model
@@ -88,6 +90,10 @@ updateable and single-entry thunks, function closures, enter/apply, Bool,
 user-constructor, list, tuple, `Maybe`/`Either`/`Ordering` case dispatch,
 boxed constructor field arrays, and checked primitive aborts, then uses the
 existing clang toolchain path to produce native executables. The Haskell 2010
+native path also executes `main :: IO ()` actions for `putStrLn` and `print`
+output using native string literal objects, list-of-`Char` traversal, and
+built-in `Show Int`/`Show Bool`.
+The Haskell 2010
 native path now runs an Egglog Core optimizer by
 default for safe typed Core fragments before STG lowering; `--no-egglog`
 disables that optimizer for comparison and debugging.
@@ -109,7 +115,8 @@ Current status:
   mutually recursive top-level groups, user-defined single-parameter classes,
   concrete instances, explicit constraints, dictionary constructors/selectors,
   dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Ord Int`,
-  `Ord Bool`, and `Num Int` dictionaries
+  `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool` dictionaries, plus
+  `putStrLn`, `print`, `return`, `(>>)`, and expression-only `do` sequencing
 - Haskell 2010 Core reference evaluator: implemented and unit-tested for
   arithmetic, polymorphic instantiation, Bool and user ADT cases, lazy
   lets/arguments, lazy constructor fields, Prelude list functions, tuple and
@@ -117,7 +124,8 @@ Current status:
   guarded self recursion, local factorial recursion, top-level fibonacci
   recursion, mutual recursion, recursive list functions, user class dictionary
   calls, built-in `Eq`/`Ord`/`Num` dictionary calls, guarded RHS/as-pattern
-  programs, guard fallthrough no-match reporting, and division-by-zero reporting
+  programs, IO output actions, guard fallthrough no-match reporting, and
+  division-by-zero reporting
 - Haskell 2010 STG-like lazy IR/runtime MVP: implemented and unit-tested for
   validation, lazy lets/arguments, case demand, constructor dispatch, thunk
   sharing/update behavior, single-entry thunks, black-hole detection, and
@@ -135,7 +143,8 @@ Current status:
   constructor fields, top-level/local/mutual/list recursion, forced
   division-by-zero failure, curried partial application, user-defined type
   class dictionary calls, built-in `Eq`/`Ord`/`Num` class dictionary calls,
-  guarded RHS/as-pattern programs, and guard-fallthrough runtime failure
+  guarded RHS/as-pattern programs, `main :: IO ()` printing through `putStrLn`
+  and `print`, and guard-fallthrough runtime failure
 - Haskell 2010 Egglog Core optimizer: implemented and unit/wet-tested for
   safe Core-0 arithmetic identities, checked constant folding, known Bool case
   selection, typed Core extraction/validation, provenance reporting, lazy
@@ -180,9 +189,9 @@ Current tests include:
   report-mode `Result: <value>` output, runs Haskell 2010 default Egglog and
   `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
   programs, user-defined type class dictionary programs, and built-in
-  `Eq`/`Ord`/`Num` dictionary programs, and compiles selected emitted LLVM
-  through `clang`
+  `Eq`/`Ord`/`Num`/`Show` dictionary programs, plus IO printing programs, and
+  compiles selected emitted LLVM through `clang`
 
 Future Haskell 2010 wet tests should extend this direct executable coverage as
-irrefutable/lazy patterns, richer pattern diagnostics, `Show`, numeric
-defaulting, and IO are implemented.
+irrefutable/lazy patterns, richer pattern diagnostics, broader `Show`/`String`
+interop, numeric defaulting, and broader IO are implemented.

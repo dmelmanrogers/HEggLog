@@ -53,7 +53,9 @@ data AllocatedBinding = AllocatedBinding
 
 data ModuleState = ModuleState
   { nextClosureFunction :: Int
+  , nextStringGlobal :: Int
   , generatedFunctions :: [LLVMFunction]
+  , generatedStringGlobals :: [LLVMGlobal]
   }
   deriving stock (Show, Eq)
 
@@ -83,6 +85,7 @@ lowerSTGProgramToLLVM mainOccurrence program =
                   , "values are boxed; thunks are forced through a lazy enter/apply runtime"
                   ]
               , moduleGlobals = formatGlobals
+                  <> generatedStringGlobals moduleState
               , moduleDeclarations = runtimeDeclarations
               , moduleFunctions = runtimeFunctions <> generatedFunctions moduleState <> [mainFunction]
               }
@@ -93,7 +96,9 @@ initialModuleState :: ModuleState
 initialModuleState =
   ModuleState
     { nextClosureFunction = 0
+    , nextStringGlobal = 0
     , generatedFunctions = []
+    , generatedStringGlobals = []
     }
 
 findMain :: Text -> STGProgram -> Either STGLLVMError STGBinder
@@ -108,10 +113,15 @@ lowerMainFunction (STGProgram _ binds) mainBinder =
   runFunction "main" LI32 [] $ do
     env <- emitRecursiveGroup Map.empty (concatMap bindPairs binds)
     mainObject <- resolveName env (stgBinderName mainBinder)
-    printedValue <- printableMainValue (stgBinderType mainBinder) mainObject
-    fmt <- formatPointer (stgBinderType mainBinder)
-    printedReg <- freshRegister "printed"
-    emit (ICall (Just printedReg) LI32 (DirectCall "printf") True [(LPtr, fmt), (operandType printedValue, printedValue)])
+    if stgBinderType mainBinder == ioTy unitTy
+      then do
+        _ <- emitForce mainObject
+        pure ()
+      else do
+        printedValue <- printableMainValue (stgBinderType mainBinder) mainObject
+        fmt <- formatPointer (stgBinderType mainBinder)
+        printedReg <- freshRegister "printed"
+        emit (ICall (Just printedReg) LI32 (DirectCall "printf") True [(LPtr, fmt), (operandType printedValue, printedValue)])
     pure (OConstInt LI32 0)
 
 printableMainValue :: CoreType -> LLVMOperand -> FunctionM LLVMOperand
@@ -141,6 +151,35 @@ formatPointer ty = do
     ( IGetElementPtr
         reg
         arrayType
+        (OGlobal LPtr globalName)
+        [(LI64, OConstInt LI64 0), (LI64, OConstInt LI64 0)]
+    )
+  pure (OLocal LPtr reg)
+
+stringLiteralPointer :: Text -> FunctionM LLVMOperand
+stringLiteralPointer value = do
+  let bytes = value <> "\0"
+  name <- lift $ do
+    state <- get
+    let index = nextStringGlobal state
+        globalName = "haskell2010_str_" <> Text.pack (show index)
+    modify' $
+      \current ->
+        current
+          { nextStringGlobal = index + 1
+          , generatedStringGlobals =
+              generatedStringGlobals current <> [LLVMStringGlobal globalName bytes]
+          }
+    pure globalName
+  globalStringPointer name bytes
+
+globalStringPointer :: Text -> Text -> FunctionM LLVMOperand
+globalStringPointer globalName bytes = do
+  reg <- freshRegister "str_ptr"
+  emit
+    ( IGetElementPtr
+        reg
+        (LArray (Text.length bytes) LI8)
         (OGlobal LPtr globalName)
         [(LI64, OConstInt LI64 0), (LI64, OConstInt LI64 0)]
     )
@@ -295,10 +334,10 @@ emitLiteral = \case
     case mkHIntLiteral value of
       Right intValue -> emitMakeInt (hintToInteger intValue)
       Left err -> throwSTGLLVM (STGLLVMUnsupported ("native Int literal is out of range: " <> renderIntError err))
-  LChar {} ->
-    throwSTGLLVM (STGLLVMUnsupported "native Haskell 2010 Core-0 output does not yet support Char literals")
-  LString {} ->
-    throwSTGLLVM (STGLLVMUnsupported "native Haskell 2010 Core-0 output does not yet support String literals")
+  LChar value ->
+    emitMakeChar (fromIntegral (ord value))
+  LString value ->
+    emitMakeStringLiteral value
 
 emitConstructorObject :: RName -> CoreType -> [LLVMOperand] -> FunctionM LLVMOperand
 emitConstructorObject name ty fields
@@ -341,6 +380,25 @@ emitPrim env op arguments =
     (PrimNegate, [value]) -> do
       valueOperand <- emitExpectAtomInt env value
       emitCheckedSub (OConstInt LI64 0) valueOperand >>= emitMakeIntOperand
+    (PrimShowInt, [value]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      resultReg <- freshRegister "show_int"
+      emit (ICall (Just resultReg) LPtr (DirectCall showIntFunctionName) False [(LI64, valueOperand)])
+      pure (OLocal LPtr resultReg)
+    (PrimShowBool, [value]) -> do
+      valueOperand <- emitExpectAtomBool env value
+      emitShowBool valueOperand
+    (PrimPutStrLn, [value]) -> do
+      valueObject <- emitAtomAddress env value
+      emit (ICall Nothing LVoid (DirectCall putStrLnFunctionName) False [(LPtr, valueObject)])
+      emitConstructorObject unitDataConName unitTy []
+    (PrimIOThen, [firstAction, secondAction]) -> do
+      firstObject <- emitAtomAddress env firstAction
+      _ <- emitForce firstObject
+      secondObject <- emitAtomAddress env secondAction
+      emitForce secondObject
+    (PrimIOReturn, [value]) ->
+      emitAtomAddress env value
     _ ->
       throwSTGLLVM
         ( STGLLVMUnsupported
@@ -370,6 +428,28 @@ emitExpectAtomBool env atom = do
   reg <- freshRegister "bool"
   emit (ICall (Just reg) LI1 (DirectCall expectBoolFunctionName) False [(LPtr, object)])
   pure (OLocal LI1 reg)
+
+emitShowBool :: LLVMOperand -> FunctionM LLVMOperand
+emitShowBool value = do
+  trueLabel <- freshBlockLabel "show_bool_true"
+  falseLabel <- freshBlockLabel "show_bool_false"
+  resultLabel <- freshBlockLabel "show_bool_join"
+  terminateCurrent (TCondBr value trueLabel falseLabel)
+
+  startBlock trueLabel
+  trueObject <- emitMakeStringLiteral "True"
+  truePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr resultLabel)
+
+  startBlock falseLabel
+  falseObject <- emitMakeStringLiteral "False"
+  falsePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr resultLabel)
+
+  startBlock resultLabel
+  resultReg <- freshRegister "show_bool"
+  emit (IPhi resultReg LPtr [(trueObject, truePredecessor), (falseObject, falsePredecessor)])
+  pure (OLocal LPtr resultReg)
 
 emitCheckedIntPrim :: Text -> LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
 emitCheckedIntPrim intrinsic lhs rhs = do
@@ -548,8 +628,10 @@ literalMatchCondition tagValue = \case
         pure (OLocal LI1 reg)
       Left err ->
         throwSTGLLVM (STGLLVMUnsupported ("native Int case literal is out of range: " <> renderIntError err))
-  LChar {} ->
-    throwSTGLLVM (STGLLVMUnsupported "native Char case alternatives are not implemented for Core-0")
+  LChar expected -> do
+    reg <- freshRegister "case_char_match"
+    emit (IIcmp reg ICmpEq LI64 tagValue (OConstInt LI64 (fromIntegral (ord expected))))
+    pure (OLocal LI1 reg)
   LString {} ->
     throwSTGLLVM (STGLLVMUnsupported "native String case alternatives are not implemented for Core-0")
 
@@ -604,6 +686,23 @@ emitMakeBool :: LLVMOperand -> FunctionM LLVMOperand
 emitMakeBool value = do
   reg <- freshRegister "boxed_bool"
   emit (ICall (Just reg) LPtr (DirectCall makeBoolFunctionName) False [(LI1, value)])
+  pure (OLocal LPtr reg)
+
+emitMakeChar :: Integer -> FunctionM LLVMOperand
+emitMakeChar value = do
+  reg <- freshRegister "boxed_char"
+  emit (ICall (Just reg) LPtr (DirectCall makeCharFunctionName) False [(LI64, OConstInt LI64 value)])
+  pure (OLocal LPtr reg)
+
+emitMakeStringLiteral :: Text -> FunctionM LLVMOperand
+emitMakeStringLiteral value = do
+  pointer <- stringLiteralPointer value
+  emitMakeString pointer
+
+emitMakeString :: LLVMOperand -> FunctionM LLVMOperand
+emitMakeString pointer = do
+  reg <- freshRegister "boxed_string"
+  emit (ICall (Just reg) LPtr (DirectCall makeStringFunctionName) False [(LPtr, pointer)])
   pure (OLocal LPtr reg)
 
 emitMakeData :: RName -> [LLVMOperand] -> FunctionM LLVMOperand
@@ -868,13 +967,19 @@ runtimeFunctions =
   [ allocObjectFunction
   , makeIntFunction
   , makeBoolFunction
+  , makeCharFunction
+  , makeStringFunction
   , makeDataFunction
   , makeFunctionFunction
   , makeThunkFunction
   , forceFunction
   , expectIntFunction
   , expectBoolFunction
+  , expectStringFunction
   , expectFunctionFunction
+  , showIntFunction
+  , putStrLnFunction
+  , printCharListFunction
   ]
 
 allocObjectFunction :: LLVMFunction
@@ -928,6 +1033,24 @@ makeBoolFunction =
             (TRet LPtr (OLocal LPtr (Register "obj")))
         ]
     }
+
+makeCharFunction :: LLVMFunction
+makeCharFunction =
+  makeValueFunction
+    makeCharFunctionName
+    [(LI64, Register "value")]
+    [ (0, LI64, OConstInt LI64 tagChar)
+    , (1, LI64, OLocal LI64 (Register "value"))
+    ]
+
+makeStringFunction :: LLVMFunction
+makeStringFunction =
+  makeValueFunction
+    makeStringFunctionName
+    [(LPtr, Register "value")]
+    [ (0, LI64, OConstInt LI64 tagString)
+    , (2, LPtr, OLocal LPtr (Register "value"))
+    ]
 
 makeDataFunction :: LLVMFunction
 makeDataFunction =
@@ -1063,9 +1186,167 @@ expectBoolFunction =
     "bool"
     (TRet LI1 (OLocal LI1 (Register "is_true")))
 
+expectStringFunction :: LLVMFunction
+expectStringFunction =
+  expectPayloadFunction expectStringFunctionName tagString LPtr "string" (TRet LPtr (OLocal LPtr (Register "payload")))
+
 expectFunctionFunction :: LLVMFunction
 expectFunctionFunction =
   expectPayloadFunction expectFunctionName tagFunction LPtr "fun" (TRet LPtr (OLocal LPtr (Register "forced")))
+
+showIntFunction :: LLVMFunction
+showIntFunction =
+  LLVMFunction
+    { functionName = showIntFunctionName
+    , functionReturnType = LPtr
+    , functionParams = [(LI64, Register "value")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "buffer")) LPtr (DirectCall "malloc") False [(LI64, OConstInt LI64 32)]
+            , IIcmp (Register "is_null") ICmpEq LPtr (OLocal LPtr (Register "buffer")) OConstNull
+            ]
+            (TCondBr (OLocal LI1 (Register "is_null")) "abort" "ok")
+        , LLVMBlock
+            "abort"
+            [ICall Nothing LVoid (DirectCall "abort") False []]
+            TUnreachable
+        , LLVMBlock
+            "ok"
+            [ IGetElementPtr
+                (Register "fmt")
+                (LArray (Text.length intRawFormatBytes) LI8)
+                (OGlobal LPtr "haskell2010_fmt_i64_raw")
+                [(LI64, OConstInt LI64 0), (LI64, OConstInt LI64 0)]
+            , ICall
+                (Just (Register "written"))
+                LI32
+                (DirectCall "snprintf")
+                True
+                [ (LPtr, OLocal LPtr (Register "buffer"))
+                , (LI64, OConstInt LI64 32)
+                , (LPtr, OLocal LPtr (Register "fmt"))
+                , (LI64, OLocal LI64 (Register "value"))
+                ]
+            , ICall
+                (Just (Register "string"))
+                LPtr
+                (DirectCall makeStringFunctionName)
+                False
+                [(LPtr, OLocal LPtr (Register "buffer"))]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "string")))
+        ]
+    }
+
+putStrLnFunction :: LLVMFunction
+putStrLnFunction =
+  LLVMFunction
+    { functionName = putStrLnFunctionName
+    , functionReturnType = LVoid
+    , functionParams = [(LPtr, Register "obj")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "forced")) LPtr (DirectCall forceFunctionName) False [(LPtr, OLocal LPtr (Register "obj"))]
+            , IGetElementPtr (Register "tag_ptr") objectType (OLocal LPtr (Register "forced")) objectField0
+            , ILoad (Register "tag") LI64 (OLocal LPtr (Register "tag_ptr"))
+            , IIcmp (Register "is_string") ICmpEq LI64 (OLocal LI64 (Register "tag")) (OConstInt LI64 tagString)
+            ]
+            (TCondBr (OLocal LI1 (Register "is_string")) "string" "data_check")
+        , LLVMBlock
+            "string"
+            [ IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
+            , ILoad (Register "payload") LPtr (OLocal LPtr (Register "payload_ptr"))
+            , IGetElementPtr
+                (Register "fmt")
+                (LArray (Text.length stringLineFormatBytes) LI8)
+                (OGlobal LPtr "haskell2010_fmt_string_line")
+                [(LI64, OConstInt LI64 0), (LI64, OConstInt LI64 0)]
+            , ICall
+                Nothing
+                LI32
+                (DirectCall "printf")
+                True
+                [(LPtr, OLocal LPtr (Register "fmt")), (LPtr, OLocal LPtr (Register "payload"))]
+            ]
+            TRetVoid
+        , LLVMBlock
+            "data_check"
+            [IIcmp (Register "is_data") ICmpEq LI64 (OLocal LI64 (Register "tag")) (OConstInt LI64 tagData)]
+            (TCondBr (OLocal LI1 (Register "is_data")) "list" "abort")
+        , LLVMBlock
+            "list"
+            [ ICall Nothing LVoid (DirectCall printCharListFunctionName) False [(LPtr, OLocal LPtr (Register "forced"))]
+            , ICall Nothing LI32 (DirectCall "putchar") False [(LI32, OConstInt LI32 10)]
+            ]
+            TRetVoid
+        , LLVMBlock
+            "abort"
+            [ICall Nothing LVoid (DirectCall "abort") False []]
+            TUnreachable
+        ]
+    }
+
+printCharListFunction :: LLVMFunction
+printCharListFunction =
+  LLVMFunction
+    { functionName = printCharListFunctionName
+    , functionReturnType = LVoid
+    , functionParams = [(LPtr, Register "obj")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "forced")) LPtr (DirectCall forceFunctionName) False [(LPtr, OLocal LPtr (Register "obj"))]
+            , IGetElementPtr (Register "tag_ptr") objectType (OLocal LPtr (Register "forced")) objectField0
+            , ILoad (Register "tag") LI64 (OLocal LPtr (Register "tag_ptr"))
+            , IIcmp (Register "is_data") ICmpEq LI64 (OLocal LI64 (Register "tag")) (OConstInt LI64 tagData)
+            ]
+            (TCondBr (OLocal LI1 (Register "is_data")) "data" "abort")
+        , LLVMBlock
+            "data"
+            [ IGetElementPtr (Register "constructor_ptr") objectType (OLocal LPtr (Register "forced")) objectField1
+            , ILoad (Register "constructor") LI64 (OLocal LPtr (Register "constructor_ptr"))
+            , IIcmp (Register "is_nil") ICmpEq LI64 (OLocal LI64 (Register "constructor")) (OConstInt LI64 (constructorRuntimeTag listNilDataConName))
+            ]
+            (TCondBr (OLocal LI1 (Register "is_nil")) "nil" "cons_check")
+        , LLVMBlock
+            "nil"
+            []
+            TRetVoid
+        , LLVMBlock
+            "cons_check"
+            [IIcmp (Register "is_cons") ICmpEq LI64 (OLocal LI64 (Register "constructor")) (OConstInt LI64 (constructorRuntimeTag listConsDataConName))]
+            (TCondBr (OLocal LI1 (Register "is_cons")) "cons" "abort")
+        , LLVMBlock
+            "cons"
+            [ IGetElementPtr (Register "fields_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
+            , ILoad (Register "fields") LPtr (OLocal LPtr (Register "fields_ptr"))
+            , IGetElementPtr (Register "head_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 0)]
+            , ILoad (Register "head") LPtr (OLocal LPtr (Register "head_slot"))
+            , IGetElementPtr (Register "tail_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 1)]
+            , ILoad (Register "tail") LPtr (OLocal LPtr (Register "tail_slot"))
+            , ICall (Just (Register "head_forced")) LPtr (DirectCall forceFunctionName) False [(LPtr, OLocal LPtr (Register "head"))]
+            , IGetElementPtr (Register "head_tag_ptr") objectType (OLocal LPtr (Register "head_forced")) objectField0
+            , ILoad (Register "head_tag") LI64 (OLocal LPtr (Register "head_tag_ptr"))
+            , IIcmp (Register "is_char") ICmpEq LI64 (OLocal LI64 (Register "head_tag")) (OConstInt LI64 tagChar)
+            ]
+            (TCondBr (OLocal LI1 (Register "is_char")) "char" "abort")
+        , LLVMBlock
+            "char"
+            [ IGetElementPtr (Register "char_ptr") objectType (OLocal LPtr (Register "head_forced")) objectField1
+            , ILoad (Register "char_i64") LI64 (OLocal LPtr (Register "char_ptr"))
+            , ITrunc (Register "char_i32") (OLocal LI64 (Register "char_i64")) LI32
+            , ICall Nothing LI32 (DirectCall "putchar") False [(LI32, OLocal LI32 (Register "char_i32"))]
+            , ICall Nothing LVoid (DirectCall printCharListFunctionName) False [(LPtr, OLocal LPtr (Register "tail"))]
+            ]
+            TRetVoid
+        , LLVMBlock
+            "abort"
+            [ICall Nothing LVoid (DirectCall "abort") False []]
+            TUnreachable
+        ]
+    }
 
 expectPayloadFunction :: Text -> Integer -> LLVMType -> Text -> LLVMTerminator -> LLVMFunction
 expectPayloadFunction name expectedTag _ prefix successTerminator =
@@ -1096,6 +1377,7 @@ expectPayloadFunction name expectedTag _ prefix successTerminator =
   returnType =
     case successTerminator of
       TRet ty _ -> ty
+      TRetVoid -> LVoid
       _ -> LPtr
   payloadInstructions "int" =
     [ IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "forced")) objectField1
@@ -1105,6 +1387,10 @@ expectPayloadFunction name expectedTag _ prefix successTerminator =
     [ IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "forced")) objectField1
     , ILoad (Register "payload") LI64 (OLocal LPtr (Register "payload_ptr"))
     , IIcmp (Register "is_true") ICmpEq LI64 (OLocal LI64 (Register "payload")) (OConstInt LI64 1)
+    ]
+  payloadInstructions "string" =
+    [ IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
+    , ILoad (Register "payload") LPtr (OLocal LPtr (Register "payload_ptr"))
     ]
   payloadInstructions _ =
     []
@@ -1129,7 +1415,7 @@ objectField3 = objectField 3
 objectField4 = objectField 4
 objectField5 = objectField 5
 
-tagInt, tagBool, tagFunction, tagThunk, tagBlackHole, tagIndirection, tagData :: Integer
+tagInt, tagBool, tagFunction, tagThunk, tagBlackHole, tagIndirection, tagData, tagChar, tagString :: Integer
 tagInt = 0
 tagBool = 1
 tagFunction = 2
@@ -1137,6 +1423,8 @@ tagThunk = 3
 tagBlackHole = 4
 tagIndirection = 5
 tagData = 6
+tagChar = 7
+tagString = 8
 
 updatableCode, singleEntryCode :: Integer
 updatableCode = 0
@@ -1151,10 +1439,12 @@ constructorRuntimeTag :: RName -> Integer
 constructorRuntimeTag =
   fromIntegral . nameUnique
 
-allocObjectFunctionName, makeIntFunctionName, makeBoolFunctionName, makeDataFunctionName :: Text
+allocObjectFunctionName, makeIntFunctionName, makeBoolFunctionName, makeCharFunctionName, makeStringFunctionName, makeDataFunctionName :: Text
 allocObjectFunctionName = "hegglog_hs_alloc_object"
 makeIntFunctionName = "hegglog_hs_make_int"
 makeBoolFunctionName = "hegglog_hs_make_bool"
+makeCharFunctionName = "hegglog_hs_make_char"
+makeStringFunctionName = "hegglog_hs_make_string"
 makeDataFunctionName = "hegglog_hs_make_data"
 
 makeFunctionFunctionName, makeThunkFunctionName, forceFunctionName :: Text
@@ -1162,20 +1452,28 @@ makeFunctionFunctionName = "hegglog_hs_make_function"
 makeThunkFunctionName = "hegglog_hs_make_thunk"
 forceFunctionName = "hegglog_hs_force"
 
-expectIntFunctionName, expectBoolFunctionName, expectFunctionName :: Text
+expectIntFunctionName, expectBoolFunctionName, expectStringFunctionName, expectFunctionName, showIntFunctionName, putStrLnFunctionName, printCharListFunctionName :: Text
 expectIntFunctionName = "hegglog_hs_expect_int"
 expectBoolFunctionName = "hegglog_hs_expect_bool"
+expectStringFunctionName = "hegglog_hs_expect_string"
 expectFunctionName = "hegglog_hs_expect_function"
+showIntFunctionName = "hegglog_hs_show_int"
+putStrLnFunctionName = "hegglog_hs_putstrln"
+printCharListFunctionName = "hegglog_hs_print_char_list"
 
 formatGlobals :: [LLVMGlobal]
 formatGlobals =
   [ LLVMStringGlobal "haskell2010_fmt_i64" intFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_i1" boolFormatBytes
+  , LLVMStringGlobal "haskell2010_fmt_i64_raw" intRawFormatBytes
+  , LLVMStringGlobal "haskell2010_fmt_string_line" stringLineFormatBytes
   ]
 
 runtimeDeclarations :: [Text]
 runtimeDeclarations =
   [ "declare i32 @printf(ptr, ...)"
+  , "declare i32 @putchar(i32)"
+  , "declare i32 @snprintf(ptr, i64, ptr, ...)"
   , "declare noalias ptr @malloc(i64)"
   , "declare void @abort()"
   , "declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)"
@@ -1190,6 +1488,14 @@ intFormatBytes =
 boolFormatBytes :: Text
 boolFormatBytes =
   "%d\n\0"
+
+intRawFormatBytes :: Text
+intRawFormatBytes =
+  "%lld\0"
+
+stringLineFormatBytes :: Text
+stringLineFormatBytes =
+  "%s\n\0"
 
 minInt64Value :: Integer
 minInt64Value =

@@ -143,6 +143,7 @@ testGroups =
       , pureTest "typechecks recursive bindings" testHaskell2010Core0Recursion
       , pureTest "typechecks type class dictionaries" testHaskell2010Core0TypeClassDictionaries
       , pureTest "typechecks Prelude class dictionaries" testHaskell2010Core0PreludeClassDictionaries
+      , pureTest "typechecks IO printing" testHaskell2010Core0IOPrinting
       , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
@@ -160,6 +161,7 @@ testGroups =
       , pureTest "evaluates recursive functions and list recursion" testHaskell2010Core0EvalRecursion
       , pureTest "evaluates type class dictionary calls" testHaskell2010Core0EvalTypeClassDictionaries
       , pureTest "evaluates Prelude class dictionary calls" testHaskell2010Core0EvalPreludeClassDictionaries
+      , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
       , pureTest "evaluates guards and as-patterns" testHaskell2010Core0EvalGuardsAndAsPatterns
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
@@ -192,6 +194,7 @@ testGroups =
       , pureTest "preserves recursive function semantics" testHaskell2010CoreToSTGRecursion
       , pureTest "preserves type class dictionary semantics" testHaskell2010CoreToSTGTypeClassDictionaries
       , pureTest "preserves Prelude class dictionary semantics" testHaskell2010CoreToSTGPreludeClassDictionaries
+      , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
       , pureTest "preserves guard and as-pattern semantics" testHaskell2010CoreToSTGGuardsAndAsPatterns
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves guard fallthrough errors" testHaskell2010CoreToSTGGuardFallthrough
@@ -1172,6 +1175,18 @@ testHaskell2010Core0PreludeClassDictionaries = do
   assertBool "Prelude Num Int instance dictionary is emitted" (containsBindingOccurrence "$fNumInt" coreModule)
   expectCoreEvalInt "Prelude class dictionary Core oracle" 6 =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0IOPrinting :: Either String ()
+testHaskell2010Core0IOPrinting = do
+  coreModule <- typecheckHaskell2010 haskell2010IOPrintingSource
+  assertBool "Prelude Show dictionary constructor is recorded" (containsConstructorOccurrence "$MkShowDict" coreModule)
+  assertBool "Prelude Show Int instance dictionary is emitted" (containsBindingOccurrence "$fShowInt" coreModule)
+  assertBool "Prelude Show Bool instance dictionary is emitted" (containsBindingOccurrence "$fShowBool" coreModule)
+  assertBool "Prelude putStrLn binding is emitted" (containsBindingOccurrence "putStrLn" coreModule)
+  assertBool "Prelude print binding is emitted" (containsBindingOccurrence "print" coreModule)
+  assertBool "Prelude return binding is emitted" (containsBindingOccurrence "return" coreModule)
+  assertBool "Prelude >> binding is emitted" (containsBindingOccurrence ">>" coreModule)
+  expectCoreEvalIO "IO printing Core oracle" "ok\nanswer\n42\nTrue\n" =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0GuardsAndAsPatterns :: Either String ()
 testHaskell2010Core0GuardsAndAsPatterns = do
   coreModule <- typecheckHaskell2010 haskell2010GuardAsPatternSource
@@ -1326,6 +1341,13 @@ testHaskell2010Core0EvalPreludeClassDictionaries =
     "Core-0 Prelude class dictionary evaluation"
     6
     =<< evalHaskell2010Binding "main" haskell2010PreludeClassDictionarySource
+
+testHaskell2010Core0EvalIOPrinting :: Either String ()
+testHaskell2010Core0EvalIOPrinting =
+  expectCoreEvalIO
+    "Core-0 IO printing evaluation"
+    "ok\nanswer\n42\nTrue\n"
+    =<< evalHaskell2010Binding "main" haskell2010IOPrintingSource
 
 testHaskell2010Core0EvalGuardsAndAsPatterns :: Either String ()
 testHaskell2010Core0EvalGuardsAndAsPatterns =
@@ -1576,6 +1598,10 @@ testHaskell2010CoreToSTGTypeClassDictionaries =
 testHaskell2010CoreToSTGPreludeClassDictionaries :: Either String ()
 testHaskell2010CoreToSTGPreludeClassDictionaries =
   checkCoreToSTGInt "Core-to-STG Prelude class dictionaries" 6 haskell2010PreludeClassDictionarySource
+
+testHaskell2010CoreToSTGIOPrinting :: Either String ()
+testHaskell2010CoreToSTGIOPrinting =
+  checkCoreToSTGIO "Core-to-STG IO printing" "ok\nanswer\n42\nTrue\n" haskell2010IOPrintingSource
 
 testHaskell2010CoreToSTGGuardsAndAsPatterns :: Either String ()
 testHaskell2010CoreToSTGGuardsAndAsPatterns =
@@ -4528,6 +4554,19 @@ expectCoreEvalInt label expected = \case
           <> Text.unpack (H2010CoreEval.renderCoreValue actual)
       )
 
+expectCoreEvalIO :: String -> Text -> H2010CoreEval.CoreValue -> Either String ()
+expectCoreEvalIO label expected = \case
+  H2010CoreEval.CoreIO chunks ->
+    expectEqual label expected (Text.concat chunks)
+  actual ->
+    Left
+      ( label
+          <> ": expected Core IO output "
+          <> show expected
+          <> ", got "
+          <> Text.unpack (H2010CoreEval.renderCoreValue actual)
+      )
+
 evalSTGBinding :: Text -> H2010STG.STGProgram -> Either String H2010STGEval.STGValue
 evalSTGBinding binding program =
   mapLeft (Text.unpack . H2010STGEval.renderSTGEvalError) (evalSTGBindingRaw binding program)
@@ -4579,6 +4618,13 @@ checkCoreToSTGInt label expected source = do
   expectCoreEvalInt (label <> " Core oracle") expected coreValue
   expectSTGInt (label <> " STG value") expected stgValue
 
+checkCoreToSTGIO :: String -> Text -> Text -> Either String ()
+checkCoreToSTGIO label expected source = do
+  coreValue <- evalHaskell2010Binding "main" source
+  stgValue <- lowerAndEvalHaskell2010Binding "main" source
+  expectCoreEvalIO (label <> " Core oracle") expected coreValue
+  expectSTGIO (label <> " STG value") expected stgValue
+
 compileHaskell2010Native :: Text -> Either String H2010Native.Haskell2010LLVMResult
 compileHaskell2010Native source =
   compileHaskell2010NativeWithOptions H2010Native.defaultHaskell2010NativeOptions source
@@ -4614,6 +4660,7 @@ haskell2010NativeSuccessExamples =
   , ("recursive-list", haskell2010RecursiveListSource, "10\n")
   , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
   , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
+  , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-maybe", haskell2010PolymorphicADTSource, "4\n")
@@ -4630,6 +4677,7 @@ haskell2010NativeExecutableExamples =
   , ("recursive-list", haskell2010RecursiveListSource, "10\n")
   , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
   , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
+  , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
   ]
 
@@ -4777,6 +4825,17 @@ haskell2010PreludeClassDictionarySource =
   \  _ -> False\n\
   \main = if same 7 7 && not (same 7 8) && ordered 3 4 && compareFlag && max False True && not (min False True) then distancePlusSign 9 4 else 0\n"
 
+haskell2010IOPrintingSource :: Text
+haskell2010IOPrintingSource =
+  "module Main where\n\
+  \prefix :: IO ()\n\
+  \prefix = putStrLn ['o', 'k'] >> putStrLn \"answer\" >> print (abs (negate 42))\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  prefix\n\
+  \  print (not False)\n\
+  \  return ()\n"
+
 haskell2010GuardAsPatternSource :: Text
 haskell2010GuardAsPatternSource =
   "module Main where\n\
@@ -4845,6 +4904,19 @@ expectSTGInt label expected = \case
     Left
       ( label
           <> ": expected STG Int "
+          <> show expected
+          <> ", got "
+          <> Text.unpack (H2010STGEval.renderSTGValue actual)
+      )
+
+expectSTGIO :: String -> Text -> H2010STGEval.STGValue -> Either String ()
+expectSTGIO label expected = \case
+  H2010STGEval.STGIO chunks ->
+    expectEqual label expected (Text.concat chunks)
+  actual ->
+    Left
+      ( label
+          <> ": expected STG IO output "
           <> show expected
           <> ", got "
           <> Text.unpack (H2010STGEval.renderSTGValue actual)

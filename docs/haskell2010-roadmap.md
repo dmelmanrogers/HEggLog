@@ -312,13 +312,15 @@ through STG as ordinary constructor/function values, and native wet tests cover
 default Egglog and `--no-egglog` execution.
 
 The built-in executable Prelude class slice now supports `Eq Int`, `Eq Bool`,
-`Ord Int`, `Ord Bool`, and `Num Int`: `(==)`, `(/=)`, `compare`, `(<)`,
-`(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`, and
-`signum` lower through generated dictionaries and selectors. `/` remains the
-existing checked `Int` division primitive rather than a `Fractional` method.
+`Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool`: `(==)`, `(/=)`,
+`compare`, `(<)`, `(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`,
+`negate`, `abs`, `signum`, and `show` lower through generated dictionaries and
+selectors. `/` remains the existing checked `Int` division primitive rather
+than a `Fractional` method.
 Remaining Phase 12 work includes superclasses, default methods, instance
 contexts, method-specific constraints/type variables, coherence diagnostics,
-deriving, `Show`, `fromInteger`, overloaded literals, and numeric defaulting.
+deriving, `fromInteger`, overloaded literals, broader `Show` instances, and
+numeric defaulting.
 
 Deliverables:
 
@@ -336,6 +338,15 @@ Acceptance criteria:
 - native wet tests cover user-defined and built-in typeclass calls
 
 ### Phase 13 - IO and `main`
+
+Status: the first IO printing slice is implemented for the executable subset.
+The typechecker recognizes `IO`, `main :: IO ()`, `putStrLn`, `print`,
+`return`, `(>>)`, and expression-only `do` sequencing with local `let`.
+Core/STG reference evaluators model IO output for oracle tests, and the native
+entrypoint executes `IO ()` actions instead of scalar root printing. Native
+string literal objects, list-of-`Char` traversal, `Show Int`, and `Show Bool`
+support `putStrLn` and `print` through default/no-egglog wet tests. `<-`
+binding, `(>>=)`, real-world IO handles, and broader Prelude IO remain planned.
 
 Deliverables:
 
@@ -500,13 +511,14 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. `Show`, `String`, `print`, `putStrLn`, and IO `main` lowering.
-2. `fromInteger`, overloaded literals, numeric defaulting, and broader Prelude
+1. `fromInteger`, overloaded literals, numeric defaulting, and broader Prelude
    class hierarchy.
-3. Remaining pattern diagnostics and irrefutable/lazy pattern semantics.
-4. Module graph loading, export filtering, and multi-file compilation.
-5. Haskell 2010 conformance matrix expansion for the broader executable
+2. Remaining pattern diagnostics and irrefutable/lazy pattern semantics.
+3. Module graph loading, export filtering, and multi-file compilation.
+4. Haskell 2010 conformance matrix expansion for the broader executable
    surface.
+5. Broader `Show`/`String` interoperability, including `Show Char`,
+   `Show String`, escapes, and additional string/list library behavior.
 
 Completed immediate tasks:
 
@@ -574,6 +586,11 @@ Completed immediate tasks:
   case alternatives, alias bindings for as-patterns in parameters and case
   alternatives, Core/STG guard-fallthrough no-matching-alternative behavior,
   native empty-case lowering, and default/no-egglog native wet tests.
+- Haskell 2010 IO printing slice, including `IO` typechecking, `main :: IO ()`
+  native entrypoint execution, `putStrLn`, `print`, `return`, `(>>)`,
+  expression-only `do` sequencing with local `let`, built-in `Show Int` and
+  `Show Bool` dictionaries, Core/STG IO output oracles, native string literal
+  and list-of-`Char` output, and default/no-egglog native wet tests.
 
 ## Non-Negotiable Rules
 
