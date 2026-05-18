@@ -71,6 +71,11 @@ executable hegglog
       Egglog.Value
       Eval.ANFInterpreter
       Eval.Interpreter
+      Haskell2010.Layout
+      Haskell2010.Lexer
+      Haskell2010.Parser
+      Haskell2010.Pretty
+      Haskell2010.Syntax
       IR.ANF
       IR.ANF.Resolved
       IR.ANF.Validate
@@ -146,6 +151,11 @@ test-suite hegglog-test
       Egglog.Value
       Eval.ANFInterpreter
       Eval.Interpreter
+      Haskell2010.Layout
+      Haskell2010.Lexer
+      Haskell2010.Parser
+      Haskell2010.Pretty
+      Haskell2010.Syntax
       IR.ANF
       IR.ANF.Resolved
       IR.ANF.Validate

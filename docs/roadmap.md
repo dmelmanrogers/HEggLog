@@ -43,11 +43,15 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Haskell 2010 parser/layout MVP.
-2. Renamer MVP.
-3. Typed Core MVP.
-4. Lazy/STG runtime MVP.
-5. Egglog Core optimizer plan implementation after Core exists.
+1. Renamer MVP.
+2. Typed Core MVP.
+3. Lazy/STG runtime MVP.
+4. Egglog Core optimizer plan implementation after Core exists.
+
+Completed Haskell 2010 roadmap work:
+
+- Haskell 2010 parser/layout MVP: implemented as an isolated `Haskell2010`
+  frontend AST, lexer, layout parser, parser, and parser tests.
 
 ## Non-Negotiable Project Direction
 

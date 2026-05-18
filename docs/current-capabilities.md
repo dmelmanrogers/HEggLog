@@ -58,13 +58,14 @@ Not implemented in the current `.hg` language:
 
 ## Haskell 2010 Target Status
 
-Haskell 2010 compilation is the active roadmap. The Haskell 2010 frontend,
-Core/STG pipeline, lazy runtime, and Haskell 2010 conformance tests are not yet
-implemented.
+Haskell 2010 compilation is the active roadmap. A Haskell2010 parser/layout
+frontend now exists and produces an isolated source AST. The Haskell 2010
+renamer, typechecker, Core/STG pipeline, lazy runtime, and executable
+conformance tests are not yet implemented.
 
 Current status:
 
-- Haskell 2010 parser/layout: not started
+- Haskell 2010 parser/layout: parsed and parser-tested
 - Haskell 2010 renamer: not started
 - Haskell 2010 HM typechecker: not started
 - typed Haskell Core: planned

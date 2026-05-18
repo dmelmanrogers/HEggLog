@@ -10,64 +10,64 @@ Status values: `not started`, `current .hg only`, `parsed`, `renamed`,
 
 | Haskell 2010 area | Feature | Current status | Planned milestone | Parser | Renamer | Typechecker | Core | STG/runtime | LLVM/native | Tests | Notes/deviations |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Lexical/layout | identifiers | current .hg only | Phase 2 | .hg only | not started | not started | not started | not started | not started | .hg tests only | Haskell lexical classes not implemented. |
-| Lexical/layout | operators | current .hg only | Phase 2 | .hg only | not started | .hg only | .hg only | .hg only | .hg only | .hg tests only | Haskell fixity not implemented. |
-| Lexical/layout | reserved words | current .hg only | Phase 2 | .hg only | not started | not started | not started | not started | not started | .hg tests only | Haskell reserved set pending. |
-| Lexical/layout | comments | current .hg only | Phase 2 | .hg only | n/a | n/a | n/a | n/a | n/a | .hg tests only | Nested Haskell comments need confirmation. |
-| Lexical/layout | layout rule | not started | Phase 2 | not started | not started | not started | not started | not started | not started | not started | Required for Haskell 2010. |
-| Lexical/layout | numeric literals | current .hg only | Phase 2/5 | .hg only | not started | .hg Int only | .hg only | .hg only | .hg only | .hg tests only | Haskell defaulting/overloading pending. |
-| Lexical/layout | char literals | not started | Phase 2 | not started | not started | not started | not started | not started | not started | not started | Requires Char runtime representation. |
-| Lexical/layout | string literals | not started | Phase 2/10 | not started | not started | not started | not started | not started | not started | not started | Depends on list/Char support. |
-| Modules | module header | not started | Phase 2/14 | not started | not started | not started | not started | not started | not started | not started | Whole-program module system pending. |
-| Modules | import declarations | not started | Phase 2/14 | not started | not started | not started | not started | not started | not started | not started | Import resolution pending. |
-| Modules | export lists | not started | Phase 14 | not started | not started | not started | not started | not started | not started | not started | Visibility checks pending. |
-| Modules | qualified imports | not started | Phase 14 | not started | not started | not started | not started | not started | not started | not started | Namespace model pending. |
-| Modules | hiding | not started | Phase 14 | not started | not started | not started | not started | not started | not started | not started | Namespace model pending. |
-| Modules | aliases | not started | Phase 14 | not started | not started | not started | not started | not started | not started | not started | Namespace model pending. |
+| Lexical/layout | identifiers | parsed | Phase 2 | parsed | not started | not started | not started | not started | not started | parser tests | Haskell variable and constructor identifiers now parse into the Haskell2010 AST. |
+| Lexical/layout | operators | parsed | Phase 2 | parsed | not started | .hg only | .hg only | .hg only | .hg only | parser tests | Operators parse as unresolved infix trees; fixity resolution is Phase 3. |
+| Lexical/layout | reserved words | parsed | Phase 2 | parsed | not started | not started | not started | not started | not started | parser tests | Haskell reserved words and reserved operators are rejected as identifiers/operators. |
+| Lexical/layout | comments | parsed | Phase 2 | parsed | n/a | n/a | n/a | n/a | n/a | parser tests | Line comments and nested block comments are supported by the Haskell2010 lexer. |
+| Lexical/layout | layout rule | parsed | Phase 2 | parsed | not started | not started | not started | not started | not started | parser tests | Layout blocks parse for modules, `where`, `let`, `do`, and `case`; malformed indentation is rejected. |
+| Lexical/layout | numeric literals | parsed | Phase 2/5 | parsed integers | not started | .hg Int only | .hg only | .hg only | .hg only | parser tests | Decimal, hex, and octal integers parse; floating literals and overloading/defaulting are later. |
+| Lexical/layout | char literals | parsed | Phase 2 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; runtime Char representation is later. |
+| Lexical/layout | string literals | parsed | Phase 2/10 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; list/Char runtime support is later. |
+| Modules | module header | parsed | Phase 2/14 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed into `HsModule`; whole-program module resolution is later. |
+| Modules | import declarations | parsed | Phase 2/14 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; import resolution is later. |
+| Modules | export lists | parsed | Phase 14 | parsed | not started | not started | not started | not started | not started | parser tests | Names, `Thing(..)`, and module exports parse; visibility checks are later. |
+| Modules | qualified imports | parsed | Phase 14 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; namespace model is later. |
+| Modules | hiding | parsed | Phase 14 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; namespace filtering is later. |
+| Modules | aliases | parsed | Phase 14 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; alias resolution is later. |
 | Modules | module graph | not started | Phase 14 | not started | not started | not started | not started | not started | not started | not started | Cycle detection pending. |
-| Declarations | value bindings | current .hg only | Phase 2/5 | .hg top-level only | not started | .hg monomorphic only | .hg ANF/Core only | .hg strict only | .hg only | .hg tests only | Haskell binding groups and patterns pending. |
-| Declarations | type signatures | current .hg only | Phase 2/5 | .hg top-level required | not started | .hg monomorphic only | not started | not started | not started | .hg tests only | Haskell signature scope pending. |
-| Declarations | fixity declarations | not started | Phase 2/3 | not started | not started | not started | not started | not started | not started | not started | Needed before full infix parsing. |
-| Declarations | data declarations | not started | Phase 2/9 | not started | not started | not started | not started | not started | not started | not started | ADTs pending. |
-| Declarations | newtype declarations | not started | Phase 2/16 | not started | not started | not started | not started | not started | not started | not started | Representation strategy pending. |
-| Declarations | type synonyms | not started | Phase 2/16 | not started | not started | not started | not started | not started | not started | not started | Expansion rules pending. |
-| Declarations | class declarations | not started | Phase 2/12 | not started | not started | not started | not started | not started | not started | not started | Dictionary passing pending. |
-| Declarations | instance declarations | not started | Phase 2/12 | not started | not started | not started | not started | not started | not started | not started | Coherence rules pending. |
-| Declarations | default declarations | not started | Phase 16 | not started | not started | not started | not started | not started | not started | not started | Defaulting pending. |
-| Declarations | foreign declarations | deferred | Phase 16 | not started | not started | not started | not started | not started | not started | not started | Initially documented as deferred. |
-| Expressions | variables | current .hg only | Phase 2/3 | .hg only | not started | .hg only | .hg only | .hg only | .hg only | .hg tests only | Haskell namespaces pending. |
-| Expressions | constructors | not started | Phase 9 | not started | not started | not started | not started | not started | not started | not started | ADT constructors pending. |
-| Expressions | literals | current .hg only | Phase 2/5/10 | .hg Int/Bool only | not started | .hg only | .hg only | .hg only | .hg only | .hg tests only | Char/String and overloaded literals pending. |
-| Expressions | application | current .hg only | Phase 2/5 | .hg only | not started | .hg only | .hg only | .hg only | .hg only | .hg tests only | Haskell laziness pending. |
-| Expressions | infix application | current .hg only | Phase 2/3 | .hg fixed precedence only | not started | .hg only | .hg only | .hg only | .hg only | .hg tests only | Haskell fixity pending. |
-| Expressions | lambda | current .hg only | Phase 2/5 | .hg only | not started | .hg monomorphic only | .hg only | .hg strict only | .hg only | .hg tests only | Haskell lazy arguments pending. |
-| Expressions | let | current .hg only | Phase 2/5/6 | .hg nonrecursive only | not started | .hg monomorphic only | .hg only | .hg strict only | .hg only | .hg tests only | Haskell recursive/lazy let pending. |
-| Expressions | where | not started | Phase 2/16 | not started | not started | not started | not started | not started | not started | not started | Desugars to let after renaming. |
-| Expressions | if | current .hg only | Phase 2/5 | .hg only | not started | .hg only | .hg only | .hg strict only | .hg only | .hg tests only | Lazy branch semantics already compatible; condition demand pending in STG. |
-| Expressions | case | not started | Phase 2/5/6 | not started | not started | not started | not started | not started | not started | not started | Core/STG demand form required. |
-| Expressions | do | not started | Phase 2/13 | not started | not started | not started | not started | not started | not started | not started | Desugaring and IO pending. |
-| Expressions | list syntax | not started | Phase 2/10 | not started | not started | not started | not started | not started | not started | not started | List constructors pending. |
-| Expressions | tuple syntax | not started | Phase 2/10 | not started | not started | not started | not started | not started | not started | not started | Tuple constructors pending. |
-| Expressions | sections | not started | Phase 2/16 | not started | not started | not started | not started | not started | not started | not started | Depends on fixity. |
-| Expressions | arithmetic sequences | not started | Phase 16 | not started | not started | not started | not started | not started | not started | not started | Depends on Enum/Num support. |
-| Expressions | list comprehensions | not started | Phase 16 | not started | not started | not started | not started | not started | not started | not started | Desugaring pending. |
-| Patterns | variable patterns | not started | Phase 2/9 | not started | not started | not started | not started | not started | not started | not started | Pattern scopes pending. |
-| Patterns | wildcard patterns | not started | Phase 2/9 | not started | not started | not started | not started | not started | not started | not started | Pattern compiler pending. |
-| Patterns | literal patterns | not started | Phase 2/9 | not started | not started | not started | not started | not started | not started | not started | Equality semantics pending. |
-| Patterns | constructor patterns | not started | Phase 2/9 | not started | not started | not started | not started | not started | not started | not started | ADTs pending. |
-| Patterns | tuple patterns | not started | Phase 2/9/10 | not started | not started | not started | not started | not started | not started | not started | Tuples pending. |
-| Patterns | list patterns | not started | Phase 2/9/10 | not started | not started | not started | not started | not started | not started | not started | Lists pending. |
-| Patterns | as-patterns | not started | Phase 2/9 | not started | not started | not started | not started | not started | not started | not started | Pattern binding pending. |
-| Patterns | irrefutable patterns | not started | Phase 16 | not started | not started | not started | not started | not started | not started | not started | Requires lazy pattern semantics. |
-| Patterns | nested patterns | not started | Phase 9 | not started | not started | not started | not started | not started | not started | not started | Pattern compiler pending. |
-| Patterns | guards | not started | Phase 2/9/16 | not started | not started | not started | not started | not started | not started | not started | Guard desugaring pending. |
-| Types | type variables | not started | Phase 5 | not started | not started | infrastructure only | not started | not started | not started | principal tests only | Current principal engine exists for .hg direction. |
-| Types | function types | current .hg only | Phase 5 | .hg only | not started | .hg only | not started | not started | .hg closure only | .hg tests only | Haskell types pending. |
-| Types | tuple types | not started | Phase 10 | not started | not started | not started | not started | not started | not started | not started | Tuple runtime pending. |
-| Types | list types | not started | Phase 10 | not started | not started | not started | not started | not started | not started | not started | List runtime pending. |
-| Types | type constructors | not started | Phase 9/10 | not started | not started | not started | not started | not started | not started | not started | ADTs pending. |
-| Types | type classes | not started | Phase 12 | not started | not started | not started | not started | not started | not started | not started | Dictionary passing pending. |
-| Types | constraints | not started | Phase 12 | not started | not started | not started | not started | not started | not started | not started | Constraint solver pending. |
+| Declarations | value bindings | parsed | Phase 2/5 | parsed | not started | .hg monomorphic only | .hg ANF/Core only | .hg strict only | .hg only | parser tests | Function and pattern bindings parse; binding groups, recursion, and semantics are later. |
+| Declarations | type signatures | parsed | Phase 2/5 | parsed | not started | .hg monomorphic only | not started | not started | not started | parser tests | Parsed only; signature scope and checking are later. |
+| Declarations | fixity declarations | parsed | Phase 2/3 | parsed | not started | not started | not started | not started | not started | parser tests | Declarations parse; operator trees remain unresolved until Phase 3. |
+| Declarations | data declarations | parsed | Phase 2/9 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; ADT semantics and representation are later. |
+| Declarations | newtype declarations | parsed | Phase 2/16 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; representation strategy is later. |
+| Declarations | type synonyms | parsed | Phase 2/16 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; expansion rules are later. |
+| Declarations | class declarations | parsed | Phase 2/12 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; dictionary passing is later. |
+| Declarations | instance declarations | parsed | Phase 2/12 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; coherence and dictionaries are later. |
+| Declarations | default declarations | parsed | Phase 16 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; numeric defaulting is later. |
+| Declarations | foreign declarations | parsed | Phase 16 | parsed raw | not started | not started | not started | not started | not started | parser tests | Raw FFI declarations parse so source is preserved; FFI remains semantically deferred. |
+| Expressions | variables | parsed | Phase 2/3 | parsed | not started | .hg only | .hg only | .hg only | .hg only | parser tests | Parsed only; Haskell namespace resolution is Phase 3. |
+| Expressions | constructors | parsed | Phase 9 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; ADT constructor resolution is later. |
+| Expressions | literals | parsed | Phase 2/5/10 | parsed | not started | .hg only | .hg only | .hg only | .hg only | parser tests | Int, Char, and String parse; overloading and runtime support are later. |
+| Expressions | application | parsed | Phase 2/5 | parsed | not started | .hg only | .hg only | .hg only | .hg only | parser tests | Parsed only; Haskell laziness is later. |
+| Expressions | infix application | parsed | Phase 2/3 | parsed unresolved | not started | .hg only | .hg only | .hg only | .hg only | parser tests | Parsed as left-associated unresolved operators; fixity is Phase 3. |
+| Expressions | lambda | parsed | Phase 2/5 | parsed | not started | .hg monomorphic only | .hg only | .hg strict only | .hg only | parser tests | Parsed only; lazy argument semantics are later. |
+| Expressions | let | parsed | Phase 2/5/6 | parsed | not started | .hg monomorphic only | .hg only | .hg strict only | .hg only | parser tests | Layout-aware `let` parses; recursive/lazy semantics are later. |
+| Expressions | where | parsed | Phase 2/16 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed on bindings and case alternatives; desugaring is later. |
+| Expressions | if | parsed | Phase 2/5 | parsed | not started | .hg only | .hg only | .hg strict only | .hg only | parser tests | Parsed only; Haskell demand semantics are later. |
+| Expressions | case | parsed | Phase 2/5/6 | parsed | not started | not started | not started | not started | not started | parser tests | Layout-aware alternatives parse; Core/STG demand form is later. |
+| Expressions | do | parsed | Phase 2/13 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; desugaring and IO are later. |
+| Expressions | list syntax | parsed | Phase 2/10 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; list constructors are later. |
+| Expressions | tuple syntax | parsed | Phase 2/10 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; tuple constructors are later. |
+| Expressions | sections | parsed | Phase 2/16 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; full fixity-sensitive semantics are later. |
+| Expressions | arithmetic sequences | parsed | Phase 16 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; Enum/Num support is later. |
+| Expressions | list comprehensions | parsed | Phase 16 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; desugaring is later. |
+| Patterns | variable patterns | parsed | Phase 2/9 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; pattern scopes are later. |
+| Patterns | wildcard patterns | parsed | Phase 2/9 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; pattern compiler is later. |
+| Patterns | literal patterns | parsed | Phase 2/9 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; equality semantics are later. |
+| Patterns | constructor patterns | parsed | Phase 2/9 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; ADT resolution is later. |
+| Patterns | tuple patterns | parsed | Phase 2/9/10 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; tuple runtime is later. |
+| Patterns | list patterns | parsed | Phase 2/9/10 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; list runtime is later. |
+| Patterns | as-patterns | parsed | Phase 2/9 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; pattern binding is later. |
+| Patterns | irrefutable patterns | parsed | Phase 16 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; lazy pattern semantics are later. |
+| Patterns | nested patterns | parsed | Phase 9 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; pattern compiler is later. |
+| Patterns | guards | parsed | Phase 2/9/16 | parsed | not started | not started | not started | not started | not started | parser tests | Binding and case guards parse; guard desugaring is later. |
+| Types | type variables | parsed | Phase 5 | parsed | not started | infrastructure only | not started | not started | not started | parser tests | Parsed only; Haskell inference is later. |
+| Types | function types | parsed | Phase 5 | parsed | not started | .hg only | not started | not started | .hg closure only | parser tests | Parsed only; Haskell typechecking is later. |
+| Types | tuple types | parsed | Phase 10 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; tuple runtime is later. |
+| Types | list types | parsed | Phase 10 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; list runtime is later. |
+| Types | type constructors | parsed | Phase 9/10 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed only; ADTs are later. |
+| Types | type classes | parsed | Phase 12 | parsed | not started | not started | not started | not started | not started | parser tests | Class heads and constraints parse; dictionary passing is later. |
+| Types | constraints | parsed | Phase 12 | parsed | not started | not started | not started | not started | not started | parser tests | Parsed into contextual types; solver is later. |
 | Types | kind checking | not started | Phase 12/16 | not started | not started | not started | not started | not started | not started | not started | Needed for type constructors/classes. |
 | Types | polymorphism | not started | Phase 5 | not started | not started | infrastructure only | not started | not started | not started | principal tests only | User-facing .hg polymorphism deferred. |
 | Types | defaulting | not started | Phase 12/16 | not started | not started | not started | not started | not started | not started | not started | Numeric defaulting pending. |

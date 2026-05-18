@@ -5,8 +5,10 @@
 The Haskell2010 frontend parses, lays out, renames, and typechecks Haskell 2010
 source before desugaring into typed Core.
 
-This frontend is planned. The current `.hg` frontend does not compile Haskell
-2010 source.
+The parser/layout layer is implemented as an isolated `Haskell2010` frontend
+AST, lexer, layout parser, and parser. Renaming, typechecking, and desugaring
+remain planned. The current `.hg` frontend still does not compile Haskell 2010
+source.
 
 ## Lexer and Layout
 

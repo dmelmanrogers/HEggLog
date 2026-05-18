@@ -28,6 +28,8 @@ import qualified Egglog.Sort as ES
 import qualified Egglog.Value as EV
 import Eval.ANFInterpreter (ANFValue (..), evalANF)
 import Eval.Interpreter (RuntimeError (..), Value (..), eval, evalProgram, renderRuntimeError, renderValue)
+import qualified Haskell2010.Parser as H2010Parser
+import qualified Haskell2010.Syntax as H2010
 import IR.ANF
 import qualified IR.ANF.Resolved as RANF
 import IR.ANF.Validate
@@ -81,6 +83,11 @@ testGroups =
       [ pureTest "application binds tighter than addition" testApplicationPrecedence
       , pureTest "parentheses group application arguments" testParenthesizedArgument
       , pureTest "top-level function program parses" testTopLevelFunctionParsing
+      , pureTest "Haskell 2010 module header, imports, and declarations parse" testHaskell2010ModuleParsing
+      , pureTest "Haskell 2010 layout blocks parse" testHaskell2010LayoutParsing
+      , pureTest "Haskell 2010 expression surface forms parse" testHaskell2010ExpressionSurfaceParsing
+      , pureTest "Haskell 2010 malformed layout is rejected" testHaskell2010MalformedLayout
+      , pureTest "Haskell 2010 imports after declarations are rejected" testHaskell2010ImportAfterDecl
       ]
   , TestGroup
       "Typechecker"
@@ -418,6 +425,135 @@ testTopLevelFunctionParsing = do
         (EApp (EVar (mkName "double")) (EApp (EVar (mkName "inc")) (EInt 20)))
     )
     parsed
+
+testHaskell2010ModuleParsing :: Either String ()
+testHaskell2010ModuleParsing = do
+  parsed <-
+    parseHaskell2010
+      "module Main (main, Maybe(..), module Data.List) where\n\
+      \-- line comment\n\
+      \{- nested {- block -} comment -}\n\
+      \import qualified Data.List as List hiding (map)\n\
+      \data Maybe a = Nothing | Just a deriving (Eq, Show)\n\
+      \newtype Identity a = Identity a\n\
+      \type Pair a = (a, a)\n\
+      \class Eq a where\n\
+      \  eq :: a -> a -> Bool\n\
+      \instance Eq Int where\n\
+      \  eq x y = x == y\n\
+      \main :: IO Int\n\
+      \main = pure 0\n"
+  expectEqual "Haskell 2010 module name" (Just (H2010.ModuleName ["Main"])) (H2010.moduleName parsed)
+  expectEqual
+    "Haskell 2010 exports"
+    ( Just
+        [ H2010.ExportName "main"
+        , H2010.ExportThing "Maybe" [".."]
+        , H2010.ExportModule (H2010.ModuleName ["Data", "List"])
+        ]
+    )
+    (H2010.moduleExports parsed)
+  expectEqual
+    "Haskell 2010 import"
+    [ H2010.ImportDecl
+        { H2010.importQualified = True
+        , H2010.importModule = H2010.ModuleName ["Data", "List"]
+        , H2010.importAs = Just (H2010.ModuleName ["List"])
+        , H2010.importSpecs = Just ([H2010.ImportName "map"], True)
+        }
+    ]
+    (H2010.moduleImports parsed)
+  expectEqual "Haskell 2010 declaration count" 7 (length (H2010.moduleDecls parsed))
+
+testHaskell2010LayoutParsing :: Either String ()
+testHaskell2010LayoutParsing = do
+  parsed <-
+    parseHaskell2010
+      "module Layout where\n\
+      \main =\n\
+      \  let\n\
+      \    x = 1\n\
+      \    y = 2\n\
+      \  in case x of\n\
+      \    0 -> y\n\
+      \    n | n > 0 -> do\n\
+      \      value <- pure n\n\
+      \      let\n\
+      \        z = value\n\
+      \      pure z\n"
+  case H2010.moduleDecls parsed of
+    [H2010.FunctionBinding "main" [] (H2010.Unguarded body) []] ->
+      assertBool "Haskell 2010 layout parsed let/case/do" (containsDo body)
+    other -> Left ("unexpected Haskell 2010 layout declarations: " <> show other)
+ where
+  containsDo = \case
+    H2010.Do {} -> True
+    H2010.Let _ body -> containsDo body
+    H2010.Case _ alts -> any altContainsDo alts
+    H2010.App lhs rhs -> containsDo lhs || containsDo rhs
+    H2010.InfixApp lhs _ rhs -> containsDo lhs || containsDo rhs
+    H2010.If condition thenBranch elseBranch ->
+      containsDo condition || containsDo thenBranch || containsDo elseBranch
+    H2010.Lambda _ body -> containsDo body
+    H2010.Paren body -> containsDo body
+    H2010.ExprTypeSig body _ -> containsDo body
+    _ -> False
+  altContainsDo (H2010.Alt _ rhs _) =
+    rhsContainsDo rhs
+  rhsContainsDo = \case
+    H2010.Unguarded body -> containsDo body
+    H2010.Guarded branches -> any (containsDo . snd) branches
+
+testHaskell2010ExpressionSurfaceParsing :: Either String ()
+testHaskell2010ExpressionSurfaceParsing = do
+  parsed <-
+    parseHaskell2010
+      "module Surface where\n\
+      \infixl 6 +++\n\
+      \default (Int)\n\
+      \foreign import ccall \"puts\" c_puts :: CString -> IO Int\n\
+      \literals = ('x', \"hello\")\n\
+      \numbers = (0x10, 0o7)\n\
+      \collections = ([1, 2, 3], [1, 3..9], [x | x <- xs])\n\
+      \sections = ((1 +), (+ 1))\n\
+      \typed = (pure 0 :: IO Int)\n\
+      \branch = \\x -> if x then [] else [1]\n\
+      \patterns (Just x) _ (a, b) [c] name@value ~lazy 'x' = x\n"
+  expectEqual "Haskell 2010 surface declaration count" 10 (length (H2010.moduleDecls parsed))
+  assertBool
+    "Haskell 2010 surface forms include foreign declarations"
+    (any isForeignDecl (H2010.moduleDecls parsed))
+ where
+  isForeignDecl = \case
+    H2010.ForeignDecl {} -> True
+    _ -> False
+
+testHaskell2010MalformedLayout :: Either String ()
+testHaskell2010MalformedLayout =
+  case
+    H2010Parser.parseSourceModule
+      "<haskell2010-malformed-layout>"
+      "module Bad where\n\
+      \main =\n\
+      \  let\n\
+      \    x = 1\n\
+      \   y = 2\n\
+      \  in x\n"
+    of
+      Left _ -> Right ()
+      Right parsed -> Left ("malformed Haskell 2010 layout parsed unexpectedly: " <> show parsed)
+
+testHaskell2010ImportAfterDecl :: Either String ()
+testHaskell2010ImportAfterDecl =
+  case
+    H2010Parser.parseSourceModule
+      "<haskell2010-import-after-decl>"
+      "module Bad where\n\
+      \main = 0\n\
+      \import Data.List\n"
+    of
+      Left _ -> Right ()
+      Right parsed -> Left ("import after declaration parsed unexpectedly: " <> show parsed)
 
 testHigherOrderType :: Either String ()
 testHigherOrderType = do
@@ -2987,6 +3123,14 @@ parseSource =
 parseSourceAt :: FilePath -> Text -> Either String Program
 parseSourceAt path source =
   mapLeft errorBundlePretty (parseSourceProgram path source)
+
+parseHaskell2010 :: Text -> Either String H2010.HsModule
+parseHaskell2010 =
+  parseHaskell2010At "<haskell2010-test>"
+
+parseHaskell2010At :: FilePath -> Text -> Either String H2010.HsModule
+parseHaskell2010At path source =
+  mapLeft errorBundlePretty (H2010Parser.parseSourceModule path source)
 
 factsFor :: Text -> Either String [Fact]
 factsFor source =

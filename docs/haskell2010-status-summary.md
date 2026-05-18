@@ -26,7 +26,6 @@ values when the root is printable.
 HeggLog does not yet compile Haskell 2010 `.hs` source. The following Haskell
 2010 requirements are planned but not implemented:
 
-- layout-aware parser
 - renamer and module/import resolution
 - Haskell Hindley-Milner typechecker
 - ADTs and pattern matching
@@ -36,9 +35,19 @@ HeggLog does not yet compile Haskell 2010 `.hs` source. The following Haskell
 - IO `main`
 - Haskell 2010 conformance suite
 
+## What Is Parsed Today
+
+The Haskell2010 frontend now parses source into an isolated AST. Covered parser
+surface includes module headers, imports, exports, layout blocks, type
+signatures, value and pattern bindings, fixity declarations, data/newtype/type
+declarations, class and instance declarations, defaults, raw foreign
+declarations, lambdas, application, unresolved infix expressions, `if`, `case`,
+`let`, `where`, `do`, lists, tuples, sections, arithmetic sequences, list
+comprehensions, guards, patterns, and common Haskell type syntax.
+
 ## First Haskell 2010 Implementation Milestones
 
-1. Haskell 2010 parser/layout MVP.
+1. Haskell 2010 parser/layout MVP. Completed.
 2. Renamer MVP.
 3. Typed Core MVP.
 4. Lazy/STG runtime MVP.
@@ -64,5 +73,5 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Build the Haskell 2010 parser/layout MVP while preserving the current `.hg`
-compiler and wet-test baseline.
+Build the Haskell 2010 renamer MVP while preserving the current `.hg` compiler
+and wet-test baseline.
