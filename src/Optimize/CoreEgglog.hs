@@ -16,6 +16,7 @@ import Egglog.Eval (RunConfig)
 import Egglog.Sort (renderFunctionName)
 import Haskell2010.Core.FreeVars (freeVarsExpr)
 import Haskell2010.Core.Pretty (renderCoreExpr, renderCoreType)
+import Haskell2010.Core.Subst (substExpr)
 import Haskell2010.Core.Syntax
 import qualified Haskell2010.Core.Validate as CoreValidate
 import Haskell2010.Names (Namespace (TermNamespace), RName (..), nameOcc, nameUnique)
@@ -81,9 +82,15 @@ data DecodeState = DecodeState
 
 type DecodeM = StateT DecodeState (Either CoreEgglogError)
 
+data KnownCaseScrutinee
+  = KnownCaseConstructor RName [CoreExpr]
+  | KnownCaseLiteral Literal
+  deriving stock (Show, Eq)
+
 optimizeCoreModuleWithEgglog :: RunConfig -> CoreModule -> Either CoreEgglogError CoreEgglogResult
 optimizeCoreModuleWithEgglog config coreModule = do
-  case CoreValidate.validateModule (CoreValidate.moduleValidationEnv coreModule) coreModule of
+  let validationEnv = CoreValidate.moduleValidationEnv coreModule
+  case CoreValidate.validateModule validationEnv coreModule of
     Left errors -> Left (CoreEgglogInvalidInput errors)
     Right () -> Right ()
   let initialState =
@@ -94,7 +101,7 @@ optimizeCoreModuleWithEgglog config coreModule = do
           }
       moduleScope = scopeFromBinds (coreModuleBinds coreModule)
   (optimizedBinds, finalState) <-
-    runStateT (traverse (optimizeBind config moduleScope) (coreModuleBinds coreModule)) initialState
+    runStateT (traverse (optimizeBind config validationEnv moduleScope) (coreModuleBinds coreModule)) initialState
   let optimizedModule = coreModule {coreModuleBinds = optimizedBinds}
   case CoreValidate.validateModule (CoreValidate.moduleValidationEnv optimizedModule) optimizedModule of
     Left errors -> Left (CoreEgglogInvalidOutput errors)
@@ -109,21 +116,21 @@ optimizeCoreModuleWithEgglog config coreModule = do
           , coreEgglogProvenanceTrace = optimizeProvenance finalState
           }
 
-optimizeBind :: RunConfig -> Map.Map RName CoreType -> CoreBind -> OptimizeM CoreBind
-optimizeBind config env = \case
+optimizeBind :: RunConfig -> CoreValidate.CoreValidationEnv -> Map.Map RName CoreType -> CoreBind -> OptimizeM CoreBind
+optimizeBind config validationEnv env = \case
   CoreNonRec binder rhs -> do
-    optimized <- optimizeExpr config env rhs
+    optimized <- optimizeExpr config validationEnv env rhs
     pure (CoreNonRec binder optimized)
   CoreRec pairs -> do
     let recEnv = Map.union (Map.fromList [(coreBinderName binder, coreBinderType binder) | (binder, _) <- pairs]) env
     CoreRec <$> traverse (optimizePair recEnv) pairs
  where
   optimizePair recEnv (binder, rhs) = do
-    optimized <- optimizeExpr config recEnv rhs
+    optimized <- optimizeExpr config validationEnv recEnv rhs
     pure (binder, optimized)
 
-optimizeExpr :: RunConfig -> Map.Map RName CoreType -> CoreExpr -> OptimizeM CoreExpr
-optimizeExpr config env expression = do
+optimizeExpr :: RunConfig -> CoreValidate.CoreValidationEnv -> Map.Map RName CoreType -> CoreExpr -> OptimizeM CoreExpr
+optimizeExpr config validationEnv env expression = do
   rebuilt <-
     case expression of
       CVar {} ->
@@ -133,29 +140,179 @@ optimizeExpr config env expression = do
       CCon {} ->
         pure expression
       CLam binder body ty ->
-        CLam binder <$> optimizeExpr config (Map.insert (coreBinderName binder) (coreBinderType binder) env) body <*> pure ty
+        CLam binder <$> optimizeExpr config validationEnv (Map.insert (coreBinderName binder) (coreBinderType binder) env) body <*> pure ty
       CApp fn arg ty ->
-        CApp <$> optimizeExpr config env fn <*> optimizeExpr config env arg <*> pure ty
+        CApp <$> optimizeExpr config validationEnv env fn <*> optimizeExpr config validationEnv env arg <*> pure ty
       CTypeLam variables body ty ->
-        CTypeLam variables <$> optimizeExpr config env body <*> pure ty
+        CTypeLam variables <$> optimizeExpr config validationEnv env body <*> pure ty
       CTypeApp fn arguments ty ->
-        CTypeApp <$> optimizeExpr config env fn <*> pure arguments <*> pure ty
+        CTypeApp <$> optimizeExpr config validationEnv env fn <*> pure arguments <*> pure ty
       CLet bind body ty -> do
-        optimizedBind <- optimizeBind config env bind
+        optimizedBind <- optimizeBind config validationEnv env bind
         let env' = Map.union (scopeFromBind optimizedBind) env
-        CLet optimizedBind <$> optimizeExpr config env' body <*> pure ty
+        CLet optimizedBind <$> optimizeExpr config validationEnv env' body <*> pure ty
       CCase scrutinee binder alternatives ty -> do
-        optimizedScrutinee <- optimizeExpr config env scrutinee
+        optimizedScrutinee <- optimizeExpr config validationEnv env scrutinee
         let altEnvBase = Map.insert (coreBinderName binder) (coreBinderType binder) env
         optimizedAlts <- traverse (optimizeAlt altEnvBase) alternatives
         pure (CCase optimizedScrutinee binder optimizedAlts ty)
       CPrimOp op arguments ty ->
-        CPrimOp op <$> traverse (optimizeExpr config env) arguments <*> pure ty
-  tryEgglogRewrite config env rebuilt
+        CPrimOp op <$> traverse (optimizeExpr config validationEnv env) arguments <*> pure ty
+  tryEgglogRewrite config env rebuilt >>= tryKnownCaseRewrite validationEnv env
  where
   optimizeAlt altEnvBase (CoreAlt altCon binders body) = do
     let altEnv = Map.union (Map.fromList [(coreBinderName binder, coreBinderType binder) | binder <- binders]) altEnvBase
-    CoreAlt altCon binders <$> optimizeExpr config altEnv body
+    CoreAlt altCon binders <$> optimizeExpr config validationEnv altEnv body
+
+tryKnownCaseRewrite :: CoreValidate.CoreValidationEnv -> Map.Map RName CoreType -> CoreExpr -> OptimizeM CoreExpr
+tryKnownCaseRewrite validationEnv env expression =
+  case expression of
+    CCase scrutinee binder alternatives ty ->
+      case selectKnownCaseAlternative validationEnv scrutinee binder alternatives of
+        Nothing ->
+          pure expression
+        Just (ruleName, selected) -> do
+          let originalCost = expressionCost expression
+              selectedCost = expressionCost selected
+          if selectedCost < originalCost && exprType selected == ty
+            then do
+              validateSelected selected
+              recordCoreRewrite ruleName expression selected originalCost selectedCost
+              pure selected
+            else pure expression
+    _ ->
+      pure expression
+ where
+  validateSelected selected =
+    let localValidationEnv =
+          validationEnv
+            { CoreValidate.coreValueTypes =
+                Map.union env (CoreValidate.coreValueTypes validationEnv)
+            }
+     in case CoreValidate.validateExprWith localValidationEnv selected of
+          Left errors -> lift (Left (CoreEgglogInvalidOutput errors))
+          Right () -> pure ()
+
+recordCoreRewrite :: Text -> CoreExpr -> CoreExpr -> Int -> Int -> OptimizeM ()
+recordCoreRewrite ruleName before after originalCost optimizedCost =
+  modify' $
+    \state ->
+      state
+        { optimizeAppliedRules = optimizeAppliedRules state <> [ruleName]
+        , optimizeProvenance =
+            optimizeProvenance state
+              <> [ "selected Core rule "
+                     <> ruleName
+                     <> ": "
+                     <> renderCoreExpr before
+                     <> " ==> "
+                     <> renderCoreExpr after
+                 , "fragment cost: "
+                     <> Text.pack (show originalCost)
+                     <> " -> "
+                     <> Text.pack (show optimizedCost)
+                 ]
+        }
+
+selectKnownCaseAlternative ::
+  CoreValidate.CoreValidationEnv ->
+  CoreExpr ->
+  CoreBinder ->
+  [CoreAlt] ->
+  Maybe (Text, CoreExpr)
+selectKnownCaseAlternative validationEnv scrutinee binder alternatives = do
+  known <- knownCaseScrutinee validationEnv scrutinee
+  case known of
+    KnownCaseConstructor constructorName fields ->
+      selectConstructorAlternative scrutinee binder constructorName fields alternatives
+    KnownCaseLiteral literal ->
+      selectLiteralAlternative scrutinee binder literal alternatives
+
+knownCaseScrutinee :: CoreValidate.CoreValidationEnv -> CoreExpr -> Maybe KnownCaseScrutinee
+knownCaseScrutinee validationEnv expression =
+  case expression of
+    CLit literal _ ->
+      Just (KnownCaseLiteral literal)
+    _ ->
+      uncurry KnownCaseConstructor <$> knownConstructorApplication validationEnv expression
+
+knownConstructorApplication :: CoreValidate.CoreValidationEnv -> CoreExpr -> Maybe (RName, [CoreExpr])
+knownConstructorApplication validationEnv expression = do
+  (constructorName, fields) <- peelConstructorApplication expression []
+  info <- Map.lookup constructorName (CoreValidate.coreConstructorTypes validationEnv)
+  expectedFields <- CoreValidate.constructorFieldsForResult info (exprType expression)
+  if length fields == length expectedFields && and (zipWith ((==) . exprType) fields expectedFields)
+    then Just (constructorName, fields)
+    else Nothing
+
+peelConstructorApplication :: CoreExpr -> [CoreExpr] -> Maybe (RName, [CoreExpr])
+peelConstructorApplication expression fields =
+  case expression of
+    CApp fn arg _ ->
+      peelConstructorApplication fn (arg : fields)
+    CTypeApp fn _ _ ->
+      peelConstructorApplication fn fields
+    CCon constructorName _ ->
+      Just (constructorName, fields)
+    _ ->
+      Nothing
+
+selectConstructorAlternative ::
+  CoreExpr ->
+  CoreBinder ->
+  RName ->
+  [CoreExpr] ->
+  [CoreAlt] ->
+  Maybe (Text, CoreExpr)
+selectConstructorAlternative scrutinee binder constructorName fields alternatives =
+  case matchingConstructorAlternatives of
+    [(fieldBinders, body)]
+      | length fieldBinders == length fields ->
+          Just
+            ( "core-case-known-constructor"
+            , applyCaseSubstitutions scrutinee binder (zip fieldBinders fields) body
+            )
+    [] ->
+      selectDefaultAlternative "core-case-known-constructor-default" scrutinee binder alternatives
+    _ ->
+      Nothing
+ where
+  matchingConstructorAlternatives =
+    [ (fieldBinders, body)
+    | CoreAlt (ConstructorAlt altConstructorName) fieldBinders body <- alternatives
+    , altConstructorName == constructorName
+    ]
+
+selectLiteralAlternative :: CoreExpr -> CoreBinder -> Literal -> [CoreAlt] -> Maybe (Text, CoreExpr)
+selectLiteralAlternative scrutinee binder literal alternatives =
+  case matchingLiteralAlternatives of
+    [body] ->
+      Just ("core-case-known-literal", substExpr (coreBinderName binder) scrutinee body)
+    [] ->
+      selectDefaultAlternative "core-case-known-literal-default" scrutinee binder alternatives
+    _ ->
+      Nothing
+ where
+  matchingLiteralAlternatives =
+    [ body
+    | CoreAlt (LiteralAlt altLiteral) [] body <- alternatives
+    , altLiteral == literal
+    ]
+
+selectDefaultAlternative :: Text -> CoreExpr -> CoreBinder -> [CoreAlt] -> Maybe (Text, CoreExpr)
+selectDefaultAlternative ruleName scrutinee binder alternatives =
+  case [body | CoreAlt DefaultAlt [] body <- alternatives] of
+    [body] -> Just (ruleName, substExpr (coreBinderName binder) scrutinee body)
+    _ -> Nothing
+
+applyCaseSubstitutions :: CoreExpr -> CoreBinder -> [(CoreBinder, CoreExpr)] -> CoreExpr -> CoreExpr
+applyCaseSubstitutions scrutinee binder fields body =
+  foldl substituteField withCaseBinder fields
+ where
+  withCaseBinder =
+    substExpr (coreBinderName binder) scrutinee body
+  substituteField expression (fieldBinder, fieldExpr) =
+    substExpr (coreBinderName fieldBinder) fieldExpr expression
 
 tryEgglogRewrite :: RunConfig -> Map.Map RName CoreType -> CoreExpr -> OptimizeM CoreExpr
 tryEgglogRewrite config env expression = do

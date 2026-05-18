@@ -96,7 +96,10 @@ built-in `Show Int`/`Show Bool`.
 The Haskell 2010
 native path now runs an Egglog Core optimizer by
 default for safe typed Core fragments before STG lowering; `--no-egglog`
-disables that optimizer for comparison and debugging.
+disables that optimizer for comparison and debugging. The optimizer covers
+safe Core-0 `Int`/`Bool` fragments plus known literal and saturated
+known-constructor case/projection rewrites for ADT/list/tuple/dictionary-shaped
+Core while preserving lazy constructor fields and forced bottom behavior.
 
 Current status:
 
@@ -147,9 +150,11 @@ Current status:
   and `print`, and guard-fallthrough runtime failure
 - Haskell 2010 Egglog Core optimizer: implemented and unit/wet-tested for
   safe Core-0 arithmetic identities, checked constant folding, known Bool case
-  selection, typed Core extraction/validation, provenance reporting, lazy
-  let preservation, strict bottom preservation, and optimized/unoptimized
-  native agreement
+  selection, known literal and saturated known-constructor case/projection
+  rewrites, typed Core extraction/validation, selected-Core validation,
+  provenance reporting, lazy let preservation, lazy constructor-field
+  preservation, strict bottom preservation, and optimized/unoptimized native
+  agreement
 - Haskell 2010 conformance suite: planned
 
 Progress is tracked in
@@ -190,8 +195,8 @@ Current tests include:
   `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
   programs, user-defined type class dictionary programs, and built-in
   `Eq`/`Ord`/`Num`/`Show` dictionary programs, numeric-defaulting programs,
-  multi-file module programs, plus IO printing programs, and compiles selected
-  emitted LLVM through `clang`
+  multi-file module programs, known-constructor optimizer programs, plus IO
+  printing programs, and compiles selected emitted LLVM through `clang`
 
 Future Haskell 2010 wet tests should extend this direct executable coverage as
 irrefutable/lazy patterns, richer pattern diagnostics, broader `Show`/`String`

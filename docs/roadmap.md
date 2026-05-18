@@ -89,7 +89,10 @@ Completed Haskell 2010 roadmap work:
   `Int`/`Bool` fragments with checked constant folding, safe arithmetic
   identities, known Bool case selection, typed Core extraction/validation,
   provenance, `--no-egglog` native comparison, and Core/STG/native oracle
-  tests preserving laziness and forced runtime errors.
+  tests preserving laziness and forced runtime errors. Expanded with known
+  literal and saturated known-constructor case/projection rewrites for
+  ADT/list/tuple/dictionary-shaped Core, including unused lazy-field and forced
+  field-bottom preservation.
 - Haskell 2010 ADT and pattern-match Core support: implemented for custom
   `data` declarations, polymorphic constructors, constructor cases, nested
   constructor patterns, lazy constructor fields, Core/STG validation, native

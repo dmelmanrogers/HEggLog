@@ -143,8 +143,13 @@ is built alongside them.
     qualified aliases, whole-program Core flattening for the executable subset,
     root-module `main` selection, Core/STG/native execution, and wet-tested
     default/no-egglog CLI runs.
-19. Egglog Core optimizer. Completed for the first safe Core-0 fragment;
-    broader Core facts and rewrites remain planned.
+19. Egglog Core optimizer. Completed for the first safe Core-0 fragment and
+    expanded with known literal and saturated known-constructor case/projection
+    rewrites for ADT/list/tuple/dictionary-shaped Core. The optimizer validates
+    selected Core, records provenance, preserves unused lazy fields and forced
+    field bottom, and is checked by Core/STG/native optimized-vs-unoptimized
+    tests. Broader dictionary simplification, strictness facts, and full
+    Core-native equality saturation remain planned.
 
 ## Tests Required Per Milestone
 

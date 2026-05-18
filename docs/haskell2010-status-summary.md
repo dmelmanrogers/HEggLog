@@ -164,13 +164,17 @@ The Haskell 2010 native path now runs a typed Core Egglog optimizer before
 STG lowering unless `--no-egglog` is selected. The implemented adapter supports
 safe Core-0 `Int`/`Bool` fragments, including checked constant folding, safe
 arithmetic identities, known Bool case selection, typed Core extraction,
-post-extraction Core validation, and provenance reporting. It deliberately
-skips lazy-sensitive or unsupported Core shapes instead of forcing a rewrite.
+post-extraction Core validation, and provenance reporting. It also supports
+known literal case selection and saturated known-constructor case/projection
+for ADT/list/tuple/dictionary-shaped Core, with selected-Core validation before
+the rewrite is accepted. It deliberately skips lazy-sensitive or unsupported
+Core shapes instead of forcing a rewrite.
 
 The optimizer is tested against Core evaluation, lowered STG evaluation, and
 native LLVM execution in both default and `--no-egglog` modes. Tests also cover
 lazy let preservation and a strict-bottom case where `x * 0` must not erase a
-forced division by zero.
+forced division by zero, plus constructor projection over an unused lazy field
+and over a forced field that must still report division by zero.
 
 ## What Lowers To STG Today
 
@@ -202,7 +206,8 @@ and compiled to native executables through the existing clang toolchain.
 7. Core-to-STG lowering MVP. Completed.
 8. Core-0 native executable path. Completed.
 9. Egglog Core optimizer implementation using the Core/STG/native evaluators
-   as oracle. Completed for the safe Core-0 `Int`/`Bool` fragment.
+   as oracle. Completed for the safe Core-0 `Int`/`Bool` fragment and expanded
+   to known literal and saturated known-constructor case/projection rewrites.
 10. Broader ADT and pattern-match Core support. Completed for custom ADTs,
     polymorphic constructors, constructor cases, nested constructor patterns,
     lazy constructor fields, STG lowering/evaluation, native LLVM execution,
@@ -257,6 +262,12 @@ and compiled to native executables through the existing clang toolchain.
     child exports/imports, whole-program Core flattening for the executable
     subset, root-module `main` native entrypoint selection, Core/STG/native
     oracles, and default/no-egglog wet tests.
+19. Egglog Core optimizer known-constructor expansion. Completed for known
+    literal case selection, saturated known-constructor case selection, and
+    constructor-field projection for ADT/list/tuple/dictionary-shaped Core,
+    with selected-Core validation, provenance, Core/STG/native oracles,
+    optimized/unoptimized native agreement, unused lazy-field preservation, and
+    forced field-bottom preservation.
 
 ## Where Egglog Fits
 
@@ -264,8 +275,11 @@ The existing ANF Egglog backend is now reused by a typed Haskell 2010 Core
 adapter for safe Core-0 fragments. The adapter preserves laziness, bottom, and
 runtime-error behavior by validating Core before and after extraction and by
 omitting unsafe rewrites unless the fragment has facts strong enough to justify
-them. Broader Core facts for ADTs, dictionary simplification, and full pattern
-matching remain later Phase 15 expansion work.
+them. The Core optimizer also selects known literal and saturated
+known-constructor alternatives directly for ADT/list/tuple/dictionary-shaped
+Core, validating the selected Core and preserving lazy unused fields and forced
+field bottom. Broader dictionary simplification, strictness facts, and full
+Core-native equality saturation remain later Phase 15 expansion work.
 
 ## Where LLVM/Native Output Fits
 
@@ -295,4 +309,4 @@ Core-to-STG lowering, native executable path, Egglog Core optimizer,
 ADT/list/tuple/Prelude/recursion/typeclass-dictionary support, built-in
 `Eq`/`Ord`/`Num`/`Show` dictionary support, numeric defaulting,
 guard/as-pattern support, IO printing support, module graph support, and
-wet-test baseline.
+known-constructor optimizer support, and wet-test baseline.

@@ -390,12 +390,15 @@ Acceptance criteria:
 
 ### Phase 15 - Egglog Core Optimizer
 
-Status: the first safe Core-0 optimizer slice is implemented. It optimizes
+Status: the first safe Core optimizer slices are implemented. It optimizes
 typed `Int`/`Bool` Core fragments before STG lowering, extracts validating Core,
 reports provenance, preserves laziness/bottom by skipping unsafe fragments, and
-is checked against Core, STG, and optimized/unoptimized native execution.
-Broader ADT, dictionary-simplification, strictness, and constructor facts remain
-part of the full Phase 15 expansion.
+is checked against Core, STG, and optimized/unoptimized native execution. The
+optimizer also folds known literal cases and saturated known-constructor cases
+for ADT/list/tuple/dictionary-shaped Core, including constructor-field
+projection with tests for unused lazy fields and forced field bottom. Broader
+dictionary simplification, strictness, and full Core-native equality-saturation
+facts remain part of the full Phase 15 expansion.
 
 Deliverables:
 
@@ -558,6 +561,11 @@ Completed immediate tasks:
   known Bool case selection, typed Core extraction/validation, provenance,
   `--no-egglog` comparison, Core/STG/native oracle tests, lazy let preservation,
   and strict bottom preservation.
+- Haskell 2010 Egglog Core optimizer known-constructor expansion, including
+  known literal case selection, saturated known-constructor case selection,
+  constructor-field projection for ADT/list/tuple/dictionary-shaped Core,
+  selected-Core validation, provenance, unused lazy-field preservation, forced
+  field-bottom preservation, and optimized/unoptimized native agreement.
 - Haskell 2010 Lazy/STG runtime MVP, including STG syntax, validation,
   function closures, updateable and single-entry thunk closures, constructor
   closures, `let`/`letrec`, case demand, thunk sharing, black-hole detection,

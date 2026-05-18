@@ -76,11 +76,16 @@ Bottom and runtime-error preservation are part of the optimizer contract.
 
 ## Optimizations
 
-Implemented for Core-0 `Int`/`Bool` fragments:
+Implemented for Core fragments:
 
 - checked constant folding through the existing Egglog integer facts
 - safe arithmetic identities such as adding or multiplying by identity values
 - case-of-known Bool constructor
+- case-of-known ADT/list/tuple/dictionary constructor when the scrutinee is a
+  saturated constructor value
+- case-of-known literal
+- constructor-field projection for selected known-constructor alternatives,
+  preserving lazy unused fields and forced bottom behavior
 - typed extraction back to Core
 - selected-rule provenance and fragment cost reporting
 - `--no-egglog` native comparison coverage
@@ -88,8 +93,6 @@ Implemented for Core-0 `Int`/`Bool` fragments:
 Planned full Core optimizations:
 
 - constant folding when total and safe
-- case-of-known-constructor
-- constructor projection
 - dictionary simplification
 - boolean simplification preserving bottom
 - safe arithmetic identities

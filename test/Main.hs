@@ -223,6 +223,8 @@ testGroups =
       "Haskell 2010 Core Egglog Optimizer"
       [ pureTest "folds safe Core-0 arithmetic with provenance" testHaskell2010CoreEgglogFoldsArithmetic
       , pureTest "folds Bool case over known constructor" testHaskell2010CoreEgglogFoldsKnownBoolCase
+      , pureTest "folds case over known ADT constructor" testHaskell2010CoreEgglogFoldsKnownConstructorCase
+      , pureTest "preserves lazy constructor field semantics" testHaskell2010CoreEgglogPreservesKnownConstructorLaziness
       , pureTest "preserves lazy let semantics through optimized Core and STG" testHaskell2010CoreEgglogPreservesLazyLet
       , pureTest "does not erase strict bottom dependencies" testHaskell2010CoreEgglogPreservesStrictBottom
       , ioTest "optimized and unoptimized native output agree" testHaskell2010CoreEgglogNativeAgreement
@@ -1876,6 +1878,49 @@ testHaskell2010CoreEgglogFoldsKnownBoolCase = do
     7
     =<< evalSTGBinding "main" stgProgram
 
+testHaskell2010CoreEgglogFoldsKnownConstructorCase :: Either String ()
+testHaskell2010CoreEgglogFoldsKnownConstructorCase = do
+  result <- optimizeHaskell2010Core haskell2010KnownConstructorCaseSource
+  assertBool
+    "known constructor case should lower expression cost"
+    (H2010CoreEgglog.coreEgglogOptimizedCost result < H2010CoreEgglog.coreEgglogOriginalCost result)
+  assertBool
+    "known constructor case should explain the selected rewrite"
+    (any ("core-case-known-constructor" `Text.isInfixOf`) (H2010CoreEgglog.coreEgglogAppliedRules result))
+  expectCoreEvalInt
+    "optimized known constructor Core oracle"
+    7
+    =<< evalHaskell2010CoreModuleBinding "main" (H2010CoreEgglog.coreEgglogOptimizedModule result)
+  stgProgram <- lowerOptimizedCoreToSTG result
+  expectSTGInt
+    "optimized known constructor STG oracle"
+    7
+    =<< evalSTGBinding "main" stgProgram
+
+testHaskell2010CoreEgglogPreservesKnownConstructorLaziness :: Either String ()
+testHaskell2010CoreEgglogPreservesKnownConstructorLaziness = do
+  unusedFieldResult <- optimizeHaskell2010Core haskell2010KnownConstructorLazyFieldSource
+  assertBool
+    "unused lazy constructor field should still use known-constructor rewrite"
+    (any ("core-case-known-constructor" `Text.isInfixOf`) (H2010CoreEgglog.coreEgglogAppliedRules unusedFieldResult))
+  expectCoreEvalInt
+    "optimized unused lazy constructor field Core oracle"
+    5
+    =<< evalHaskell2010CoreModuleBinding "main" (H2010CoreEgglog.coreEgglogOptimizedModule unusedFieldResult)
+  unusedFieldSTG <- lowerOptimizedCoreToSTG unusedFieldResult
+  expectSTGInt
+    "optimized unused lazy constructor field STG oracle"
+    5
+    =<< evalSTGBinding "main" unusedFieldSTG
+
+  forcedFieldResult <- optimizeHaskell2010Core haskell2010KnownConstructorForcedFieldSource
+  case evalHaskell2010CoreModuleBindingRaw "main" (H2010CoreEgglog.coreEgglogOptimizedModule forcedFieldResult) of
+    Left H2010CoreEval.CoreEvalDivisionByZero -> Right ()
+    Left err ->
+      Left ("expected optimized known-constructor projection to preserve forced division by zero, got: " <> show err)
+    Right value ->
+      Left ("optimized known-constructor projection erased forced field bottom and returned: " <> show value)
+
 testHaskell2010CoreEgglogPreservesLazyLet :: Either String ()
 testHaskell2010CoreEgglogPreservesLazyLet = do
   result <- optimizeHaskell2010Core haskell2010LazyLetSource
@@ -1953,7 +1998,10 @@ haskell2010CoreEgglogNativeAgreementCases :: [(Text, Text, ExpectedNativeOutcome
 haskell2010CoreEgglogNativeAgreementCases =
   [ ("arithmetic", haskell2010ArithmeticSource, ExpectedNativeStdout "9\n")
   , ("bool-case", haskell2010BoolCaseSource, ExpectedNativeStdout "7\n")
+  , ("known-constructor", haskell2010KnownConstructorCaseSource, ExpectedNativeStdout "7\n")
+  , ("known-constructor-lazy-field", haskell2010KnownConstructorLazyFieldSource, ExpectedNativeStdout "5\n")
   , ("lazy-let", haskell2010LazyLetSource, ExpectedNativeStdout "5\n")
+  , ("known-constructor-forced-field", haskell2010KnownConstructorForcedFieldSource, ExpectedNativeRuntimeError)
   , ("division-by-zero", haskell2010DivisionByZeroSource, ExpectedNativeRuntimeError)
   ]
 
@@ -4865,6 +4913,27 @@ haskell2010BoolCaseSource =
   \main = case False of\n\
   \  True -> 0\n\
   \  False -> 7\n"
+
+haskell2010KnownConstructorCaseSource :: Text
+haskell2010KnownConstructorCaseSource =
+  "module Main where\n\
+  \data Box = Box Int\n\
+  \main = case Box (1 + 2) of\n\
+  \  Box x -> x + 4\n"
+
+haskell2010KnownConstructorLazyFieldSource :: Text
+haskell2010KnownConstructorLazyFieldSource =
+  "module Main where\n\
+  \data Pair = Pair Int Int\n\
+  \main = case Pair (1 / 0) 5 of\n\
+  \  Pair _ y -> y\n"
+
+haskell2010KnownConstructorForcedFieldSource :: Text
+haskell2010KnownConstructorForcedFieldSource =
+  "module Main where\n\
+  \data Box = Box Int\n\
+  \main = case Box (1 / 0) of\n\
+  \  Box x -> x\n"
 
 haskell2010TupleCaseSource :: Text
 haskell2010TupleCaseSource =
