@@ -47,6 +47,9 @@ Implemented today for the Haskell 2010 target:
   user-defined dictionary-passed classes, built-in `Eq`/`Ord`/`Num`/`Show`
   dictionary calls, overloaded integer literals/defaulting, `main :: IO ()`,
   `putStrLn`, `print`, and same-directory multi-file modules
+- a mandatory Haskell 2010 conformance baseline with a JSON manifest, 46
+  fixtures, exact native stdout checks, runtime-error checks, compile-error
+  checks, and explicit unsupported-feature cases
 
 Planned for the broader Haskell 2010 target:
 
@@ -54,7 +57,11 @@ Planned for the broader Haskell 2010 target:
 - superclasses, default methods, instance contexts, deriving, additional
   numeric classes, and the broader Prelude hierarchy
 - irrefutable/lazy pattern semantics, richer diagnostics, broader IO/Monad
-  support, package search paths, and broader conformance
+  support, package search paths, and full Haskell 2010 conformance
+
+The current compiler passes the documented executable-subset conformance cases.
+Full Haskell 2010 conformance remains incomplete. Unsupported features are now
+represented as explicit conformance fixtures rather than omitted from testing.
 
 ## Quickstart
 
@@ -69,6 +76,12 @@ Run the mandatory end-to-end wet-test path:
 
 ```bash
 scripts/e2e-wet-test.sh
+```
+
+Run only the Haskell 2010 conformance baseline:
+
+```bash
+cabal test haskell2010-conformance-test --test-options='--hide-successes'
 ```
 
 Run current `.hg` report/interpreter mode:
@@ -112,6 +125,7 @@ Core-0 programs.
 
 - [Haskell 2010 roadmap](docs/haskell2010-roadmap.md)
 - [Haskell 2010 conformance matrix](docs/haskell2010-conformance-matrix.md)
+- [Haskell 2010 conformance results](docs/haskell2010-conformance-results.md)
 - [Haskell 2010 implementation plan](docs/haskell2010-implementation-plan.md)
 - [Haskell 2010 frontend specification](docs/haskell2010-frontend-spec.md)
 - [Haskell 2010 status summary](docs/haskell2010-status-summary.md)
@@ -133,6 +147,7 @@ Full documentation index:
 | Haskell 2010 typechecker/desugarer | Implemented for explicit signatures, HM polymorphism, functions, lambdas, application, `let`, `if`, cases, ADTs, lists/tuples, recursion, user-defined class dictionaries, built-in Prelude data, generated Prelude list functions, primitive `/`, dictionary-backed `Eq`/`Ord`/`Num`/`Show` methods, numeric defaulting, guards/as-patterns, module imports, and the first IO printing slice. |
 | Haskell 2010 Core reference evaluator | Implemented for validating typed Core with lazy let/function/constructor-field thunks, erased Core type abstraction/application, Bool/user/list/tuple/Prelude-data case execution, generated Prelude functions, user and built-in class dictionary calls, IO output actions, checked `Int` primitives, and structured runtime errors. |
 | Haskell 2010 STG/lazy runtime | Implemented as an isolated STG-like IR, validator, pure heap evaluator, Core-to-STG lowering, and boxed LLVM/native runtime for the current executable subset, including thunks, enter/apply, constructor dispatch, dictionary constructor/selector execution, IO output actions, checked primitives, and native wet tests. |
+| Haskell 2010 conformance baseline | Implemented as the mandatory `haskell2010-conformance-test` Cabal suite. It reads `test/haskell2010/conformance/manifest.json`, invokes the built `hegglog` executable as a subprocess, compiles and runs native artifacts directly, checks exact stdout, and verifies runtime-error, compile-error, and unsupported-documented cases. |
 | LLVM/native backend | Implemented for the current `.hg` supported subset. |
 | Egglog ANF backend | Implemented for the current `.hg` supported subset. |
 | Egglog Core optimizer | Implemented for safe Haskell 2010 Core fragments using typed Core validation, provenance, and optimized/unoptimized native agreement tests. Current rewrites cover Core-0 `Int`/`Bool` fragments plus known literal and saturated known-constructor case/projection rewrites. |
@@ -167,8 +182,8 @@ modules/imports, the documented executable pattern-matching subset, built-in
 slice, and `main :: IO ()` for stdout-oriented programs. It does not yet
 support the full class hierarchy/default methods/deriving, package databases,
 irrefutable/lazy pattern semantics, broad `Show`/`String` interop, or broad
-IO/Monad libraries. Lazy semantics are implemented for the current executable
-subset.
+IO/Monad libraries. Those unsupported areas now have explicit conformance
+fixtures, and lazy semantics are implemented for the current executable subset.
 
 ## Existing Specs
 
@@ -185,12 +200,14 @@ subset.
 - [Type inference direction](docs/type-inference.md)
 - [End-to-end wet testing](docs/e2e-wet-testing.md)
 - [Recorded wet-test results](docs/e2e-results.md)
+- [Haskell 2010 conformance results](docs/haskell2010-conformance-results.md)
 
 ## CI
 
-CI runs `cabal build all`, `cabal test all`, `cabal check`, `git diff --check`,
-and mandatory clang-backed end-to-end wet tests on pushes to `main`/`develop`
-and on pull requests.
+CI runs `cabal build all`, `cabal test all --test-options='--hide-successes'`,
+`cabal check`, `git diff --check`, and mandatory clang-backed end-to-end wet
+tests on pushes to `main`/`develop` and on pull requests. The Haskell 2010
+conformance suite is part of `cabal test all` and is not optional.
 
 ## License
 

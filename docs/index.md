@@ -4,6 +4,7 @@
 
 - [Haskell 2010 roadmap](haskell2010-roadmap.md)
 - [Haskell 2010 conformance matrix](haskell2010-conformance-matrix.md)
+- [Haskell 2010 conformance results](haskell2010-conformance-results.md)
 - [Haskell 2010 implementation plan](haskell2010-implementation-plan.md)
 - [Haskell 2010 frontend specification](haskell2010-frontend-spec.md)
 - [Haskell 2010 status summary](haskell2010-status-summary.md)

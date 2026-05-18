@@ -1,0 +1,419 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "name": "lexical-layout.simple-layout",
+      "sourceFile": "test/haskell2010/conformance/lexical-layout/simple-layout.hs",
+      "category": "lexical-layout",
+      "expectedStatus": "native-success",
+      "expectedStdout": "3\n",
+      "requiredStage": "native",
+      "notes": "Representative layout-sensitive let binding in the executable subset."
+    },
+    {
+      "name": "lexical-layout.nested-layout",
+      "sourceFile": "test/haskell2010/conformance/lexical-layout/nested-layout.hs",
+      "category": "lexical-layout",
+      "expectedStatus": "native-success",
+      "expectedStdout": "6\n",
+      "requiredStage": "native",
+      "notes": "Nested layout blocks in conditional and let expressions."
+    },
+    {
+      "name": "lexical-layout.explicit-braces",
+      "sourceFile": "test/haskell2010/conformance/lexical-layout/explicit-braces.hs",
+      "category": "lexical-layout",
+      "expectedStatus": "native-success",
+      "expectedStdout": "7\n",
+      "requiredStage": "native",
+      "notes": "Explicit brace and semicolon layout form."
+    },
+    {
+      "name": "expressions.arithmetic",
+      "sourceFile": "test/haskell2010/conformance/expressions/arithmetic.hs",
+      "category": "expressions",
+      "expectedStatus": "native-success",
+      "expectedStdout": "7\n",
+      "requiredStage": "native",
+      "notes": "Arithmetic precedence over executable Int."
+    },
+    {
+      "name": "expressions.subtraction",
+      "sourceFile": "test/haskell2010/conformance/expressions/subtraction.hs",
+      "category": "expressions",
+      "expectedStatus": "native-success",
+      "expectedStdout": "7\n",
+      "requiredStage": "native",
+      "notes": "Subtraction through the executable Num Int dictionary."
+    },
+    {
+      "name": "expressions.multiplication",
+      "sourceFile": "test/haskell2010/conformance/expressions/multiplication.hs",
+      "category": "expressions",
+      "expectedStatus": "native-success",
+      "expectedStdout": "42\n",
+      "requiredStage": "native",
+      "notes": "Multiplication through the executable Num Int dictionary."
+    },
+    {
+      "name": "expressions.division",
+      "sourceFile": "test/haskell2010/conformance/expressions/division.hs",
+      "category": "expressions",
+      "expectedStatus": "native-success",
+      "expectedStdout": "5\n",
+      "requiredStage": "native",
+      "notes": "Checked concrete Int division primitive."
+    },
+    {
+      "name": "expressions.comparison",
+      "sourceFile": "test/haskell2010/conformance/expressions/comparison.hs",
+      "category": "expressions",
+      "expectedStatus": "native-success",
+      "expectedStdout": "1\n",
+      "requiredStage": "native",
+      "notes": "Ord comparisons and lazy Boolean conjunction."
+    },
+    {
+      "name": "expressions.if-expression",
+      "sourceFile": "test/haskell2010/conformance/expressions/if-expression.hs",
+      "category": "expressions",
+      "expectedStatus": "native-success",
+      "expectedStdout": "9\n",
+      "requiredStage": "native",
+      "notes": "If-expression desugaring to Bool case."
+    },
+    {
+      "name": "expressions.lambda-application",
+      "sourceFile": "test/haskell2010/conformance/expressions/lambda-application.hs",
+      "category": "expressions",
+      "expectedStatus": "native-success",
+      "expectedStdout": "7\n",
+      "requiredStage": "native",
+      "notes": "Lambda expression applied immediately."
+    },
+    {
+      "name": "expressions.let-expression",
+      "sourceFile": "test/haskell2010/conformance/expressions/let-expression.hs",
+      "category": "expressions",
+      "expectedStatus": "native-success",
+      "expectedStdout": "10\n",
+      "requiredStage": "native",
+      "notes": "Local let binding in expression position."
+    },
+    {
+      "name": "expressions.case-bool",
+      "sourceFile": "test/haskell2010/conformance/expressions/case-bool.hs",
+      "category": "expressions",
+      "expectedStatus": "native-success",
+      "expectedStdout": "7\n",
+      "requiredStage": "native",
+      "notes": "Explicit case over Bool."
+    },
+    {
+      "name": "modules.single-module-main",
+      "sourceFile": "test/haskell2010/conformance/modules/single-module-main.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "11\n",
+      "requiredStage": "native",
+      "notes": "Single explicit Main module."
+    },
+    {
+      "name": "modules.two-module-import",
+      "sourceFile": "test/haskell2010/conformance/modules/two-module-main.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "18\n",
+      "requiredStage": "native",
+      "notes": "Same-directory module graph with qualified import, export list, and constructor child import."
+    },
+    {
+      "name": "declarations.top-level-function",
+      "sourceFile": "test/haskell2010/conformance/declarations/top-level-function.hs",
+      "category": "declarations",
+      "expectedStatus": "native-success",
+      "expectedStdout": "12\n",
+      "requiredStage": "native",
+      "notes": "Top-level function binding."
+    },
+    {
+      "name": "declarations.top-level-signature",
+      "sourceFile": "test/haskell2010/conformance/declarations/top-level-signature.hs",
+      "category": "declarations",
+      "expectedStatus": "native-success",
+      "expectedStdout": "13\n",
+      "requiredStage": "native",
+      "notes": "Top-level type signature checked against binding."
+    },
+    {
+      "name": "declarations.multiple-definitions",
+      "sourceFile": "test/haskell2010/conformance/declarations/multiple-definitions.hs",
+      "category": "declarations",
+      "expectedStatus": "native-success",
+      "expectedStdout": "6\n",
+      "requiredStage": "native",
+      "notes": "Multiple top-level value definitions in one module."
+    },
+    {
+      "name": "laziness.const-unused-div",
+      "sourceFile": "test/haskell2010/conformance/laziness/const-unused-div.hs",
+      "category": "laziness",
+      "expectedStatus": "native-success",
+      "expectedStdout": "1\n",
+      "requiredStage": "native",
+      "notes": "Unused function argument is not forced."
+    },
+    {
+      "name": "laziness.lazy-let-unused-div",
+      "sourceFile": "test/haskell2010/conformance/laziness/lazy-let-unused-div.hs",
+      "category": "laziness",
+      "expectedStatus": "native-success",
+      "expectedStdout": "5\n",
+      "requiredStage": "native",
+      "notes": "Unused let binding is not forced."
+    },
+    {
+      "name": "laziness.forced-division-by-zero",
+      "sourceFile": "test/haskell2010/conformance/laziness/forced-division-by-zero.hs",
+      "category": "laziness",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "notes": "Forced division by zero must compile but exit nonzero at runtime."
+    },
+    {
+      "name": "adts.known-constructor-case",
+      "sourceFile": "test/haskell2010/conformance/adts/known-constructor-case.hs",
+      "category": "adts",
+      "expectedStatus": "native-success",
+      "expectedStdout": "5\n",
+      "requiredStage": "native",
+      "notes": "User ADT constructor and case alternative."
+    },
+    {
+      "name": "adts.maybe-constructor-case",
+      "sourceFile": "test/haskell2010/conformance/adts/maybe-constructor-case.hs",
+      "category": "adts",
+      "expectedStatus": "native-success",
+      "expectedStdout": "4\n",
+      "requiredStage": "native",
+      "notes": "Maybe-like polymorphic constructor case."
+    },
+    {
+      "name": "lists-tuples.list-length",
+      "sourceFile": "test/haskell2010/conformance/lists-tuples/list-length.hs",
+      "category": "lists-tuples",
+      "expectedStatus": "native-success",
+      "expectedStdout": "4\n",
+      "requiredStage": "native",
+      "notes": "List literal and generated Prelude length."
+    },
+    {
+      "name": "lists-tuples.tuple-case",
+      "sourceFile": "test/haskell2010/conformance/lists-tuples/tuple-case.hs",
+      "category": "lists-tuples",
+      "expectedStatus": "native-success",
+      "expectedStdout": "3\n",
+      "requiredStage": "native",
+      "notes": "Tuple expression and tuple pattern case."
+    },
+    {
+      "name": "recursion.factorial",
+      "sourceFile": "test/haskell2010/conformance/recursion/factorial.hs",
+      "category": "recursion",
+      "expectedStatus": "native-success",
+      "expectedStdout": "120\n",
+      "requiredStage": "native",
+      "notes": "Recursive top-level function over Int."
+    },
+    {
+      "name": "patterns.guards-as-patterns",
+      "sourceFile": "test/haskell2010/conformance/patterns/guards-as-patterns.hs",
+      "category": "patterns",
+      "expectedStatus": "native-success",
+      "expectedStdout": "15\n",
+      "requiredStage": "native",
+      "notes": "As-pattern alias and guarded equations."
+    },
+    {
+      "name": "types.polymorphic-id",
+      "sourceFile": "test/haskell2010/conformance/types/polymorphic-id.hs",
+      "category": "types",
+      "expectedStatus": "native-success",
+      "expectedStdout": "42\n",
+      "requiredStage": "native",
+      "notes": "Explicitly typed polymorphic identity instantiated at Int."
+    },
+    {
+      "name": "types.numeric-defaulting",
+      "sourceFile": "test/haskell2010/conformance/types/numeric-defaulting.hs",
+      "category": "types",
+      "expectedStatus": "native-success",
+      "expectedStdout": "7\n",
+      "requiredStage": "native",
+      "notes": "Ambiguous numeric and Eq constraints default to executable Int."
+    },
+    {
+      "name": "typeclasses.user-dictionary",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/user-dictionary.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-success",
+      "expectedStdout": "1\n",
+      "requiredStage": "native",
+      "notes": "User single-parameter class, concrete instance, and dictionary-passed method call."
+    },
+    {
+      "name": "prelude.prelude-lists",
+      "sourceFile": "test/haskell2010/conformance/prelude/prelude-lists.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "321\n",
+      "requiredStage": "native",
+      "notes": "Generated Prelude list functions over the supported executable subset."
+    },
+    {
+      "name": "prelude.prelude-classes",
+      "sourceFile": "test/haskell2010/conformance/prelude/prelude-classes.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "6\n",
+      "requiredStage": "native",
+      "notes": "Built-in Eq, Ord, Num, and Bool Prelude methods."
+    },
+    {
+      "name": "io.printing",
+      "sourceFile": "test/haskell2010/conformance/io/printing.hs",
+      "category": "io",
+      "expectedStatus": "native-success",
+      "expectedStdout": "ok\nanswer\n42\nTrue\n",
+      "requiredStage": "native",
+      "notes": "Current supported IO printing slice with exact stdout."
+    },
+    {
+      "name": "egglog.known-constructor",
+      "sourceFile": "test/haskell2010/conformance/egglog/known-constructor.hs",
+      "category": "egglog",
+      "expectedStatus": "native-success",
+      "expectedStdout": "7\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Known-constructor Core optimizer case must agree with --no-egglog."
+    },
+    {
+      "name": "negative.type-error",
+      "sourceFile": "test/haskell2010/conformance/negative/type-error.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "type",
+      "requiredStage": "typecheck",
+      "notes": "Ill-typed arithmetic must fail with a type diagnostic."
+    },
+    {
+      "name": "negative.unbound-variable",
+      "sourceFile": "test/haskell2010/conformance/negative/unbound-variable.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "unbound",
+      "requiredStage": "rename",
+      "notes": "Unbound variable must fail during renaming."
+    },
+    {
+      "name": "negative.duplicate-binding",
+      "sourceFile": "test/haskell2010/conformance/negative/duplicate-binding.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "duplicate",
+      "requiredStage": "rename",
+      "notes": "Duplicate top-level binding must be rejected."
+    },
+    {
+      "name": "negative.bad-module-import",
+      "sourceFile": "test/haskell2010/conformance/negative/bad-module-import.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "rename",
+      "notes": "Missing same-directory imported module must fail module graph loading."
+    },
+    {
+      "name": "negative.malformed-layout",
+      "sourceFile": "test/haskell2010/conformance/negative/malformed-layout.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "parse",
+      "requiredStage": "parse",
+      "notes": "Malformed layout must fail during Haskell 2010 parsing."
+    },
+    {
+      "name": "unsupported.superclass-default-method",
+      "sourceFile": "test/haskell2010/conformance/unsupported/superclass-default-method.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "unsupported",
+      "requiredStage": "typecheck",
+      "notes": "Superclass constraints and default class methods remain outside the implemented class slice."
+    },
+    {
+      "name": "unsupported.deriving-eq",
+      "sourceFile": "test/haskell2010/conformance/unsupported/deriving-eq.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "unsupported",
+      "requiredStage": "typecheck",
+      "notes": "Deriving syntax parses, but deriving does not synthesize class instances yet."
+    },
+    {
+      "name": "unsupported.instance-context",
+      "sourceFile": "test/haskell2010/conformance/unsupported/instance-context.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "unsupported",
+      "requiredStage": "typecheck",
+      "notes": "Instance contexts are intentionally outside the current concrete-instance dictionary slice."
+    },
+    {
+      "name": "unsupported.kind-checking",
+      "sourceFile": "test/haskell2010/conformance/unsupported/kind-checking.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "type mismatch",
+      "requiredStage": "typecheck",
+      "notes": "Full kind checking and partial type-constructor use remain incomplete."
+    },
+    {
+      "name": "unsupported.broad-show-string",
+      "sourceFile": "test/haskell2010/conformance/unsupported/broad-show-string.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "show",
+      "requiredStage": "typecheck",
+      "notes": "Only Show Int and Show Bool are currently installed; Show String remains unsupported."
+    },
+    {
+      "name": "unsupported.handle-io",
+      "sourceFile": "test/haskell2010/conformance/unsupported/handle-io.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "unbound",
+      "requiredStage": "typecheck",
+      "notes": "Handle-based IO and do-bind statements are beyond the current output-only IO slice."
+    },
+    {
+      "name": "unsupported.irrefutable-pattern",
+      "sourceFile": "test/haskell2010/conformance/unsupported/irrefutable-pattern.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "irrefutable",
+      "requiredStage": "typecheck",
+      "notes": "Irrefutable/lazy pattern semantics are parsed/renamed but not implemented."
+    },
+    {
+      "name": "unsupported.package-module-search-path",
+      "sourceFile": "test/haskell2010/conformance/unsupported/package-module-search-path.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "module-graph",
+      "notes": "Package and library module search paths are not implemented; imports only load same-directory files."
+    }
+  ]
+}

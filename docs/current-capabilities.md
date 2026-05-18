@@ -100,6 +100,10 @@ disables that optimizer for comparison and debugging. The optimizer covers
 safe Core-0 `Int`/`Bool` fragments plus known literal and saturated
 known-constructor case/projection rewrites for ADT/list/tuple/dictionary-shaped
 Core while preserving lazy constructor fields and forced bottom behavior.
+Haskell 2010 conformance is now tracked by a dedicated mandatory suite backed
+by `test/haskell2010/conformance/manifest.json`; the current compiler passes
+the documented executable-subset cases, while incomplete Haskell 2010 features
+are represented as explicit failing or unsupported-documented fixtures.
 
 Current status:
 
@@ -155,7 +159,10 @@ Current status:
   provenance reporting, lazy let preservation, lazy constructor-field
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
-- Haskell 2010 conformance suite: planned
+- Haskell 2010 conformance suite: implemented as
+  `haskell2010-conformance-test`; it contains 46 manifest-tracked fixtures with
+  32 native-success cases, 1 native-runtime-error case, 5 compile-error cases,
+  and 8 unsupported-documented cases
 
 Progress is tracked in
 [haskell2010-conformance-matrix.md](haskell2010-conformance-matrix.md).
@@ -197,7 +204,13 @@ Current tests include:
   `Eq`/`Ord`/`Num`/`Show` dictionary programs, numeric-defaulting programs,
   multi-file module programs, known-constructor optimizer programs, plus IO
   printing programs, and compiles selected emitted LLVM through `clang`
+- `haskell2010-conformance-test`, included in `cabal test all`, which reads the
+  JSON conformance manifest, invokes the built `hegglog` executable as a
+  subprocess, compiles native-success cases to actual executables, executes
+  those artifacts directly, compares stdout exactly, verifies runtime-error
+  cases exit nonzero, verifies compile-error diagnostics, and ensures
+  unsupported-documented cases fail explicitly rather than silently passing
 
-Future Haskell 2010 wet tests should extend this direct executable coverage as
-irrefutable/lazy patterns, richer pattern diagnostics, broader `Show`/`String`
-interop, and broader IO are implemented.
+Future Haskell 2010 conformance work should extend this direct executable
+coverage as irrefutable/lazy patterns, richer pattern diagnostics, broader
+`Show`/`String` interop, and broader IO are implemented.

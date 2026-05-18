@@ -34,7 +34,7 @@ jobs:
         run: cabal build all
 
       - name: Test
-        run: cabal test all
+        run: cabal test all --test-options='--hide-successes'
 
       - name: Check package metadata
         run: cabal check

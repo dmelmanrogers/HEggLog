@@ -11,7 +11,10 @@ The current Haskell 2010 compiler status is tracked in
 The Haskell 2010 executable subset now has parser/layout, renaming, module
 graph loading, typed Core, typechecking/desugaring, Core evaluation, STG
 lowering/evaluation, native LLVM output, IO printing, and Core Egglog
-optimization for the documented subset.
+optimization for the documented subset. Haskell 2010 conformance progress is
+now tracked by the dedicated mandatory `haskell2010-conformance-test` suite,
+with explicit native-success, runtime-error, compile-error, and
+unsupported-documented cases.
 
 This audit predates or accompanies the Haskell 2010 pivot. It evaluates the
 existing strict `.hg` compiler baseline. The active project target is now a

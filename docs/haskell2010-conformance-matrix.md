@@ -106,3 +106,60 @@ Status values: `not started`, `current .hg only`, `parsed`, `renamed`,
 | Prelude/libraries | Monad | partial IO sequencing | Phase 13 | parsed | renamed | `(>>)`/`return` for IO | Core primitives | STG primitives | native sequencing | Core/STG/native and wet tests | `return` and `(>>)` work for the output IO subset. `(>>=)`, `fail`, and general Monad dictionaries remain later. |
 | Prelude/libraries | IO | compiled to native for output subset | Phase 13 | parsed | renamed | `IO`, `putStrLn`, `print`, `main :: IO ()` | Core IO primitives | STG IO primitives | native stdout output | Core/STG/native and wet tests | Output-oriented `IO ()` programs compile and run; broader IO library and handles remain later. |
 | Prelude/libraries | basic list functions | compiled to native | Phase 10/11 | parsed | renamed | generated Prelude schemes | generated Core bindings | STG recursion | native recursion | Core/STG/native and wet tests | Generated Core bindings cover `map`, `foldr`, `length`, `filter`, and `reverse`; user recursive list functions with cons patterns are also covered. Broader Prelude remains later. |
+
+## Haskell 2010 Conformance Baseline Fixtures
+
+The dedicated conformance baseline is manifest-backed by
+`test/haskell2010/conformance/manifest.json` and runs under the mandatory
+`haskell2010-conformance-test` Cabal suite. The table below maps every seeded
+manifest fixture to the current stage reached. These are representative tests,
+not full feature-completeness claims.
+
+| Feature | Current stage reached | Test path | Status | Notes/deviation |
+| --- | --- | --- | --- | --- |
+| Simple layout binding | native | `test/haskell2010/conformance/lexical-layout/simple-layout.hs` | representative native test exists | Layout-sensitive `let` binding in executable subset. |
+| Nested layout | native | `test/haskell2010/conformance/lexical-layout/nested-layout.hs` | representative native test exists | Nested `let` layout compiles; this does not imply every layout form is complete. |
+| Explicit braces/semicolons | native | `test/haskell2010/conformance/lexical-layout/explicit-braces.hs` | representative native test exists | Explicit layout form compiles. |
+| Arithmetic precedence | native | `test/haskell2010/conformance/expressions/arithmetic.hs` | representative native test exists | Executable `Int` arithmetic. |
+| Subtraction | native | `test/haskell2010/conformance/expressions/subtraction.hs` | representative native test exists | Dictionary-backed executable `Num Int` subtraction. |
+| Multiplication | native | `test/haskell2010/conformance/expressions/multiplication.hs` | representative native test exists | Dictionary-backed executable `Num Int` multiplication. |
+| Division | native | `test/haskell2010/conformance/expressions/division.hs` | representative native test exists | Checked concrete `Int` division primitive. |
+| Comparison | native | `test/haskell2010/conformance/expressions/comparison.hs` | representative native test exists | `Ord Int` comparisons and lazy `&&`. |
+| If expression | native | `test/haskell2010/conformance/expressions/if-expression.hs` | representative native test exists | Desugars to Bool case. |
+| Lambda application | native | `test/haskell2010/conformance/expressions/lambda-application.hs` | representative native test exists | Immediate lambda application only. |
+| Let expression | native | `test/haskell2010/conformance/expressions/let-expression.hs` | representative native test exists | Local `let` in expression position. |
+| Bool case | native | `test/haskell2010/conformance/expressions/case-bool.hs` | representative native test exists | Explicit Bool case. |
+| Single module `Main` | native | `test/haskell2010/conformance/modules/single-module-main.hs` | representative native test exists | Explicit `Main` module. |
+| Two-module import | native | `test/haskell2010/conformance/modules/two-module-main.hs` | representative native test exists | Uses support module `ConformanceLib.hs`; package search paths remain unsupported. |
+| Top-level function | native | `test/haskell2010/conformance/declarations/top-level-function.hs` | representative native test exists | Top-level value binding. |
+| Top-level type signature | native | `test/haskell2010/conformance/declarations/top-level-signature.hs` | representative native test exists | Signature checked against binding. |
+| Multiple top-level definitions | native | `test/haskell2010/conformance/declarations/multiple-definitions.hs` | representative native test exists | Multiple value bindings in one module. |
+| Lazy unused function argument | native | `test/haskell2010/conformance/laziness/const-unused-div.hs` | representative native test exists | `const 1 (1 / 0)` evaluates to `1`. |
+| Lazy unused let binding | native | `test/haskell2010/conformance/laziness/lazy-let-unused-div.hs` | representative native test exists | `let x = 1 / 0 in 5` evaluates to `5`. |
+| Forced division by zero | native runtime | `test/haskell2010/conformance/laziness/forced-division-by-zero.hs` | runtime-error covered | Compiles, then exits nonzero when forced. |
+| Known ADT constructor case | native | `test/haskell2010/conformance/adts/known-constructor-case.hs` | representative native test exists | User ADT constructor and case. |
+| Maybe-like constructor case | native | `test/haskell2010/conformance/adts/maybe-constructor-case.hs` | representative native test exists | Polymorphic user ADT constructor case. |
+| List length | native | `test/haskell2010/conformance/lists-tuples/list-length.hs` | representative native test exists | List literal and generated Prelude `length`. |
+| Tuple case | native | `test/haskell2010/conformance/lists-tuples/tuple-case.hs` | representative native test exists | Tuple expression and pattern case. |
+| Top-level recursion | native | `test/haskell2010/conformance/recursion/factorial.hs` | representative native test exists | Factorial recursion; nontermination is not claimed complete. |
+| Guards and as-patterns | native | `test/haskell2010/conformance/patterns/guards-as-patterns.hs` | representative native test exists | Guarded equations and as-pattern alias. |
+| Polymorphic identity | native | `test/haskell2010/conformance/types/polymorphic-id.hs` | representative native test exists | Explicit polymorphic signature instantiated at `Int`. |
+| Numeric defaulting | native | `test/haskell2010/conformance/types/numeric-defaulting.hs` | representative native test exists | Executable `Int` defaulting for current class slice. |
+| User dictionary passing | native | `test/haskell2010/conformance/typeclasses/user-dictionary.hs` | representative native test exists | Context-free single-parameter class and concrete instance. |
+| Prelude list functions | native | `test/haskell2010/conformance/prelude/prelude-lists.hs` | representative native test exists | Generated `map`, `filter`, `reverse`, `foldr`, and `length`. |
+| Prelude class dictionaries | native | `test/haskell2010/conformance/prelude/prelude-classes.hs` | representative native test exists | Built-in `Eq`, `Ord`, `Num`, and Bool methods. |
+| IO printing | native | `test/haskell2010/conformance/io/printing.hs` | complete for current subset | Exact stdout for `putStrLn`, `print`, `return`, and `(>>)`. |
+| Egglog known-constructor optimization | native | `test/haskell2010/conformance/egglog/known-constructor.hs` | optimized/unoptimized agreement covered | Runs default Egglog and `--no-egglog`; both produce the same result. |
+| Type error | typecheck failure | `test/haskell2010/conformance/negative/type-error.hs` | compile-error covered | Ill-typed arithmetic must fail. |
+| Unbound variable | rename failure | `test/haskell2010/conformance/negative/unbound-variable.hs` | compile-error covered | Unbound term must fail. |
+| Duplicate binding | rename failure | `test/haskell2010/conformance/negative/duplicate-binding.hs` | compile-error covered | Duplicate top-level binding must fail. |
+| Bad module import | module graph failure | `test/haskell2010/conformance/negative/bad-module-import.hs` | compile-error covered | Missing same-directory module must fail. |
+| Malformed layout | parse failure | `test/haskell2010/conformance/negative/malformed-layout.hs` | compile-error covered | Malformed layout must fail. |
+| Superclass/default method | typecheck failure | `test/haskell2010/conformance/unsupported/superclass-default-method.hs` | unsupported documented | Superclasses and default class methods remain unsupported. |
+| Deriving | typecheck failure | `test/haskell2010/conformance/unsupported/deriving-eq.hs` | unsupported documented | Deriving syntax parses, but no instance is synthesized. |
+| Instance contexts | typecheck failure | `test/haskell2010/conformance/unsupported/instance-context.hs` | unsupported documented | Instance contexts remain unsupported. |
+| Kind checking | typecheck failure | `test/haskell2010/conformance/unsupported/kind-checking.hs` | unsupported documented | Full kind checking and partial type-constructor use remain incomplete. |
+| Broad `Show String` | typecheck failure | `test/haskell2010/conformance/unsupported/broad-show-string.hs` | unsupported documented | Only `Show Int` and `Show Bool` are installed. |
+| Handle-based IO | rename failure | `test/haskell2010/conformance/unsupported/handle-io.hs` | unsupported documented | Handles, `openFile`, and do-bind statements remain outside the IO slice. |
+| Irrefutable/lazy patterns | typecheck failure | `test/haskell2010/conformance/unsupported/irrefutable-pattern.hs` | unsupported documented | Lazy pattern semantics are parsed/renamed but not implemented. |
+| Package/module search path | module graph failure | `test/haskell2010/conformance/unsupported/package-module-search-path.hs` | unsupported documented | Imports are same-directory only; package databases are not implemented. |

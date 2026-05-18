@@ -6,10 +6,13 @@ case. It invokes the built `hegglog` executable as a subprocess, compiles real
 `.hg` files from disk, checks the produced artifacts, executes native binaries
 directly, and asserts exit code, stdout, and stderr behavior.
 
-Current wet tests validate the existing `.hg` native compiler baseline. Haskell
-2010 wet tests will be added as Haskell 2010 features are implemented. Future
-Haskell 2010 wet tests must compile `.hs` files to native executables and
-compare behavior through direct artifact execution.
+Current wet tests validate the existing `.hg` native compiler baseline and the
+documented Haskell 2010 executable subset. Haskell 2010 conformance is tracked
+by a separate dedicated suite, `haskell2010-conformance-test`, whose manifest
+lives at `test/haskell2010/conformance/manifest.json`. That suite compiles
+`.hs` files to native executables, executes artifacts directly, compares exact
+stdout, verifies runtime-error exits, verifies compile-error diagnostics, and
+keeps unsupported Haskell 2010 features visible as explicit cases.
 
 This suite complements the existing unit, property, differential, and golden
 tests. Internal tests prove compiler passes and invariants in isolation. Wet
@@ -33,6 +36,12 @@ The authoritative corpus lives under `test/e2e/programs/`.
 The authoritative manifest is in `test/e2e/Main.hs`. It records each case name,
 source path, expected outcome, Egglog modes, and whether emitted LLVM must also
 be compiled through `clang` and executed.
+
+The Haskell 2010 conformance corpus lives under
+`test/haskell2010/conformance/`. Its authoritative manifest is structured JSON,
+not shell parsing, and records the case name, source file, category, expected
+status, exact expected stdout where applicable, diagnostic category for failing
+cases, required compiler stage, compiler mode, and notes/deviations.
 
 ## Categories
 
@@ -59,6 +68,16 @@ Compile-error cases assert that:
 - Combined stdout/stderr is nonempty.
 - The diagnostic includes a stable category such as `type`, `parse`,
   `unsupported`, `free`, `backend`, `recursive`, or `unbound`.
+
+Unsupported-documented Haskell 2010 conformance cases assert that:
+
+- Native compilation exits nonzero.
+- No executable is created at the requested output path.
+- Combined stdout/stderr is nonempty.
+- The manifest contains an explicit note/deviation explaining why the feature
+  is outside the current supported subset.
+- The diagnostic includes the manifest's expected category. If such a case
+  starts passing accidentally, the conformance suite fails.
 
 Emit-LLVM cases assert that:
 
@@ -105,14 +124,15 @@ cabal check
 git diff --check
 ```
 
-The Haskell test suite itself requires `clang`; missing `clang` is a test
-failure, not a skip. `llvm-as` and `lli` remain optional for other LLVM-focused
-checks, but native wet testing depends on `clang`.
+The Haskell test suites require `clang`; missing `clang` is a test failure, not
+a skip. `llvm-as` and `lli` remain optional for other LLVM-focused checks, but
+native wet testing and Haskell 2010 conformance depend on `clang`.
 
 ## CI
 
-GitHub Actions installs `clang`, runs `cabal build all`, `cabal test all`,
-`cabal check`, and then runs `scripts/e2e-wet-test.sh`. Because
-`e2e-wet-test` is a Cabal test suite, `cabal test all` includes the wet tests;
-the script then repeats the dedicated wet path with explicit section headings
-for CI and local diagnosis.
+GitHub Actions installs `clang`, runs `cabal build all`,
+`cabal test all --test-options='--hide-successes'`, `cabal check`, and then
+runs `scripts/e2e-wet-test.sh`. Because `e2e-wet-test` and
+`haskell2010-conformance-test` are Cabal test suites, `cabal test all` includes
+both. The script then repeats the dedicated wet path with explicit section
+headings for CI and local diagnosis.

@@ -11,7 +11,10 @@ regression baseline, and the existing proof that native executable output,
 Egglog optimization, closure conversion infrastructure, LLVM lowering, and
 end-to-end wet testing work. It is not the final source language endpoint. The
 Haskell 2010 path now compiles the documented executable subset, while the
-full Haskell 2010 surface remains roadmap work.
+full Haskell 2010 surface remains roadmap work. Progress toward full
+conformance is now measured by a mandatory manifest-backed Haskell 2010
+conformance suite; passing representative executable-subset cases do not imply
+complete Haskell 2010 support.
 
 ## Target Pipeline
 
@@ -480,15 +483,35 @@ Acceptance criteria:
 
 ### Phase 19 - Haskell 2010 Conformance Suite
 
+Status: baseline implemented. The project now has
+`test/haskell2010/conformance/manifest.json`, a structured corpus under
+`test/haskell2010/conformance/`, and the mandatory
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 46
+fixtures: 32 native-success cases, 1 native-runtime-error case, 5 compile-error
+cases, and 8 unsupported-documented cases. The suite invokes the built
+`hegglog` executable as a subprocess, compiles native-success cases to actual
+executables, executes those artifacts directly, compares stdout exactly, checks
+runtime-error exits, checks compile-error diagnostics, and fails if documented
+unsupported cases silently pass.
+
+Full Phase 19 remains open until the corpus covers every Haskell 2010 Report
+feature area deeply enough to support a conformance claim. The current baseline
+is a progress-measurement artifact for the implemented executable subset, not a
+full Haskell 2010 certification.
+
 Deliverables:
 
 - conformance test corpus for layout, expressions, declarations, patterns,
   ADTs, class/instance behavior, modules, Prelude, IO, runtime/laziness
+- structured manifest with expected status, expected stdout or diagnostic
+  category, required compiler stage, and notes/deviations
+- Cabal test-suite wiring so conformance runs under `cabal test all`
 
 Acceptance criteria:
 
 - every conformance matrix row links to tests or a documented deviation
 - no undocumented failures
+- unsupported features remain explicit conformance cases until implemented
 
 ### Phase 20 - Release Quality
 
