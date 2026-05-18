@@ -365,6 +365,15 @@ Acceptance criteria:
 
 ### Phase 14 - Modules and Whole-Program Compilation
 
+Status: completed for the current executable subset. The compiler now loads
+same-directory dependency files from source import declarations, detects module
+cycles and module-name mismatches, renames modules in dependency order against
+actual exported definitions, enforces explicit export/import filtering
+including `Thing(..)` children and hiding, supports qualified aliases, flattens
+the renamed module graph into one typed Core program, and selects the root
+module's `main` as the native entry point. Broader package search paths and a
+full Prelude module remain later work.
+
 Deliverables:
 
 - module declarations, imports, exports, qualified imports, and hiding
@@ -514,12 +523,12 @@ Acceptance criteria:
 ## Immediate Next Five Tasks
 
 1. Remaining pattern diagnostics and irrefutable/lazy pattern semantics.
-2. Module graph loading, export filtering, and multi-file compilation.
-3. Haskell 2010 conformance matrix expansion for the broader executable
+2. Haskell 2010 conformance matrix expansion for the broader executable
    surface.
-4. Broader `Show`/`String` interoperability, including `Show Char`,
+3. Broader `Show`/`String` interoperability, including `Show Char`,
    `Show String`, escapes, and additional string/list library behavior.
-5. Superclass, default method, and instance-context support for type classes.
+4. Superclass, default method, and instance-context support for type classes.
+5. Broader IO and Monad support, including `<-`, `(>>=)`, `fail`, and handles.
 
 Completed immediate tasks:
 
@@ -592,6 +601,12 @@ Completed immediate tasks:
   expression-only `do` sequencing with local `let`, built-in `Show Int` and
   `Show Bool` dictionaries, Core/STG IO output oracles, native string literal
   and list-of-`Char` output, and default/no-egglog native wet tests.
+- Haskell 2010 module graph and whole-program compilation for the executable
+  subset, including dependency-file loading from imports, cycle/name-mismatch
+  diagnostics, actual exported-name import resolution, explicit export/import
+  filtering, qualified aliases, hiding, `Thing(..)` children, whole-program
+  Core flattening, root `main` entrypoint selection, and default/no-egglog
+  native wet tests.
 
 ## Non-Negotiable Rules
 

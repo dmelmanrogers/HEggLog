@@ -9,7 +9,8 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
 import Haskell2010.Native
-  ( compileHaskell2010ToLLVMWithOptions
+  ( compileHaskell2010FileToLLVMWithOptions
+  , compileHaskell2010ToLLVMWithOptions
   , defaultHaskell2010NativeOptions
   , haskell2010LLVMText
   , haskell2010OptimizationStatus
@@ -68,21 +69,16 @@ runCompile path flags =
       Text.IO.hPutStrLn stderr compileUsage
       exitFailure
     Right cliOptions -> do
-      readSourceFile path >>= \case
-        Left message -> do
-          Text.IO.hPutStrLn stderr message
+      let options =
+            defaultCompileLLVMOptions
+              { compileUseEgglog = cliUseEgglog cliOptions
+              }
+      compilePathToLLVM options path >>= \case
+        Left err -> do
+          Text.IO.hPutStrLn stderr err
           exitFailure
-        Right source -> do
-          let options =
-                defaultCompileLLVMOptions
-                  { compileUseEgglog = cliUseEgglog cliOptions
-                  }
-          case compileSourceToLLVM options path source of
-            Left err -> do
-              Text.IO.hPutStrLn stderr err
-              exitFailure
-            Right result -> do
-              handleCompileOutput cliOptions result
+        Right result ->
+          handleCompileOutput cliOptions result
 
 readSourceFile :: FilePath -> IO (Either Text Text)
 readSourceFile path = do
@@ -127,6 +123,31 @@ compileSourceToLLVM options path source
     defaultHaskell2010NativeOptions
       { haskell2010UseEgglog = compileUseEgglog options
       }
+
+compilePathToLLVM :: CompileLLVMOptions -> FilePath -> IO (Either Text CompiledLLVMOutput)
+compilePathToLLVM options path
+  | isHaskell2010Source path = do
+      let haskellOptions =
+            defaultHaskell2010NativeOptions
+              { haskell2010UseEgglog = compileUseEgglog options
+              }
+      result <- compileHaskell2010FileToLLVMWithOptions haskellOptions path
+      pure $
+        case result of
+          Left err ->
+            Left (renderHaskell2010LLVMError err)
+          Right compiled ->
+            Right
+              CompiledLLVMOutput
+                { compiledLLVMText = haskell2010LLVMText compiled
+                , compiledStatus = renderHaskell2010OptimizationStatus (haskell2010OptimizationStatus compiled)
+                }
+  | otherwise =
+      readSourceFile path >>= \case
+        Left message ->
+          pure (Left message)
+        Right source ->
+          pure (compileSourceToLLVM options path source)
 
 isHaskell2010Source :: FilePath -> Bool
 isHaskell2010Source path =

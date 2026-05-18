@@ -1,6 +1,7 @@
 module Haskell2010.Renamer
   ( RenameError (..)
   , renameModule
+  , renameModuleGraph
   , renderRenameError
   )
 where
@@ -20,14 +21,24 @@ import qualified Haskell2010.Syntax as S
 
 data RenameError
   = DuplicateName Namespace Text
+  | DuplicateModuleName S.ModuleName
   | DuplicatePatternName Text
   | UnboundName Namespace Text
+  | MissingModule S.ModuleName
   | AmbiguousName Namespace Text [RName]
   | ConflictingFixity Text S.Fixity S.Fixity
   | InvalidFixityUse Text
   deriving stock (Show, Eq)
 
 type Scope = Map.Map Namespace (Map.Map Text [RName])
+
+data ModuleInterface = ModuleInterface
+  { interfaceModuleName :: S.ModuleName
+  , interfaceExports :: [RName]
+  , interfaceChildren :: Map.Map RName [RName]
+  , interfaceFixities :: Map.Map Text S.Fixity
+  }
+  deriving stock (Show, Eq)
 
 data RenameState = RenameState
   { nextUnique :: Int
@@ -40,23 +51,39 @@ type RenameM = StateT RenameState (Either RenameError)
 
 renameModule :: S.HsModule -> Either RenameError RHsModule
 renameModule sourceModule =
-  evalStateT go initialState
+  evalStateT (renameModuleWithInterfaces False Map.empty sourceModule) initialRenameState
+
+renameModuleGraph :: [S.HsModule] -> Either RenameError [RHsModule]
+renameModuleGraph modules =
+  snd <$> evalStateT (foldM renameOne (Map.empty, []) modules) initialRenameState
  where
-  initialState =
-    RenameState
-      { nextUnique = 1
-      , scopes = []
-      , fixities = preludeFixities
-      }
-  go = do
+  renameOne (interfaces, renamedModules) sourceModule = do
+    let currentName = sourceModuleName sourceModule
+    when (Map.member currentName interfaces) $
+      throwRename (DuplicateModuleName currentName)
+    renamed <- renameModuleWithInterfaces True interfaces sourceModule
+    interface <- moduleInterface interfaces renamed
+    pure (Map.insert currentName interface interfaces, renamedModules <> [renamed])
+
+initialRenameState :: RenameState
+initialRenameState =
+  RenameState
+    { nextUnique = 1
+    , scopes = []
+    , fixities = preludeFixities
+    }
+
+renameModuleWithInterfaces :: Bool -> Map.Map S.ModuleName ModuleInterface -> S.HsModule -> RenameM RHsModule
+renameModuleWithInterfaces strictImports interfaces sourceModule = do
     preludeScope <- externalScope preludeNames
-    importScope <- importsScope (S.moduleImports sourceModule)
+    importScope <- importsScope strictImports interfaces (S.moduleImports sourceModule)
     topScope <- collectDeclBinders TopLevelContext (S.moduleDecls sourceModule)
     moduleFixities <- collectFixityDecls (S.moduleDecls sourceModule)
+    importFixities <- importsFixities strictImports interfaces (S.moduleImports sourceModule)
     modify $ \state ->
       state
         { scopes = [topScope, importScope, preludeScope]
-        , fixities = Map.union moduleFixities preludeFixities
+        , fixities = moduleFixities `Map.union` importFixities `Map.union` preludeFixities
         }
     renamedExports <- traverse renameExportList (S.moduleExports sourceModule)
     renamedDecls <- traverse renameDecl (S.moduleDecls sourceModule)
@@ -74,10 +101,14 @@ renderRenameError :: RenameError -> Text
 renderRenameError = \case
   DuplicateName namespace occ ->
     "duplicate " <> renderNamespace namespace <> " binding `" <> occ <> "`"
+  DuplicateModuleName moduleName ->
+    "duplicate module `" <> renderModuleName moduleName <> "`"
   DuplicatePatternName occ ->
     "duplicate pattern binding `" <> occ <> "`"
   UnboundName namespace occ ->
     "unbound " <> renderNamespace namespace <> " name `" <> occ <> "`"
+  MissingModule moduleName ->
+    "missing imported module `" <> renderModuleName moduleName <> "`"
   AmbiguousName namespace occ names ->
     "ambiguous "
       <> renderNamespace namespace
@@ -122,8 +153,8 @@ externalScope =
     name <- freshName namespace occ True
     pure (insertScopeName namespace occ name scope)
 
-importsScope :: [S.ImportDecl] -> RenameM Scope
-importsScope =
+importsScope :: Bool -> Map.Map S.ModuleName ModuleInterface -> [S.ImportDecl] -> RenameM Scope
+importsScope strictImports interfaces =
   foldM addImport emptyScope
  where
   addImport scope importDecl = do
@@ -131,35 +162,137 @@ importsScope =
         qualifierTexts = List.nub (moduleText : maybe [] ((: []) . renderModuleName) (S.importAs importDecl))
         moduleNames = (,moduleText) <$> qualifierTexts
     scopeWithModules <- foldM addModuleAlias scope moduleNames
-    case S.importSpecs importDecl of
-      Nothing -> pure scopeWithModules
-      Just (specs, _) -> foldM (addImportSpec importDecl qualifierTexts) scopeWithModules specs
+    importedNames <- importedNamesFor strictImports interfaces importDecl
+    foldM (addImportedName importDecl qualifierTexts) scopeWithModules importedNames
 
   addModuleAlias scope (alias, originalModule) = do
     name <- freshName ModuleNamespace originalModule True
     pure (insertScopeName ModuleNamespace alias name scope)
 
-addImportSpec :: S.ImportDecl -> [Text] -> Scope -> S.ImportSpec -> RenameM Scope
-addImportSpec importDecl qualifiers scope importSpec =
-  foldM addImportedOccurrence scope (importSpecOccurrences importSpec)
- where
-  addImportedOccurrence currentScope (namespace, occ) = do
-    let qualifiedOccurrences = [(namespace, qualifier <> "." <> occ) | qualifier <- qualifiers]
+  addImportedName importDecl qualifiers scope name = do
+    let qualifiedOccurrences =
+          [(nameNamespace name, qualifier <> "." <> unqualifiedOccurrence name) | qualifier <- qualifiers]
         unqualifiedOccurrences =
           if S.importQualified importDecl
             then []
-            else [(namespace, occ)]
-    foldM addOne currentScope (unqualifiedOccurrences <> qualifiedOccurrences)
+            else [(nameNamespace name, unqualifiedOccurrence name)]
+    foldM addOne scope (unqualifiedOccurrences <> qualifiedOccurrences)
+   where
+    addOne currentScope (namespace, occ) =
+      pure (insertScopeName namespace occ name currentScope)
 
-  addOne currentScope (namespace, occ) = do
-    name <- freshName namespace occ True
-    pure (insertScopeName namespace occ name currentScope)
+importsFixities :: Bool -> Map.Map S.ModuleName ModuleInterface -> [S.ImportDecl] -> RenameM (Map.Map Text S.Fixity)
+importsFixities strictImports interfaces imports =
+  Map.unions <$> traverse importFixities imports
+ where
+  importFixities importDecl = do
+    importedNames <- importedNamesFor strictImports interfaces importDecl
+    let importedOccurrences = Set.fromList (map unqualifiedOccurrence importedNames)
+    pure
+      ( Map.filterWithKey
+          (\occ _ -> occ `Set.member` importedOccurrences)
+          (maybe Map.empty interfaceFixities (lookupImportInterface interfaces importDecl))
+      )
 
-importSpecOccurrences :: S.ImportSpec -> [(Namespace, Text)]
-importSpecOccurrences = \case
-  S.ImportName occ -> classifiedImportedName occ
-  S.ImportThing occ children ->
-    classifiedImportedParent occ <> concatMap classifiedImportedChild children
+importedNamesFor :: Bool -> Map.Map S.ModuleName ModuleInterface -> S.ImportDecl -> RenameM [RName]
+importedNamesFor strictImports interfaces importDecl =
+  case lookupImportInterface interfaces importDecl of
+    Just interface ->
+      selectInterfaceImports interface importDecl
+    Nothing
+      | S.importModule importDecl == S.ModuleName ["Prelude"] ->
+          syntheticImportedNames importDecl
+      | strictImports ->
+          throwRename (MissingModule (S.importModule importDecl))
+      | otherwise ->
+          syntheticImportedNames importDecl
+
+lookupImportInterface :: Map.Map S.ModuleName ModuleInterface -> S.ImportDecl -> Maybe ModuleInterface
+lookupImportInterface interfaces importDecl =
+  Map.lookup (S.importModule importDecl) interfaces
+
+selectInterfaceImports :: ModuleInterface -> S.ImportDecl -> RenameM [RName]
+selectInterfaceImports interface importDecl =
+  case S.importSpecs importDecl of
+    Nothing ->
+      pure allExports
+    Just (specs, False) ->
+      List.nub . concat <$> traverse (selectImportSpec interface) specs
+    Just (specs, True) -> do
+      hidden <- Set.fromList . concat <$> traverse (selectImportSpec interface) specs
+      pure [name | name <- allExports, name `Set.notMember` hidden]
+ where
+  allExports = interfaceExports interface
+
+selectImportSpec :: ModuleInterface -> S.ImportSpec -> RenameM [RName]
+selectImportSpec interface = \case
+  S.ImportName occ ->
+    selectClassifiedExport interface occ (classifiedImportedName occ)
+  S.ImportThing occ children -> do
+    parents <- selectClassifiedExport interface occ (classifiedImportedParent occ)
+    selectedChildren <- concat <$> traverse (selectChildren parents) children
+    pure (parents <> selectedChildren)
+ where
+  selectChildren parents child
+    | child == ".." =
+        pure (concatMap (\parent -> Map.findWithDefault [] parent (interfaceChildren interface)) parents)
+    | otherwise = do
+        let matches =
+              [ childName
+              | parent <- parents
+              , childName <- Map.findWithDefault [] parent (interfaceChildren interface)
+              , unqualifiedOccurrence childName == child
+              ]
+        if null matches
+          then throwRename (UnboundName (childNamespace child) child)
+          else pure matches
+
+selectClassifiedExport :: ModuleInterface -> Text -> [(Namespace, Text)] -> RenameM [RName]
+selectClassifiedExport interface occ classified =
+  case matches of
+    [] ->
+      throwRename (UnboundName fallbackNamespace occ)
+    _ ->
+      pure matches
+ where
+  fallbackNamespace =
+    case classified of
+      (namespace, _) : _ -> namespace
+      [] -> TermNamespace
+  matches =
+    [ name
+    | name <- interfaceExports interface
+    , (nameNamespace name, unqualifiedOccurrence name) `elem` classified
+    ]
+
+syntheticImportedNames :: S.ImportDecl -> RenameM [RName]
+syntheticImportedNames importDecl =
+  case S.importSpecs importDecl of
+    Nothing ->
+      pure []
+    Just (specs, False) ->
+      concat <$> traverse syntheticImportSpec specs
+    Just (_, True) ->
+      pure []
+
+syntheticImportSpec :: S.ImportSpec -> RenameM [RName]
+syntheticImportSpec spec =
+  traverse (uncurry syntheticName) occurrences
+ where
+  occurrences =
+    case spec of
+      S.ImportName occ ->
+        classifiedImportedName occ
+      S.ImportThing occ children ->
+        classifiedImportedParent occ <> concatMap classifiedImportedChild children
+  syntheticName namespace occ =
+    freshName namespace occ True
+
+unqualifiedOccurrence :: RName -> Text
+unqualifiedOccurrence name =
+  case reverse (Text.splitOn "." (nameOcc name)) of
+    occ : _ -> occ
+    [] -> nameOcc name
 
 classifiedImportedName :: Text -> [(Namespace, Text)]
 classifiedImportedName occ
@@ -187,6 +320,12 @@ classifiedImportedChild occ
       [(ConstructorNamespace, occ)]
   | otherwise =
       [(TermNamespace, occ)]
+
+childNamespace :: Text -> Namespace
+childNamespace occ
+  | isConstructorOperator occ = ConstructorNamespace
+  | isConstructorLike occ = ConstructorNamespace
+  | otherwise = TermNamespace
 
 collectDeclBinders :: DeclContext -> [S.Decl] -> RenameM Scope
 collectDeclBinders context =
@@ -599,6 +738,146 @@ lookupExportName occ
       lookupTypeConstructor occ `orElseRename` lookupName ConstructorNamespace occ
   | otherwise =
       lookupName TermNamespace occ
+
+moduleInterface :: Map.Map S.ModuleName ModuleInterface -> RHsModule -> RenameM ModuleInterface
+moduleInterface importedInterfaces renamedModule = do
+  let declared = declaredInterface renamedModule
+      visibleImportedInterfaces = visibleInterfaces importedInterfaces renamedModule
+      availableChildren =
+        Map.unionsWith (<>) (interfaceChildren declared : map interfaceChildren (Map.elems visibleImportedInterfaces))
+  exportedNames <-
+    case rModuleExports renamedModule of
+      Nothing ->
+        pure (interfaceExports declared)
+      Just exports ->
+        List.nub . concat <$> traverse (exportedNamesFor availableChildren visibleImportedInterfaces) exports
+  let exportedSet = Set.fromList exportedNames
+      exportedChildren =
+        Map.map (filter (`Set.member` exportedSet)) $
+          Map.filterWithKey (\parent _ -> parent `Set.member` exportedSet) availableChildren
+  pure
+    ModuleInterface
+      { interfaceModuleName = sourceModuleNameFromRenamed renamedModule
+      , interfaceExports = exportedNames
+      , interfaceChildren = exportedChildren
+      , interfaceFixities = fixitiesByOccurrence (rModuleFixities renamedModule)
+      }
+
+visibleInterfaces :: Map.Map S.ModuleName ModuleInterface -> RHsModule -> Map.Map S.ModuleName ModuleInterface
+visibleInterfaces importedInterfaces renamedModule =
+  Map.filterWithKey
+    (\name _ -> name `Set.member` importedModuleNames renamedModule)
+    importedInterfaces
+
+importedModuleNames :: RHsModule -> Set.Set S.ModuleName
+importedModuleNames renamedModule =
+  Set.fromList [moduleName | RImportDecl importDecl <- rModuleImports renamedModule, let moduleName = S.importModule importDecl]
+
+declaredInterface :: RHsModule -> ModuleInterface
+declaredInterface renamedModule =
+  ModuleInterface
+    { interfaceModuleName = sourceModuleNameFromRenamed renamedModule
+    , interfaceExports = List.nub (concatMap declaredNames (rModuleDecls renamedModule))
+    , interfaceChildren = Map.unionsWith (<>) (map declaredChildren (rModuleDecls renamedModule))
+    , interfaceFixities = fixitiesByOccurrence (rModuleFixities renamedModule)
+    }
+
+fixitiesByOccurrence :: Map.Map RName S.Fixity -> Map.Map Text S.Fixity
+fixitiesByOccurrence =
+  Map.fromList . map (\(name, fixity) -> (unqualifiedOccurrence name, fixity)) . Map.toList
+
+sourceModuleNameFromRenamed :: RHsModule -> S.ModuleName
+sourceModuleNameFromRenamed renamedModule =
+  case rModuleName renamedModule of
+    Just name -> name
+    Nothing -> S.ModuleName ["Main"]
+
+sourceModuleName :: S.HsModule -> S.ModuleName
+sourceModuleName sourceModule =
+  case S.moduleName sourceModule of
+    Just name -> name
+    Nothing -> S.ModuleName ["Main"]
+
+exportedNamesFor :: Map.Map RName [RName] -> Map.Map S.ModuleName ModuleInterface -> RExport -> RenameM [RName]
+exportedNamesFor availableChildren importedInterfaces = \case
+  RExportName name ->
+    pure [name]
+  RExportThing parent children -> do
+    selectedChildren <- concat <$> traverse selectChild children
+    pure (parent : selectedChildren)
+   where
+    selectChild child
+      | child == ".." =
+          pure (Map.findWithDefault [] parent availableChildren)
+      | otherwise =
+          case [name | name <- Map.findWithDefault [] parent availableChildren, unqualifiedOccurrence name == child] of
+            [] -> throwRename (UnboundName (childNamespace child) child)
+            matches -> pure matches
+  RExportModule moduleName ->
+    case Map.lookup moduleName importedInterfaces of
+      Just interface -> pure (interfaceExports interface)
+      Nothing -> throwRename (MissingModule moduleName)
+
+declaredNames :: RDecl -> [RName]
+declaredNames = \case
+  RTypeSignature {} ->
+    []
+  RFunctionBinding name _ _ _ ->
+    [name]
+  RPatternBinding pat _ _ ->
+    patternNames pat
+  RFixityDecl {} ->
+    []
+  RDataDecl name _ constructors _ ->
+    name : concatMap conDeclNames constructors
+  RNewtypeDecl name _ constructor _ ->
+    name : conDeclNames constructor
+  RTypeSynonym name _ _ ->
+    [name]
+  RClassDecl _ className _ decls ->
+    className : concatMap classMemberName decls
+  RInstanceDecl {} ->
+    []
+  RDefaultDecl {} ->
+    []
+  RForeignDecl {} ->
+    []
+
+declaredChildren :: RDecl -> Map.Map RName [RName]
+declaredChildren = \case
+  RDataDecl name _ constructors _ ->
+    Map.singleton name (concatMap conDeclNames constructors)
+  RNewtypeDecl name _ constructor _ ->
+    Map.singleton name (conDeclNames constructor)
+  RClassDecl _ className _ decls ->
+    Map.singleton className (concatMap classMemberName decls)
+  _ ->
+    Map.empty
+
+conDeclNames :: RConDecl -> [RName]
+conDeclNames (RConDecl name _) =
+  [name]
+
+classMemberName :: RDecl -> [RName]
+classMemberName = \case
+  RTypeSignature names _ ->
+    names
+  RFunctionBinding name _ _ _ ->
+    [name]
+  _ ->
+    []
+
+patternNames :: RPat -> [RName]
+patternNames = \case
+  RPVar name -> [name]
+  RPCon _ patterns -> concatMap patternNames patterns
+  RPLit {} -> []
+  RPWildcard -> []
+  RPTuple patterns -> concatMap patternNames patterns
+  RPList patterns -> concatMap patternNames patterns
+  RPAs name pat -> name : patternNames pat
+  RPIrrefutable pat -> patternNames pat
+  RPParen pat -> patternNames pat
 
 collectFixityDecls :: [S.Decl] -> RenameM (Map.Map Text S.Fixity)
 collectFixityDecls =

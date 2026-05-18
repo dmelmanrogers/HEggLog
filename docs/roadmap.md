@@ -45,9 +45,10 @@ For the detailed current support matrix, see
 ## Immediate Next Tasks
 
 1. Remaining pattern diagnostics and irrefutable/lazy pattern semantics.
-2. Module graph loading, export filtering, and multi-file compilation.
-3. Haskell 2010 conformance matrix expansion for the broader executable
+2. Haskell 2010 conformance matrix expansion for the broader executable
    surface.
+3. Broader `Show`/`String` interoperability, including `Show Char`,
+   `Show String`, escapes, and additional string/list library behavior.
 
 Completed Haskell 2010 roadmap work:
 
@@ -115,6 +116,11 @@ Completed Haskell 2010 roadmap work:
   `fromInteger`, overloaded integer literals, executable `Int` numeric
   defaulting, inferred constrained helper schemes, SCC-based binding
   generalization, Core/STG/native lowering, and default/no-egglog wet tests.
+- Haskell 2010 modules/whole-program compilation: implemented for import-driven
+  dependency-file loading, module graph cycle/name diagnostics, actual
+  exported-name import resolution, export/import filtering, hiding, qualified
+  aliases, `Thing(..)` children, root `main` selection, and default/no-egglog
+  multi-file native wet tests.
 - Haskell 2010 guarded RHS/case alternatives and as-patterns: implemented for
   multi-branch guards, guards after constructor/list/tuple/as-pattern case
   alternatives, as-pattern aliases in parameters and case patterns, Core/STG

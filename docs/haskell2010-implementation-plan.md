@@ -137,7 +137,12 @@ is built alongside them.
     `fromInteger`, overloaded integer literals, executable `Int` defaulting,
     inferred constrained helper schemes, SCC-based binding generalization,
     Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
-18. Modules.
+18. Modules. Completed for dependency-file loading from import declarations,
+    module graph cycle detection, module-aware renaming with actual exported
+    names, explicit export filtering including `Thing(..)` children, hiding,
+    qualified aliases, whole-program Core flattening for the executable subset,
+    root-module `main` selection, Core/STG/native execution, and wet-tested
+    default/no-egglog CLI runs.
 19. Egglog Core optimizer. Completed for the first safe Core-0 fragment;
     broader Core facts and rewrites remain planned.
 

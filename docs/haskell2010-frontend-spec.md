@@ -65,9 +65,10 @@ Current implementation status: the renamer emits a separate renamed AST and
 handles lexical scopes, top-level scopes, `let`, `where`, lambda and pattern
 scopes, class methods, instance methods, separated term/constructor/type/type
 variable/class/module namespaces, duplicate and unbound-name diagnostics,
-ambiguous explicit-import diagnostics, qualified explicit imports, and fixity
-resolution. Whole-program module loading, open import export discovery, hiding
-semantics, and complete Prelude coverage remain later module-system work.
+ambiguous explicit-import diagnostics, module-graph import resolution against
+actual exported definitions, qualified aliases, hiding, `Thing(..)` child
+expansion, and fixity resolution. Complete package search paths and complete
+Prelude module coverage remain later module-system work.
 
 Required namespaces and scopes:
 
@@ -176,9 +177,11 @@ constructors/selectors, dictionary-passed method calls, and built-in `Eq Int`,
 `print`, `return`, `(>>)`, and expression-only `do` sequencing with local
 `let`. It also covers `fromInteger`, overloaded integer literals, numeric
 defaulting to executable `Int`, inferred constrained helper schemes, and
-SCC-based binding generalization. Full Haskell 2010 type classes, broader
-`Show`, irrefutable/lazy patterns, richer pattern diagnostics, broader
-Prelude, broader IO, and modules remain planned. The strict
+SCC-based binding generalization. It also covers import-driven dependency-file
+loading, export/import filtering, whole-program Core flattening, and root
+`main` native entrypoint selection for the executable subset. Full Haskell
+2010 type classes, broader `Show`, irrefutable/lazy patterns, richer pattern
+diagnostics, broader Prelude, and broader IO remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

@@ -190,7 +190,8 @@ Current tests include:
   `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
   programs, user-defined type class dictionary programs, and built-in
   `Eq`/`Ord`/`Num`/`Show` dictionary programs, numeric-defaulting programs,
-  plus IO printing programs, and compiles selected emitted LLVM through `clang`
+  multi-file module programs, plus IO printing programs, and compiles selected
+  emitted LLVM through `clang`
 
 Future Haskell 2010 wet tests should extend this direct executable coverage as
 irrefutable/lazy patterns, richer pattern diagnostics, broader `Show`/`String`

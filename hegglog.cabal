@@ -36,6 +36,7 @@ executable hegglog
       base >= 4.17 && < 5
     , containers >= 0.6 && < 0.8
     , directory >= 1.3 && < 1.4
+    , filepath >= 1.4 && < 1.6
     , megaparsec >= 9 && < 10
     , mtl >= 2.2 && < 2.4
     , prettyprinter >= 1.7 && < 1.8
@@ -79,6 +80,7 @@ executable hegglog
       Haskell2010.Core.Validate
       Haskell2010.Layout
       Haskell2010.Lexer
+      Haskell2010.ModuleGraph
       Haskell2010.Names
       Haskell2010.Native
       Haskell2010.Parser
@@ -132,6 +134,7 @@ test-suite hegglog-test
       base >= 4.17 && < 5
     , containers >= 0.6 && < 0.8
     , directory >= 1.3 && < 1.4
+    , filepath >= 1.4 && < 1.6
     , megaparsec >= 9 && < 10
     , mtl >= 2.2 && < 2.4
     , prettyprinter >= 1.7 && < 1.8
@@ -176,6 +179,7 @@ test-suite hegglog-test
       Haskell2010.Core.Validate
       Haskell2010.Layout
       Haskell2010.Lexer
+      Haskell2010.ModuleGraph
       Haskell2010.Names
       Haskell2010.Native
       Haskell2010.Parser

@@ -11,7 +11,7 @@ import qualified Backend.Lower as BL
 import qualified Backend.Validate as BV
 import qualified CLI.Compile as CompileCLI
 import CLI.Report (CompileError (..), CompileReport (..), compileReport, renderCompileError, renderGoldenReport)
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -35,6 +35,7 @@ import qualified Haskell2010.Core.Pretty as H2010CorePretty
 import qualified Haskell2010.Core.Subst as H2010CoreSubst
 import qualified Haskell2010.Core.Syntax as H2010Core
 import qualified Haskell2010.Core.Validate as H2010CoreValidate
+import qualified Haskell2010.ModuleGraph as H2010ModuleGraph
 import qualified Haskell2010.Names as H2010Names
 import qualified Haskell2010.Native as H2010Native
 import qualified Haskell2010.Parser as H2010Parser
@@ -67,8 +68,9 @@ import Runtime.Int (HInt, IntError (IntOverflow), hintToInteger, maxHIntInteger,
 import Syntax.AST
 import Syntax.Parser (parseProgram, parseSourceProgram)
 import Syntax.Span (SourceSpan (..))
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, removePathForcibly)
 import System.Exit (exitFailure)
+import System.FilePath ((</>))
 import Test.QuickCheck hiding (NonZero, label)
 import Text.Megaparsec (errorBundlePretty)
 import Typecheck.Infer (infer, inferProgram)
@@ -118,6 +120,8 @@ testGroups =
       , pureTest "rejects chained non-associative operators" testHaskell2010RenamerNonAssociativeFixity
       , pureTest "detects ambiguous explicit imports" testHaskell2010RenamerAmbiguousImport
       , pureTest "resolves qualified explicit imports" testHaskell2010RenamerQualifiedImport
+      , pureTest "resolves module graph imports through exports" testHaskell2010RenamerModuleGraphExports
+      , ioTest "detects module graph import cycles" testHaskell2010ModuleGraphCycle
       ]
   , TestGroup
       "Haskell 2010 Core"
@@ -145,6 +149,7 @@ testGroups =
       , pureTest "typechecks type class dictionaries" testHaskell2010Core0TypeClassDictionaries
       , pureTest "typechecks Prelude class dictionaries" testHaskell2010Core0PreludeClassDictionaries
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
+      , pureTest "typechecks multi-module imports" testHaskell2010Core0MultiModuleImports
       , pureTest "typechecks IO printing" testHaskell2010Core0IOPrinting
       , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
@@ -164,6 +169,7 @@ testGroups =
       , pureTest "evaluates type class dictionary calls" testHaskell2010Core0EvalTypeClassDictionaries
       , pureTest "evaluates Prelude class dictionary calls" testHaskell2010Core0EvalPreludeClassDictionaries
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
+      , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
       , pureTest "evaluates guards and as-patterns" testHaskell2010Core0EvalGuardsAndAsPatterns
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
@@ -198,6 +204,7 @@ testGroups =
       , pureTest "preserves type class dictionary semantics" testHaskell2010CoreToSTGTypeClassDictionaries
       , pureTest "preserves Prelude class dictionary semantics" testHaskell2010CoreToSTGPreludeClassDictionaries
       , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
+      , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
       , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
       , pureTest "preserves guard and as-pattern semantics" testHaskell2010CoreToSTGGuardsAndAsPatterns
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
@@ -840,9 +847,55 @@ testHaskell2010RenamerQualifiedImport = do
       \y = A.x\n"
   case H2010Renamed.rModuleDecls renamed of
     [H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar importedX)) []] -> do
-      expectEqual "qualified import occurrence" "A.x" (H2010Names.nameOcc importedX)
+      expectEqual "qualified import occurrence" "x" (H2010Names.nameOcc importedX)
       assertBool "qualified import is external" (H2010Names.nameExternal importedX)
     other -> Left ("unexpected qualified import module: " <> show other)
+
+testHaskell2010RenamerModuleGraphExports :: Either String ()
+testHaskell2010RenamerModuleGraphExports = do
+  modules <- parseHaskell2010ModuleSources haskell2010MultiModuleSources
+  renamedModules <- mapLeft (Text.unpack . H2010Renamer.renderRenameError) (H2010Renamer.renameModuleGraph modules)
+  case renamedModules of
+    [_, mainModule] ->
+      case H2010Renamed.rModuleDecls mainModule of
+        [ H2010Renamed.RFunctionBinding _ [H2010Renamed.RPParen (H2010Renamed.RPCon boxCon [H2010Renamed.RPVar field])] _ []
+          , H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RApp (H2010Renamed.RVar qualifiedDouble) _)) []
+          ] -> do
+            expectEqual "imported constructor occurrence" "Box" (H2010Names.nameOcc boxCon)
+            expectEqual "qualified import resolves to exported definition" "double" (H2010Names.nameOcc qualifiedDouble)
+            assertBool "qualified imported definition is local to loaded graph" (not (H2010Names.nameExternal qualifiedDouble))
+            assertBool "field binder is local" (not (H2010Names.nameExternal field))
+        other -> Left ("unexpected renamed multi-module main: " <> show other)
+    other -> Left ("unexpected renamed module graph: " <> show other)
+  case renameHaskell2010ModulesRaw haskell2010HiddenImportSources of
+    Left (H2010Renamer.UnboundName H2010Names.TermNamespace "hidden") -> Right ()
+    Left err -> Left ("expected hidden export rejection, got " <> show err)
+    Right renamed -> Left ("hidden import renamed unexpectedly: " <> show renamed)
+
+testHaskell2010ModuleGraphCycle :: IO (Either String ())
+testHaskell2010ModuleGraphCycle = do
+  let directory = ".context/module-graph-cycle-test"
+      aPath = directory </> "A.hs"
+      bPath = directory </> "B.hs"
+      moduleA = H2010.ModuleName ["A"]
+      moduleB = H2010.ModuleName ["B"]
+  removeDirectoryIfPresent directory
+  createDirectoryIfMissing True directory
+  Text.IO.writeFile aPath "module A where\nimport B (b)\na = b\n"
+  Text.IO.writeFile bPath "module B where\nimport A (a)\nb = a\n"
+  result <- H2010ModuleGraph.loadModuleGraph aPath
+  removeDirectoryIfPresent directory
+  pure $
+    case result of
+      Left (H2010ModuleGraph.ModuleCycle names)
+        | names == [moduleA, moduleB, moduleA] -> Right ()
+      Left err -> Left ("expected module cycle, got " <> show err)
+      Right graph -> Left ("cyclic module graph loaded unexpectedly: " <> show graph)
+
+removeDirectoryIfPresent :: FilePath -> IO ()
+removeDirectoryIfPresent path = do
+  exists <- doesDirectoryExist path
+  when exists (removePathForcibly path)
 
 testHaskell2010CoreValidIdentity :: Either String ()
 testHaskell2010CoreValidIdentity = do
@@ -1186,6 +1239,13 @@ testHaskell2010Core0NumericDefaulting = do
   assertBool "Prelude Show Int instance dictionary is emitted" (containsBindingOccurrence "$fShowInt" coreModule)
   expectCoreEvalIO "numeric defaulting Core oracle" "7\n47\n" =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0MultiModuleImports :: Either String ()
+testHaskell2010Core0MultiModuleImports = do
+  coreModule <- typecheckHaskell2010Modules haskell2010MultiModuleSources
+  assertBool "dependency binding is emitted" (containsBindingOccurrence "double" coreModule)
+  assertBool "imported constructor metadata is emitted" (containsConstructorOccurrence "Box" coreModule)
+  expectCoreEvalInt "multi-module Core oracle" 24 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0IOPrinting :: Either String ()
 testHaskell2010Core0IOPrinting = do
   coreModule <- typecheckHaskell2010 haskell2010IOPrintingSource
@@ -1359,6 +1419,14 @@ testHaskell2010Core0EvalNumericDefaulting =
     "Core-0 numeric defaulting evaluation"
     "7\n47\n"
     =<< evalHaskell2010Binding "main" haskell2010NumericDefaultingSource
+
+testHaskell2010Core0EvalMultiModuleImports :: Either String ()
+testHaskell2010Core0EvalMultiModuleImports =
+  expectCoreEvalInt
+    "Core-0 multi-module import evaluation"
+    24
+    =<< evalHaskell2010CoreModuleBinding "main"
+    =<< typecheckHaskell2010Modules haskell2010MultiModuleSources
 
 testHaskell2010Core0EvalIOPrinting :: Either String ()
 testHaskell2010Core0EvalIOPrinting =
@@ -1620,6 +1688,13 @@ testHaskell2010CoreToSTGPreludeClassDictionaries =
 testHaskell2010CoreToSTGNumericDefaulting :: Either String ()
 testHaskell2010CoreToSTGNumericDefaulting =
   checkCoreToSTGIO "Core-to-STG numeric defaulting" "7\n47\n" haskell2010NumericDefaultingSource
+
+testHaskell2010CoreToSTGMultiModuleImports :: Either String ()
+testHaskell2010CoreToSTGMultiModuleImports = do
+  coreModule <- typecheckHaskell2010Modules haskell2010MultiModuleSources
+  stgProgram <- mapLeft (Text.unpack . H2010STGLower.renderSTGLowerError) (H2010STGLower.lowerCoreModule coreModule)
+  value <- evalSTGBinding "main" stgProgram
+  expectSTGInt "Core-to-STG multi-module imports" 24 value
 
 testHaskell2010CoreToSTGIOPrinting :: Either String ()
 testHaskell2010CoreToSTGIOPrinting =
@@ -4513,6 +4588,15 @@ renameHaskell2010Raw source = do
   parsed <- mapLeft (error . errorBundlePretty) (H2010Parser.parseSourceModule "<haskell2010-renamer-test>" source)
   H2010Renamer.renameModule parsed
 
+parseHaskell2010ModuleSources :: [(FilePath, Text)] -> Either String [H2010.HsModule]
+parseHaskell2010ModuleSources =
+  traverse (\(path, source) -> parseHaskell2010At path source)
+
+renameHaskell2010ModulesRaw :: [(FilePath, Text)] -> Either H2010Renamer.RenameError [H2010Renamed.RHsModule]
+renameHaskell2010ModulesRaw sources = do
+  modules <- mapLeft (error . id) (parseHaskell2010ModuleSources sources)
+  H2010Renamer.renameModuleGraph modules
+
 expectRenameError :: String -> H2010Renamer.RenameError -> Text -> Either String ()
 expectRenameError label expected source =
   case renameHaskell2010Raw source of
@@ -4527,6 +4611,13 @@ typecheckHaskell2010Raw :: Text -> Either H2010Typecheck.TypecheckError H2010Cor
 typecheckHaskell2010Raw source = do
   renamed <- mapLeft (error . Text.unpack . H2010Renamer.renderRenameError) (renameHaskell2010Raw source)
   H2010Typecheck.typecheckModuleToCore renamed
+
+typecheckHaskell2010Modules :: [(FilePath, Text)] -> Either String H2010Core.CoreModule
+typecheckHaskell2010Modules sources = do
+  renamed <- mapLeft (Text.unpack . H2010Renamer.renderRenameError) (renameHaskell2010ModulesRaw sources)
+  mapLeft
+    (Text.unpack . H2010Typecheck.renderTypecheckError)
+    (H2010Typecheck.typecheckModuleToCore (H2010ModuleGraph.wholeProgramModule renamed))
 
 optimizeHaskell2010Core :: Text -> Either String H2010CoreEgglog.CoreEgglogResult
 optimizeHaskell2010Core source = do
@@ -4880,6 +4971,36 @@ haskell2010NumericDefaultingSource =
   \  print (1 + 2 * 3)\n\
   \  print (twice defaulted + viaFromInteger)\n\
   \  return ()\n"
+
+haskell2010MultiModuleSources :: [(FilePath, Text)]
+haskell2010MultiModuleSources =
+  [ ( "Lib.hs"
+    , "module Lib (Box(..), double) where\n\
+      \data Box = Box Int\n\
+      \double x = x + x\n\
+      \hidden = 99\n"
+    )
+  , ( "Main.hs"
+    , "module Main where\n\
+      \import qualified Lib as Lib (Box(..), double)\n\
+      \unbox (Lib.Box x) = x\n\
+      \main = Lib.double (unbox (Lib.Box 12))\n"
+    )
+  ]
+
+haskell2010HiddenImportSources :: [(FilePath, Text)]
+haskell2010HiddenImportSources =
+  [ ( "Lib.hs"
+    , "module Lib (public) where\n\
+      \public = 1\n\
+      \hidden = 2\n"
+    )
+  , ( "Main.hs"
+    , "module Main where\n\
+      \import Lib (hidden)\n\
+      \main = hidden\n"
+    )
+  ]
 
 haskell2010IOPrintingSource :: Text
 haskell2010IOPrintingSource =

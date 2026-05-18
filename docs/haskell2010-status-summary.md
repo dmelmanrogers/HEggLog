@@ -65,10 +65,12 @@ handles top-level, local `let`/`where`, lambda, pattern, class-method, and
 instance-method scopes; separates term, constructor, type, type-variable,
 class, and module namespaces; reports duplicate binders, unbound names, and
 ambiguous explicit imports; resolves qualified explicit imports; and resolves
-infix expressions according to declared and Prelude fixities.
-
-Whole-program module graph loading, open import export discovery, hiding
-semantics, and full Prelude surface coverage remain later module-system work.
+infix expressions according to declared and Prelude fixities. The module-aware
+renamer now processes dependency modules in graph order, imports actual
+exported definitions, enforces explicit export/import filtering, supports
+qualified aliases and hiding, and expands exported `Thing(..)` children for the
+current executable subset. Full package search paths and full Prelude module
+surface coverage remain later module-system work.
 
 ## What Core Exists Today
 
@@ -248,6 +250,13 @@ and compiled to native executables through the existing clang toolchain.
     for `Eq`/`Ord`/`Num`/`Show` constraints, inferred constrained helper
     schemes, SCC-based binding generalization, Core/STG/native IO output
     oracles, and default/no-egglog wet tests.
+18. Modules and whole-program compilation. Completed for same-directory
+    dependency-file loading from import declarations, module graph cycle and
+    name-mismatch diagnostics, module-aware renaming with actual exported
+    names, export/import filtering, hiding, qualified aliases, `Thing(..)`
+    child exports/imports, whole-program Core flattening for the executable
+    subset, root-module `main` native entrypoint selection, Core/STG/native
+    oracles, and default/no-egglog wet tests.
 
 ## Where Egglog Fits
 
@@ -285,4 +294,5 @@ while preserving the `.hg` compiler, Core evaluator, STG runtime,
 Core-to-STG lowering, native executable path, Egglog Core optimizer,
 ADT/list/tuple/Prelude/recursion/typeclass-dictionary support, built-in
 `Eq`/`Ord`/`Num`/`Show` dictionary support, numeric defaulting,
-guard/as-pattern support, IO printing support, and wet-test baseline.
+guard/as-pattern support, IO printing support, module graph support, and
+wet-test baseline.
