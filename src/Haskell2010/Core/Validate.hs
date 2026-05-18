@@ -40,6 +40,8 @@ data CoreValidationError
   | CoreUnknownConstructor RName
   | CoreTypeMismatch CoreType CoreType
   | CoreExpectedFunction CoreType
+  | CoreExpectedForall CoreType
+  | CoreTypeApplicationArityMismatch Int Int
   | CoreAppArgumentMismatch CoreType CoreType
   | CoreCaseBinderMismatch CoreType CoreType
   | CoreAlternativeTypeMismatch CoreAltCon CoreType CoreType
@@ -128,6 +130,18 @@ validateScopedExpr env scope = \case
       , validateScopedExpr env scope arg
       ]
         <> validateApplication (exprType fn) (exprType arg) ty
+  CTypeLam variables body ty ->
+    collectValidations
+      [ collectValidations (map validateTypeBinder variables)
+      , failWith (map CoreDuplicateBinder (duplicates variables))
+      , validateScopedExpr env scope body
+      , checkType (CTyForall variables (exprType body)) ty
+      ]
+  CTypeApp fn arguments ty ->
+    collectValidations
+      [ validateScopedExpr env scope fn
+      , validateTypeApplication (exprType fn) arguments ty
+      ]
   CLet bind body ty ->
     collectValidations
       [ validateScopedBind env scope bind
@@ -214,6 +228,17 @@ validateApplication fnTy argTy resultTy =
     _ ->
       [Left [CoreExpectedFunction fnTy]]
 
+validateTypeApplication :: CoreType -> [CoreType] -> CoreType -> Either [CoreValidationError] ()
+validateTypeApplication fnTy arguments resultTy =
+  case fnTy of
+    CTyForall variables bodyTy
+      | length variables /= length arguments ->
+          Left [CoreTypeApplicationArityMismatch (length variables) (length arguments)]
+      | otherwise ->
+          checkType (substCoreType (Map.fromList (zip variables arguments)) bodyTy) resultTy
+    _ ->
+      Left [CoreExpectedForall fnTy]
+
 validatePrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
 validatePrimitive op arguments resultTy =
   case op of
@@ -263,6 +288,11 @@ validateBinder :: CoreBinder -> Either [CoreValidationError] ()
 validateBinder binder
   | nameNamespace (coreBinderName binder) == TermNamespace = Right ()
   | otherwise = Left [CoreInvalidBinderNamespace (coreBinderName binder) (nameNamespace (coreBinderName binder))]
+
+validateTypeBinder :: RName -> Either [CoreValidationError] ()
+validateTypeBinder name
+  | nameNamespace name == TypeVariableNamespace = Right ()
+  | otherwise = Left [CoreInvalidBinderNamespace name (nameNamespace name)]
 
 checkType :: CoreType -> CoreType -> Either [CoreValidationError] ()
 checkType expected actual
@@ -348,6 +378,10 @@ exprBinderNames = \case
     coreBinderName binder : exprBinderNames body
   CApp fn arg _ ->
     exprBinderNames fn <> exprBinderNames arg
+  CTypeLam _ body _ ->
+    exprBinderNames body
+  CTypeApp fn _ _ ->
+    exprBinderNames fn
   CLet bind body _ ->
     bindBinderNames bind <> exprBinderNames body
   CCase scrutinee binder alternatives _ ->
@@ -367,6 +401,23 @@ bindBinderNames = \case
 altBinderNames :: CoreAlt -> [RName]
 altBinderNames (CoreAlt _ binders body) =
   map coreBinderName binders <> exprBinderNames body
+
+substCoreType :: Map.Map RName CoreType -> CoreType -> CoreType
+substCoreType substitution = \case
+  CTyVar name ->
+    Map.findWithDefault (CTyVar name) name substitution
+  CTyCon name ->
+    CTyCon name
+  CTyApp fn arg ->
+    CTyApp (substCoreType substitution fn) (substCoreType substitution arg)
+  CTyFun arg result ->
+    CTyFun (substCoreType substitution arg) (substCoreType substitution result)
+  CTyForall variables body ->
+    CTyForall variables (substCoreType (foldr Map.delete substitution variables) body)
+  CTyTuple fields ->
+    CTyTuple (map (substCoreType substitution) fields)
+  CTyList elementTy ->
+    CTyList (substCoreType substitution elementTy)
 
 duplicates :: Ord a => [a] -> [a]
 duplicates values =
@@ -401,6 +452,13 @@ renderValidationError = \case
     "Core type mismatch: expected " <> renderCoreType expected <> ", got " <> renderCoreType actual
   CoreExpectedFunction actual ->
     "Core application expected a function, got " <> renderCoreType actual
+  CoreExpectedForall actual ->
+    "Core type application expected a forall type, got " <> renderCoreType actual
+  CoreTypeApplicationArityMismatch expected actual ->
+    "Core type application arity mismatch: expected "
+      <> renderInt expected
+      <> ", got "
+      <> renderInt actual
   CoreAppArgumentMismatch expected actual ->
     "Core application argument mismatch: expected " <> renderCoreType expected <> ", got " <> renderCoreType actual
   CoreCaseBinderMismatch expected actual ->

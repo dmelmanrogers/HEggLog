@@ -35,6 +35,7 @@ data CoreType
   | CTyCon RName
   | CTyApp CoreType CoreType
   | CTyFun CoreType CoreType
+  | CTyForall [RName] CoreType
   | CTyTuple [CoreType]
   | CTyList CoreType
   deriving stock (Show, Eq, Ord)
@@ -56,6 +57,8 @@ data CoreExpr
   | CCon RName CoreType
   | CLam CoreBinder CoreExpr CoreType
   | CApp CoreExpr CoreExpr CoreType
+  | CTypeLam [RName] CoreExpr CoreType
+  | CTypeApp CoreExpr [CoreType] CoreType
   | CLet CoreBind CoreExpr CoreType
   | CCase CoreExpr CoreBinder [CoreAlt] CoreType
   | CPrimOp CorePrimOp [CoreExpr] CoreType
@@ -87,6 +90,8 @@ exprType = \case
   CCon _ ty -> ty
   CLam _ _ ty -> ty
   CApp _ _ ty -> ty
+  CTypeLam _ _ ty -> ty
+  CTypeApp _ _ ty -> ty
   CLet _ _ ty -> ty
   CCase _ _ _ ty -> ty
   CPrimOp _ _ ty -> ty

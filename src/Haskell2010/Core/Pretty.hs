@@ -49,6 +49,24 @@ renderCoreExpr = \case
     withType ("(\\" <> renderCoreBinder binder <> " -> " <> renderCoreExpr body <> ")") ty
   CApp fn arg ty ->
     withType ("(" <> renderCoreExpr fn <> " " <> renderCoreExpr arg <> ")") ty
+  CTypeLam variables body ty ->
+    withType
+      ( "(/\\"
+          <> Text.unwords (map renderRName variables)
+          <> " -> "
+          <> renderCoreExpr body
+          <> ")"
+      )
+      ty
+  CTypeApp fn arguments ty ->
+    withType
+      ( "("
+          <> renderCoreExpr fn
+          <> " @"
+          <> Text.intercalate " @" (map renderCoreType arguments)
+          <> ")"
+      )
+      ty
   CLet bind body ty ->
     withType ("(let " <> renderCoreBind bind <> " in " <> renderCoreExpr body <> ")") ty
   CCase scrutinee binder alternatives ty ->
@@ -108,6 +126,12 @@ renderTypePrec contextPrec = \case
   CTyFun arg result ->
     parensIf (contextPrec > 0) $
       renderTypePrec 1 arg <> " -> " <> renderTypePrec 0 result
+  CTyForall variables body ->
+    parensIf (contextPrec > 0) $
+      "forall "
+        <> Text.unwords (map renderRName variables)
+        <> ". "
+        <> renderCoreType body
   CTyTuple fields ->
     "(" <> Text.intercalate ", " (map renderCoreType fields) <> ")"
   CTyList elementTy ->

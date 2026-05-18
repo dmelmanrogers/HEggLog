@@ -8,9 +8,9 @@ source before desugaring into typed Core.
 The parser/layout layer is implemented as an isolated `Haskell2010` frontend
 AST, lexer, layout parser, and parser. The renamer is implemented as a
 unique-name pass over that AST. A typed Core IR and validator are implemented
-as the target representation for later typechecking and desugaring.
-Typechecking and desugaring remain planned. The current `.hg` frontend still
-does not compile Haskell 2010 source.
+as the target representation. A Core-0 typechecker/desugarer is implemented
+for the first `Int`/`Bool` subset. The current `.hg` frontend still does not
+compile Haskell 2010 source.
 
 ## Lexer and Layout
 
@@ -140,11 +140,16 @@ spans or provenance enough for diagnostics through later phases.
 
 ## Current Status
 
-The Haskell2010 parser/layout layer, renamer, and isolated typed Core layer are
-implemented. The Haskell2010 typechecker and source-to-Core desugarer remain
-planned. The current compiler-supported source language is still the strict
-`.hg` subset documented in `docs/language-spec.md`. That strict frontend is
-useful substrate and regression coverage, but it is not Haskell 2010:
+The Haskell2010 parser/layout layer, renamer, isolated typed Core layer, and
+Core-0 source-to-Core typechecker/desugarer are implemented. The Core-0
+typechecker currently covers explicit signatures, HM
+generalization/instantiation, `Int`, `Bool`, top-level functions, lambdas,
+application, local `let`, `if`, Bool `case`, and primitive
+arithmetic/comparison. Full Haskell 2010 type classes, ADTs, broad pattern
+matching, and executable lowering remain planned. The current
+compiler-supported executable source language is still the strict `.hg` subset
+documented in `docs/language-spec.md`. That strict frontend is useful substrate
+and regression coverage, but it is not Haskell 2010:
 
 - `.hg` has no layout rule
 - `.hg` has no modules/imports

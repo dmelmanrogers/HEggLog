@@ -24,8 +24,8 @@ src/Haskell2010/
 ```
 
 Implemented today: `Syntax`, `Lexer`, `Layout`, `Parser`, `Pretty`, `Names`,
-`Renamed`, and `Renamer`. The typechecker, inference, and desugaring modules
-remain planned.
+`Renamed`, `Renamer`, and a Core-0 `Typecheck` source-to-Core pass. Broader
+inference/desugaring modules for full Haskell 2010 remain planned.
 
 Implemented Core modules:
 
@@ -78,8 +78,8 @@ is built alongside them.
 2. Renamer.
 3. Core IR. Completed.
 4. Core validator. Completed.
-5. Desugarer.
-6. HM typechecker.
+5. Core-0 typechecker/desugarer. Completed.
+6. Core evaluator.
 7. Core evaluator or reference interpreter.
 8. STG IR.
 9. Lazy runtime.

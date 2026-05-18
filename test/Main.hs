@@ -38,6 +38,7 @@ import qualified Haskell2010.Parser as H2010Parser
 import qualified Haskell2010.Renamed as H2010Renamed
 import qualified Haskell2010.Renamer as H2010Renamer
 import qualified Haskell2010.Syntax as H2010
+import qualified Haskell2010.Typecheck as H2010Typecheck
 import IR.ANF
 import qualified IR.ANF.Resolved as RANF
 import IR.ANF.Validate
@@ -121,6 +122,15 @@ testGroups =
       , pureTest "computes free variables through binders" testHaskell2010CoreFreeVariables
       , pureTest "substitution avoids bound variables" testHaskell2010CoreSubstitution
       , pureTest "renders stable typed Core text" testHaskell2010CorePretty
+      ]
+  , TestGroup
+      "Haskell 2010 Core-0 Typechecker"
+      [ pureTest "typechecks explicit polymorphic identity" testHaskell2010Core0Identity
+      , pureTest "typechecks explicit polymorphic const" testHaskell2010Core0Const
+      , pureTest "generalizes local let polymorphism" testHaskell2010Core0PolymorphicLet
+      , pureTest "desugars if to Bool case Core" testHaskell2010Core0If
+      , pureTest "desugars explicit Bool case Core" testHaskell2010Core0Case
+      , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       ]
   , TestGroup
       "Typechecker"
@@ -936,6 +946,94 @@ testHaskell2010CorePretty = do
     "Core pretty output"
     "(\\x#100 : Int#-1 -> x#100 : Int#-1) : Int#-1 -> Int#-1"
     (H2010CorePretty.renderCoreExpr expression)
+
+testHaskell2010Core0Identity :: Either String ()
+testHaskell2010Core0Identity = do
+  coreModule <-
+    typecheckHaskell2010
+      "module Core0 where\n\
+      \id :: a -> a\n\
+      \id x = x\n"
+  case H2010Core.coreModuleBinds coreModule of
+    [H2010Core.CoreNonRec binder (H2010Core.CTypeLam [_] (H2010Core.CLam param (H2010Core.CVar bodyName _) _) binderTy)] -> do
+      expectEqual "id Core binder type" binderTy (H2010Core.coreBinderType binder)
+      expectEqual "id body returns lambda parameter" (H2010Core.coreBinderName param) bodyName
+      assertBool "id Core binder is polymorphic" (isForallType binderTy)
+    other -> Left ("unexpected Core-0 id module: " <> show other)
+
+testHaskell2010Core0Const :: Either String ()
+testHaskell2010Core0Const = do
+  coreModule <-
+    typecheckHaskell2010
+      "module Core0 where\n\
+      \const :: a -> b -> a\n\
+      \const x y = x\n"
+  case H2010Core.coreModuleBinds coreModule of
+    [H2010Core.CoreNonRec binder (H2010Core.CTypeLam variables (H2010Core.CLam xBinder (H2010Core.CLam _ (H2010Core.CVar bodyName _) _) _) binderTy)] -> do
+      expectEqual "const quantifier count" 2 (length variables)
+      expectEqual "const body returns first parameter" (H2010Core.coreBinderName xBinder) bodyName
+      expectEqual "const Core binder type" binderTy (H2010Core.coreBinderType binder)
+    other -> Left ("unexpected Core-0 const module: " <> show other)
+
+testHaskell2010Core0PolymorphicLet :: Either String ()
+testHaskell2010Core0PolymorphicLet = do
+  coreModule <-
+    typecheckHaskell2010
+      "module Core0 where\n\
+      \use = let\n\
+      \  id x = x\n\
+      \in if id True then id 1 else id 2\n"
+  case H2010Core.coreModuleBinds coreModule of
+    [H2010Core.CoreNonRec binder rhs] -> do
+      expectEqual "polymorphic let result type" H2010Core.intTy (H2010Core.coreBinderType binder)
+      assertBool "polymorphic let emits type applications" (countTypeApps rhs >= 3)
+      assertBool "polymorphic let emits generalized local binding" (containsTypeLambda rhs)
+      expectEqual "polymorphic let generated Core validates" (Right ()) (H2010CoreValidate.validateExpr rhs)
+    other -> Left ("unexpected Core-0 polymorphic let module: " <> show other)
+
+testHaskell2010Core0If :: Either String ()
+testHaskell2010Core0If = do
+  coreModule <-
+    typecheckHaskell2010
+      "module Core0 where\n\
+      \choose b = if b then 1 else 2\n"
+  case H2010Core.coreModuleBinds coreModule of
+    [H2010Core.CoreNonRec binder rhs] -> do
+      expectEqual
+        "if function type"
+        (H2010Core.funTy H2010Core.boolTy H2010Core.intTy)
+        (H2010Core.coreBinderType binder)
+      assertBool "if desugars to Core case" (containsCase rhs)
+    other -> Left ("unexpected Core-0 if module: " <> show other)
+
+testHaskell2010Core0Case :: Either String ()
+testHaskell2010Core0Case = do
+  coreModule <-
+    typecheckHaskell2010
+      "module Core0 where\n\
+      \select b = case b of\n\
+      \  True -> 1\n\
+      \  False -> 0\n"
+  case H2010Core.coreModuleBinds coreModule of
+    [H2010Core.CoreNonRec binder rhs] -> do
+      expectEqual
+        "case function type"
+        (H2010Core.funTy H2010Core.boolTy H2010Core.intTy)
+        (H2010Core.coreBinderType binder)
+      assertBool "explicit Bool case remains Core case" (containsCase rhs)
+    other -> Left ("unexpected Core-0 case module: " <> show other)
+
+testHaskell2010Core0TypeError :: Either String ()
+testHaskell2010Core0TypeError =
+  case
+    typecheckHaskell2010Raw
+      "module Core0 where\n\
+      \bad :: Int\n\
+      \bad = True\n"
+    of
+      Left H2010Typecheck.TypeMismatch {} -> Right ()
+      Left err -> Left ("expected Core-0 type mismatch, got: " <> show err)
+      Right coreModule -> Left ("ill-typed Core-0 source typechecked unexpectedly: " <> show coreModule)
 
 testHigherOrderType :: Either String ()
 testHigherOrderType = do
@@ -3529,6 +3627,15 @@ expectRenameError label expected source =
     Left actual -> expectEqual label expected actual
     Right renamed -> Left (label <> "\nexpected rename error, got module:\n" <> show renamed)
 
+typecheckHaskell2010 :: Text -> Either String H2010Core.CoreModule
+typecheckHaskell2010 source =
+  mapLeft (Text.unpack . H2010Typecheck.renderTypecheckError) (typecheckHaskell2010Raw source)
+
+typecheckHaskell2010Raw :: Text -> Either H2010Typecheck.TypecheckError H2010Core.CoreModule
+typecheckHaskell2010Raw source = do
+  renamed <- mapLeft (error . Text.unpack . H2010Renamer.renderRenameError) (renameHaskell2010Raw source)
+  H2010Typecheck.typecheckModuleToCore renamed
+
 coreTerm :: Text -> Int -> H2010Names.RName
 coreTerm occurrence uniqueId =
   H2010Names.RName H2010Names.TermNamespace occurrence uniqueId False
@@ -3556,6 +3663,69 @@ expectCoreValidationError label predicate validation =
       | any predicate errors -> Right ()
       | otherwise -> Left (label <> "\nunexpected Core validation errors: " <> show errors)
     Right () -> Left (label <> "\nexpected Core validation failure")
+
+isForallType :: H2010Core.CoreType -> Bool
+isForallType = \case
+  H2010Core.CTyForall {} -> True
+  _ -> False
+
+containsTypeLambda :: H2010Core.CoreExpr -> Bool
+containsTypeLambda = \case
+  H2010Core.CTypeLam {} -> True
+  H2010Core.CLam _ body _ -> containsTypeLambda body
+  H2010Core.CApp callee arg _ -> containsTypeLambda callee || containsTypeLambda arg
+  H2010Core.CTypeApp callee _ _ -> containsTypeLambda callee
+  H2010Core.CLet bind body _ -> bindContainsTypeLambda bind || containsTypeLambda body
+  H2010Core.CCase scrutinee _ alternatives _ ->
+    containsTypeLambda scrutinee || any altContainsTypeLambda alternatives
+  H2010Core.CPrimOp _ arguments _ -> any containsTypeLambda arguments
+  _ -> False
+
+bindContainsTypeLambda :: H2010Core.CoreBind -> Bool
+bindContainsTypeLambda = \case
+  H2010Core.CoreNonRec _ rhs -> containsTypeLambda rhs
+  H2010Core.CoreRec pairs -> any (containsTypeLambda . snd) pairs
+
+altContainsTypeLambda :: H2010Core.CoreAlt -> Bool
+altContainsTypeLambda (H2010Core.CoreAlt _ _ body) =
+  containsTypeLambda body
+
+containsCase :: H2010Core.CoreExpr -> Bool
+containsCase = \case
+  H2010Core.CCase {} -> True
+  H2010Core.CLam _ body _ -> containsCase body
+  H2010Core.CApp callee arg _ -> containsCase callee || containsCase arg
+  H2010Core.CTypeLam _ body _ -> containsCase body
+  H2010Core.CTypeApp callee _ _ -> containsCase callee
+  H2010Core.CLet bind body _ -> bindContainsCase bind || containsCase body
+  H2010Core.CPrimOp _ arguments _ -> any containsCase arguments
+  _ -> False
+
+bindContainsCase :: H2010Core.CoreBind -> Bool
+bindContainsCase = \case
+  H2010Core.CoreNonRec _ rhs -> containsCase rhs
+  H2010Core.CoreRec pairs -> any (containsCase . snd) pairs
+
+countTypeApps :: H2010Core.CoreExpr -> Int
+countTypeApps = \case
+  H2010Core.CTypeApp callee _ _ -> 1 + countTypeApps callee
+  H2010Core.CLam _ body _ -> countTypeApps body
+  H2010Core.CApp callee arg _ -> countTypeApps callee + countTypeApps arg
+  H2010Core.CTypeLam _ body _ -> countTypeApps body
+  H2010Core.CLet bind body _ -> bindCountTypeApps bind + countTypeApps body
+  H2010Core.CCase scrutinee _ alternatives _ ->
+    countTypeApps scrutinee + sum (map altCountTypeApps alternatives)
+  H2010Core.CPrimOp _ arguments _ -> sum (map countTypeApps arguments)
+  _ -> 0
+
+bindCountTypeApps :: H2010Core.CoreBind -> Int
+bindCountTypeApps = \case
+  H2010Core.CoreNonRec _ rhs -> countTypeApps rhs
+  H2010Core.CoreRec pairs -> sum (map (countTypeApps . snd) pairs)
+
+altCountTypeApps :: H2010Core.CoreAlt -> Int
+altCountTypeApps (H2010Core.CoreAlt _ _ body) =
+  countTypeApps body
 
 factsFor :: Text -> Either String [Fact]
 factsFor source =

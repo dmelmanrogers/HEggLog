@@ -63,17 +63,21 @@ frontend now exists and produces an isolated source AST, and the renamer now
 produces a unique-name resolved AST with lexical scopes, namespace separation,
 import ambiguity checks, and fixity resolution. An isolated typed Core IR,
 validator, free-variable pass, substitution pass, and pretty-printer now exist
-and are unit-tested. The Haskell 2010 typechecker, source-to-Core desugarer,
+and are unit-tested. A Core-0 Haskell typechecker/desugarer now emits
+validating typed Core for the first `Int`/`Bool` subset. The Core evaluator,
 STG pipeline, lazy runtime, and executable conformance tests are not yet
-implemented.
+implemented for Haskell 2010.
 
 Current status:
 
 - Haskell 2010 parser/layout: parsed and parser-tested
 - Haskell 2010 renamer: implemented and unit-tested
 - Haskell 2010 typed Core: implemented and unit-tested as an isolated IR
-- Haskell 2010 HM typechecker: not started
-- Haskell source desugaring to typed Core: not started
+- Haskell 2010 Core-0 HM typechecker: implemented and unit-tested for the
+  first `Int`/`Bool` subset
+- Haskell source desugaring to typed Core: implemented and unit-tested for
+  Core-0 functions, lambdas, application, `let`, `if`, Bool `case`, and
+  primitive arithmetic/comparison
 - STG-like lazy IR/runtime: planned
 - Haskell 2010 native executable path: planned
 - Haskell 2010 conformance suite: planned

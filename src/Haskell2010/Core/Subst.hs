@@ -48,6 +48,12 @@ substExpr target replacement expression =
       let (fn', supplyAfterFn) = go supply fn
           (arg', supplyAfterArg) = go supplyAfterFn arg
        in (CApp fn' arg' ty, supplyAfterArg)
+    CTypeLam variables body ty ->
+      let (body', supplyAfterBody) = go supply body
+       in (CTypeLam variables body' ty, supplyAfterBody)
+    CTypeApp fn arguments ty ->
+      let (fn', supplyAfterFn) = go supply fn
+       in (CTypeApp fn' arguments ty, supplyAfterFn)
     CLet bind body ty ->
       let (bind', bodyForSubstitution, substituteBody, supplyAfterBind) = substBind supply bind body
           (body', supplyAfterBody) =
@@ -195,6 +201,10 @@ renameBound old new = \case
     CLam (renameBinder old new binder) (renameBound old new body) ty
   CApp fn arg ty ->
     CApp (renameBound old new fn) (renameBound old new arg) ty
+  CTypeLam variables body ty ->
+    CTypeLam variables (renameBound old new body) ty
+  CTypeApp fn arguments ty ->
+    CTypeApp (renameBound old new fn) arguments ty
   CLet bind body ty ->
     CLet (renameBind old new bind) (renameBound old new body) ty
   CCase scrutinee binder alternatives ty ->
@@ -230,6 +240,10 @@ allNamesExpr = \case
     allNamesBinder binder <> allNamesExpr body <> allNamesType ty
   CApp fn arg ty ->
     allNamesExpr fn <> allNamesExpr arg <> allNamesType ty
+  CTypeLam variables body ty ->
+    Set.fromList variables <> allNamesExpr body <> allNamesType ty
+  CTypeApp fn arguments ty ->
+    allNamesExpr fn <> Set.unions (map allNamesType arguments) <> allNamesType ty
   CLet bind body ty ->
     allNamesBind bind <> allNamesExpr body <> allNamesType ty
   CCase scrutinee binder alternatives ty ->
@@ -267,5 +281,6 @@ allNamesType = \case
   CTyCon name -> Set.singleton name
   CTyApp fn arg -> allNamesType fn <> allNamesType arg
   CTyFun arg result -> allNamesType arg <> allNamesType result
+  CTyForall variables body -> Set.fromList variables <> allNamesType body
   CTyTuple fields -> Set.unions (map allNamesType fields)
   CTyList elementTy -> allNamesType elementTy

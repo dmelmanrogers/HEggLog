@@ -30,7 +30,7 @@ HeggLog does not yet compile Haskell 2010 `.hs` source. The following Haskell
 - ADTs and pattern matching
 - type classes and dictionary passing
 - Prelude/library subset
-- Haskell source desugaring to typed Core
+- Haskell source desugaring beyond the Core-0 `Int`/`Bool` subset
 - lazy STG/runtime path
 - IO `main`
 - Haskell 2010 conformance suite
@@ -68,17 +68,30 @@ arities, and case alternative result types, plus free-variable analysis,
 capture-aware substitution, and a stable pretty-printer.
 
 This Core layer is tested directly but is not yet generated from Haskell 2010
-source. The typechecker/desugarer integration remains the next source-pipeline
-milestone.
+source outside the Core-0 subset.
+
+## What Typechecks To Core Today
+
+The Haskell2010 Core-0 path now typechecks renamed source and emits validating
+typed Core for a first `Int`/`Bool` subset: explicit signatures, HM
+generalization and instantiation, top-level functions, lambdas, application,
+local `let`, `if` desugared to Bool `case`, explicit Bool `case`, and primitive
+`+`, `-`, `*`, `/`, `<`, and `==`.
+
+This is a source-to-Core milestone only. It does not yet evaluate Core, lower
+Core to STG, or compile Haskell 2010 source to native executables. Source-spanned
+Haskell 2010 type diagnostics also remain later work because the renamed AST is
+currently spanless.
 
 ## First Haskell 2010 Implementation Milestones
 
 1. Haskell 2010 parser/layout MVP. Completed.
 2. Renamer MVP. Completed.
 3. Typed Core MVP. Completed.
-4. Core-0 Haskell typechecker/desugarer integration.
-5. Lazy/STG runtime MVP.
-6. Egglog Core optimizer implementation after Haskell source emits Core.
+4. Core-0 Haskell typechecker/desugarer integration. Completed.
+5. Core-0 reference evaluator.
+6. Lazy/STG runtime MVP.
+7. Egglog Core optimizer implementation after Core has an execution oracle.
 
 ## Where Egglog Fits
 
@@ -100,5 +113,5 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Build Core-0 Haskell typechecker/desugarer integration while preserving the
-current `.hg` compiler and wet-test baseline.
+Build a Core-0 reference evaluator while preserving the current `.hg` compiler
+and wet-test baseline.

@@ -32,6 +32,10 @@ freeVarsExpr = \case
     Set.delete (coreBinderName binder) (freeVarsExpr body)
   CApp fn arg _ ->
     freeVarsExpr fn <> freeVarsExpr arg
+  CTypeLam _ body _ ->
+    freeVarsExpr body
+  CTypeApp fn _ _ ->
+    freeVarsExpr fn
   CLet bind body _ ->
     freeVarsBind bind <> (freeVarsExpr body `Set.difference` binderNameSet (bindersOf bind))
   CCase scrutinee binder alternatives _ ->

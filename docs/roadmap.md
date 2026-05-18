@@ -43,9 +43,9 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Core-0 Haskell typechecker/desugarer integration.
+1. Core-0 reference evaluator.
 2. Lazy/STG runtime MVP.
-3. Egglog Core optimizer implementation after Haskell source emits Core.
+3. Egglog Core optimizer implementation after Core has an execution oracle.
 
 Completed Haskell 2010 roadmap work:
 
@@ -56,9 +56,13 @@ Completed Haskell 2010 roadmap work:
   import ambiguity checks, and fixity resolution.
 - Haskell 2010 typed Core MVP: implemented as an isolated typed Core IR with
   expression type metadata, primitive operations, constructors, lambdas,
-  applications, nonrecursive and recursive lets, cases, a validator,
-  free-variable analysis, capture-aware substitution, pretty-printing, and
-  unit tests.
+  type abstractions/applications, applications, nonrecursive and recursive
+  lets, cases, a validator, free-variable analysis, capture-aware
+  substitution, pretty-printing, and unit tests.
+- Haskell 2010 Core-0 typechecker/desugarer MVP: implemented as a renamed AST
+  to typed Core pass for `Int`, `Bool`, explicit signatures, HM
+  generalization/instantiation, top-level functions, lambdas, application,
+  local `let`, `if`, Bool `case`, and primitive arithmetic/comparison.
 
 ## Non-Negotiable Project Direction
 
