@@ -84,9 +84,11 @@ Current implementation status: `Haskell2010.STG.Syntax`,
 `Haskell2010.STG.Validate`, and `Haskell2010.STG.Eval` implement the in-process
 STG runtime MVP. The evaluator models heap closures, updateable and
 single-entry thunks, sharing after update, black-hole detection, case demand,
-Bool constructor dispatch, and checked primitive errors. Core-to-STG lowering,
-native runtime object layout, LLVM lowering, and runtime linking remain later
-work.
+Bool constructor dispatch, and checked primitive errors.
+`Haskell2010.STG.Lower` now lowers validating Core-0 modules into validating
+STG while erasing type abstraction/application and preserving lazy semantics
+against the STG evaluator. Native runtime object layout, LLVM lowering, and
+runtime linking remain later work.
 
 ## LLVM Lowering
 

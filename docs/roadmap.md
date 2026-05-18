@@ -43,9 +43,9 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Core-to-STG lowering MVP.
-2. Core-0 native executable path.
-3. Egglog Core optimizer implementation using the Core evaluator as oracle.
+1. Core-0 native executable path.
+2. Egglog Core optimizer implementation using the Core/STG evaluators as oracle.
+3. Broader ADT and pattern-match Core support.
 
 Completed Haskell 2010 roadmap work:
 
@@ -72,6 +72,11 @@ Completed Haskell 2010 roadmap work:
   single-entry thunk closures, constructor closures, `let`/`letrec`, case
   demand, sharing, black-hole detection, Bool constructor dispatch, and checked
   primitive runtime errors.
+- Haskell 2010 Core-to-STG lowering MVP: implemented as a validating lowering
+  pass from typed Core-0 modules to STG, with Core type erasure, curried
+  function lowering, thunked non-atomic operands/intermediate applications,
+  `let`/`letrec`, Bool cases, primitive operations, and STG evaluator
+  preservation tests.
 
 ## Non-Negotiable Project Direction
 

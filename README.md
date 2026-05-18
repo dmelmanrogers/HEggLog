@@ -36,8 +36,8 @@ Planned for the Haskell 2010 target:
   first `Int`/`Bool` subset
 - Core-0 reference evaluator for validated typed Core
 - STG-like lazy IR and in-process runtime evaluator
+- Core-to-STG lowering for the first Core-0 subset
 - full Haskell 2010 class constraints and dictionaries
-- Core-to-STG lowering
 - Egglog optimizer over typed Core
 - runtime-linked LLVM/native executable output for `.hs` programs
 
@@ -109,7 +109,7 @@ Full documentation index:
 | Haskell 2010 typed Core | Implemented as a typed IR with validator, free-variable analysis, substitution, pretty-printer, and Core-0 source generation. |
 | Haskell 2010 Core-0 typechecker/desugarer | Implemented for explicit signatures, HM polymorphism, `Int`, `Bool`, top-level functions, lambdas, application, `let`, `if`, Bool `case`, and primitive arithmetic/comparison. |
 | Haskell 2010 Core-0 reference evaluator | Implemented for validating typed Core with lazy let/function argument thunks, erased Core type abstraction/application, Bool case execution, checked `Int` primitives, and structured runtime errors; not yet native executable compilation. |
-| Haskell 2010 STG/lazy runtime | Implemented as an isolated STG-like IR, validator, and pure heap evaluator with updateable/single-entry thunks, sharing, black-hole detection, constructor case dispatch, and checked primitives; Core-to-STG lowering and native runtime linking remain planned. |
+| Haskell 2010 STG/lazy runtime | Implemented as an isolated STG-like IR, validator, and pure heap evaluator with updateable/single-entry thunks, sharing, black-hole detection, constructor case dispatch, checked primitives, and Core-to-STG lowering for Core-0; native runtime linking remains planned. |
 | LLVM/native backend | Implemented for the current `.hg` supported subset. |
 | Egglog ANF backend | Implemented for the current `.hg` supported subset. |
 | Egglog Core optimizer | Planned for the Haskell 2010 Core pipeline. |

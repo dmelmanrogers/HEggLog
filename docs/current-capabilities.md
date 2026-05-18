@@ -70,9 +70,11 @@ thunks, Bool case evaluation, erased type abstraction/application, checked
 `Int` primitives, and structured runtime errors. An isolated STG-like IR,
 validator, and pure heap evaluator now model the lazy runtime MVP with
 updateable thunks, single-entry thunks, sharing, black-hole detection,
-constructor case dispatch, and checked primitives. Core-to-STG lowering, the
-native executable path, and executable conformance tests are not yet
-implemented for Haskell 2010.
+constructor case dispatch, and checked primitives. Core-to-STG lowering now
+translates validating Core-0 modules into validating STG while erasing Core
+type abstraction/application and preserving lazy semantics. The native
+executable path and executable conformance tests are not yet implemented for
+Haskell 2010.
 
 Current status:
 
@@ -91,7 +93,9 @@ Current status:
   validation, lazy lets/arguments, case demand, constructor dispatch, thunk
   sharing/update behavior, single-entry thunks, black-hole detection, and
   checked primitive errors
-- Core-to-STG lowering: planned
+- Core-to-STG lowering: implemented and unit-tested for Core-0 arithmetic,
+  polymorphic type erasure, Bool case, lazy lets/arguments, forced runtime
+  errors, and curried partial application
 - Haskell 2010 native executable path: planned
 - Haskell 2010 conformance suite: planned
 

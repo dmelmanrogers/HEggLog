@@ -39,6 +39,7 @@ import qualified Haskell2010.Parser as H2010Parser
 import qualified Haskell2010.Renamed as H2010Renamed
 import qualified Haskell2010.Renamer as H2010Renamer
 import qualified Haskell2010.STG.Eval as H2010STGEval
+import qualified Haskell2010.STG.Lower as H2010STGLower
 import qualified Haskell2010.STG.Syntax as H2010STG
 import qualified Haskell2010.STG.Validate as H2010STGValidate
 import qualified Haskell2010.Syntax as H2010
@@ -157,6 +158,17 @@ testGroups =
       , pureTest "single-entry thunks are not shared" testHaskell2010STGSingleEntryThunk
       , pureTest "reports recursive black holes" testHaskell2010STGBlackHole
       , pureTest "rejects unbound STG variables" testHaskell2010STGRejectsUnboundVariable
+      ]
+  , TestGroup
+      "Haskell 2010 Core-to-STG Lowering"
+      [ pureTest "lowers arithmetic Core-0 to valid STG" testHaskell2010CoreToSTGArithmetic
+      , pureTest "lowers polymorphic identity by erasing type applications" testHaskell2010CoreToSTGPolymorphicIdentity
+      , pureTest "preserves lazy let semantics" testHaskell2010CoreToSTGLazyLet
+      , pureTest "preserves lazy function argument semantics" testHaskell2010CoreToSTGLazyArgument
+      , pureTest "preserves Bool case semantics" testHaskell2010CoreToSTGBoolCase
+      , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
+      , pureTest "preserves curried partial application" testHaskell2010CoreToSTGPartialApplication
+      , pureTest "rejects invalid Core before lowering" testHaskell2010CoreToSTGRejectsInvalidCore
       ]
   , TestGroup
       "Typechecker"
@@ -1252,6 +1264,89 @@ testHaskell2010STGRejectsUnboundVariable =
  where
   isUnbound = \case
     H2010STGValidate.STGUnboundVariable {} -> True
+    _ -> False
+
+testHaskell2010CoreToSTGArithmetic :: Either String ()
+testHaskell2010CoreToSTGArithmetic =
+  checkCoreToSTGInt
+    "Core-to-STG arithmetic"
+    9
+    "module Lower where\n\
+    \main = (1 + 2) * 3\n"
+
+testHaskell2010CoreToSTGPolymorphicIdentity :: Either String ()
+testHaskell2010CoreToSTGPolymorphicIdentity =
+  checkCoreToSTGInt
+    "Core-to-STG polymorphic identity"
+    42
+    "module Lower where\n\
+    \id :: a -> a\n\
+    \id x = x\n\
+    \main = id 42\n"
+
+testHaskell2010CoreToSTGLazyLet :: Either String ()
+testHaskell2010CoreToSTGLazyLet =
+  checkCoreToSTGInt
+    "Core-to-STG lazy let"
+    5
+    "module Lower where\n\
+    \main = let\n\
+    \  x = 1 / 0\n\
+    \in 5\n"
+
+testHaskell2010CoreToSTGLazyArgument :: Either String ()
+testHaskell2010CoreToSTGLazyArgument =
+  checkCoreToSTGInt
+    "Core-to-STG lazy function argument"
+    1
+    "module Lower where\n\
+    \const :: a -> b -> a\n\
+    \const x y = x\n\
+    \main = const 1 (1 / 0)\n"
+
+testHaskell2010CoreToSTGBoolCase :: Either String ()
+testHaskell2010CoreToSTGBoolCase =
+  checkCoreToSTGInt
+    "Core-to-STG Bool case"
+    7
+    "module Lower where\n\
+    \main = case False of\n\
+    \  True -> 0\n\
+    \  False -> 7\n"
+
+testHaskell2010CoreToSTGDivisionByZero :: Either String ()
+testHaskell2010CoreToSTGDivisionByZero =
+  case
+    lowerAndEvalHaskell2010BindingRaw
+      "main"
+      "module Lower where\n\
+      \main = 1 / 0\n"
+    of
+      Left (Right H2010STGEval.STGEvalDivisionByZero) -> Right ()
+      Left err -> Left ("expected lowered STG division by zero, got: " <> show err)
+      Right value -> Left ("lowered division by zero evaluated unexpectedly: " <> show value)
+
+testHaskell2010CoreToSTGPartialApplication :: Either String ()
+testHaskell2010CoreToSTGPartialApplication =
+  checkCoreToSTGInt
+    "Core-to-STG curried partial application"
+    1
+    "module Lower where\n\
+    \const :: a -> b -> a\n\
+    \const x y = x\n\
+    \one = const 1\n\
+    \main = one (1 / 0)\n"
+
+testHaskell2010CoreToSTGRejectsInvalidCore :: Either String ()
+testHaskell2010CoreToSTGRejectsInvalidCore =
+  case H2010STGLower.lowerCoreExpr (H2010Core.CVar (coreTerm "missing" 5200) H2010Core.intTy) of
+    Left (H2010STGLower.STGLowerInvalidCore errors)
+      | any isUnbound errors -> Right ()
+    Left err -> Left ("expected invalid Core before STG lowering, got: " <> show err)
+    Right stgExpr -> Left ("invalid Core lowered unexpectedly: " <> show stgExpr)
+ where
+  isUnbound = \case
+    H2010CoreValidate.CoreUnboundVariable {} -> True
     _ -> False
 
 testHigherOrderType :: Either String ()
@@ -3893,6 +3988,34 @@ evalSTGBindingWithStats binding program =
   mapLeft
     (Text.unpack . H2010STGEval.renderSTGEvalError)
     (H2010STGEval.evalSTGProgramBindingByOccurrenceWithStats binding program)
+
+lowerHaskell2010ToSTG :: Text -> Either String H2010STG.STGProgram
+lowerHaskell2010ToSTG source = do
+  coreModule <-
+    mapLeft
+      (Text.unpack . H2010Typecheck.renderTypecheckError)
+      (typecheckHaskell2010Raw source)
+  mapLeft (Text.unpack . H2010STGLower.renderSTGLowerError) (H2010STGLower.lowerCoreModule coreModule)
+
+lowerAndEvalHaskell2010Binding :: Text -> Text -> Either String H2010STGEval.STGValue
+lowerAndEvalHaskell2010Binding binding source = do
+  stgProgram <- lowerHaskell2010ToSTG source
+  evalSTGBinding binding stgProgram
+
+lowerAndEvalHaskell2010BindingRaw ::
+  Text ->
+  Text ->
+  Either (Either String H2010STGEval.STGEvalError) H2010STGEval.STGValue
+lowerAndEvalHaskell2010BindingRaw binding source = do
+  stgProgram <- mapLeft Left (lowerHaskell2010ToSTG source)
+  mapLeft Right (H2010STGEval.evalSTGProgramBindingByOccurrence binding stgProgram)
+
+checkCoreToSTGInt :: String -> Integer -> Text -> Either String ()
+checkCoreToSTGInt label expected source = do
+  coreValue <- evalHaskell2010Binding "main" source
+  stgValue <- lowerAndEvalHaskell2010Binding "main" source
+  expectCoreEvalInt (label <> " Core oracle") expected coreValue
+  expectSTGInt (label <> " STG value") expected stgValue
 
 expectSTGInt :: String -> Integer -> H2010STGEval.STGValue -> Either String ()
 expectSTGInt label expected = \case

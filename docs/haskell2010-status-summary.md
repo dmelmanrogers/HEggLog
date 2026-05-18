@@ -31,7 +31,7 @@ implemented:
 - type classes and dictionary passing
 - Prelude/library subset
 - Haskell source desugaring beyond the Core-0 `Int`/`Bool` subset
-- Core-to-STG lowering and native lazy runtime path
+- native lazy runtime path
 - IO `main`
 - Haskell 2010 conformance suite
 
@@ -104,9 +104,20 @@ thunk closures, constructor closures, `let`/`letrec`, case demand,
 updateable-thunk sharing, single-entry thunk re-entry, black-hole detection,
 Bool constructor dispatch, and checked `Int` primitive runtime errors.
 
-This is not yet the native runtime system. Core-to-STG lowering, runtime C/LLVM
-closure layout, runtime linking, and Haskell 2010 native wet tests remain later
-work.
+This is not yet the native runtime system. Runtime C/LLVM closure layout,
+runtime linking, and Haskell 2010 native wet tests remain later work.
+
+## What Lowers To STG Today
+
+The Core-to-STG lowering path translates validating Core-0 modules into
+validating STG programs. It erases Core type abstraction/application, lowers
+Core lambdas as unary curried STG functions, wraps non-atomic operands and
+intermediate applications in thunks, preserves `let`/`letrec`, cases, Bool
+constructors, and primitive operations, and rejects invalid Core before
+lowering.
+
+Lowered STG currently runs through the in-process STG evaluator as the semantic
+check. It is not yet emitted as LLVM or linked into a native Haskell executable.
 
 ## First Haskell 2010 Implementation Milestones
 
@@ -116,9 +127,9 @@ work.
 4. Core-0 Haskell typechecker/desugarer integration. Completed.
 5. Core-0 reference evaluator. Completed.
 6. Lazy/STG runtime MVP. Completed.
-7. Core-to-STG lowering MVP.
+7. Core-to-STG lowering MVP. Completed.
 8. Core-0 native executable path.
-9. Egglog Core optimizer implementation using the Core evaluator as oracle.
+9. Egglog Core optimizer implementation using the Core/STG evaluators as oracle.
 
 ## Where Egglog Fits
 
@@ -140,5 +151,6 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Build Core-to-STG lowering while preserving the current `.hg` compiler,
-Core-0 reference evaluator, STG runtime MVP, and wet-test baseline.
+Build the Core-0 native executable path while preserving the current `.hg`
+compiler, Core-0 reference evaluator, STG runtime MVP, Core-to-STG lowering,
+and wet-test baseline.

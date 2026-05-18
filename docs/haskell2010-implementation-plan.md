@@ -49,6 +49,7 @@ Implemented STG modules:
 src/Haskell2010/STG/
   Syntax.hs
   Eval.hs
+  Lower.hs
   Validate.hs
 ```
 
@@ -56,7 +57,6 @@ Proposed STG modules:
 
 ```text
 src/Haskell2010/STG/
-  Lower.hs
   Pretty.hs
 ```
 
@@ -92,7 +92,7 @@ is built alongside them.
 6. Core evaluator. Completed.
 7. STG IR. Completed.
 8. Lazy runtime. Completed.
-9. Core-to-STG lowering.
+9. Core-to-STG lowering. Completed.
 10. STG-to-LLVM.
 11. ADTs/pattern matching.
 12. Recursion.

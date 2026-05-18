@@ -85,6 +85,7 @@ executable hegglog
       Haskell2010.Renamed
       Haskell2010.Renamer
       Haskell2010.STG.Eval
+      Haskell2010.STG.Lower
       Haskell2010.STG.Syntax
       Haskell2010.STG.Validate
       Haskell2010.Syntax
@@ -178,6 +179,7 @@ test-suite hegglog-test
       Haskell2010.Renamed
       Haskell2010.Renamer
       Haskell2010.STG.Eval
+      Haskell2010.STG.Lower
       Haskell2010.STG.Syntax
       Haskell2010.STG.Validate
       Haskell2010.Syntax

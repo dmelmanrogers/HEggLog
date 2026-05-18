@@ -449,11 +449,11 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. Core-to-STG lowering MVP.
-2. Core-0 native executable path.
-3. Egglog Core optimizer implementation using the Core evaluator as oracle.
-4. Broader ADT and pattern-match Core support.
-5. Prelude Bool/list/tuple runtime expansion.
+1. Core-0 native executable path.
+2. Egglog Core optimizer implementation using the Core/STG evaluators as oracle.
+3. Broader ADT and pattern-match Core support.
+4. Prelude Bool/list/tuple runtime expansion.
+5. Haskell 2010 native wet-test harness.
 
 Completed immediate tasks:
 
@@ -472,6 +472,10 @@ Completed immediate tasks:
   function closures, updateable and single-entry thunk closures, constructor
   closures, `let`/`letrec`, case demand, thunk sharing, black-hole detection,
   Bool constructor dispatch, and checked primitive runtime errors.
+- Haskell 2010 Core-to-STG lowering MVP, including validated Core-to-STG
+  translation, Core type-erasure, unary curried function lowering, thunked
+  non-atomic operands and intermediate applications, Bool case lowering, and
+  STG evaluator preservation tests.
 
 ## Non-Negotiable Rules
 

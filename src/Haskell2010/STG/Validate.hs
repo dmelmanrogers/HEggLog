@@ -9,6 +9,7 @@ module Haskell2010.STG.Validate
 where
 
 import Control.Applicative ((<|>))
+import Control.Monad (foldM)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -203,12 +204,19 @@ validateCalleeApplication scope callee arguments resultTy =
 
 validateApplication :: CoreType -> [CoreType] -> CoreType -> Either [STGValidationError] ()
 validateApplication fnTy argumentTypes resultTy =
-  go 0 fnTy argumentTypes
+  case fnTy of
+    CTyForall variables bodyTy
+      | instantiateMatches variables bodyTy expectedApplicationTy -> Right ()
+      | otherwise -> Left [STGAppArgumentMismatch 0 expectedApplicationTy fnTy]
+    _ -> go 0 fnTy argumentTypes
  where
+  expectedApplicationTy =
+    foldr CTyFun resultTy argumentTypes
+
   go _ currentTy [] =
     checkType currentTy resultTy
   go index (CTyFun expectedArgTy result) (actualArgTy : rest)
-    | expectedArgTy == actualArgTy = go (index + 1) result rest
+    | typesCompatible expectedArgTy actualArgTy = go (index + 1) result rest
     | otherwise = Left [STGAppArgumentMismatch index expectedArgTy actualArgTy]
   go _ nonFunction _ =
     Left [STGExpectedFunction nonFunction]
@@ -368,8 +376,84 @@ checkPrimitiveResult op expected actual
 
 checkType :: CoreType -> CoreType -> Either [STGValidationError] ()
 checkType expected actual
-  | expected == actual = Right ()
+  | typesCompatible expected actual = Right ()
   | otherwise = Left [STGTypeMismatch expected actual]
+
+typesCompatible :: CoreType -> CoreType -> Bool
+typesCompatible expected actual =
+  expected == actual
+    || case expected of
+      CTyForall variables bodyTy ->
+        instantiateMatches variables bodyTy actual
+      _ ->
+        False
+
+instantiateMatches :: [RName] -> CoreType -> CoreType -> Bool
+instantiateMatches variables expected actual =
+  case unifyTypes variableSet Map.empty expected actual of
+    Just _ -> True
+    Nothing -> False
+ where
+  variableSet =
+    Map.fromList [(variable, ()) | variable <- variables]
+
+unifyTypes ::
+  Map.Map RName () ->
+  Map.Map RName CoreType ->
+  CoreType ->
+  CoreType ->
+  Maybe (Map.Map RName CoreType)
+unifyTypes variables substitution expected actual =
+  case expected of
+    CTyVar name
+      | Map.member name variables ->
+          case Map.lookup name substitution of
+            Nothing -> Just (Map.insert name actual substitution)
+            Just assigned
+              | assigned == actual -> Just substitution
+              | otherwise -> Nothing
+    CTyVar name ->
+      case actual of
+        CTyVar actualName
+          | name == actualName -> Just substitution
+        _ -> Nothing
+    CTyCon name ->
+      case actual of
+        CTyCon actualName
+          | name == actualName -> Just substitution
+        _ -> Nothing
+    CTyApp expectedFn expectedArg ->
+      case actual of
+        CTyApp actualFn actualArg -> do
+          substAfterFn <- unifyTypes variables substitution expectedFn actualFn
+          unifyTypes variables substAfterFn expectedArg actualArg
+        _ -> Nothing
+    CTyFun expectedArg expectedResult ->
+      case actual of
+        CTyFun actualArg actualResult -> do
+          substAfterArg <- unifyTypes variables substitution expectedArg actualArg
+          unifyTypes variables substAfterArg expectedResult actualResult
+        _ -> Nothing
+    CTyForall expectedVariables expectedBody ->
+      case actual of
+        CTyForall actualVariables actualBody
+          | length expectedVariables == length actualVariables ->
+              unifyTypes variables substitution expectedBody actualBody
+        _ -> Nothing
+    CTyTuple expectedFields ->
+      case actual of
+        CTyTuple actualFields
+          | length expectedFields == length actualFields ->
+              foldM
+                (\subst (expectedField, actualField) -> unifyTypes variables subst expectedField actualField)
+                substitution
+                (zip expectedFields actualFields)
+        _ -> Nothing
+    CTyList expectedElement ->
+      case actual of
+        CTyList actualElement ->
+          unifyTypes variables substitution expectedElement actualElement
+        _ -> Nothing
 
 validateBinder :: STGBinder -> Either [STGValidationError] ()
 validateBinder binder
