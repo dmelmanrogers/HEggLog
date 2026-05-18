@@ -15,17 +15,20 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import IR.ANF.Resolved
+import Runtime.Int (IntError, mkHIntLiteral, renderIntError)
 import Syntax.AST
 import Syntax.Pretty (prettyBinOp, prettyName, prettyType, renderDoc)
 
 data FragmentError
   = UnsupportedLambda Binder
   | UnsupportedApplication TypedResolvedAtom TypedResolvedAtom
+  | UnsupportedDirectCall Name
   | UnsupportedPrimitive BinOp
   | UnsupportedType Type
   | AmbiguousFreeVariable Name
   | UnboundResolvedBinder Binder
   | TypeMismatch Type Type
+  | InvalidIntLiteral IntError
   deriving stock (Show, Eq, Ord)
 
 data TypedResolvedAtom = TypedResolvedAtom
@@ -119,6 +122,8 @@ inferExpr env expected = \case
     fnTyped <- inferAtom env Nothing fn
     argTyped <- inferAtom env Nothing arg
     Left (UnsupportedApplication fnTyped argTyped)
+  RCall callee _ ->
+    Left (UnsupportedDirectCall callee)
   RLet binder rhs body -> do
     rhsTyped <- inferExpr env Nothing rhs
     let env' = Map.insert (binderId binder) (typedExprType rhsTyped) env
@@ -130,21 +135,72 @@ inferPrim env op lhs rhs =
   case op of
     Add -> intPrim
     Mul -> intPrim
-    Sub -> Left (UnsupportedPrimitive Sub)
-    Div -> Left (UnsupportedPrimitive Div)
-    Eq -> Left (UnsupportedPrimitive Eq)
-    Lt -> Left (UnsupportedPrimitive Lt)
+    Sub -> intPrim
+    Div -> intPrim
+    Eq -> equalityPrim
+    Lt -> intComparisonPrim
  where
   intPrim = do
     lhsTyped <- inferAtom env (Just TInt) lhs
     rhsTyped <- inferAtom env (Just TInt) rhs
     pure (TRPrim TInt op lhsTyped rhsTyped)
 
+  intComparisonPrim = do
+    lhsTyped <- inferAtom env (Just TInt) lhs
+    rhsTyped <- inferAtom env (Just TInt) rhs
+    pure (TRPrim TBool op lhsTyped rhsTyped)
+
+  equalityPrim = do
+    lhsKnown <- inferAtomKnownType env lhs
+    rhsKnown <- inferAtomKnownType env rhs
+    ty <-
+      case (lhsKnown, rhsKnown) of
+        (Just lhsTy, Just rhsTy) -> do
+          assertType lhsTy rhsTy
+          pure lhsTy
+        (Just lhsTy, Nothing) ->
+          pure lhsTy
+        (Nothing, Just rhsTy) ->
+          pure rhsTy
+        (Nothing, Nothing) ->
+          Left (AmbiguousFreeVariable (firstFreeVariable lhs rhs))
+    case ty of
+      TInt -> pure ()
+      TBool -> pure ()
+      TFun {} -> Left (UnsupportedType ty)
+    lhsTyped <- inferAtom env (Just ty) lhs
+    rhsTyped <- inferAtom env (Just ty) rhs
+    pure (TRPrim TBool op lhsTyped rhsTyped)
+
+inferAtomKnownType :: TypeEnv -> ResolvedAtom -> Either FragmentError (Maybe Type)
+inferAtomKnownType env = \case
+  RInt n ->
+    case mkHIntLiteral n of
+      Right _ -> Right (Just TInt)
+      Left err -> Left (InvalidIntLiteral err)
+  RBool {} ->
+    Right (Just TBool)
+  RVar (BoundVar binder) ->
+    case Map.lookup (binderId binder) env of
+      Just ty -> Right (Just ty)
+      Nothing -> Left (UnboundResolvedBinder binder)
+  RVar (FreeVar {}) ->
+    Right Nothing
+
+firstFreeVariable :: ResolvedAtom -> ResolvedAtom -> Name
+firstFreeVariable lhs rhs =
+  case (lhs, rhs) of
+    (RVar (FreeVar name), _) -> name
+    (_, RVar (FreeVar name)) -> name
+    _ -> Name "<unknown>"
+
 inferAtom :: TypeEnv -> Maybe Type -> ResolvedAtom -> Either FragmentError TypedResolvedAtom
 inferAtom env expected atom =
   case atom of
-    RInt {} ->
-      withExpected TInt
+    RInt n ->
+      case mkHIntLiteral n of
+        Right _ -> withExpected TInt
+        Left err -> Left (InvalidIntLiteral err)
     RBool {} ->
       withExpected TBool
     RVar (BoundVar binder) ->
@@ -185,6 +241,8 @@ renderFragmentError = \case
     "unsupported lambda binder " <> renderBinderKey binder
   UnsupportedApplication fn arg ->
     "unsupported application: " <> Text.pack (show fn) <> " " <> Text.pack (show arg)
+  UnsupportedDirectCall name ->
+    "unsupported direct function call " <> renderDoc (prettyName name)
   UnsupportedPrimitive op ->
     "unsupported primitive " <> renderDoc (prettyBinOp op)
   UnsupportedType ty ->
@@ -195,3 +253,5 @@ renderFragmentError = \case
     "unbound resolved binder " <> renderBinderKey binder
   TypeMismatch expected actual ->
     "type mismatch: expected " <> renderDoc (prettyType expected) <> ", got " <> renderDoc (prettyType actual)
+  InvalidIntLiteral err ->
+    renderIntError err

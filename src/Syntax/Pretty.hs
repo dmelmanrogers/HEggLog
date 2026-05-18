@@ -3,6 +3,9 @@ module Syntax.Pretty
   , prettyType
   , prettyBinOp
   , prettyExpr
+  , prettyParam
+  , prettyProgram
+  , prettyTopDef
   , renderDoc
   )
 where
@@ -16,8 +19,10 @@ import Prettyprinter
   , defaultLayoutOptions
   , group
   , hardline
+  , hsep
   , layoutPretty
   , parens
+  , punctuate
   , (<+>)
   )
 import Prettyprinter.Render.Text (renderStrict)
@@ -41,6 +46,32 @@ prettyBinOp = \case
   Div -> "/"
   Eq -> "=="
   Lt -> "<"
+
+prettyParam :: Param -> Doc ann
+prettyParam (Param name ty) =
+  prettyName name <+> ":" <+> prettyType ty
+
+prettyTopDef :: TopDef -> Doc ann
+prettyTopDef topDef =
+  group $
+    align $
+      "def"
+        <+> prettyName (topDefName topDef)
+        <> parens (hsep (punctuate "," (map prettyParam (topDefParams topDef))))
+        <+> ":"
+        <+> prettyType (topDefReturnType topDef)
+        <+> "="
+        <+> prettyExpr (topDefBody topDef)
+        <> ";"
+
+prettyProgram :: Program -> Doc ann
+prettyProgram program =
+  case programDefs program of
+    [] ->
+      prettyExpr (programMain program)
+    defs ->
+      mconcat [prettyTopDef def <> hardline | def <- defs]
+        <> prettyExpr (programMain program)
 
 prettyExpr :: Expr -> Doc ann
 prettyExpr = go 0

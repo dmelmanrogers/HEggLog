@@ -17,6 +17,7 @@ import qualified Data.Text as Text
 import IR.ANF
 import IR.ANF.Validate
 import Optimize.Rewrite
+import Runtime.Int (addHInt, hintToInteger, mkHIntLiteral, mulHInt, subHInt)
 import Syntax.AST
 
 data AppliedRewrite = AppliedRewrite
@@ -88,6 +89,8 @@ simplifyChildren facts = \case
     pure (ALam name argType bodyOptimized, trace)
   AApp fn arg ->
     pure (AApp fn arg, [])
+  ACall callee args ->
+    pure (ACall callee args, [])
   ALet name rhs body -> do
     (rhsOptimized, rhsTrace) <- simplifyExpr facts rhs
     (bodyOptimized, bodyTrace) <- simplifyExpr facts body
@@ -212,16 +215,19 @@ constantFoldRule op =
     }
 
 foldIntegerPrim :: BinOp -> Integer -> Integer -> Maybe AExpr
-foldIntegerPrim op lhs rhs =
+foldIntegerPrim op lhs rhs = do
+  lhsInt <- either (const Nothing) Just (mkHIntLiteral lhs)
+  rhsInt <- either (const Nothing) Just (mkHIntLiteral rhs)
   case op of
-    Add -> Just (AAtom (AInt (lhs + rhs)))
-    Sub -> Just (AAtom (AInt (lhs - rhs)))
-    Mul -> Just (AAtom (AInt (lhs * rhs)))
-    Div
-      | rhs /= 0 -> Just (AAtom (AInt (lhs `div` rhs)))
-      | otherwise -> Nothing
+    Add -> foldChecked (addHInt lhsInt rhsInt)
+    Sub -> foldChecked (subHInt lhsInt rhsInt)
+    Mul -> foldChecked (mulHInt lhsInt rhsInt)
+    Div -> Nothing
     Eq -> Nothing
     Lt -> Nothing
+ where
+  foldChecked result =
+    AAtom . AInt . hintToInteger <$> either (const Nothing) Just result
 
 renderAppliedRewrites :: [AppliedRewrite] -> Text
 renderAppliedRewrites [] =

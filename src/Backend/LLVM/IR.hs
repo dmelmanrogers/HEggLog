@@ -1,5 +1,6 @@
 module Backend.LLVM.IR
   ( LLVMBlock (..)
+  , LLVMCallTarget (..)
   , LLVMFunction (..)
   , LLVMGlobal (..)
   , LLVMInstruction (..)
@@ -25,6 +26,7 @@ data LLVMType
   | LI8
   | LPtr
   | LArray Int LLVMType
+  | LStruct [LLVMType]
   | LVoid
   deriving stock (Show, Eq, Ord)
 
@@ -32,6 +34,12 @@ data LLVMOperand
   = OLocal LLVMType Register
   | OGlobal LLVMType Text
   | OConstInt LLVMType Integer
+  | OConstNull
+  deriving stock (Show, Eq, Ord)
+
+data LLVMCallTarget
+  = DirectCall Text
+  | IndirectCall LLVMOperand
   deriving stock (Show, Eq, Ord)
 
 data LLVMPredicate
@@ -43,10 +51,14 @@ data LLVMInstruction
   = IAdd Register LLVMType LLVMOperand LLVMOperand
   | ISub Register LLVMType LLVMOperand LLVMOperand
   | IMul Register LLVMType LLVMOperand LLVMOperand
+  | IDiv Register LLVMType LLVMOperand LLVMOperand
   | IIcmp Register LLVMPredicate LLVMType LLVMOperand LLVMOperand
   | IZext Register LLVMOperand LLVMType
   | IGetElementPtr Register LLVMType LLVMOperand [(LLVMType, LLVMOperand)]
-  | ICall (Maybe Register) LLVMType Text Bool [(LLVMType, LLVMOperand)]
+  | ILoad Register LLVMType LLVMOperand
+  | IStore LLVMType LLVMOperand LLVMOperand
+  | ICall (Maybe Register) LLVMType LLVMCallTarget Bool [(LLVMType, LLVMOperand)]
+  | IExtractValue Register LLVMType LLVMOperand Int
   | IPhi Register LLVMType [(LLVMOperand, Text)]
   deriving stock (Show, Eq, Ord)
 
@@ -54,6 +66,7 @@ data LLVMTerminator
   = TRet LLVMType LLVMOperand
   | TBr Text
   | TCondBr LLVMOperand Text Text
+  | TUnreachable
   deriving stock (Show, Eq, Ord)
 
 data LLVMBlock = LLVMBlock
@@ -66,6 +79,7 @@ data LLVMBlock = LLVMBlock
 data LLVMFunction = LLVMFunction
   { functionName :: Text
   , functionReturnType :: LLVMType
+  , functionParams :: [(LLVMType, Register)]
   , functionBlocks :: [LLVMBlock]
   }
   deriving stock (Show, Eq, Ord)
@@ -89,3 +103,4 @@ operandType = \case
   OLocal ty _ -> ty
   OGlobal ty _ -> ty
   OConstInt ty _ -> ty
+  OConstNull -> LPtr

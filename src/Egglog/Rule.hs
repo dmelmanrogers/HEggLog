@@ -4,10 +4,13 @@ module Egglog.Rule
   , QueryAtom (..)
   , Rule (..)
   , relationFact
+  , renderAction
   , rewrite
   )
 where
 
+import Data.Text (Text)
+import qualified Data.Text as Text
 import Egglog.Function
 import Egglog.Pattern
 import Egglog.Sort
@@ -42,6 +45,19 @@ data Program = Program
 relationFact :: FunctionName -> [Value] -> Action
 relationFact name args =
   ASet name (map PValue args) (PValue VUnit)
+
+renderAction :: Action -> Text
+renderAction = \case
+  ASet name args out ->
+    "set " <> renderFunctionName name <> renderArgs args <> " = " <> renderPattern out
+  AUnion lhs rhs ->
+    "union " <> renderPattern lhs <> " = " <> renderPattern rhs
+  AAssert name args ->
+    "assert " <> renderFunctionName name <> renderArgs args
+
+renderArgs :: [Pattern] -> Text
+renderArgs args =
+  "(" <> Text.intercalate ", " (map renderPattern args) <> ")"
 
 rewrite :: FunctionName -> Sort -> Pattern -> Pattern -> Rule
 rewrite name sort lhs rhs =

@@ -2,6 +2,7 @@ module IR.ANF.Validate
   ( ANFValidationError (..)
   , renderANFValidationError
   , validateANF
+  , validateANFProgram
   , validateANFWithFreeVars
   )
 where
@@ -17,8 +18,11 @@ import Syntax.Pretty (prettyName, renderDoc)
 
 data ANFValidationError
   = UnboundVariable Name
+  | UnboundFunction Name
   | DuplicateGeneratedTemp Name
   | GeneratedTempShadowed Name
+  | DuplicateANFFunction Name
+  | DuplicateANFParameter Name
   deriving stock (Show, Eq, Ord)
 
 -- The ANF data type enforces atomic primitive/application operands at the type
@@ -31,10 +35,40 @@ validateANF =
 validateANFWithFreeVars :: Set.Set Name -> AExpr -> Either ANFValidationError ()
 validateANFWithFreeVars allowedFreeVars expression = do
   validateGeneratedTemps expression
-  validateExpr allowedFreeVars expression
+  validateExpr Set.empty allowedFreeVars expression
 
-validateExpr :: Set.Set Name -> AExpr -> Either ANFValidationError ()
-validateExpr bound = \case
+validateANFProgram :: AProgram -> Either ANFValidationError ()
+validateANFProgram (AProgram defs mainExpr) = do
+  let functionNames = map anfFunctionName defs
+      functionSet = Set.fromList functionNames
+  case duplicates functionNames of
+    name : _ -> Left (DuplicateANFFunction name)
+    [] -> Right ()
+  validateFunctions Set.empty defs
+  validateGeneratedTemps mainExpr
+  validateExpr functionSet Set.empty mainExpr
+
+validateFunctions :: Set.Set Name -> [AFun] -> Either ANFValidationError ()
+validateFunctions _ [] =
+  Right ()
+validateFunctions available (function@(AFun name _ _ _) : rest) = do
+  validateFunction available function
+  validateFunctions (Set.insert name available) rest
+
+validateFunction :: Set.Set Name -> AFun -> Either ANFValidationError ()
+validateFunction functionSet (AFun _ params _ body) = do
+  case duplicates (map paramName params) of
+    name : _ -> Left (DuplicateANFParameter name)
+    [] -> Right ()
+  validateGeneratedTemps body
+  validateExpr functionSet (Set.fromList (map paramName params)) body
+
+anfFunctionName :: AFun -> Name
+anfFunctionName (AFun name _ _ _) =
+  name
+
+validateExpr :: Set.Set Name -> Set.Set Name -> AExpr -> Either ANFValidationError ()
+validateExpr functions bound = \case
   AAtom atom ->
     validateAtom bound atom
   APrim _ lhs rhs -> do
@@ -42,16 +76,21 @@ validateExpr bound = \case
     validateAtom bound rhs
   AIf cond thenBranch elseBranch -> do
     validateAtom bound cond
-    validateExpr bound thenBranch
-    validateExpr bound elseBranch
+    validateExpr functions bound thenBranch
+    validateExpr functions bound elseBranch
   ALam name _ body ->
-    validateExpr (Set.insert name bound) body
+    validateExpr functions (Set.insert name bound) body
   AApp fn arg -> do
     validateAtom bound fn
     validateAtom bound arg
+  ACall callee args -> do
+    if callee `Set.member` functions
+      then Right ()
+      else Left (UnboundFunction callee)
+    mapM_ (validateAtom bound) args
   ALet name rhs body -> do
-    validateExpr bound rhs
-    validateExpr (Set.insert name bound) body
+    validateExpr functions bound rhs
+    validateExpr functions (Set.insert name bound) body
 
 validateAtom :: Set.Set Name -> Atom -> Either ANFValidationError ()
 validateAtom bound = \case
@@ -87,6 +126,8 @@ checkNoGeneratedTempShadowing =
       go (Set.insert name inScope) body
     AApp {} ->
       Right ()
+    ACall {} ->
+      Right ()
     ALet name rhs body -> do
       go inScope rhs
       rejectShadow name inScope
@@ -111,6 +152,8 @@ boundNames = \case
     name : boundNames body
   AApp {} ->
     []
+  ACall {} ->
+    []
   ALet name rhs body ->
     name : boundNames rhs <> boundNames body
 
@@ -133,7 +176,13 @@ renderANFValidationError :: ANFValidationError -> Text
 renderANFValidationError = \case
   UnboundVariable name ->
     "unbound variable in ANF: " <> renderDoc (prettyName name)
+  UnboundFunction name ->
+    "unbound function in ANF: " <> renderDoc (prettyName name)
   DuplicateGeneratedTemp name ->
     "duplicate generated ANF temporary: " <> renderDoc (prettyName name)
   GeneratedTempShadowed name ->
     "generated ANF temporary was shadowed: " <> renderDoc (prettyName name)
+  DuplicateANFFunction name ->
+    "duplicate ANF function: " <> renderDoc (prettyName name)
+  DuplicateANFParameter name ->
+    "duplicate ANF function parameter: " <> renderDoc (prettyName name)

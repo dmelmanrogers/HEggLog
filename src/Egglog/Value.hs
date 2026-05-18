@@ -2,20 +2,24 @@ module Egglog.Value
   ( ConstBool (..)
   , ConstInt (..)
   , Value (..)
+  , ZeroInfo (..)
   , joinConstBool
   , joinConstInt
+  , joinZeroInfo
   , renderValue
   , valueSort
+  , zeroInfoFromInteger
   )
 where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Egglog.Sort
+import Runtime.Int (HInt, renderHInt)
 
 data ConstInt
   = UnknownInt
-  | KnownInt Integer
+  | KnownInt HInt
   | ConflictInt
   deriving stock (Show, Eq, Ord)
 
@@ -25,12 +29,20 @@ data ConstBool
   | ConflictBool
   deriving stock (Show, Eq, Ord)
 
+data ZeroInfo
+  = UnknownZeroInfo
+  | KnownZero
+  | KnownNonZero
+  | ConflictZeroInfo
+  deriving stock (Show, Eq, Ord)
+
 data Value
   = VId SortName Id
   | VInt Integer
   | VBool Bool
   | VConstInt ConstInt
   | VConstBool ConstBool
+  | VZeroInfo ZeroInfo
   | VUnit
   | VString Text
   deriving stock (Show, Eq, Ord)
@@ -42,6 +54,7 @@ valueSort = \case
   VBool _ -> SBool
   VConstInt _ -> SConstInt
   VConstBool _ -> SConstBool
+  VZeroInfo _ -> SZeroInfo
   VUnit -> SUnit
   VString _ -> SString
 
@@ -67,6 +80,24 @@ joinConstBool lhs rhs =
       | a == b -> KnownBool a
       | otherwise -> ConflictBool
 
+joinZeroInfo :: ZeroInfo -> ZeroInfo -> ZeroInfo
+joinZeroInfo lhs rhs =
+  case (lhs, rhs) of
+    (ConflictZeroInfo, _) -> ConflictZeroInfo
+    (_, ConflictZeroInfo) -> ConflictZeroInfo
+    (UnknownZeroInfo, value) -> value
+    (value, UnknownZeroInfo) -> value
+    (KnownZero, KnownZero) -> KnownZero
+    (KnownNonZero, KnownNonZero) -> KnownNonZero
+    (KnownZero, KnownNonZero) -> ConflictZeroInfo
+    (KnownNonZero, KnownZero) -> ConflictZeroInfo
+
+zeroInfoFromInteger :: Integer -> ZeroInfo
+zeroInfoFromInteger 0 =
+  KnownZero
+zeroInfoFromInteger _ =
+  KnownNonZero
+
 renderValue :: Value -> Text
 renderValue = \case
   VId sortName ident ->
@@ -80,7 +111,7 @@ renderValue = \case
   VConstInt UnknownInt ->
     "UnknownInt"
   VConstInt (KnownInt n) ->
-    "KnownInt(" <> Text.pack (show n) <> ")"
+    "KnownInt(" <> renderHInt n <> ")"
   VConstInt ConflictInt ->
     "ConflictInt"
   VConstBool UnknownBool ->
@@ -91,6 +122,14 @@ renderValue = \case
     "KnownBool(false)"
   VConstBool ConflictBool ->
     "ConflictBool"
+  VZeroInfo UnknownZeroInfo ->
+    "UnknownZeroInfo"
+  VZeroInfo KnownZero ->
+    "KnownZero"
+  VZeroInfo KnownNonZero ->
+    "KnownNonZero"
+  VZeroInfo ConflictZeroInfo ->
+    "ConflictZeroInfo"
   VUnit ->
     "()"
   VString text ->

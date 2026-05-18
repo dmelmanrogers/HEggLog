@@ -9,7 +9,8 @@ import qualified Backend.LLVM.Toolchain as LLVMTools
 import qualified Backend.LLVM.Validate as LV
 import qualified Backend.Lower as BL
 import qualified Backend.Validate as BV
-import CLI.Report (compileReport, renderGoldenReport)
+import qualified CLI.Compile as CompileCLI
+import CLI.Report (CompileError (..), CompileReport (..), compileReport, renderCompileError, renderGoldenReport)
 import Control.Monad (unless)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -26,7 +27,7 @@ import qualified Egglog.Rule as ER
 import qualified Egglog.Sort as ES
 import qualified Egglog.Value as EV
 import Eval.ANFInterpreter (ANFValue (..), evalANF)
-import Eval.Interpreter (Value (..), eval, renderRuntimeError)
+import Eval.Interpreter (RuntimeError (..), Value (..), eval, evalProgram, renderRuntimeError, renderValue)
 import IR.ANF
 import qualified IR.ANF.Resolved as RANF
 import IR.ANF.Validate
@@ -43,13 +44,17 @@ import Optimize.Rewrite
   , matchRewriteRule
   )
 import Optimize.Simplify
+import Runtime.Int (HInt, IntError (IntOverflow), hintToInteger, maxHIntInteger, minHIntInteger, unsafeHIntLiteral)
 import Syntax.AST
-import Syntax.Parser (parseProgram)
+import Syntax.Parser (parseProgram, parseSourceProgram)
+import Syntax.Span (SourceSpan (..))
+import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
 import Test.QuickCheck hiding (NonZero, label)
 import Text.Megaparsec (errorBundlePretty)
-import Typecheck.Infer (infer)
-import Typecheck.Types (TypeError (..), renderTypeError)
+import Typecheck.Infer (infer, inferProgram)
+import qualified Typecheck.Principal as Principal
+import Typecheck.Types (LocatedTypeError (..), TypeError (..), renderTypeError)
 
 data TestGroup = TestGroup String [Test]
 
@@ -75,10 +80,24 @@ testGroups =
       "Parser"
       [ pureTest "application binds tighter than addition" testApplicationPrecedence
       , pureTest "parentheses group application arguments" testParenthesizedArgument
+      , pureTest "top-level function program parses" testTopLevelFunctionParsing
       ]
   , TestGroup
       "Typechecker"
       [ pureTest "higher-order lambda annotation parses and types" testHigherOrderType
+      , pureTest "optional lambda parameter infers Int" testOptionalLambdaParameterInference
+      , pureTest "optional lambda equality waits for context" testOptionalLambdaEqualityContext
+      , pureTest "optional lambda parameter resolves through let use" testOptionalLambdaLetUse
+      , pureTest "optional lambda let remains monomorphic" testOptionalLambdaLetMonomorphic
+      , pureTest "optional lambda ambiguity is source-spanned" testOptionalLambdaAmbiguity
+      , pureTest "principal type engine infers annotated identity" testPrincipalIdentityType
+      , pureTest "principal type engine infers higher-order closures" testPrincipalHigherOrderType
+      , pureTest "principal type engine preserves monomorphic lets" testPrincipalMonomorphicLet
+      , pureTest "top-level function program types" testTopLevelFunctionTypecheck
+      , pureTest "top-level duplicate function names fail" testTopLevelDuplicateFunctionName
+      , pureTest "top-level duplicate parameters fail" testTopLevelDuplicateParameter
+      , pureTest "top-level forward calls fail" testTopLevelForwardCall
+      , pureTest "top-level function-typed parameters fail" testTopLevelFunctionParameter
       , ioTest "addition rejects Bool" $
           checkTypeError "examples/type-errors/add-bool.hg" (ExpectedIntOperand Add TBool)
       , ioTest "if condition rejects Int" $
@@ -89,12 +108,28 @@ testGroups =
           checkTypeError "examples/type-errors/apply-non-function.hg" (ExpectedFunction TInt)
       , ioTest "let Bool arithmetic fails" $
           checkTypeError "examples/type-errors/let-bool-arithmetic.hg" (ExpectedIntOperand Add TBool)
+      , pureTest "out-of-range Int literal fails" testOutOfRangeIntLiteralTypeError
+      ]
+  , TestGroup
+      "Diagnostics"
+      [ pureTest "parser diagnostics include source location" testParserDiagnosticIncludesLocation
+      , ioTest "type error diagnostic golden" $
+          checkDiagnosticGolden "examples/type-errors/add-bool.hg" "test/golden/diagnostic-type-add-bool.golden"
+      , ioTest "LLVM unsupported diagnostic golden" $
+          checkLLVMDiagnosticGolden "\\x : Int -> x" "test/golden/diagnostic-llvm-lambda.golden"
+      ]
+  , TestGroup
+      "CLI"
+      [ pureTest "compile flags select LLVM and native output modes" testCompileFlagsOutputModes
+      , pureTest "compile flags reject invalid run combinations" testCompileFlagsRejectInvalidRunModes
       ]
   , TestGroup
       "Interpreter"
-      [ pureTest "inc example evaluates" (checkProgram incSource TInt (VInt 42))
-      , pureTest "add example evaluates" (checkProgram addSource TInt (VInt 7))
-      , pureTest "higher-order example evaluates" (checkProgram higherOrderSource TInt (VInt 42))
+      [ pureTest "inc example evaluates" (checkProgram incSource TInt (sourceInt 42))
+      , pureTest "add example evaluates" (checkProgram addSource TInt (sourceInt 7))
+      , pureTest "higher-order example evaluates" (checkProgram higherOrderSource TInt (sourceInt 42))
+      , pureTest "top-level direct calls evaluate" testTopLevelFunctionEvaluation
+      , pureTest "checked Int addition overflow fails" testInterpreterIntOverflow
       , ioTest "source and ANF evaluation agree for examples" testExampleSemanticPreservation
       ]
   , TestGroup
@@ -102,10 +137,13 @@ testGroups =
       [ pureTest "atomizes nested arithmetic" testANFNestedArithmetic
       , pureTest "fresh names are deterministic" testDeterministicFreshNames
       , pureTest "atomizes application arguments" testApplicationAtomization
+      , pureTest "lowers top-level calls as direct calls" testTopLevelDirectCallANF
+      , pureTest "lambda lifting creates direct-call ANF" testLambdaLiftANF
       , pureTest "preserves lambdas" testLambdaPreservation
       , ioTest "validator accepts lowered examples" testValidateLoweredExamples
       , pureTest "validator reports unbound variables" testValidatorUnboundVariable
       , pureTest "validator reports duplicate generated temps" testValidatorDuplicateGeneratedTemp
+      , pureTest "program validator reports duplicate function parameters" testValidatorDuplicateFunctionParameter
       ]
   , TestGroup
       "Facts"
@@ -129,6 +167,7 @@ testGroups =
           checkSimplifies "let x = 7 in 0 * x" (ALet xName (AAtom (AInt 7)) (AAtom (AInt 0))) "mul-left-zero"
       , pureTest "constant folding simplifies integer arithmetic" $
           checkSimplifies "1 + 2" (AAtom (AInt 3)) "constant-fold-add"
+      , pureTest "constant folding preserves overflowing arithmetic" testSimplifierDoesNotFoldOverflow
       , pureTest "if true selects then branch" $
           checkSimplifies "if true then 1 else 2" (AAtom (AInt 1)) "if-true"
       , pureTest "if false selects else branch" $
@@ -181,6 +220,11 @@ testGroups =
       , pureTest "MergeUnion can trigger additional rebuild work" testEgglogRebuildMergeUnion
       , pureTest "single-premise rule" testEgglogSinglePremiseRule
       , pureTest "multi-premise join" testEgglogMultiPremiseJoin
+      , pureTest "join planner respects computed dependencies" testEgglogJoinPlannerRespectsDependencies
+      , pureTest "join planner uses stable relation-size order" testEgglogJoinPlannerUsesStableCostOrder
+      , pureTest "semi-naive matches naive transitive closure" testEgglogSemiNaiveMatchesNaiveTransitiveClosure
+      , pureTest "semi-naive preserves compiler backend result" testEgglogSemiNaivePreservesCompilerBackend
+      , pureTest "debug log records rule action provenance" testEgglogDebugTraceRecordsRuleAction
       , pureTest "variable binding correctness" testEgglogVariableBinding
       , pureTest "typed mismatch failure" testEgglogTypedMismatchFailure
       , pureTest "action application" testEgglogActionApplication
@@ -196,6 +240,8 @@ testGroups =
       , pureTest "Egglog backend rejects unsupported lambdas" testEgglogBackendUnsupportedLambda
       , pureTest "ConstInt lattice merges same constants" testEgglogConstIntMergeSame
       , pureTest "ConstInt lattice detects conflicts" testEgglogConstIntMergeConflict
+      , pureTest "ZeroInfo lattice refines unknown values" testEgglogZeroInfoMergeUnknown
+      , pureTest "ZeroInfo lattice detects conflicts" testEgglogZeroInfoMergeConflict
       , pureTest "resolved ANF simple let binds locally" testResolvedANFSimpleLet
       , pureTest "resolved ANF distinguishes shadowed binders" testResolvedANFShadowing
       , pureTest "resolved ANF final shadowed reference is inner" testResolvedANFInnerShadowReference
@@ -203,6 +249,9 @@ testGroups =
       , pureTest "resolved ANF dependency graph tracks let RHS references" testResolvedANFDependencyGraph
       , pureTest "resolved ANF renderer shows binder ids" testResolvedANFRenderer
       , pureTest "Egglog fragment accepts if expressions" testEgglogFragmentAcceptsIf
+      , pureTest "Egglog fragment accepts comparisons" testEgglogFragmentAcceptsComparisons
+      , pureTest "Egglog fragment accepts subtraction" testEgglogFragmentAcceptsSubtraction
+      , pureTest "Egglog fragment accepts division" testEgglogFragmentAcceptsDivision
       , pureTest "Egglog fragment rejects mismatched if branches" testEgglogFragmentRejectsIfMismatch
       , pureTest "Egglog fragment rejects inconsistent free variable types" testEgglogFragmentRejectsInconsistentFreeVariableTypes
       , pureTest "Egglog encoding uses distinct typed sorts" testEgglogEncodingDistinctTypedSorts
@@ -212,19 +261,35 @@ testGroups =
       , pureTest "Egglog encoding asserts let equality" testEgglogEncodingLetEquality
       , pureTest "Egglog rules derive constant facts in kernel" testEgglogRulesDeriveConstFacts
       , pureTest "Egglog rules make constant fold equality" testEgglogRulesConstantFoldEquality
-      , pureTest "Egglog rules handle multiplication identities" testEgglogRulesMultiplicationIdentities
+      , pureTest "Egglog rules handle strict-safe multiplication identities" testEgglogRulesMultiplicationIdentities
       , pureTest "Egglog rules simplify if true" testEgglogRulesIfTrue
       , pureTest "Egglog rules simplify fact-driven if" testEgglogRulesFactDrivenIf
+      , pureTest "Egglog rules simplify strict-safe booleans" testEgglogRulesStrictSafeBooleans
+      , pureTest "Egglog rules derive zero information" testEgglogRulesDeriveZeroInfo
+      , pureTest "Egglog rules derive comparison facts" testEgglogRulesDeriveComparisonFacts
+      , pureTest "Egglog rules derive subtraction facts" testEgglogRulesDeriveSubtractionFacts
+      , pureTest "Egglog rules derive safe division facts" testEgglogRulesDeriveDivisionFacts
+      , pureTest "Egglog rules avoid unsafe division facts" testEgglogRulesAvoidUnsafeDivisionFacts
       , pureTest "Egglog default rules exclude distributivity" testEgglogRulesExcludeDistributivity
       , pureTest "Egglog backend preserves shadowing semantics" testEgglogBackendShadowing
       , pureTest "Egglog backend preserves retained let dependencies" testEgglogBackendLetRetention
       , pureTest "Egglog backend can drop dead lets" testEgglogBackendDeadLet
       , pureTest "Egglog backend simplifies if true" testEgglogBackendIfTrue
-      , pureTest "Egglog backend simplifies same branches" testEgglogBackendIfSameBranches
+      , pureTest "Egglog backend preserves same branches" testEgglogBackendIfSameBranches
       , pureTest "Egglog backend folds constants through Egglog facts" testEgglogBackendConstFacts
+      , pureTest "Egglog backend folds comparison constants" testEgglogBackendComparisonConstFacts
+      , pureTest "Egglog backend optimizes open comparisons" testEgglogBackendOpenComparisonFragment
+      , pureTest "Egglog backend folds checked subtraction constants" testEgglogBackendSubtractionConstFacts
+      , pureTest "Egglog backend reconstructs open subtraction" testEgglogBackendOpenSubtractionFragment
+      , pureTest "Egglog backend folds checked division constants" testEgglogBackendDivisionConstFacts
+      , pureTest "Egglog backend reconstructs open division" testEgglogBackendOpenDivisionFragment
+      , pureTest "Egglog backend optimizes strict-safe booleans" testEgglogBackendStrictSafeBooleans
+      , pureTest "Egglog backend preserves strict runtime-error dependencies" testEgglogBackendPreservesStrictRuntimeErrors
+      , pureTest "Egglog Int constants do not fold overflow" testEgglogDoesNotFoldOverflowingInt
       , pureTest "Egglog backend optimizes open free-variable fragments" testEgglogBackendOpenFreeVariableFragment
       , pureTest "Egglog backend rejects applications structurally" testEgglogBackendUnsupportedApplication
       , pureTest "Egglog backend extraction is deterministic" testEgglogBackendDeterministic
+      , pureTest "Egglog backend exposes extraction provenance" testEgglogBackendExtractionProvenance
       , pureTest "Egglog backend preserves boolean branches" testEgglogBackendBooleanBranchPreservation
       , pureTest "Egglog tryOptimize reports unsupported lambdas" testEgglogTryOptimizeUnsupportedLambda
       , pureTest "ordinary compiler still handles unsupported lambdas" testOrdinaryPipelineHandlesUnsupportedLambda
@@ -233,17 +298,31 @@ testGroups =
   , TestGroup
       "LLVM"
       [ pureTest "Backend IR validates supported arithmetic" testLLVMBackendValidArithmetic
+      , pureTest "Backend IR validates Int division" testLLVMBackendValidDivision
       , pureTest "Backend IR validation rejects unbound variables" testLLVMBackendValidationRejectsUnbound
       , pureTest "Backend IR validation rejects invalid if conditions" testLLVMBackendValidationRejectsBadIf
+      , pureTest "Backend IR validation rejects Bool division" testLLVMBackendValidationRejectsBoolDivision
       , pureTest "LLVM backend rejects lambdas structurally" testLLVMLowerRejectsLambda
       , pureTest "LLVM backend rejects applications structurally" testLLVMLowerRejectsApplication
       , pureTest "LLVM backend rejects open programs" testLLVMLowerRejectsOpenProgram
-      , pureTest "LLVM backend rejects unsupported division" testLLVMLowerRejectsDivision
+      , pureTest "LLVM compiler lowers checked division" testLLVMLoweringCheckedDivision
       , pureTest "LLVM lowering emits deterministic phi blocks" testLLVMLoweringNestedIf
       , pureTest "LLVM validator rejects duplicate SSA registers" testLLVMValidatorRejectsDuplicateRegisters
       , pureTest "LLVM validator rejects missing block references" testLLVMValidatorRejectsMissingBlock
       , pureTest "LLVM compiler falls back when Egglog is unsupported" testLLVMCompileEgglogFallback
       , pureTest "LLVM compiler can use Egglog optimized ANF" testLLVMCompileUsesEgglog
+      , pureTest "LLVM compiler emits top-level direct calls" testLLVMCompileTopLevelFunctions
+      , pureTest "LLVM compiler rejects top-level function values" testLLVMCompileRejectsTopLevelFunctionValue
+      , pureTest "LLVM compiler escapes top-level names without collisions" testLLVMCompileEscapesTopLevelNames
+      , pureTest "LLVM compiler lambda lifts non-capturing lets" testLLVMCompileLiftedLetLambda
+      , pureTest "LLVM compiler lambda lifts immediate lambdas" testLLVMCompileImmediateLambda
+      , pureTest "LLVM compiler closure-converts capturing lambdas" testLLVMCompileCapturingLambda
+      , pureTest "LLVM compiler closure-converts inferred capturing lambdas" testLLVMCompileInferredCapturingLambda
+      , ioTest "native build reports missing clang structurally" testNativeBuildToolchainMissing
+      , ioTest "native executable output matches interpreter when clang is available" testNativeExecutionMatchesInterpreter
+      , ioTest "native executable runtime errors fail when clang is available" testNativeRuntimeErrorExecutable
+      , ioTest "LLVM checked Int overflow aborts when tools are available" testLLVMOverflowAborts
+      , ioTest "LLVM checked division runs and aborts when tools are available" testLLVMDivisionExecution
       , ioTest "LLVM arithmetic golden" $
           checkLLVMGolden "examples/llvm/arithmetic.hg" "test/golden/llvm-arithmetic.ll"
       , ioTest "LLVM if comparison golden" $
@@ -251,6 +330,7 @@ testGroups =
       , ioTest "LLVM bool root golden" $
           checkLLVMGolden "examples/llvm/bool-root.hg" "test/golden/llvm-bool-root.ll"
       , ioTest "LLVM execution matches interpreter when tools are available" testLLVMExecutionMatchesInterpreter
+      , ioTest "LLVM differential corpus matches interpreter when tools are available" testLLVMDifferentialCorpus
       ]
   , TestGroup
       "Golden"
@@ -318,11 +398,151 @@ testParenthesizedArgument = do
     (EApp (EVar (mkName "f")) (EBin Add (EVar (mkName "x")) (EInt 1)))
     parsed
 
+testTopLevelFunctionParsing :: Either String ()
+testTopLevelFunctionParsing = do
+  parsed <- parseSource topLevelSource
+  expectEqual
+    "top-level program"
+    ( Program
+        [ TopDef
+            (mkName "inc")
+            [Param (mkName "x") TInt]
+            TInt
+            (EBin Add (EVar (mkName "x")) (EInt 1))
+        , TopDef
+            (mkName "double")
+            [Param (mkName "x") TInt]
+            TInt
+            (EBin Mul (EVar (mkName "x")) (EInt 2))
+        ]
+        (EApp (EVar (mkName "double")) (EApp (EVar (mkName "inc")) (EInt 20)))
+    )
+    parsed
+
 testHigherOrderType :: Either String ()
 testHigherOrderType = do
   parsed <- parseExpr "\\f : (Int -> Int) -> f 1"
   actualType <- mapLeft (showText . renderTypeError) (infer parsed)
   expectEqual "higher-order lambda type" (TFun (TFun TInt TInt) TInt) actualType
+
+testOptionalLambdaParameterInference :: Either String ()
+testOptionalLambdaParameterInference = do
+  report <- mapLeft (showText . renderCompileError) (compileReport "<test>" "(\\x -> x + 1) 41")
+  expectEqual "optional lambda source type" TInt (reportType report)
+  expectEqual "optional lambda value" (sourceInt 42) (reportValue report)
+  expectEqual
+    "elaborated lambda parameter type"
+    (EApp (ELam (mkName "x") TInt (EBin Add (EVar (mkName "x")) (EInt 1))) (EInt 41))
+    (programMain (reportParsed report))
+
+testOptionalLambdaEqualityContext :: Either String ()
+testOptionalLambdaEqualityContext = do
+  report <- mapLeft (showText . renderCompileError) (compileReport "<test>" "(\\x -> x == x) true")
+  expectEqual "optional equality source type" TBool (reportType report)
+  expectEqual "optional equality value" (VBool True) (reportValue report)
+
+testOptionalLambdaLetUse :: Either String ()
+testOptionalLambdaLetUse = do
+  report <- mapLeft (showText . renderCompileError) (compileReport "<test>" "let id = \\x -> x in id 41")
+  expectEqual "let-constrained optional lambda source type" TInt (reportType report)
+  expectEqual "let-constrained optional lambda value" (sourceInt 41) (reportValue report)
+
+testOptionalLambdaLetMonomorphic :: Either String ()
+testOptionalLambdaLetMonomorphic =
+  case compileReport "<test>" "let id = \\x -> x in let a = id 1 in id true" of
+    Left (CompileTypeError (LocatedTypeError _ (TypeMismatch TInt TBool))) -> Right ()
+    other -> Left ("expected monomorphic optional lambda let mismatch, got " <> show other)
+
+testOptionalLambdaAmbiguity :: Either String ()
+testOptionalLambdaAmbiguity =
+  case compileReport "<test>" "\\x -> x" of
+    Left err@(CompileTypeError (LocatedTypeError sourceRange (AmbiguousLambdaParameter name)))
+      | name == mkName "x" ->
+          expectEqual "ambiguity diagnostic file" "<test>" (spanFile sourceRange)
+            *> expectEqual "ambiguity diagnostic line" 1 (spanStartLine sourceRange)
+            *> expectEqual "ambiguity diagnostic column" 1 (spanStartColumn sourceRange)
+            *> assertBool
+              "ambiguity diagnostic includes parameter message"
+              ("cannot infer a monomorphic type for lambda parameter: x" `Text.isInfixOf` renderCompileError err)
+    other -> Left ("expected source-spanned lambda ambiguity, got " <> show other)
+
+testPrincipalIdentityType :: Either String ()
+testPrincipalIdentityType = do
+  parsed <- parseExpr "\\x : Int -> x"
+  actual <- mapLeft (showText . Principal.renderPrincipalTypeError) (Principal.principalType parsed)
+  expectEqual
+    "principal identity type"
+    (Principal.TypeScheme [] (Principal.PFun Principal.PInt Principal.PInt))
+    actual
+
+testPrincipalHigherOrderType :: Either String ()
+testPrincipalHigherOrderType = do
+  parsed <- parseExpr "\\f : (Int -> Int) -> \\x : Int -> f (f x)"
+  actual <- mapLeft (showText . Principal.renderPrincipalTypeError) (Principal.principalType parsed)
+  expectEqual
+    "principal higher-order type"
+    ( Principal.TypeScheme
+        []
+        ( Principal.PFun
+            (Principal.PFun Principal.PInt Principal.PInt)
+            (Principal.PFun Principal.PInt Principal.PInt)
+        )
+    )
+    actual
+
+testPrincipalMonomorphicLet :: Either String ()
+testPrincipalMonomorphicLet = do
+  parsed <- parseExpr "let id = \\x : Int -> x in let a = id 1 in id true"
+  case Principal.principalType parsed of
+    Left (Principal.PrincipalTypeFailure (TypeMismatch TInt TBool)) -> Right ()
+    other -> Left ("expected monomorphic let type mismatch, got " <> show other)
+
+testTopLevelFunctionTypecheck :: Either String ()
+testTopLevelFunctionTypecheck = do
+  parsed <- parseSource topLevelSource
+  actualType <- mapLeft (showText . renderTypeError) (inferProgram parsed)
+  expectEqual "top-level program type" TInt actualType
+
+testTopLevelDuplicateFunctionName :: Either String ()
+testTopLevelDuplicateFunctionName = do
+  parsed <- parseSource "def f(x : Int) : Int = x; def f(y : Int) : Int = y; f 1"
+  case inferProgram parsed of
+    Left (DuplicateTopLevelName name)
+      | name == mkName "f" -> Right ()
+    other -> Left ("expected duplicate top-level function name, got " <> show other)
+
+testTopLevelDuplicateParameter :: Either String ()
+testTopLevelDuplicateParameter = do
+  parsed <- parseSource "def f(x : Int, x : Int) : Int = x; f 1 2"
+  case inferProgram parsed of
+    Left (DuplicateParameter name)
+      | name == mkName "x" -> Right ()
+    other -> Left ("expected duplicate top-level parameter, got " <> show other)
+
+testTopLevelForwardCall :: Either String ()
+testTopLevelForwardCall = do
+  parsed <- parseSource "def f(x : Int) : Int = g x; def g(x : Int) : Int = x; f 1"
+  case inferProgram parsed of
+    Left (UnknownVariable name)
+      | name == mkName "g" -> Right ()
+    other -> Left ("expected forward call to be rejected, got " <> show other)
+
+testTopLevelFunctionParameter :: Either String ()
+testTopLevelFunctionParameter = do
+  parsed <- parseSource "def apply(f : Int -> Int) : Int = 0; 0"
+  case inferProgram parsed of
+    Left (TopLevelFunctionTypeUnsupported name ty)
+      | name == mkName "apply" && ty == TFun TInt TInt -> Right ()
+    other -> Left ("expected top-level function-typed parameter rejection, got " <> show other)
+
+testOutOfRangeIntLiteralTypeError :: Either String ()
+testOutOfRangeIntLiteralTypeError = do
+  let tooLarge = maxHIntInteger + 1
+  parsed <- parseExpr (Text.pack (show tooLarge))
+  case infer parsed of
+    Left (IntLiteralOutOfRange value)
+      | value == tooLarge -> Right ()
+    other -> Left ("expected out-of-range Int literal type error, got " <> show other)
 
 checkTypeError :: FilePath -> TypeError -> IO (Either String ())
 checkTypeError path expectedTypeError = do
@@ -334,6 +554,72 @@ checkTypeError path expectedTypeError = do
         expectEqual "type error" expectedTypeError actualTypeError
       Right actualType ->
         Left ("expected typechecking to fail, got " <> show actualType)
+
+testParserDiagnosticIncludesLocation :: Either String ()
+testParserDiagnosticIncludesLocation =
+  case parseProgram "examples/bad.hg" "let" of
+    Left parseError ->
+      assertBool
+        "parse diagnostic should include file, line, and column"
+        ("examples/bad.hg:1:4:" `Text.isInfixOf` Text.pack (errorBundlePretty parseError))
+    Right parsed ->
+      Left ("expected parser to fail, got " <> show parsed)
+
+testCompileFlagsOutputModes :: Either String ()
+testCompileFlagsOutputModes = do
+  expectEqual
+    "emit LLVM to explicit file"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.EmitLLVM (Just "out.ll")
+          , CompileCLI.cliUseEgglog = True
+          }
+        )
+    )
+    (CompileCLI.parseCompileFlags ["--emit-llvm", "-o", "out.ll"])
+  expectEqual
+    "legacy run LLVM mode"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.EmitAndRunLLVM Nothing
+          , CompileCLI.cliUseEgglog = True
+          }
+        )
+    )
+    (CompileCLI.parseCompileFlags ["--run-llvm"])
+  expectEqual
+    "native executable output"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.BuildExecutable "program"
+          , CompileCLI.cliUseEgglog = True
+          }
+        )
+    )
+    (CompileCLI.parseCompileFlags ["-o", "program"])
+  expectEqual
+    "native executable run output"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.BuildAndRunExecutable "program"
+          , CompileCLI.cliUseEgglog = False
+          }
+        )
+    )
+    (CompileCLI.parseCompileFlags ["--output", "program", "--run", "--no-egglog"])
+
+testCompileFlagsRejectInvalidRunModes :: Either String ()
+testCompileFlagsRejectInvalidRunModes =
+  assertLeftContains "native run needs output" "--run requires -o/--output" (CompileCLI.parseCompileFlags ["--run"])
+    *> assertLeftContains "native run conflicts with emit LLVM" "--run builds and runs a native executable" (CompileCLI.parseCompileFlags ["--emit-llvm", "--run"])
+    *> assertLeftContains "native and LLVM run conflict" "--run and --run-llvm cannot be combined" (CompileCLI.parseCompileFlags ["--run", "--run-llvm", "-o", "program"])
+    *> assertLeftContains "duplicate output rejected" "provided more than once" (CompileCLI.parseCompileFlags ["-o", "a", "--output", "b"])
+ where
+  assertLeftContains label needle = \case
+    Left message ->
+      assertBool label (needle `Text.isInfixOf` message)
+    Right value ->
+      Left (label <> ": expected parse failure, got " <> show value)
 
 testANFNestedArithmetic :: Either String ()
 testANFNestedArithmetic = do
@@ -371,6 +657,47 @@ testApplicationAtomization = do
     )
     (toANF parsed)
 
+testTopLevelDirectCallANF :: Either String ()
+testTopLevelDirectCallANF = do
+  parsed <- parseSource topLevelSource
+  expectEqual
+    "top-level direct-call ANF"
+    ( AProgram
+        [ AFun
+            (mkName "inc")
+            [Param (mkName "x") TInt]
+            TInt
+            (APrim Add (AVar (mkName "x")) (AInt 1))
+        , AFun
+            (mkName "double")
+            [Param (mkName "x") TInt]
+            TInt
+            (APrim Mul (AVar (mkName "x")) (AInt 2))
+        ]
+        ( ALet
+            (mkName "_t0")
+            (ACall (mkName "inc") [AInt 20])
+            (ACall (mkName "double") [AVar (mkName "_t0")])
+        )
+    )
+    (toANFProgram parsed)
+
+testLambdaLiftANF :: Either String ()
+testLambdaLiftANF = do
+  result <- compileLLVMNoEgglog liftedIncSource
+  expectEqual
+    "lambda-lifted direct-call ANF"
+    ( AProgram
+        [ AFun
+            (mkName "_lift_inc_0")
+            [Param (mkName "x") TInt]
+            TInt
+            (APrim Add (AVar (mkName "x")) (AInt 1))
+        ]
+        (ACall (mkName "_lift_inc_0") [AInt 41])
+    )
+    (BC.llvmOriginalANF result)
+
 testLambdaPreservation :: Either String ()
 testLambdaPreservation = do
   parsed <- parseExpr "\\x : Int -> x + 1"
@@ -403,6 +730,18 @@ testValidatorDuplicateGeneratedTemp =
         )
     )
 
+testValidatorDuplicateFunctionParameter :: Either String ()
+testValidatorDuplicateFunctionParameter =
+  expectEqual
+    "duplicate ANF function parameter"
+    (Left (DuplicateANFParameter xName))
+    ( validateANFProgram
+        ( AProgram
+            [AFun (mkName "f") [Param xName TInt, Param xName TInt] TInt (AAtom (AVar xName))]
+            (ACall (mkName "f") [AInt 1])
+        )
+    )
+
 testConstantFacts :: Either String ()
 testConstantFacts = do
   facts <- factsFor "let x = 5 in x"
@@ -425,9 +764,24 @@ testCoreFunctions = do
   assertBool "expected a Core lambda node" (any isLam nodeValues)
   assertBool "expected a Core application node" (any isApp nodeValues)
 
+testTopLevelFunctionEvaluation :: Either String ()
+testTopLevelFunctionEvaluation = do
+  parsed <- parseSource topLevelSource
+  actualValue <- mapLeft (showText . renderRuntimeError) (evalProgram parsed)
+  expectEqual "top-level program value" (sourceInt 42) actualValue
+
 testExampleSemanticPreservation :: IO (Either String ())
 testExampleSemanticPreservation =
   firstFailure checkExampleSemanticPreservation examplePaths
+
+testInterpreterIntOverflow :: Either String ()
+testInterpreterIntOverflow = do
+  parsed <- parseExpr (Text.pack (show maxHIntInteger <> " + 1"))
+  case eval parsed of
+    Left err ->
+      assertBool "expected checked Int overflow" ("overflowed" `Text.isInfixOf` renderRuntimeError err)
+    Right value ->
+      Left ("expected checked Int overflow, got " <> show value)
 
 firstFailure :: (a -> IO (Either String ())) -> [a] -> IO (Either String ())
 firstFailure action = \case
@@ -494,6 +848,13 @@ checkSimplifies source expected ruleName = do
     ("expected rewrite " <> Text.unpack ruleName)
     (any ((== ruleName) . appliedRuleName) (appliedRewrites optimized))
   expectEqual "optimization preserves ANF semantics" originalObserved optimizedObserved
+
+testSimplifierDoesNotFoldOverflow :: Either String ()
+testSimplifierDoesNotFoldOverflow = do
+  let expression = APrim Add (AInt maxHIntInteger) (AInt 1)
+  optimized <- mapLeft show (simplifyFixpoint expression)
+  expectEqual "overflowing add is preserved" expression (simplifiedANF optimized)
+  assertBool "overflowing add did not apply constant folding" (null (appliedRewrites optimized))
 
 testFixpointSimplification :: Either String ()
 testFixpointSimplification = do
@@ -714,6 +1075,142 @@ testEgglogMultiPremiseJoin = do
   found <- egg (EDB.lookupFunction pathFn [EV.VInt 1, EV.VInt 3] (EEV.resultDatabase result))
   expectEqual "join derives transitive path" (Just EV.VUnit) found
 
+testEgglogJoinPlannerRespectsDependencies :: Either String ()
+testEgglogJoinPlannerRespectsDependencies = do
+  let filteredPathFn = fn "filtered-path"
+      filteredPathDecl = EF.relation filteredPathFn [ES.SInt, ES.SInt]
+      x = intVar "x"
+      y = intVar "y"
+      rule =
+        ER.Rule
+          { ER.ruleName = fn "computed-filter"
+          , ER.rulePremises =
+              [ ER.QEq (EP.PAddInt x (EP.PValue (EV.VInt 1))) (EP.PValue (EV.VInt 3))
+              , ER.QLookup edgeFn [x, y] (EP.PValue EV.VUnit)
+              ]
+          , ER.ruleActions = [ER.AAssert filteredPathFn [x, y]]
+          }
+  result <-
+    eggRun
+      [rule]
+      [ ER.relationFact edgeFn [EV.VInt 2, EV.VInt 9]
+      , ER.relationFact edgeFn [EV.VInt 4, EV.VInt 9]
+      ]
+      [edgeRelDecl, filteredPathDecl]
+  kept <- egg (EDB.lookupFunction filteredPathFn [EV.VInt 2, EV.VInt 9] (EEV.resultDatabase result))
+  rejected <- egg (EDB.lookupFunction filteredPathFn [EV.VInt 4, EV.VInt 9] (EEV.resultDatabase result))
+  expectEqual "computed equality filters after x is bound" (Just EV.VUnit) kept
+  expectEqual "nonmatching edge is not derived" Nothing rejected
+
+testEgglogJoinPlannerUsesStableCostOrder :: Either String ()
+testEgglogJoinPlannerUsesStableCostOrder = do
+  let bigFn = fn "big"
+      smallFn = fn "small"
+      joinedFn = fn "joined"
+      bigDecl = EF.relation bigFn [ES.SInt]
+      smallDecl = EF.relation smallFn [ES.SInt]
+      joinedDecl = EF.relation joinedFn [ES.SInt, ES.SInt]
+      x = intVar "x"
+      y = intVar "y"
+      rule =
+        ER.Rule
+          { ER.ruleName = fn "join-cost"
+          , ER.rulePremises =
+              [ ER.QLookup bigFn [x] (EP.PValue EV.VUnit)
+              , ER.QLookup smallFn [y] (EP.PValue EV.VUnit)
+              ]
+          , ER.ruleActions = [ER.AAssert joinedFn [x, y]]
+          }
+  result <-
+    egg
+      ( EEV.runProgram
+          EEV.defaultRunConfig
+            { EEV.collectDebugLog = True
+            , EEV.maxIterations = 8
+            , EEV.runMode = EEV.RunNaive
+            }
+          ER.Program
+            { ER.programDecls = [bigDecl, smallDecl, joinedDecl]
+            , ER.programInitialActions =
+                [ ER.relationFact bigFn [EV.VInt 1]
+                , ER.relationFact bigFn [EV.VInt 2]
+                , ER.relationFact bigFn [EV.VInt 3]
+                , ER.relationFact smallFn [EV.VInt 10]
+                , ER.relationFact smallFn [EV.VInt 20]
+                ]
+            , ER.programRules = [rule]
+            }
+      )
+  let ruleTraces =
+        filter ("rule join-cost" `Text.isPrefixOf`) (reverse (EDB.debugLog (EEV.resultDatabase result)))
+  case ruleTraces of
+    _first : second : _ -> do
+      assertBool
+        "second substitution should keep the smaller relation fixed before advancing it"
+        ("{x=2, y=10}" `Text.isInfixOf` second)
+      expectEqual "six joined facts should be derived" 6 (length ruleTraces)
+    other ->
+      Left ("expected join-cost rule traces, got " <> show other)
+
+testEgglogSemiNaiveMatchesNaiveTransitiveClosure :: Either String ()
+testEgglogSemiNaiveMatchesNaiveTransitiveClosure = do
+  naive <- runReachability EEV.RunNaive
+  semiNaive <- runReachability EEV.RunSemiNaive
+  expectEqual "semi-naive final database" (EEV.resultDatabase naive) (EEV.resultDatabase semiNaive)
+  assertBool "semi-naive reaches saturation" (EEV.resultSaturated semiNaive)
+ where
+  runReachability mode =
+    egg
+      ( EEV.runProgram
+          EEV.defaultRunConfig {EEV.maxIterations = 24, EEV.runMode = mode}
+          ER.Program
+            { ER.programDecls = [edgeRelDecl, pathRelDecl]
+            , ER.programInitialActions =
+                [ ER.relationFact edgeFn [EV.VInt 1, EV.VInt 2]
+                , ER.relationFact edgeFn [EV.VInt 2, EV.VInt 3]
+                , ER.relationFact edgeFn [EV.VInt 3, EV.VInt 4]
+                , ER.relationFact edgeFn [EV.VInt 4, EV.VInt 5]
+                ]
+            , ER.programRules = [edgeToPathRule, transitivePathRule]
+            }
+      )
+
+testEgglogSemiNaivePreservesCompilerBackend :: Either String ()
+testEgglogSemiNaivePreservesCompilerBackend = do
+  parsed <- parseExpr "let x = 3 in let y = x + 4 in y * 2"
+  let expression = toANF parsed
+  naive <-
+    mapLeft
+      (showText . OEB.renderEgglogBackendError)
+      (OEB.optimizeWithEgglog EEV.defaultRunConfig {EEV.runMode = EEV.RunNaive} expression)
+  semiNaive <-
+    mapLeft
+      (showText . OEB.renderEgglogBackendError)
+      (OEB.optimizeWithEgglog EEV.defaultRunConfig {EEV.runMode = EEV.RunSemiNaive} expression)
+  expectEqual "optimized ANF" (OEB.optimizedANF naive) (OEB.optimizedANF semiNaive)
+  expectEqual "optimized cost" (OEB.extractionStats naive) (OEB.extractionStats semiNaive)
+  assertBool "semi-naive backend run saturates" (OEB.runSaturated (OEB.runStats semiNaive))
+
+testEgglogDebugTraceRecordsRuleAction :: Either String ()
+testEgglogDebugTraceRecordsRuleAction = do
+  result <-
+    egg
+      ( EEV.runProgram
+          EEV.defaultRunConfig {EEV.collectDebugLog = True, EEV.maxIterations = 8}
+          ER.Program
+            { ER.programDecls = [edgeRelDecl, pathRelDecl]
+            , ER.programInitialActions = [ER.relationFact edgeFn [EV.VInt 1, EV.VInt 2]]
+            , ER.programRules = [edgeToPathRule]
+            }
+      )
+  let logs = EDB.debugLog (EEV.resultDatabase result)
+  assertBool
+    "debug log should include the rule action that produced path"
+    (any (\line -> "rule edge-to-path substitution #0" `Text.isInfixOf` line && "assert path" `Text.isInfixOf` line) logs)
+  assertBool
+    "debug log should include substitution values"
+    (any ("{x=1, y=2}" `Text.isInfixOf`) logs)
+
 testEgglogVariableBinding :: Either String ()
 testEgglogVariableBinding = do
   let revFn = fn "rev"
@@ -883,19 +1380,38 @@ testEgglogConstIntMergeSame :: Either String ()
 testEgglogConstIntMergeSame = do
   let decl = EF.FunctionDecl (fn "const") [ES.SInt] ES.SConstInt EF.DefaultNone EF.MergeConstInt
       db0 = EDB.databaseFromDecls [decl]
-  (db1, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (EV.KnownInt 3)) db0)
-  (db2, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (EV.KnownInt 3)) db1)
+  (db1, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (knownInt 3)) db0)
+  (db2, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (knownInt 3)) db1)
   found <- egg (EDB.lookupFunction (fn "const") [EV.VInt 0] db2)
-  expectEqual "same constants merge unchanged" (Just (EV.VConstInt (EV.KnownInt 3))) found
+  expectEqual "same constants merge unchanged" (Just (EV.VConstInt (knownInt 3))) found
 
 testEgglogConstIntMergeConflict :: Either String ()
 testEgglogConstIntMergeConflict = do
   let decl = EF.FunctionDecl (fn "const") [ES.SInt] ES.SConstInt EF.DefaultNone EF.MergeConstInt
       db0 = EDB.databaseFromDecls [decl]
-  (db1, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (EV.KnownInt 3)) db0)
-  (db2, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (EV.KnownInt 4)) db1)
+  (db1, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (knownInt 3)) db0)
+  (db2, _) <- egg (EDB.setFunction (fn "const") [EV.VInt 0] (EV.VConstInt (knownInt 4)) db1)
   found <- egg (EDB.lookupFunction (fn "const") [EV.VInt 0] db2)
   expectEqual "conflicting constants merge to conflict" (Just (EV.VConstInt EV.ConflictInt)) found
+
+testEgglogZeroInfoMergeUnknown :: Either String ()
+testEgglogZeroInfoMergeUnknown = do
+  let decl = EF.FunctionDecl (fn "zero-info") [ES.SInt] ES.SZeroInfo EF.DefaultNone EF.MergeZeroInfo
+      db0 = EDB.databaseFromDecls [decl]
+  (db1, _) <- egg (EDB.setFunction (fn "zero-info") [EV.VInt 0] (EV.VZeroInfo EV.UnknownZeroInfo) db0)
+  (db2, changed) <- egg (EDB.setFunction (fn "zero-info") [EV.VInt 0] (EV.VZeroInfo EV.KnownNonZero) db1)
+  assertBool "unknown zero info should refine to known nonzero" changed
+  found <- egg (EDB.lookupFunction (fn "zero-info") [EV.VInt 0] db2)
+  expectEqual "refined zero info" (Just (EV.VZeroInfo EV.KnownNonZero)) found
+
+testEgglogZeroInfoMergeConflict :: Either String ()
+testEgglogZeroInfoMergeConflict = do
+  let decl = EF.FunctionDecl (fn "zero-info") [ES.SInt] ES.SZeroInfo EF.DefaultNone EF.MergeZeroInfo
+      db0 = EDB.databaseFromDecls [decl]
+  (db1, _) <- egg (EDB.setFunction (fn "zero-info") [EV.VInt 0] (EV.VZeroInfo EV.KnownZero) db0)
+  (db2, _) <- egg (EDB.setFunction (fn "zero-info") [EV.VInt 0] (EV.VZeroInfo EV.KnownNonZero) db1)
+  found <- egg (EDB.lookupFunction (fn "zero-info") [EV.VInt 0] db2)
+  expectEqual "conflicting zero info" (Just (EV.VZeroInfo EV.ConflictZeroInfo)) found
 
 testResolvedANFSimpleLet :: Either String ()
 testResolvedANFSimpleLet = do
@@ -959,6 +1475,29 @@ testEgglogFragmentAcceptsIf = do
   case OEB.classifyEgglogFragment resolved of
     Right {} -> Right ()
     Left err -> Left ("expected if expression to be accepted, got " <> Text.unpack (OEB.renderEgglogBackendError err))
+
+testEgglogFragmentAcceptsComparisons :: Either String ()
+testEgglogFragmentAcceptsComparisons = do
+  ltResolved <- resolvedFor "1 < 2"
+  eqResolved <- resolvedFor "true == false"
+  case (OEB.classifyEgglogFragment ltResolved, OEB.classifyEgglogFragment eqResolved) of
+    (Right {}, Right {}) -> Right ()
+    (ltResult, eqResult) ->
+      Left ("expected comparisons to be accepted, got " <> show (ltResult, eqResult))
+
+testEgglogFragmentAcceptsSubtraction :: Either String ()
+testEgglogFragmentAcceptsSubtraction = do
+  resolved <- resolvedFor "5 - 2"
+  case OEB.classifyEgglogFragment resolved of
+    Right {} -> Right ()
+    Left err -> Left ("expected subtraction to be accepted, got " <> Text.unpack (OEB.renderEgglogBackendError err))
+
+testEgglogFragmentAcceptsDivision :: Either String ()
+testEgglogFragmentAcceptsDivision = do
+  resolved <- resolvedFor "8 / 2"
+  case OEB.classifyEgglogFragment resolved of
+    Right {} -> Right ()
+    Left err -> Left ("expected division to be accepted, got " <> Text.unpack (OEB.renderEgglogBackendError err))
 
 testEgglogFragmentRejectsIfMismatch :: Either String ()
 testEgglogFragmentRejectsIfMismatch =
@@ -1039,7 +1578,7 @@ testEgglogRulesDeriveConstFacts = do
   (encoded, run) <- runEncodedSource "2 + 3"
   root <- canonicalRoot encoded run
   found <- egg (EDB.lookupFunction (OES.iConstFn OES.symbols) [root] (OEB.encodedRunDatabase run))
-  expectEqual "IConst root" (Just (EV.VConstInt (EV.KnownInt 5))) found
+  expectEqual "IConst root" (Just (EV.VConstInt (knownInt 5))) found
 
 testEgglogRulesConstantFoldEquality :: Either String ()
 testEgglogRulesConstantFoldEquality = do
@@ -1050,12 +1589,17 @@ testEgglogRulesMultiplicationIdentities :: Either String ()
 testEgglogRulesMultiplicationIdentities = do
   checkMul (APrim Mul (AVar xName) (AInt 1)) (EP.PCall (OES.iVarFn OES.symbols) [EP.PValue (EV.VString "free:x")])
   checkMul (APrim Mul (AInt 1) (AVar xName)) (EP.PCall (OES.iVarFn OES.symbols) [EP.PValue (EV.VString "free:x")])
-  checkMul (APrim Mul (AVar xName) (AInt 0)) (EP.PCall (OES.iNumFn OES.symbols) [EP.PValue (EV.VInt 0)])
-  checkMul (APrim Mul (AInt 0) (AVar xName)) (EP.PCall (OES.iNumFn OES.symbols) [EP.PValue (EV.VInt 0)])
+  checkMulNotZero (APrim Mul (AVar xName) (AInt 0))
+  checkMulNotZero (APrim Mul (AInt 0) (AVar xName))
  where
   checkMul expression expectedPattern = do
     (encoded, run) <- runEncodedANF expression
     assertEquivalentToPattern encoded run expectedPattern
+  checkMulNotZero expression = do
+    (encoded, run) <- runEncodedANF expression
+    root <- canonicalRoot encoded run
+    zero <- lookupPatternValue (OEB.encodedRunDatabase run) (EP.PCall (OES.iNumFn OES.symbols) [EP.PValue (EV.VInt 0)])
+    assertBool "open multiplication by zero is not folded because it may hide strict local errors" (root /= EDB.canonicalValue (OEB.encodedRunDatabase run) zero)
 
 testEgglogRulesIfTrue :: Either String ()
 testEgglogRulesIfTrue = do
@@ -1067,6 +1611,71 @@ testEgglogRulesFactDrivenIf = do
   (encoded, run) <- runEncodedSource "let b = true in if b then 10 else 20"
   assertEquivalentToPattern encoded run (EP.PCall (OES.iNumFn OES.symbols) [EP.PValue (EV.VInt 10)])
 
+testEgglogRulesStrictSafeBooleans :: Either String ()
+testEgglogRulesStrictSafeBooleans = do
+  checkBool (APrim Eq (AVar xName) (ABool True)) (EP.PCall (OES.bVarFn OES.symbols) [EP.PValue (EV.VString "free:x")])
+  checkBool (APrim Eq (ABool True) (AVar xName)) (EP.PCall (OES.bVarFn OES.symbols) [EP.PValue (EV.VString "free:x")])
+  checkBool (AIf (AVar xName) (AAtom (ABool True)) (AAtom (ABool False))) (EP.PCall (OES.bVarFn OES.symbols) [EP.PValue (EV.VString "free:x")])
+ where
+  checkBool expression expectedPattern = do
+    (encoded, run) <- runEncodedANF expression
+    assertEquivalentToPattern encoded run expectedPattern
+
+testEgglogRulesDeriveZeroInfo :: Either String ()
+testEgglogRulesDeriveZeroInfo = do
+  (zeroEncoded, zeroRun) <- runEncodedSource "0"
+  zeroRoot <- canonicalRoot zeroEncoded zeroRun
+  zeroFound <- egg (EDB.lookupFunction (OES.iZeroFn OES.symbols) [zeroRoot] (OEB.encodedRunDatabase zeroRun))
+  expectEqual "zero literal has KnownZero info" (Just (EV.VZeroInfo EV.KnownZero)) zeroFound
+  (nonZeroEncoded, nonZeroRun) <- runEncodedSource "2 + 3"
+  nonZeroRoot <- canonicalRoot nonZeroEncoded nonZeroRun
+  nonZeroFound <- egg (EDB.lookupFunction (OES.iZeroFn OES.symbols) [nonZeroRoot] (OEB.encodedRunDatabase nonZeroRun))
+  expectEqual "folded nonzero expression has KnownNonZero info" (Just (EV.VZeroInfo EV.KnownNonZero)) nonZeroFound
+
+testEgglogRulesDeriveComparisonFacts :: Either String ()
+testEgglogRulesDeriveComparisonFacts = do
+  (ltEncoded, ltRun) <- runEncodedSource "2 < 3"
+  ltRoot <- canonicalRoot ltEncoded ltRun
+  ltFound <- egg (EDB.lookupFunction (OES.bConstFn OES.symbols) [ltRoot] (OEB.encodedRunDatabase ltRun))
+  expectEqual "lt constant fact" (Just (EV.VConstBool (EV.KnownBool True))) ltFound
+  (intEqEncoded, intEqRun) <- runEncodedSource "2 == 3"
+  intEqRoot <- canonicalRoot intEqEncoded intEqRun
+  intEqFound <- egg (EDB.lookupFunction (OES.bConstFn OES.symbols) [intEqRoot] (OEB.encodedRunDatabase intEqRun))
+  expectEqual "int equality constant fact" (Just (EV.VConstBool (EV.KnownBool False))) intEqFound
+  (boolEqEncoded, boolEqRun) <- runEncodedSource "true == false"
+  boolEqRoot <- canonicalRoot boolEqEncoded boolEqRun
+  boolEqFound <- egg (EDB.lookupFunction (OES.bConstFn OES.symbols) [boolEqRoot] (OEB.encodedRunDatabase boolEqRun))
+  expectEqual "bool equality constant fact" (Just (EV.VConstBool (EV.KnownBool False))) boolEqFound
+
+testEgglogRulesDeriveSubtractionFacts :: Either String ()
+testEgglogRulesDeriveSubtractionFacts = do
+  (encoded, run) <- runEncodedSource "7 - 2"
+  root <- canonicalRoot encoded run
+  found <- egg (EDB.lookupFunction (OES.iConstFn OES.symbols) [root] (OEB.encodedRunDatabase run))
+  expectEqual "subtraction constant fact" (Just (EV.VConstInt (knownInt 5))) found
+
+testEgglogRulesDeriveDivisionFacts :: Either String ()
+testEgglogRulesDeriveDivisionFacts = do
+  (encoded, run) <- runEncodedSource "8 / 2"
+  root <- canonicalRoot encoded run
+  found <- egg (EDB.lookupFunction (OES.iConstFn OES.symbols) [root] (OEB.encodedRunDatabase run))
+  expectEqual "division constant fact" (Just (EV.VConstInt (knownInt 4))) found
+
+testEgglogRulesAvoidUnsafeDivisionFacts :: Either String ()
+testEgglogRulesAvoidUnsafeDivisionFacts = do
+  assertNoKnownDivFact (APrim Div (AInt 8) (AInt 0))
+  assertNoKnownDivFact (APrim Div (AInt minHIntInteger) (AInt (-1)))
+ where
+  assertNoKnownDivFact expression = do
+    (encoded, run) <- runEncodedANF expression
+    root <- canonicalRoot encoded run
+    found <- egg (EDB.lookupFunction (OES.iConstFn OES.symbols) [root] (OEB.encodedRunDatabase run))
+    case found of
+      Just (EV.VConstInt (EV.KnownInt n)) ->
+        Left ("unsafe division derived false KnownInt " <> show (hintToInteger n))
+      _ ->
+        Right ()
+
 testEgglogRulesExcludeDistributivity :: Either String ()
 testEgglogRulesExcludeDistributivity = do
   let compilerRuleNames = map ER.ruleName OER.compilerRules
@@ -1077,28 +1686,170 @@ testEgglogRulesExcludeDistributivity = do
 
 testEgglogBackendShadowing :: Either String ()
 testEgglogBackendShadowing =
-  assertEgglogPreservesSemantics "let x = 1 in let y = let x = 2 in x in x + y" (ANFVInt 3) >> Right ()
+  assertEgglogPreservesSemantics "let x = 1 in let y = let x = 2 in x in x + y" (anfInt 3) >> Right ()
 
 testEgglogBackendLetRetention :: Either String ()
 testEgglogBackendLetRetention = do
-  result <- assertEgglogPreservesSemantics "let x = 1 + 2 in x * 10" (ANFVInt 30)
+  result <- assertEgglogPreservesSemantics "let x = 1 + 2 in x * 10" (anfInt 30)
   mapLeft (showText . renderANFValidationError) (validateANF (OEB.optimizedANF result))
 
 testEgglogBackendDeadLet :: Either String ()
 testEgglogBackendDeadLet =
-  assertEgglogPreservesSemantics "let x = 1 + 2 in 4" (ANFVInt 4) >> Right ()
+  assertEgglogPreservesSemantics "let x = 1 + 2 in 4" (anfInt 4) >> Right ()
 
 testEgglogBackendIfTrue :: Either String ()
 testEgglogBackendIfTrue =
-  assertEgglogPreservesSemantics "if true then 10 else 20" (ANFVInt 10) >> Right ()
+  assertEgglogPreservesSemantics "if true then 10 else 20" (anfInt 10) >> Right ()
 
 testEgglogBackendIfSameBranches :: Either String ()
-testEgglogBackendIfSameBranches =
-  assertEgglogPreservesSemantics "let someBool = true in let x = 3 in if someBool then x else x" (ANFVInt 3) >> Right ()
+testEgglogBackendIfSameBranches = do
+  knownCondition <- assertEgglogPreservesSemantics "if true then 5 else 5" (anfInt 5)
+  expectEqual "known same-branch if selects the branch" (AAtom (AInt 5)) (OEB.optimizedANF knownCondition)
+  assertEgglogPreservesSemantics "let someBool = true in let x = 3 in if someBool then x else x" (anfInt 3) >> Right ()
 
 testEgglogBackendConstFacts :: Either String ()
-testEgglogBackendConstFacts =
-  assertEgglogPreservesSemantics "let x = 2 + 3 in x * 4" (ANFVInt 20) >> Right ()
+testEgglogBackendConstFacts = do
+  assertEgglogPreservesSemantics "let x = 2 + 3 in x * 4" (anfInt 20) >> Right ()
+  zeroRight <- assertEgglogPreservesSemantics "3 * 0" (anfInt 0)
+  expectEqual "checked constant multiplication by zero folds on the right" (AAtom (AInt 0)) (OEB.optimizedANF zeroRight)
+  zeroLeft <- assertEgglogPreservesSemantics "0 * 3" (anfInt 0)
+  expectEqual "checked constant multiplication by zero folds on the left" (AAtom (AInt 0)) (OEB.optimizedANF zeroLeft)
+
+testEgglogBackendComparisonConstFacts :: Either String ()
+testEgglogBackendComparisonConstFacts = do
+  ltResult <- assertEgglogPreservesSemantics "if 2 < 3 then 10 else 20" (anfInt 10)
+  expectEqual "lt comparison folds through bool facts" (AAtom (AInt 10)) (OEB.optimizedANF ltResult)
+  intEqResult <- assertEgglogPreservesSemantics "if 2 == 3 then 10 else 20" (anfInt 20)
+  expectEqual "int equality folds through bool facts" (AAtom (AInt 20)) (OEB.optimizedANF intEqResult)
+  boolEqResult <- assertEgglogPreservesSemantics "if true == false then 10 else 20" (anfInt 20)
+  expectEqual "bool equality folds through bool facts" (AAtom (AInt 20)) (OEB.optimizedANF boolEqResult)
+
+testEgglogBackendOpenComparisonFragment :: Either String ()
+testEgglogBackendOpenComparisonFragment = do
+  ltResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (APrim Lt (AVar xName) (AInt 10)))
+  expectEqual "open lt expression" (APrim Lt (AVar xName) (AInt 10)) (OEB.optimizedANF ltResult)
+  expectEqual "open lt type" TBool (OEB.optimizedType ltResult)
+  mapLeft (showText . renderANFValidationError) (validateANFWithFreeVars (Set.singleton xName) (OEB.optimizedANF ltResult))
+  eqResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (APrim Eq (AVar xName) (AInt 10)))
+  expectEqual "open int equality expression" (APrim Eq (AVar xName) (AInt 10)) (OEB.optimizedANF eqResult)
+  expectEqual "open int equality type" TBool (OEB.optimizedType eqResult)
+  mapLeft (showText . renderANFValidationError) (validateANFWithFreeVars (Set.singleton xName) (OEB.optimizedANF eqResult))
+
+testEgglogBackendSubtractionConstFacts :: Either String ()
+testEgglogBackendSubtractionConstFacts = do
+  result <- assertEgglogPreservesSemantics "let x = 10 - 3 in x + 1" (anfInt 8)
+  expectEqual "subtraction folds through int facts" (AAtom (AInt 8)) (OEB.optimizedANF result)
+
+testEgglogBackendOpenSubtractionFragment :: Either String ()
+testEgglogBackendOpenSubtractionFragment = do
+  result <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (APrim Sub (AVar xName) (AInt 0)))
+  expectEqual "open subtraction by zero expression" (AAtom (AVar xName)) (OEB.optimizedANF result)
+  expectEqual "open subtraction type" TInt (OEB.optimizedType result)
+  mapLeft (showText . renderANFValidationError) (validateANFWithFreeVars (Set.singleton xName) (OEB.optimizedANF result))
+
+testEgglogBackendDivisionConstFacts :: Either String ()
+testEgglogBackendDivisionConstFacts = do
+  result <- assertEgglogPreservesSemantics "let x = 8 / 2 in x + 1" (anfInt 5)
+  expectEqual "division folds through int facts" (AAtom (AInt 5)) (OEB.optimizedANF result)
+  zeroNumerator <- assertEgglogPreservesSemantics "let x = 10 - 7 in 0 / x" (anfInt 0)
+  expectEqual "zero divided by known nonzero folds safely" (AAtom (AInt 0)) (OEB.optimizedANF zeroNumerator)
+
+testEgglogBackendOpenDivisionFragment :: Either String ()
+testEgglogBackendOpenDivisionFragment = do
+  divResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (APrim Div (AVar xName) (AInt 2)))
+  expectEqual "open division expression" (APrim Div (AVar xName) (AInt 2)) (OEB.optimizedANF divResult)
+  expectEqual "open division type" TInt (OEB.optimizedType divResult)
+  mapLeft (showText . renderANFValidationError) (validateANFWithFreeVars (Set.singleton xName) (OEB.optimizedANF divResult))
+  divOneResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (APrim Div (AVar xName) (AInt 1)))
+  expectEqual "open division by one expression" (AAtom (AVar xName)) (OEB.optimizedANF divOneResult)
+
+testEgglogBackendStrictSafeBooleans :: Either String ()
+testEgglogBackendStrictSafeBooleans = do
+  eqTrue <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (APrim Eq (AVar xName) (ABool True)))
+  expectEqual "bool equality with true preserves the bool expression" (AAtom (AVar xName)) (OEB.optimizedANF eqTrue)
+  expectEqual "bool equality with true type" TBool (OEB.optimizedType eqTrue)
+  mapLeft (showText . renderANFValidationError) (validateANFWithFreeVars (Set.singleton xName) (OEB.optimizedANF eqTrue))
+  ifTrueFalse <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (AIf (AVar xName) (AAtom (ABool True)) (AAtom (ABool False))))
+  expectEqual "boolean if true false preserves the condition" (AAtom (AVar xName)) (OEB.optimizedANF ifTrueFalse)
+  zeroComparison <- assertEgglogPreservesSemantics "let x = 2 - 2 in if x == 0 then 10 else 20" (anfInt 10)
+  expectEqual "zero-info equality feeds bool facts" (AAtom (AInt 10)) (OEB.optimizedANF zeroComparison)
+
+testEgglogBackendPreservesStrictRuntimeErrors :: Either String ()
+testEgglogBackendPreservesStrictRuntimeErrors = do
+  let dName = mkName "d"
+      cName = mkName "c"
+      bName = mkName "b"
+      erroringDiv = APrim Div (AInt 8) (AInt 0)
+      overflowingAdd = APrim Add (AInt maxHIntInteger) (AInt 1)
+  assertRuntimePreserved "multiplication by zero" (ALet xName (APrim Div (AInt 8) (AInt 0)) (APrim Mul (AVar xName) (AInt 0)))
+  assertRuntimePreservedNotExpression "overflowing expression times zero" (AAtom (AInt 0)) (ALet xName overflowingAdd (APrim Mul (AVar xName) (AInt 0)))
+  assertRuntimePreservedNotExpression "zero times division by zero" (AAtom (AInt 0)) (ALet xName (APrim Div (AInt 1) (AInt 0)) (APrim Mul (AInt 0) (AVar xName)))
+  assertRuntimePreserved "integer equality with itself" (ALet xName (APrim Div (AInt 8) (AInt 0)) (APrim Eq (AVar xName) (AVar xName)))
+  assertRuntimePreserved "integer less-than with itself" (ALet xName (APrim Div (AInt 8) (AInt 0)) (APrim Lt (AVar xName) (AVar xName)))
+  assertRuntimePreservedNotExpression "same branch if with erroring condition" (AAtom (AInt 5)) (ALet dName (APrim Div (AInt 1) (AInt 0)) (ALet cName (APrim Eq (AVar dName) (AInt 0)) (AIf (AVar cName) (AAtom (AInt 5)) (AAtom (AInt 5)))))
+  assertRuntimePreserved "same int if branches" (ALet dName erroringDiv (ALet cName (APrim Lt (AInt 0) (AVar dName)) (AIf (AVar cName) (AAtom (AInt 1)) (AAtom (AInt 1)))))
+  assertRuntimePreserved "boolean equality with itself" (ALet dName erroringDiv (ALet bName (APrim Lt (AInt 0) (AVar dName)) (APrim Eq (AVar bName) (AVar bName))))
+ where
+  assertRuntimePreserved label expression = do
+    result <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig expression)
+    expectEqual (label <> " runtime behavior") (evalANF expression) (evalANF (OEB.optimizedANF result))
+  assertRuntimePreservedNotExpression label forbidden expression = do
+    assertRuntimePreserved label expression
+    result <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig expression)
+    assertBool (label <> " was not rewritten to " <> show forbidden) (OEB.optimizedANF result /= forbidden)
+
+testEgglogDoesNotFoldOverflowingInt :: Either String ()
+testEgglogDoesNotFoldOverflowingInt = do
+  let expression = APrim Add (AInt maxHIntInteger) (AInt 1)
+  (encoded, run) <- runEncodedANF expression
+  root <- canonicalRoot encoded run
+  found <- egg (EDB.lookupFunction (OES.iConstFn OES.symbols) [root] (OEB.encodedRunDatabase run))
+  case found of
+    Just (EV.VConstInt (EV.KnownInt n)) ->
+      Left ("overflowing add derived false KnownInt " <> show (hintToInteger n))
+    _ ->
+      Right ()
+  result <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig expression)
+  expectEqual "overflowing add is not materialized as a constant" expression (OEB.optimizedANF result)
+  let subExpression = APrim Sub (AInt minHIntInteger) (AInt 1)
+  (subEncoded, subRun) <- runEncodedANF subExpression
+  subRoot <- canonicalRoot subEncoded subRun
+  subFound <- egg (EDB.lookupFunction (OES.iConstFn OES.symbols) [subRoot] (OEB.encodedRunDatabase subRun))
+  case subFound of
+    Just (EV.VConstInt (EV.KnownInt n)) ->
+      Left ("overflowing sub derived false KnownInt " <> show (hintToInteger n))
+    _ ->
+      Right ()
+  subResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig subExpression)
+  expectEqual "overflowing sub is not materialized as a constant" subExpression (OEB.optimizedANF subResult)
+  let strictSub =
+        ALet
+          xName
+          subExpression
+          (APrim Sub (AVar xName) (AInt 0))
+  strictResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig strictSub)
+  expectEqual "subtraction identity preserves the original runtime error" (evalANF strictSub) (evalANF (OEB.optimizedANF strictResult))
+  case OEB.optimizedANF strictResult of
+    ALet {} -> Right ()
+    other -> Left ("subtraction identity dropped strict overflow dependency: " <> show other)
+  let divByZero = APrim Div (AInt 8) (AInt 0)
+  divByZeroResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig divByZero)
+  expectEqual "division by zero is not materialized as a constant" divByZero (OEB.optimizedANF divByZeroResult)
+  expectEqual "division by zero runtime error is preserved" (evalANF divByZero) (evalANF (OEB.optimizedANF divByZeroResult))
+  let divOverflow = APrim Div (AInt minHIntInteger) (AInt (-1))
+  divOverflowResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig divOverflow)
+  expectEqual "overflowing division is not materialized as a constant" divOverflow (OEB.optimizedANF divOverflowResult)
+  expectEqual "overflowing division runtime error is preserved" (evalANF divOverflow) (evalANF (OEB.optimizedANF divOverflowResult))
+  let strictDiv =
+        ALet
+          xName
+          divByZero
+          (APrim Div (AVar xName) (AInt 1))
+  strictDivResult <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig strictDiv)
+  expectEqual "division identity preserves strict division-by-zero dependency" (evalANF strictDiv) (evalANF (OEB.optimizedANF strictDivResult))
+  case OEB.optimizedANF strictDivResult of
+    ALet {} -> Right ()
+    other -> Left ("division identity dropped strict runtime-error dependency: " <> show other)
 
 testEgglogBackendOpenFreeVariableFragment :: Either String ()
 testEgglogBackendOpenFreeVariableFragment = do
@@ -1120,9 +1871,24 @@ testEgglogBackendDeterministic = do
   second <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (toANF parsed))
   expectEqual "deterministic optimized ANF" (OEB.optimizedANF first) (OEB.optimizedANF second)
 
+testEgglogBackendExtractionProvenance :: Either String ()
+testEgglogBackendExtractionProvenance = do
+  parsed <- parseExpr "let x = 2 + 3 in x * 4"
+  result <- mapLeft (showText . OEB.renderEgglogBackendError) (OEB.optimizeWithEgglog EEV.defaultRunConfig (toANF parsed))
+  let provenance = OEB.provenanceTrace result
+  assertBool
+    "backend provenance should render the extracted root term"
+    (any ("extracted root:" `Text.isPrefixOf`) provenance)
+  assertBool
+    "backend provenance should render optimized ANF"
+    (any ("optimized ANF:" `Text.isPrefixOf`) provenance)
+  assertBool
+    "backend provenance should include rule-action trace lines"
+    (any ("debug: rule " `Text.isPrefixOf`) provenance)
+
 testEgglogBackendBooleanBranchPreservation :: Either String ()
 testEgglogBackendBooleanBranchPreservation =
-  assertEgglogPreservesSemantics "let b = if true then false else true in if b then 1 else 2" (ANFVInt 2) >> Right ()
+  assertEgglogPreservesSemantics "let b = if true then false else true in if b then 1 else 2" (anfInt 2) >> Right ()
 
 testEgglogTryOptimizeUnsupportedLambda :: Either String ()
 testEgglogTryOptimizeUnsupportedLambda =
@@ -1134,7 +1900,7 @@ testOrdinaryPipelineHandlesUnsupportedLambda :: Either String ()
 testOrdinaryPipelineHandlesUnsupportedLambda = do
   parsed <- parseExpr "let inc = \\x : Int -> x + 1 in inc 41"
   value <- mapLeft (showText . renderRuntimeError) (eval parsed)
-  expectEqual "ordinary pipeline value" (VInt 42) value
+  expectEqual "ordinary pipeline value" (sourceInt 42) value
   case OEB.tryOptimizeWithEgglog EEV.defaultRunConfig (toANF parsed) of
     OEB.EgglogUnsupported {} -> Right ()
     other -> Left ("expected Egglog backend to be unsupported, got " <> show other)
@@ -1159,12 +1925,20 @@ testLLVMBackendValidArithmetic = do
   expectEqual "backend root type" B.BI64 (B.backendRootType backend)
   mapLeft (showText . BV.renderBackendValidationError) (BV.validateBackendProgram backend)
 
+testLLVMBackendValidDivision :: Either String ()
+testLLVMBackendValidDivision = do
+  parsed <- parseExpr "let x = 20 in let y = 4 in x / y"
+  backend <- mapLeft (showText . BL.renderBackendLowerError) (BL.lowerANFToBackend (toANF parsed))
+  expectEqual "backend division root type" B.BI64 (B.backendRootType backend)
+  mapLeft (showText . BV.renderBackendValidationError) (BV.validateBackendProgram backend)
+
 testLLVMBackendValidationRejectsUnbound :: Either String ()
 testLLVMBackendValidationRejectsUnbound =
   let program =
         B.BackendProgram
           { B.backendRootType = B.BI64
           , B.backendRoot = B.BEAtom B.BI64 (B.BVar xName)
+          , B.backendFunctions = []
           , B.backendProvenance = []
           }
    in case BV.validateBackendProgram program of
@@ -1180,14 +1954,33 @@ testLLVMBackendValidationRejectsBadIf =
           , B.backendRoot =
               B.BEIf
                 B.BI64
-                (B.BInt 1)
-                (B.BEAtom B.BI64 (B.BInt 10))
-                (B.BEAtom B.BI64 (B.BInt 20))
+                (backendInt 1)
+                (B.BEAtom B.BI64 (backendInt 10))
+                (B.BEAtom B.BI64 (backendInt 20))
+          , B.backendFunctions = []
           , B.backendProvenance = []
           }
    in case BV.validateBackendProgram program of
         Left (BV.BackendIfConditionTypeMismatch B.BI64) -> Right ()
         other -> Left ("expected backend if condition validation error, got " <> show other)
+
+testLLVMBackendValidationRejectsBoolDivision :: Either String ()
+testLLVMBackendValidationRejectsBoolDivision =
+  let program =
+        B.BackendProgram
+          { B.backendRootType = B.BI64
+          , B.backendRoot =
+              B.BEPrim
+                B.BI64
+                B.BPDiv
+                (B.BBool True)
+                (backendInt 1)
+          , B.backendFunctions = []
+          , B.backendProvenance = []
+          }
+   in case BV.validateBackendProgram program of
+        Left (BV.BackendAtomTypeMismatch B.BI64 B.BI1 (B.BBool True)) -> Right ()
+        other -> Left ("expected backend Bool division validation error, got " <> show other)
 
 testLLVMLowerRejectsLambda :: Either String ()
 testLLVMLowerRejectsLambda =
@@ -1209,11 +2002,17 @@ testLLVMLowerRejectsOpenProgram =
       | name == xName -> Right ()
     other -> Left ("expected LLVM backend to reject open ANF, got " <> show other)
 
-testLLVMLowerRejectsDivision :: Either String ()
-testLLVMLowerRejectsDivision =
-  case BL.lowerANFToBackend (APrim Div (AInt 4) (AInt 2)) of
-    Left (BL.BackendUnsupportedPrimitive Div) -> Right ()
-    other -> Left ("expected LLVM backend to reject division, got " <> show other)
+testLLVMLoweringCheckedDivision :: Either String ()
+testLLVMLoweringCheckedDivision = do
+  result <- compileLLVMNoEgglog "let x = 20 in let y = 4 in x / y"
+  let llvmText = BC.llvmText result
+      beforeSdiv = fst (Text.breakOn "sdiv i64" llvmText)
+  assertBool "division lowering checks zero divisor" ("icmp eq i64 4, 0" `Text.isInfixOf` llvmText)
+  assertBool "division lowering checks minBound numerator" ("icmp eq i64 20, -9223372036854775808" `Text.isInfixOf` llvmText)
+  assertBool "division lowering checks -1 denominator" ("icmp eq i64 4, -1" `Text.isInfixOf` llvmText)
+  assertBool "division lowering emits sdiv" ("sdiv i64 20, 4" `Text.isInfixOf` llvmText)
+  assertBool "division lowering calls abort for runtime errors" ("@abort()" `Text.isInfixOf` llvmText)
+  assertBool "division checks precede sdiv" ("div_zero_abort" `Text.isInfixOf` beforeSdiv && "div_overflow_abort" `Text.isInfixOf` beforeSdiv)
 
 testLLVMLoweringNestedIf :: Either String ()
 testLLVMLoweringNestedIf = do
@@ -1235,6 +2034,7 @@ testLLVMValidatorRejectsDuplicateRegisters =
               [ LIR.LLVMFunction
                   { LIR.functionName = "bad"
                   , LIR.functionReturnType = LIR.LI64
+                  , LIR.functionParams = []
                   , LIR.functionBlocks =
                       [ LIR.LLVMBlock
                           { LIR.blockLabel = "entry"
@@ -1264,6 +2064,7 @@ testLLVMValidatorRejectsMissingBlock =
               [ LIR.LLVMFunction
                   { LIR.functionName = "bad"
                   , LIR.functionReturnType = LIR.LI64
+                  , LIR.functionParams = []
                   , LIR.functionBlocks =
                       [ LIR.LLVMBlock
                           { LIR.blockLabel = "entry"
@@ -1280,7 +2081,7 @@ testLLVMValidatorRejectsMissingBlock =
 
 testLLVMCompileEgglogFallback :: Either String ()
 testLLVMCompileEgglogFallback = do
-  result <- compileLLVMDefault "let x = 3 in if x < 5 then x * 2 else x * 3"
+  result <- compileLLVMDefault "let inc = \\x : Int -> x + 1 in inc 41"
   case BC.llvmOptimizationStatus result of
     BC.LLVMOptimizationUnsupported {} -> Right ()
     other -> Left ("expected Egglog unsupported fallback, got " <> show other)
@@ -1294,20 +2095,339 @@ testLLVMCompileUsesEgglog = do
     other -> Left ("expected Egglog optimization, got " <> show other)
   assertBool "optimized LLVM returns constant" ("ret i64 14" `Text.isInfixOf` BC.llvmText result)
 
+testLLVMCompileTopLevelFunctions :: Either String ()
+testLLVMCompileTopLevelFunctions = do
+  llvmText <- compileLLVMTextNoEgglog topLevelSource
+  assertBool
+    "LLVM defines inc with an Int parameter"
+    ("define i64 @hegglog_fun_inc(i64 %arg_x)" `Text.isInfixOf` llvmText)
+  assertBool
+    "LLVM calls inc directly"
+    ("call i64 @hegglog_fun_inc(i64 20)" `Text.isInfixOf` llvmText)
+  assertBool
+    "LLVM calls double directly"
+    ("call i64 @hegglog_fun_double(i64 %call0)" `Text.isInfixOf` llvmText)
+
+testLLVMCompileRejectsTopLevelFunctionValue :: Either String ()
+testLLVMCompileRejectsTopLevelFunctionValue =
+  case
+    BC.compileToLLVM
+      BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
+      "<test>"
+      "def inc(x : Int) : Int = x + 1; inc" of
+    Left (BC.LLVMCompileUnsupportedSource _ message) ->
+      assertBool
+        "top-level function value is rejected before ANF validation"
+        ("does not support using top-level function inc as a value" `Text.isInfixOf` message)
+    other -> Left ("expected top-level function value rejection, got " <> show other)
+
+testLLVMCompileEscapesTopLevelNames :: Either String ()
+testLLVMCompileEscapesTopLevelNames = do
+  llvmText <- compileLLVMTextNoEgglog "def f'(x : Int) : Int = x; def f_(x : Int) : Int = x + 1; f' 42"
+  assertBool
+    "apostrophe is escaped distinctly"
+    ("define i64 @hegglog_fun_f_x27_(i64 %arg_x)" `Text.isInfixOf` llvmText)
+  assertBool
+    "underscore is escaped distinctly"
+    ("define i64 @hegglog_fun_f_u(i64 %arg_x)" `Text.isInfixOf` llvmText)
+  assertBool
+    "call targets escaped apostrophe function"
+    ("call i64 @hegglog_fun_f_x27_(i64 42)" `Text.isInfixOf` llvmText)
+
+testLLVMCompileLiftedLetLambda :: Either String ()
+testLLVMCompileLiftedLetLambda = do
+  llvmText <- compileLLVMTextNoEgglog "let add = \\x : Int -> \\y : Int -> x + y in add 3 4"
+  assertBool
+    "curried lambda chain becomes one first-order LLVM function"
+    ("define i64 @hegglog_fun__ulift_uadd_u0(i64 %arg_x, i64 %arg_y)" `Text.isInfixOf` llvmText)
+  assertBool
+    "curried lambda call lowers directly"
+    ("call i64 @hegglog_fun__ulift_uadd_u0(i64 3, i64 4)" `Text.isInfixOf` llvmText)
+
+testLLVMCompileImmediateLambda :: Either String ()
+testLLVMCompileImmediateLambda = do
+  llvmText <- compileLLVMTextNoEgglog "(\\x : Int -> x * 2) 21"
+  assertBool
+    "anonymous lambda gets deterministic lifted function"
+    ("define i64 @hegglog_fun__ulift_ulambda_u0(i64 %arg_x)" `Text.isInfixOf` llvmText)
+  assertBool
+    "anonymous lambda call lowers directly"
+    ("call i64 @hegglog_fun__ulift_ulambda_u0(i64 21)" `Text.isInfixOf` llvmText)
+
+testLLVMCompileCapturingLambda :: Either String ()
+testLLVMCompileCapturingLambda = do
+  llvmText <- compileLLVMTextNoEgglog "let x = 1 in let f = \\y : Int -> x + y in f 2"
+  assertBool
+    "capturing lambda gets closure code function"
+    ("define i64 @hegglog_fun__uclosure_uf_u0(ptr %arg__uenv0, i64 %arg_y)" `Text.isInfixOf` llvmText)
+  assertBool
+    "closure allocation uses malloc"
+    ("call ptr @malloc(i64 16)" `Text.isInfixOf` llvmText)
+  assertBool
+    "closure stores code pointer"
+    ("store ptr @hegglog_fun__uclosure_uf_u0" `Text.isInfixOf` llvmText)
+  assertBool
+    "closure call dispatches through loaded code pointer"
+    ("call i64 %closure_code" `Text.isInfixOf` llvmText)
+
+testLLVMCompileInferredCapturingLambda :: Either String ()
+testLLVMCompileInferredCapturingLambda = do
+  llvmText <- compileLLVMTextNoEgglog "let x = 1 in let f = \\y -> x + y in f 2"
+  assertBool
+    "inferred capturing lambda gets typed closure code function"
+    ("define i64 @hegglog_fun__uclosure_uf_u0(ptr %arg__uenv0, i64 %arg_y)" `Text.isInfixOf` llvmText)
+  assertBool
+    "inferred closure call dispatches through loaded code pointer"
+    ("call i64 %closure_code" `Text.isInfixOf` llvmText)
+
+testNativeBuildToolchainMissing :: IO (Either String ())
+testNativeBuildToolchainMissing = do
+  result <-
+    LLVMTools.buildNativeExecutable
+      (LLVMTools.LLVMTools Nothing Nothing Nothing)
+      "define i64 @main() {\nentry:\n  ret i64 0\n}\n"
+      ".context/native-tests/missing-toolchain"
+  pure $
+    case result of
+      LLVMTools.NativeBuildToolchainMissing message ->
+        assertBool "missing clang reports toolchain status" ("clang unavailable" `Text.isInfixOf` Text.pack message)
+      other ->
+        Left ("expected missing native toolchain, got " <> show other)
+
+testNativeExecutionMatchesInterpreter :: IO (Either String ())
+testNativeExecutionMatchesInterpreter = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} -> do
+      createDirectoryIfMissing True ".context/native-tests"
+      firstFailureIO (check tools) nativeExecutionExamples
+ where
+  check tools nativeExample = do
+    source <- Text.IO.readFile (nativeExamplePath nativeExample)
+    let options =
+          BC.defaultCompileLLVMOptions
+            { BC.compileUseEgglog = nativeExampleUseEgglog nativeExample
+            }
+    case BC.compileToLLVM options (nativeExamplePath nativeExample) source of
+      Left err ->
+        pure (Left (Text.unpack (BC.renderCompileLLVMError err)))
+      Right result -> do
+        let outputPath = ".context/native-tests/" <> nativeExampleName nativeExample
+        buildResult <- LLVMTools.buildNativeExecutable tools (BC.llvmText result) outputPath
+        runBuiltNative outputPath buildResult $ \runResult ->
+          case runResult of
+            LLVMTools.NativeRunSucceeded stdoutText ->
+              expectEqual ("native stdout for " <> nativeExamplePath nativeExample) (nativeExampleStdout nativeExample) stdoutText
+            LLVMTools.NativeRunFailed code stdoutText stderrText ->
+              Left ("native execution failed for " <> outputPath <> " with " <> show code <> "\nstdout:\n" <> stdoutText <> "\nstderr:\n" <> stderrText)
+            LLVMTools.NativeRunIOError message ->
+              Left ("native execution I/O error for " <> outputPath <> ": " <> message)
+
+testNativeRuntimeErrorExecutable :: IO (Either String ())
+testNativeRuntimeErrorExecutable = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} -> do
+      createDirectoryIfMissing True ".context/native-tests"
+      source <- Text.IO.readFile "examples/llvm/division-by-zero.hg"
+      case expectedInterpreterDivisionError "native-by-zero" ExpectDivisionByZero source of
+        Left err ->
+          pure (Left err)
+        Right () ->
+          case
+            BC.compileToLLVM
+              BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
+              "examples/llvm/division-by-zero.hg"
+              source of
+            Left err ->
+              pure (Left (Text.unpack (BC.renderCompileLLVMError err)))
+            Right result -> do
+              let outputPath = ".context/native-tests/division-by-zero"
+              buildResult <- LLVMTools.buildNativeExecutable tools (BC.llvmText result) outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    Left ("expected native division by zero to fail, got stdout:\n" <> stdoutText)
+                  LLVMTools.NativeRunFailed {} ->
+                    Right ()
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("native execution I/O error for " <> outputPath <> ": " <> message)
+
+runBuiltNative :: FilePath -> LLVMTools.NativeBuildResult -> (LLVMTools.NativeRunResult -> Either String ()) -> IO (Either String ())
+runBuiltNative outputPath buildResult checkRun =
+  case buildResult of
+    LLVMTools.NativeBuildSucceeded ->
+      checkRun <$> LLVMTools.runNativeExecutable outputPath
+    LLVMTools.NativeBuildToolchainMissing {} ->
+      pure (Right ())
+    LLVMTools.NativeBuildFailed clangPath args code stdoutText stderrText ->
+      pure $
+        Left
+          ( "native build failed with "
+              <> show code
+              <> "\ncommand: "
+              <> unwords (clangPath : args)
+              <> "\nstdout:\n"
+              <> stdoutText
+              <> "\nstderr:\n"
+              <> stderrText
+          )
+    LLVMTools.NativeBuildIOError message ->
+      pure (Left ("native build I/O error: " <> message))
+
+testLLVMOverflowAborts :: IO (Either String ())
+testLLVMOverflowAborts = do
+  tools <- LLVMTools.findLLVMTools
+  firstFailureIO (check tools) llvmOverflowCases
+ where
+  check tools overflowCase = do
+    let source = overflowSource overflowCase
+        path = "<llvm-overflow-" <> Text.unpack (overflowName overflowCase) <> ">"
+    case expectedInterpreterOverflow path (overflowOperator overflowCase) source of
+      Left err ->
+        pure (Left err)
+      Right () ->
+        case
+          BC.compileToLLVM
+            BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
+            path
+            source of
+          Left err ->
+            pure (Left (Text.unpack (BC.renderCompileLLVMError err)))
+          Right result -> do
+            let llvmText = BC.llvmText result
+            runResult <- LLVMTools.runLLVMText tools llvmText
+            pure $
+              assertBool
+                ("overflow lowering uses expected intrinsic for " <> Text.unpack (overflowName overflowCase))
+                (overflowIntrinsic overflowCase `Text.isInfixOf` llvmText)
+                *> assertBool
+                  ("overflow lowering calls abort for " <> Text.unpack (overflowName overflowCase))
+                  ("@abort()" `Text.isInfixOf` llvmText)
+                *> case runResult of
+                  LLVMTools.LLVMRunSkipped {} ->
+                    Right ()
+                  LLVMTools.LLVMRunFailed _ _ ->
+                    Right ()
+                  LLVMTools.LLVMRunSucceeded stdoutText ->
+                    Left ("expected LLVM overflow execution to fail for " <> path <> ", got stdout:\n" <> stdoutText)
+
+expectedInterpreterOverflow :: FilePath -> BinOp -> Text -> Either String ()
+expectedInterpreterOverflow path expectedOp source = do
+  parsed <- parseExprAt path source
+  case eval parsed of
+    Left (RuntimeIntError (IntOverflow actualOp _ _))
+      | actualOp == expectedOp -> Right ()
+    Left err ->
+      Left ("expected interpreter checked Int overflow for " <> path <> ", got " <> Text.unpack (renderRuntimeError err))
+    Right value ->
+      Left ("expected interpreter checked Int overflow for " <> path <> ", got value " <> Text.unpack (renderValue value))
+
+testLLVMDivisionExecution :: IO (Either String ())
+testLLVMDivisionExecution = do
+  tools <- LLVMTools.findLLVMTools
+  successResult <- runDivisionSuccess tools
+  case successResult of
+    Left err -> pure (Left err)
+    Right () -> firstFailureIO (checkError tools) llvmDivisionErrorCases
+ where
+  runDivisionSuccess tools = do
+    source <- Text.IO.readFile "examples/llvm/division.hg"
+    case BC.compileToLLVM BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False} "examples/llvm/division.hg" source of
+      Left err ->
+        pure (Left (Text.unpack (BC.renderCompileLLVMError err)))
+      Right result -> do
+        assemblyResult <- LLVMTools.validateLLVMText tools (BC.llvmText result)
+        runResult <- LLVMTools.runLLVMText tools (BC.llvmText result)
+        pure $
+          checkLLVMAssemblyResult "examples/llvm/division.hg" assemblyResult
+            *> assertBool "division lowering emits sdiv without Egglog" ("sdiv i64" `Text.isInfixOf` BC.llvmText result)
+            *> case runResult of
+              LLVMTools.LLVMRunSkipped {} -> Right ()
+              LLVMTools.LLVMRunFailed stdoutText stderrText ->
+                Left ("LLVM division execution failed\nstdout:\n" <> stdoutText <> "\nstderr:\n" <> stderrText)
+              LLVMTools.LLVMRunSucceeded stdoutText ->
+                expectEqual "LLVM division stdout" "5\n" stdoutText
+
+  checkError tools (name, source, expected) = do
+    case expectedInterpreterDivisionError name expected source of
+      Left err ->
+        pure (Left err)
+      Right () ->
+        case BC.compileToLLVM BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False} ("<llvm-division-" <> Text.unpack name <> ">") source of
+          Left err ->
+            pure (Left (Text.unpack (BC.renderCompileLLVMError err)))
+          Right result -> do
+            assemblyResult <- LLVMTools.validateLLVMText tools (BC.llvmText result)
+            runResult <- LLVMTools.runLLVMText tools (BC.llvmText result)
+            pure $
+              checkLLVMAssemblyResult ("<llvm-division-" <> Text.unpack name <> ">") assemblyResult
+                *> assertBool
+                ("division error lowering emits sdiv for " <> Text.unpack name)
+                ("sdiv i64" `Text.isInfixOf` BC.llvmText result)
+                *> assertBool
+                  ("division error lowering calls abort for " <> Text.unpack name)
+                  ("@abort()" `Text.isInfixOf` BC.llvmText result)
+                *> case runResult of
+                  LLVMTools.LLVMRunSkipped {} -> Right ()
+                  LLVMTools.LLVMRunFailed _ _ -> Right ()
+                  LLVMTools.LLVMRunSucceeded stdoutText ->
+                    Left ("expected LLVM division " <> Text.unpack name <> " execution to fail, got stdout:\n" <> stdoutText)
+
+data ExpectedDivisionError
+  = ExpectDivisionByZero
+  | ExpectDivisionOverflow
+  deriving stock (Show, Eq, Ord)
+
+llvmDivisionErrorCases :: [(Text, Text, ExpectedDivisionError)]
+llvmDivisionErrorCases =
+  [ ("by-zero", "1 / 0", ExpectDivisionByZero)
+  , ("overflow", divisionOverflowSource, ExpectDivisionOverflow)
+  ]
+
+expectedInterpreterDivisionError :: Text -> ExpectedDivisionError -> Text -> Either String ()
+expectedInterpreterDivisionError name expected source = do
+  parsed <- parseExprAt ("<llvm-division-" <> Text.unpack name <> ">") source
+  case (expected, eval parsed) of
+    (ExpectDivisionByZero, Left DivisionByZero) -> Right ()
+    (ExpectDivisionOverflow, Left (RuntimeIntError (IntOverflow Div _ _))) -> Right ()
+    (_, Left err) ->
+      Left ("expected interpreter division " <> Text.unpack name <> " error, got " <> Text.unpack (renderRuntimeError err))
+    (_, Right value) ->
+      Left ("expected interpreter division " <> Text.unpack name <> " error, got value " <> Text.unpack (renderValue value))
+
 checkLLVMGolden :: FilePath -> FilePath -> IO (Either String ())
 checkLLVMGolden sourcePath goldenPath = do
   source <- Text.IO.readFile sourcePath
   expected <- Text.IO.readFile goldenPath
-  pure $ do
-    result <-
-      mapLeft
-        (showText . BC.renderCompileLLVMError)
-        ( BC.compileToLLVM
-            BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
-            sourcePath
-            source
-        )
-    expectEqualText "LLVM golden output" expected (BC.llvmText result)
+  tools <- LLVMTools.findLLVMTools
+  case
+    mapLeft
+      (showText . BC.renderCompileLLVMError)
+      ( BC.compileToLLVM
+          BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
+          sourcePath
+          source
+      ) of
+    Left err ->
+      pure (Left err)
+    Right result -> do
+      assemblyResult <- LLVMTools.validateLLVMText tools (BC.llvmText result)
+      pure $
+        expectEqualText "LLVM golden output" expected (BC.llvmText result)
+          *> checkLLVMAssemblyResult sourcePath assemblyResult
+
+checkLLVMAssemblyResult :: FilePath -> LLVMTools.LLVMAssemblyResult -> Either String ()
+checkLLVMAssemblyResult _ LLVMTools.LLVMAssemblySucceeded =
+  Right ()
+checkLLVMAssemblyResult _ (LLVMTools.LLVMAssemblySkipped _) =
+  Right ()
+checkLLVMAssemblyResult sourcePath (LLVMTools.LLVMAssemblyFailed stdoutText stderrText) =
+  Left ("llvm-as rejected emitted LLVM for " <> sourcePath <> "\nstdout:\n" <> stdoutText <> "\nstderr:\n" <> stderrText)
 
 testLLVMExecutionMatchesInterpreter :: IO (Either String ())
 testLLVMExecutionMatchesInterpreter = do
@@ -1330,20 +2450,62 @@ testLLVMExecutionMatchesInterpreter = do
             LLVMTools.LLVMRunSucceeded stdoutText ->
               expectEqual ("LLVM stdout for " <> path) expectedStdout stdoutText
 
+testLLVMDifferentialCorpus :: IO (Either String ())
+testLLVMDifferentialCorpus = do
+  tools <- LLVMTools.findLLVMTools
+  firstFailureIO (check tools) (zip [(1 :: Int) ..] llvmDifferentialSources)
+ where
+  check tools (index, source) = do
+    let path = "<llvm-diff-" <> show index <> ">"
+    case expectedLLVMStdout path source of
+      Left err ->
+        pure (Left err)
+      Right expectedStdout ->
+        case BC.compileToLLVM BC.defaultCompileLLVMOptions path source of
+          Left err ->
+            pure (Left (Text.unpack (BC.renderCompileLLVMError err)))
+          Right result -> do
+            runResult <- LLVMTools.runLLVMText tools (BC.llvmText result)
+            pure $
+              case runResult of
+                LLVMTools.LLVMRunSkipped {} ->
+                  Right ()
+                LLVMTools.LLVMRunFailed stdoutText stderrText ->
+                  Left ("LLVM execution failed for " <> path <> "\nstdout:\n" <> stdoutText <> "\nstderr:\n" <> stderrText)
+                LLVMTools.LLVMRunSucceeded stdoutText ->
+                  expectEqual ("LLVM stdout for " <> path) expectedStdout stdoutText
+
+expectedLLVMStdout :: FilePath -> Text -> Either String String
+expectedLLVMStdout path source = do
+  parsed <- parseExprAt path source
+  value <- mapLeft (showText . renderRuntimeError) (eval parsed)
+  case value of
+    VInt n ->
+      Right (show (hintToInteger n) <> "\n")
+    VBool True ->
+      Right "1\n"
+    VBool False ->
+      Right "0\n"
+    VClosure {} ->
+      Left "LLVM differential corpus only supports first-order root values"
+
 compileLLVMDefault :: Text -> Either String BC.LLVMCompileResult
 compileLLVMDefault source =
   mapLeft (showText . BC.renderCompileLLVMError) (BC.compileToLLVM BC.defaultCompileLLVMOptions "<test>" source)
 
+compileLLVMNoEgglog :: Text -> Either String BC.LLVMCompileResult
+compileLLVMNoEgglog source =
+  mapLeft
+    (showText . BC.renderCompileLLVMError)
+    ( BC.compileToLLVM
+        BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
+        "<test>"
+        source
+    )
+
 compileLLVMTextNoEgglog :: Text -> Either String Text
 compileLLVMTextNoEgglog source =
-  BC.llvmText
-    <$> mapLeft
-      (showText . BC.renderCompileLLVMError)
-      ( BC.compileToLLVM
-          BC.defaultCompileLLVMOptions {BC.compileUseEgglog = False}
-          "<test>"
-          source
-      )
+  BC.llvmText <$> compileLLVMNoEgglog source
 
 assertEgglogPreservesSemantics :: Text -> ANFValue -> Either String OEB.EgglogOptimizationResult
 assertEgglogPreservesSemantics source expectedValue = do
@@ -1607,6 +2769,27 @@ checkGolden sourcePath goldenPath = do
     report <- mapLeft show (compileReport sourcePath source)
     expectEqualText "golden output" expected (renderGoldenReport report)
 
+checkDiagnosticGolden :: FilePath -> FilePath -> IO (Either String ())
+checkDiagnosticGolden sourcePath goldenPath = do
+  source <- Text.IO.readFile sourcePath
+  expected <- Text.IO.readFile goldenPath
+  pure $
+    case compileReport sourcePath source of
+      Left err ->
+        expectEqualText "diagnostic golden output" expected (renderCompileError err)
+      Right report ->
+        Left ("expected diagnostic failure, got report:\n" <> Text.unpack (renderGoldenReport report))
+
+checkLLVMDiagnosticGolden :: Text -> FilePath -> IO (Either String ())
+checkLLVMDiagnosticGolden source goldenPath = do
+  expected <- Text.IO.readFile goldenPath
+  pure $
+    case BC.compileToLLVM BC.defaultCompileLLVMOptions "<llvm-diagnostic>" source of
+      Left err ->
+        expectEqualText "LLVM diagnostic golden output" (Text.stripEnd expected) (BC.renderCompileLLVMError err)
+      Right result ->
+        Left ("expected LLVM diagnostic failure, got LLVM:\n" <> Text.unpack (BC.llvmText result))
+
 checkProperty :: Testable prop => prop -> IO (Either String ())
 checkProperty prop = do
   result <-
@@ -1713,7 +2896,7 @@ genSupportedIf ty size env next = do
 
 genIntPrim :: Int -> [TypedName] -> Gen AExpr
 genIntPrim _ env = do
-  op <- elements [Add, Mul]
+  op <- elements [Add, Sub, Mul, Div]
   lhs <- genSupportedAtom TInt env
   rhs <- genSupportedAtom TInt env
   pure (APrim op lhs rhs)
@@ -1796,6 +2979,14 @@ parseExprAt :: FilePath -> Text -> Either String Expr
 parseExprAt path source =
   mapLeft errorBundlePretty (parseProgram path source)
 
+parseSource :: Text -> Either String Program
+parseSource =
+  parseSourceAt "<test>"
+
+parseSourceAt :: FilePath -> Text -> Either String Program
+parseSourceAt path source =
+  mapLeft errorBundlePretty (parseSourceProgram path source)
+
 factsFor :: Text -> Either String [Fact]
 factsFor source =
   inferFacts . toANF <$> parseExpr source
@@ -1807,17 +2998,18 @@ letNames = \case
   AIf _ thenBranch elseBranch -> letNames thenBranch <> letNames elseBranch
   ALam _ _ body -> letNames body
   AApp {} -> []
+  ACall {} -> []
   ALet letName rhs body -> letName : letNames rhs <> letNames body
 
 observeSourceValue :: Value -> Either String ObservedValue
 observeSourceValue = \case
-  VInt n -> Right (ObservedInt n)
+  VInt n -> Right (ObservedInt (hintToInteger n))
   VBool b -> Right (ObservedBool b)
   VClosure {} -> Left "semantic preservation test cannot compare function results"
 
 observeANFValue :: ANFValue -> Either String ObservedValue
 observeANFValue = \case
-  ANFVInt n -> Right (ObservedInt n)
+  ANFVInt n -> Right (ObservedInt (hintToInteger n))
   ANFVBool b -> Right (ObservedBool b)
   ANFVClosure {} -> Left "semantic preservation test cannot compare function results"
 
@@ -1877,6 +3069,26 @@ showText :: Text -> String
 showText =
   Text.unpack
 
+hint :: Integer -> HInt
+hint =
+  unsafeHIntLiteral
+
+sourceInt :: Integer -> Value
+sourceInt =
+  VInt . hint
+
+anfInt :: Integer -> ANFValue
+anfInt =
+  ANFVInt . hint
+
+knownInt :: Integer -> EV.ConstInt
+knownInt =
+  EV.KnownInt . hint
+
+backendInt :: Integer -> B.BackendAtom
+backendInt =
+  B.BInt . hint
+
 mkName :: Text -> Name
 mkName =
   Name
@@ -1913,6 +3125,8 @@ supportedEgglogSources =
   , "0 * 99"
   , "if true then 1 + 0 else 2 * 0"
   , "let x = 2 + 3 in x * 4"
+  , "let x = 10 - 3 in x + 1"
+  , "let x = 8 / 2 in x + 1"
   , "let b = true in if b then 10 else 20"
   ]
 
@@ -1924,6 +3138,78 @@ llvmExecutionExamples =
   , ("examples/llvm/nested-if.hg", "2\n")
   , ("examples/llvm/let-chain.hg", "21\n")
   , ("examples/llvm/bool-root.hg", "1\n")
+  , ("examples/llvm/top-level.hg", "42\n")
+  , ("examples/llvm/division.hg", "5\n")
+  ]
+
+data NativeExample = NativeExample
+  { nativeExampleName :: FilePath
+  , nativeExamplePath :: FilePath
+  , nativeExampleStdout :: String
+  , nativeExampleUseEgglog :: Bool
+  }
+  deriving stock (Show, Eq)
+
+nativeExecutionExamples :: [NativeExample]
+nativeExecutionExamples =
+  [ NativeExample "arithmetic" "examples/llvm/arithmetic.hg" "14\n" True
+  , NativeExample "if-comparison" "examples/llvm/if-comparison.hg" "6\n" True
+  , NativeExample "division" "examples/llvm/division.hg" "5\n" True
+  , NativeExample "bool-root" "examples/llvm/bool-root.hg" "1\n" True
+  , NativeExample "division-no-egglog" "examples/llvm/division.hg" "5\n" False
+  ]
+
+llvmDifferentialSources :: [Text]
+llvmDifferentialSources =
+  [ "0"
+  , "true"
+  , "false"
+  , liftedIncSource
+  , "let add = \\x : Int -> \\y : Int -> x + y in add 3 4"
+  , "(\\x : Int -> x * 2) 21"
+  , "let x = 1 in let f = \\y : Int -> x + y in f 2"
+  , "let makeAdder = \\x : Int -> \\y : Int -> x + y in let add10 = makeAdder 10 in add10 32"
+  , higherOrderSource
+  , "1 + 2 * 3"
+  , "let x = 10 in let y = x - 4 in y * 3"
+  , "if 3 < 4 then 11 else 22"
+  , "if 4 < 3 then 11 else 22"
+  , "let b = 1 == 1 in if b then 41 + 1 else 0"
+  , "let b = false == (1 < 0) in if b then 7 else 9"
+  , "let x = 5 in if x == 5 then if x < 10 then x * x else 0 else 1"
+  , "let x = 9223372036854775807 in x - 7"
+  , "(0 - 3) / 2"
+  , "let x = 20 in let y = 4 in x / y"
+  , "let x = 20 in let f = \\y : Int -> x / y in f 4"
+  ]
+
+data LLVMOverflowCase = LLVMOverflowCase
+  { overflowName :: Text
+  , overflowSource :: Text
+  , overflowOperator :: BinOp
+  , overflowIntrinsic :: Text
+  }
+
+llvmOverflowCases :: [LLVMOverflowCase]
+llvmOverflowCases =
+  [ LLVMOverflowCase
+      { overflowName = "add"
+      , overflowSource = Text.pack (show maxHIntInteger <> " + 1")
+      , overflowOperator = Add
+      , overflowIntrinsic = "@llvm.sadd.with.overflow.i64"
+      }
+  , LLVMOverflowCase
+      { overflowName = "sub"
+      , overflowSource = "let minish = 0 - 9223372036854775807 in minish - 2"
+      , overflowOperator = Sub
+      , overflowIntrinsic = "@llvm.ssub.with.overflow.i64"
+      }
+  , LLVMOverflowCase
+      { overflowName = "mul"
+      , overflowSource = "3037000500 * 3037000500"
+      , overflowOperator = Mul
+      , overflowIntrinsic = "@llvm.smul.with.overflow.i64"
+      }
   ]
 
 incSource :: Text
@@ -1939,3 +3225,19 @@ higherOrderSource =
   "let applyTwice = \\f : (Int -> Int) -> \\x : Int -> f (f x) in\n\
   \let inc = \\n : Int -> n + 1 in\n\
   \applyTwice inc 40"
+
+liftedIncSource :: Text
+liftedIncSource =
+  "let inc = \\x : Int -> x + 1 in inc 41"
+
+topLevelSource :: Text
+topLevelSource =
+  "def inc(x : Int) : Int = x + 1;\n\
+  \def double(x : Int) : Int = x * 2;\n\
+  \double (inc 20)"
+
+divisionOverflowSource :: Text
+divisionOverflowSource =
+  "let min_int = (0 - 9223372036854775807) - 1 in\n\
+  \let neg_one = 0 - 1 in\n\
+  \min_int / neg_one"

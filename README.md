@@ -2,12 +2,29 @@
 
 Initial vertical slice for a tiny typed functional language in Haskell.
 
+## Roadmap
+
+The living development roadmap is in [docs/roadmap.md](docs/roadmap.md). It
+tracks the implemented compiler baseline, remaining semantic work, and the next
+implementation queue.
+
+Current semantic specs:
+
+- [Language specification](docs/language-spec.md)
+- [Runtime specification](docs/runtime-spec.md)
+- [Diagnostics specification](docs/diagnostics-spec.md)
+- [LLVM backend specification](docs/llvm-backend-spec.md)
+- [Type inference direction](docs/type-inference.md)
+
 ## Build
 
 ```bash
 cabal build
 cabal test
 ```
+
+CI runs `cabal build all`, `cabal test all`, `cabal check`, and
+`git diff --check` on pushes to `main`/`develop` and on pull requests.
 
 ## Run
 
@@ -32,7 +49,16 @@ The CLI prints:
 
 ## LLVM Backend
 
-Closed first-order programs can be compiled to textual LLVM IR:
+Closed programs with `Int` or `Bool` roots can be compiled to native
+executables through `clang`:
+
+```bash
+cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithmetic
+/tmp/hegglog-arithmetic
+# 14
+```
+
+Textual LLVM IR remains available behind `--emit-llvm`:
 
 ```bash
 cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm
@@ -40,15 +66,24 @@ cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm -o build/ar
 cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm --run-llvm
 ```
 
-The LLVM v0 backend supports `Int`, `Bool`, `let`, `if`, `+`, `-`, `*`, `<`,
-and `==` over closed first-order programs. Lambdas, applications, closures,
-recursion, heap allocation, free variables, and division are rejected
-structurally. `Int` lowers to LLVM `i64`, so the LLVM backend currently has a
-documented integer-width gap with the interpreter's arbitrary-precision
-`Integer` semantics.
+Native compile mode also supports `--no-egglog` and `--run`:
 
-See `docs/llvm-backend.md` for the supported fragment, lowering strategy, CLI
-behavior, and LLVM toolchain notes.
+```bash
+cabal run hegglog -- compile examples/llvm/division.hg -o /tmp/hegglog-division --no-egglog
+cabal run hegglog -- compile examples/llvm/division.hg -o /tmp/hegglog-division --run
+```
+
+The LLVM v0 backend supports `Int`, `Bool`, `let`, `if`, `+`, `-`, `*`, `/`,
+`<`, `==`, ordered top-level first-order functions, saturated direct calls,
+lambda lifting for eligible non-capturing lambdas, and closure conversion for
+local function values. Function-valued roots, partial or over-applied top-level
+calls, top-level function values, recursion, and free variables are rejected
+structurally. `Int` is a checked signed 64-bit value across the interpreter,
+optimizers, backend IR, and LLVM lowering; overflow and division errors are
+reported by interpreters and abort in generated LLVM.
+
+See `docs/llvm-backend.md` for CLI behavior and LLVM toolchain notes, and
+`docs/llvm-backend-spec.md` for the backend semantic contract.
 
 ## Language MVP
 
@@ -60,22 +95,32 @@ Supported source forms:
 - `if` / `then` / `else`
 - arithmetic operators: `+`, `-`, `*`, `/`
 - comparison operators: `<`, `==`
-- lambda expressions: `\x : Int -> x + 1`
+- lambda expressions: `\x : Int -> x + 1` or `\x -> x + 1`
 - function application: `f x`
+- top-level first-order functions: `def inc(x : Int) : Int = x + 1; inc 41`
 - function types: `Int -> Int`
 - parentheses
 
-Function parameter annotations are required. Hindley-Milner inference and
-generalization are intentionally out of scope for this slice.
+Top-level function parameter and return annotations are required. Lambda
+parameter annotations are optional when the compiler can infer a concrete
+monomorphic type; ambiguous lambdas are rejected with source-spanned
+diagnostics. Polymorphic lets and optional top-level signatures are tracked in
+`docs/type-inference.md`.
 
 ## Architecture
 
 - `Syntax.*` owns parsed source syntax and pretty-printing.
-- `Typecheck.*` performs a simple environment-based typecheck with no
-  Hindley-Milner generalization.
+- `Syntax.Located` carries source ranges for diagnostics while preserving the
+  unspanned AST used by semantic passes.
+- `Typecheck.Infer` performs the production environment-based typecheck and
+  exposes source elaboration for optional lambda annotations.
+- `Typecheck.Principal` contains the Algorithm W-style principal-type engine
+  and the located elaborator that resolves source lambdas to explicit backend
+  types.
 - `Eval.*` interprets checked expressions into runtime values.
 - `IR.ANF` makes evaluation order explicit by atomizing primitive and
-  application operands.
+  application operands, and represents top-level functions/direct calls for the
+  first-order backend path.
 - `Analysis.*` defines relational facts over ANF terms. This keeps future
   egglog-style optimization grounded in analysis facts instead of a bare rewrite
   engine.
@@ -103,8 +148,13 @@ generalization are intentionally out of scope for this slice.
   Egglog kernel. It classifies a typed first-order fragment, encodes integer and
   boolean terms into separate Egglog sorts, runs compiler rules as `Rule` data,
   extracts back to valid ANF, and reports structured unsupported/failure states.
-- `Backend.*` lowers closed first-order ANF into a typed backend IR and then into
-  deterministic textual LLVM IR with a small C-compatible printing `main`.
+- `Backend.LambdaLift` rewrites eligible non-capturing lambdas into generated
+  top-level first-order functions before backend lowering.
+- `Backend.ClosureConvert` lowers remaining local function values into closure
+  allocation, environment access, and indirect closure calls.
+- `Backend.*` lowers ANF or closure-converted programs into a typed backend IR
+  and then into deterministic textual LLVM IR with source top-level functions
+  and a small C-compatible printing `main`.
 
 Binder-aware equality saturation remains future work. Lambda rewrites require
 alpha equivalence, capture avoidance, beta-reduction discipline, and extraction
@@ -114,8 +164,10 @@ cost models before they can be optimized safely.
 
 The test suite is grouped by compiler concern:
 
-- parser precedence and grouping
-- structured negative typechecking cases
+- parser precedence, grouping, and top-level definitions
+- structured negative typechecking cases, including top-level duplicate and
+  forward-reference errors
+- parser/typechecker/backend diagnostic location and golden formatting
 - source-vs-ANF semantic preservation
 - ANF validation and invariants
 - relational fact inference
@@ -125,12 +177,17 @@ The test suite is grouped by compiler concern:
 - Egglog kernel invariants, resolved ANF binding behavior, backend encoding,
   compiler rules, extraction/reconstruction, structured unsupported reporting,
   deterministic optimization, and semantic preservation on supported programs
-- LLVM backend validation, structured unsupported cases, deterministic SSA/phi
-  lowering, selected LLVM golden files, and optional execution checks against
-  the interpreter when LLVM tools are available
+- LLVM backend validation, structured unsupported cases, direct top-level calls,
+  lambda lifting, deterministic SSA/phi lowering, selected LLVM golden files,
+  and optional execution checks against the interpreter when LLVM tools are
+  available
 - selected golden CLI output sections
 - QuickCheck properties for ANF validation after lowering and Egglog semantic
   preservation on generated supported ANF fragments
 
 Negative type fixtures live in `examples/type-errors/`. Golden fixtures live in
 `test/golden/`.
+
+## License
+
+HeggLog is licensed under the MIT License. See [LICENSE](LICENSE).

@@ -31,6 +31,7 @@ data Sort
   | SBool
   | SConstInt
   | SConstBool
+  | SZeroInfo
   | SUnit
   | SString
   deriving stock (Show, Eq, Ord)
@@ -54,5 +55,6 @@ renderSort = \case
   SBool -> "Bool"
   SConstInt -> "ConstInt"
   SConstBool -> "ConstBool"
+  SZeroInfo -> "ZeroInfo"
   SUnit -> "Unit"
   SString -> "String"

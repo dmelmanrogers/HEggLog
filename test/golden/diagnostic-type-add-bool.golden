@@ -1,0 +1,2 @@
+== Type error ==
+examples/type-errors/add-bool.hg:1:5-9: type error: operator + expects Int operands, got Bool

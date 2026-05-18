@@ -7,14 +7,28 @@ where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Backend.IR
+import Runtime.Int (renderHInt)
 import Syntax.Pretty (prettyName, renderDoc)
 
 renderBackendProgram :: BackendProgram -> Text
 renderBackendProgram program =
-  "root : "
+  Text.concat [renderBackendFunction function <> "\n" | function <- backendFunctions program]
+    <> "root : "
     <> renderBackendType (backendRootType program)
     <> "\n"
     <> renderBackendExpr 0 (backendRoot program)
+
+renderBackendFunction :: BackendFunction -> Text
+renderBackendFunction function =
+  "def "
+    <> renderDoc (prettyName (backendFunctionName function))
+    <> "("
+    <> Text.intercalate ", " [renderDoc (prettyName name) <> " : " <> renderBackendType ty | (name, ty) <- backendFunctionParams function]
+    <> ") : "
+    <> renderBackendType (backendFunctionReturnType function)
+    <> " = "
+    <> renderBackendExpr 0 (backendFunctionBody function)
+    <> ";"
 
 renderBackendExpr :: Int -> BackendExpr -> Text
 renderBackendExpr outerPrec = \case
@@ -33,6 +47,18 @@ renderBackendExpr outerPrec = \case
         , "else"
         , renderBackendExpr 0 elseBranch
         ]
+  BECall _ callee args ->
+    Text.unwords (renderDoc (prettyName callee) : map renderBackendAtom args)
+  BEMakeClosure _ code captures ->
+    "closure "
+      <> renderDoc (prettyName code)
+      <> "("
+      <> Text.intercalate ", " [renderBackendAtom atom | (_, atom) <- captures]
+      <> ")"
+  BEApply _ fn arg ->
+    Text.unwords [renderBackendAtom fn, renderBackendAtom arg]
+  BEEnvGet _ _ env index ->
+    renderBackendAtom env <> ".env[" <> Text.pack (show index) <> "]"
   BELet _ name rhs body ->
     parenthesize (outerPrec > 0) $
       "let "
@@ -45,7 +71,7 @@ renderBackendExpr outerPrec = \case
 renderBackendAtom :: BackendAtom -> Text
 renderBackendAtom = \case
   BVar name -> renderDoc (prettyName name)
-  BInt n -> Text.pack (show n)
+  BInt n -> renderHInt n
   BBool True -> "true"
   BBool False -> "false"
 
@@ -54,6 +80,7 @@ renderBackendPrim = \case
   BPAdd -> "+"
   BPSub -> "-"
   BPMul -> "*"
+  BPDiv -> "/"
   BPLt -> "<"
   BPEq {} -> "=="
 
@@ -61,6 +88,10 @@ renderBackendType :: BackendType -> Text
 renderBackendType = \case
   BI64 -> "i64"
   BI1 -> "i1"
+  BClosure arg result ->
+    "(" <> renderBackendType arg <> " -> " <> renderBackendType result <> ")"
+  BEnv fields ->
+    "env{" <> Text.intercalate ", " (map renderBackendType fields) <> "}"
 
 parenthesize :: Bool -> Text -> Text
 parenthesize shouldWrap text

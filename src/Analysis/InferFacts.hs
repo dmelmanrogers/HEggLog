@@ -45,6 +45,8 @@ inferExpr binderCounts env = \case
               | expectedArg == actualArg -> Just result
             _ -> Nothing
      in (resultType, [])
+  ACall {} ->
+    (Nothing, [])
   ALet name rhs body ->
     let (rhsType, rhsFacts) = inferExpr binderCounts env rhs
         boundFacts = factsForBinding binderCounts name rhs rhsType
@@ -116,6 +118,7 @@ constOfExpr = \case
   AIf {} -> Nothing
   ALam {} -> Nothing
   AApp {} -> Nothing
+  ACall {} -> Nothing
   ALet {} -> Nothing
 
 -- The current language is pure. This fact means "no side effects"; it does not
@@ -129,6 +132,7 @@ isPureExpr = \case
   ALam _ _ body ->
     isPureExpr body
   AApp {} -> True
+  ACall {} -> True
   ALet _ rhs body ->
     isPureExpr rhs && isPureExpr body
 
@@ -145,6 +149,8 @@ countBinders = \case
   ALam name _ body ->
     Map.insertWith (+) name 1 (countBinders body)
   AApp {} ->
+    Map.empty
+  ACall {} ->
     Map.empty
   ALet name rhs body ->
     Map.insertWith (+) name 1 (countBinders rhs <> countBinders body)

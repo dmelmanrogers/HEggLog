@@ -22,6 +22,7 @@ module Optimize.EgglogBackend
   )
 where
 
+import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.State.Strict (State, evalState, get, modify', runState)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -36,6 +37,7 @@ import Egglog.Rule
 import Egglog.Sort
 import Egglog.Value
 import Eval.ANFInterpreter (ANFValue, evalANF)
+import Eval.Interpreter (RuntimeError, renderRuntimeError)
 import IR.ANF
 import IR.ANF.Resolved
 import IR.ANF.Validate
@@ -51,6 +53,7 @@ import Optimize.EgglogBackend.Fragment
 import qualified Optimize.EgglogBackend.Fragment as Fragment
 import Optimize.EgglogBackend.Rules
 import Optimize.EgglogBackend.Schema
+import Runtime.Int (IntError, renderIntError)
 import Syntax.AST (BinOp (..), Name (..), Type (..))
 import Syntax.Pretty (prettyBinOp, prettyName, prettyType, renderDoc)
 
@@ -87,6 +90,7 @@ data EncodedProgram = EncodedProgram
 data EncodedRun = EncodedRun
   { encodedRunResult :: RunResult
   , encodedRunDatabase :: Database
+  , encodedRunDebugLog :: [Text]
   , encodedRunRootValue :: Value
   , encodedRunStats :: RunStats
   , encodedRunRebuildStats :: RebuildStats
@@ -125,6 +129,7 @@ data EgglogOptimizationResult = EgglogOptimizationResult
   , extractionStats :: ExtractionStats
   , appliedRules :: [AppliedRuleSummary]
   , functionEntries :: Int
+  , provenanceTrace :: [Text]
   , unsupportedReason :: Maybe EgglogBackendError
   }
   deriving stock (Show, Eq)
@@ -146,6 +151,7 @@ data EgglogBackendError
   = ResolveFailed ResolveError
   | UnsupportedLambda Binder
   | UnsupportedApplication TypedResolvedAtom TypedResolvedAtom
+  | UnsupportedDirectCall Name
   | UnsupportedPrimitive BinOp
   | UnsupportedType Type
   | AmbiguousFreeVariable Name
@@ -159,6 +165,10 @@ data EgglogBackendError
   | ReconstructedTypeError Text
   | OptimizedTypeChanged Type Type
   | SemanticCheckFailed ANFValue ANFValue
+  | SemanticRuntimeErrorChanged RuntimeError RuntimeError
+  | SemanticRuntimeErrorMasked RuntimeError ANFValue
+  | SemanticRuntimeErrorIntroduced ANFValue RuntimeError
+  | InvalidIntLiteral IntError
   deriving stock (Show, Eq)
 
 optimizeANFWithEgglog :: AExpr -> Either EgglogBackendError EgglogBackendResult
@@ -187,7 +197,7 @@ optimizeWithEgglog config expression = do
           }
   encodedRun <- runEgglogCompilerRules config encoded
   let runResult = encodedRunResult encodedRun
-  optimized <- extractOptimizedANF encoded encodedRun
+  (optimized, extractedRoot) <- extractOptimizedANFWithRoot encoded encodedRun
   optimizedTy <- mapLeft ReconstructedTypeError (inferANFTypeText (encodedFreeVariableTypes encoded) optimized)
   checkSemantics expression optimized
   pure
@@ -210,6 +220,7 @@ optimizeWithEgglog config expression = do
             }
       , appliedRules = map AppliedRuleSummary (resultAppliedRules runResult)
       , functionEntries = sum (Map.elems (encodedRunFunctionTableSizes encodedRun))
+      , provenanceTrace = optimizationProvenance encoded encodedRun extractedRoot optimized
       , unsupportedReason = Nothing
       }
 
@@ -225,7 +236,8 @@ tryOptimizeWithEgglog config expression =
 encodeResolvedANF :: SupportedFragment -> Either EgglogBackendError EncodedProgram
 encodeResolvedANF typed = do
   freeTypes <- mapLeft fragmentToBackendError (typedFreeVariableTypes typed)
-  let (rootPattern, state) = runEncode (encodeExpr typed)
+  (rootPattern, state) <- runEncode (encodeExpr typed)
+  let
       rootFn = rootFunction (typedExprType typed)
       initialActions = reverse (encodeActions state) <> [ASet rootFn [] rootPattern]
       program =
@@ -258,7 +270,8 @@ encodeResolvedANF typed = do
 
 runEgglogCompilerRules :: RunConfig -> EncodedProgram -> Either EgglogBackendError EncodedRun
 runEgglogCompilerRules config encoded = do
-  runResult <- mapLeft EgglogKernelError (runProgram config (encodedProgram encoded))
+  let tracingConfig = config {collectDebugLog = True}
+  runResult <- mapLeft EgglogKernelError (runProgram tracingConfig (encodedProgram encoded))
   rootValue <-
     mapLeft EgglogKernelError $
       lookupFunction (encodedRootFunction encoded) [] (resultDatabase runResult)
@@ -268,6 +281,7 @@ runEgglogCompilerRules config encoded = do
         EncodedRun
           { encodedRunResult = runResult
           , encodedRunDatabase = resultDatabase runResult
+          , encodedRunDebugLog = reverse (debugLog (resultDatabase runResult))
           , encodedRunRootValue = value
           , encodedRunStats =
               RunStats
@@ -290,7 +304,9 @@ data EncodeState = EncodeState
   }
   deriving stock (Show, Eq)
 
-runEncode :: State EncodeState a -> (a, EncodeState)
+type EncodeM = ExceptT EgglogBackendError (State EncodeState)
+
+runEncode :: EncodeM a -> Either EgglogBackendError (a, EncodeState)
 runEncode action =
   let state =
         EncodeState
@@ -298,17 +314,26 @@ runEncode action =
           , encodeBindings = Map.empty
           , encodeBindingOrder = []
           }
-   in runState action state
+   in case runState (runExceptT action) state of
+        (Left err, _) -> Left err
+        (Right value, state') -> Right (value, state')
 
-encodeExpr :: TypedResolvedAExpr -> State EncodeState Pattern
+encodeExpr :: TypedResolvedAExpr -> EncodeM Pattern
 encodeExpr = \case
   TRAtom atom ->
     pure (encodeAtom atom)
   TRPrim _ op lhs rhs ->
     case op of
       Add -> call (iAddFn symbols) [encodeAtom lhs, encodeAtom rhs]
+      Sub -> call (iSubFn symbols) [encodeAtom lhs, encodeAtom rhs]
       Mul -> call (iMulFn symbols) [encodeAtom lhs, encodeAtom rhs]
-      _ -> call (iAddFn symbols) [encodeAtom lhs, encodeAtom rhs]
+      Div -> call (iDivFn symbols) [encodeAtom lhs, encodeAtom rhs]
+      Lt -> call (iLtFn symbols) [encodeAtom lhs, encodeAtom rhs]
+      Eq ->
+        case typedAtomType lhs of
+          TInt -> call (iEqFn symbols) [encodeAtom lhs, encodeAtom rhs]
+          TBool -> call (bEqFn symbols) [encodeAtom lhs, encodeAtom rhs]
+          TFun {} -> throwError (UnsupportedType (typedAtomType lhs))
   TRIf ty cond thenBranch elseBranch -> do
     thenPattern <- encodeExpr thenBranch
     elsePattern <- encodeExpr elseBranch
@@ -362,14 +387,12 @@ namedVarTerm ty key =
     TFun {} -> PCall (iVarFn symbols) [PValue (VString (unBinderKey key))]
 
 extractOptimizedANF :: EncodedProgram -> EncodedRun -> Either EgglogBackendError AExpr
-extractOptimizedANF encoded encodedRun = do
-  rootValue <- mapLeft EgglogKernelError (lookupFunction (rootFunction (encodedRootType encoded)) [] db)
-  rootTerm <-
-    case rootValue of
-      Just (VId sortName ident) ->
-        mapLeft ExtractionFailed (extractCheapest db sortName ident)
-      _ ->
-        Left (MissingRootValue (rootFunction (encodedRootType encoded)))
+extractOptimizedANF encoded encodedRun =
+  fst <$> extractOptimizedANFWithRoot encoded encodedRun
+
+extractOptimizedANFWithRoot :: EncodedProgram -> EncodedRun -> Either EgglogBackendError (AExpr, ExtractedTerm)
+extractOptimizedANFWithRoot encoded encodedRun = do
+  rootTerm <- extractRootTerm encoded encodedRun
   rootBuilt <- buildTop encoded rootTerm
   (bindings, needed) <- collectNeededBindings encoded db (builtRefs rootBuilt)
   let retainedIds = filter (`Set.member` needed) (encodedBindingOrder encoded)
@@ -384,10 +407,22 @@ extractOptimizedANF encoded encodedRun = do
   mapLeft ReconstructedANFInvalid (validateANFWithFreeVars (Map.keysSet (encodedFreeVariableTypes encoded)) optimized)
   optimizedTy <- inferANFType (encodedFreeVariableTypes encoded) optimized
   if optimizedTy == encodedRootType encoded
-    then pure optimized
+    then pure (optimized, rootTerm)
     else Left (OptimizedTypeChanged (encodedRootType encoded) optimizedTy)
  where
   db = encodedRunDatabase encodedRun
+
+extractRootTerm :: EncodedProgram -> EncodedRun -> Either EgglogBackendError ExtractedTerm
+extractRootTerm encoded encodedRun = do
+  rootValue <- mapLeft EgglogKernelError (lookupFunction (rootFunction (encodedRootType encoded)) [] db)
+  case rootValue of
+    Just (VId sortName ident) ->
+      mapLeft ExtractionFailed (extractCheapest rootExtractionDb sortName ident)
+    _ ->
+      Left (MissingRootValue (rootFunction (encodedRootType encoded)))
+ where
+  db = encodedRunDatabase encodedRun
+  rootExtractionDb = db {tables = Map.delete (rootFunction (encodedRootType encoded)) (tables db)}
 
 collectNeededBindings :: EncodedProgram -> Database -> Set.Set BinderId -> Either EgglogBackendError (Map.Map BinderId BuiltExpr, Set.Set BinderId)
 collectNeededBindings encoded db =
@@ -443,7 +478,11 @@ buildExpr encoded term =
       case term of
         ExtractCall name [lhs, rhs]
           | name == iAddFn symbols -> buildBinary encoded Add lhs rhs
+          | name == iSubFn symbols -> buildBinary encoded Sub lhs rhs
           | name == iMulFn symbols -> buildBinary encoded Mul lhs rhs
+          | name == iDivFn symbols -> buildBinary encoded Div lhs rhs
+          | name == iLtFn symbols -> buildBinary encoded Lt lhs rhs
+          | name == iEqFn symbols || name == bEqFn symbols -> buildBinary encoded Eq lhs rhs
         ExtractCall name [cond, thenTerm, elseTerm]
           | name == iIfFn symbols || name == bIfFn symbols -> buildIf encoded cond thenTerm elseTerm
         _ ->
@@ -592,9 +631,50 @@ freeVariableAtom atom =
     _ ->
       Map.empty
 
+optimizationProvenance :: EncodedProgram -> EncodedRun -> ExtractedTerm -> AExpr -> [Text]
+optimizationProvenance encoded encodedRun rootTerm optimized =
+  [ "encoded initial actions: " <> renderCount (length (encodedProvenance encoded))
+  , "applied rules: " <> renderAppliedRuleNames (encodedRunAppliedRules encodedRun)
+  , "function entries: " <> renderCount (sum (Map.elems (encodedRunFunctionTableSizes encodedRun)))
+  , "unions created: " <> renderCount (encodedRunUnionCount encodedRun)
+  , "extracted root: " <> renderExtractedTerm rootTerm
+  , "optimized ANF: " <> renderANF optimized
+  ]
+    <> compactLines "encoded action" 16 (encodedProvenance encoded)
+    <> compactLines "debug" 40 (filter isActionTrace (encodedRunDebugLog encodedRun))
+
+renderAppliedRuleNames :: [AppliedRuleSummary] -> Text
+renderAppliedRuleNames summaries =
+  case uniqueRuleNames (map appliedRuleName summaries) of
+    [] -> "none"
+    names -> Text.intercalate ", " (map renderFunctionName names)
+
+uniqueRuleNames :: [FunctionName] -> [FunctionName]
+uniqueRuleNames =
+  reverse . snd . foldl step (Set.empty, [])
+ where
+  step (seen, acc) name
+    | name `Set.member` seen = (seen, acc)
+    | otherwise = (Set.insert name seen, name : acc)
+
+compactLines :: Text -> Int -> [Text] -> [Text]
+compactLines prefix limit traces =
+  let selected = take limit traces
+      omitted = length traces - length selected
+   in map (\line -> prefix <> ": " <> line) selected
+        <> [prefix <> ": ... " <> renderCount omitted <> " more" | omitted > 0]
+
+isActionTrace :: Text -> Bool
+isActionTrace trace =
+  "initial action:" `Text.isPrefixOf` trace || "rule " `Text.isPrefixOf` trace
+
+renderCount :: Int -> Text
+renderCount =
+  Text.pack . show
+
 actionProvenance :: Action -> Text
 actionProvenance =
-  Text.pack . show
+  renderAction
 
 inferANFType :: Map.Map Name Type -> AExpr -> Either EgglogBackendError Type
 inferANFType =
@@ -606,11 +686,19 @@ inferANFType =
     APrim op lhs rhs ->
       case op of
         Add -> intPrim lhs rhs
+        Sub -> intPrim lhs rhs
         Mul -> intPrim lhs rhs
-        Sub -> Left (UnsupportedPrimitive Sub)
-        Div -> Left (UnsupportedPrimitive Div)
-        Eq -> Left (UnsupportedPrimitive Eq)
-        Lt -> Left (UnsupportedPrimitive Lt)
+        Div -> intPrim lhs rhs
+        Lt -> do
+          assertAtomType env TInt lhs
+          assertAtomType env TInt rhs
+          Right TBool
+        Eq -> do
+          lhsType <- inferAtom env lhs
+          rhsType <- inferAtom env rhs
+          if lhsType == rhsType && (lhsType == TInt || lhsType == TBool)
+            then Right TBool
+            else Left (FragmentTypeMismatch lhsType rhsType)
      where
       intPrim leftAtom rightAtom = do
         assertAtomType env TInt leftAtom
@@ -627,6 +715,8 @@ inferANFType =
       Left (UnsupportedType (TFun ty ty))
     AApp {} ->
       Left (ReconstructedTypeError "applications are outside the Egglog backend fragment")
+    ACall {} ->
+      Left (ReconstructedTypeError "direct calls are outside the Egglog backend fragment")
     ALet name rhs body -> do
       rhsType <- infer env rhs
       infer (Map.insert name rhsType env) body
@@ -655,8 +745,13 @@ checkSemantics original optimized =
     (Right originalValue, Right optimizedValue)
       | originalValue == optimizedValue -> Right ()
       | otherwise -> Left (SemanticCheckFailed originalValue optimizedValue)
-    _ ->
-      Right ()
+    (Left originalError, Left optimizedError)
+      | originalError == optimizedError -> Right ()
+      | otherwise -> Left (SemanticRuntimeErrorChanged originalError optimizedError)
+    (Left originalError, Right optimizedValue) ->
+      Left (SemanticRuntimeErrorMasked originalError optimizedValue)
+    (Right originalValue, Left optimizedError) ->
+      Left (SemanticRuntimeErrorIntroduced originalValue optimizedError)
 
 anfCost :: AExpr -> Int
 anfCost = \case
@@ -665,6 +760,7 @@ anfCost = \case
   AIf _ thenBranch elseBranch -> 1 + anfCost thenBranch + anfCost elseBranch
   ALam _ _ body -> 1 + anfCost body
   AApp {} -> 3
+  ACall _ args -> 1 + length args
   ALet _ rhs body -> 1 + anfCost rhs + anfCost body
 
 rootFunction :: Type -> FunctionName
@@ -707,6 +803,8 @@ fragmentToBackendError = \case
     UnsupportedLambda binder
   Fragment.UnsupportedApplication fn arg ->
     UnsupportedApplication fn arg
+  Fragment.UnsupportedDirectCall name ->
+    UnsupportedDirectCall name
   Fragment.UnsupportedPrimitive op ->
     UnsupportedPrimitive op
   Fragment.UnsupportedType ty ->
@@ -717,11 +815,14 @@ fragmentToBackendError = \case
     UnboundResolvedBinder binder
   Fragment.TypeMismatch expected actual ->
     FragmentTypeMismatch expected actual
+  Fragment.InvalidIntLiteral err ->
+    InvalidIntLiteral err
 
 isUnsupported :: EgglogBackendError -> Bool
 isUnsupported = \case
   UnsupportedLambda {} -> True
   UnsupportedApplication {} -> True
+  UnsupportedDirectCall {} -> True
   UnsupportedPrimitive {} -> True
   UnsupportedType {} -> True
   AmbiguousFreeVariable {} -> True
@@ -741,6 +842,8 @@ resolvedToANF = \case
     ALam (binderName binder) ty (resolvedToANF body)
   RApp fn arg ->
     AApp (resolvedAtomToAtom fn) (resolvedAtomToAtom arg)
+  RCall callee args ->
+    ACall callee (map resolvedAtomToAtom args)
   RLet binder rhs body ->
     ALet (binderName binder) (resolvedToANF rhs) (resolvedToANF body)
 
@@ -774,6 +877,8 @@ renderEgglogBackendError = \case
     "unsupported lambda binder: " <> renderBinderKey binder
   UnsupportedApplication fn arg ->
     "unsupported application: " <> Text.pack (show fn) <> " " <> Text.pack (show arg)
+  UnsupportedDirectCall name ->
+    "unsupported direct function call: " <> renderDoc (prettyName name)
   UnsupportedPrimitive op ->
     "unsupported primitive: " <> renderDoc (prettyBinOp op)
   UnsupportedType ty ->
@@ -800,6 +905,23 @@ renderEgglogBackendError = \case
     "optimized type changed: expected " <> renderDoc (prettyType expected) <> ", got " <> renderDoc (prettyType actual)
   SemanticCheckFailed expected actual ->
     "semantic check failed: expected " <> Text.pack (show expected) <> ", got " <> Text.pack (show actual)
+  SemanticRuntimeErrorChanged expected actual ->
+    "semantic check failed: expected runtime error "
+      <> renderRuntimeError expected
+      <> ", got runtime error "
+      <> renderRuntimeError actual
+  SemanticRuntimeErrorMasked expected actual ->
+    "semantic check failed: expected runtime error "
+      <> renderRuntimeError expected
+      <> ", got value "
+      <> Text.pack (show actual)
+  SemanticRuntimeErrorIntroduced expected actual ->
+    "semantic check failed: expected value "
+      <> Text.pack (show expected)
+      <> ", got runtime error "
+      <> renderRuntimeError actual
+  InvalidIntLiteral err ->
+    renderIntError err
 
 mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = \case
