@@ -84,6 +84,12 @@ Run only the Haskell 2010 conformance baseline:
 cabal test haskell2010-conformance-test --test-options='--hide-successes'
 ```
 
+Validate the Haskell 2010 engineering backlog:
+
+```bash
+python3 scripts/validate-haskell2010-todo.py
+```
+
 Run current `.hg` report/interpreter mode:
 
 ```bash
@@ -124,6 +130,7 @@ Core-0 programs.
 ## Haskell 2010 Roadmap
 
 - [Haskell 2010 roadmap](docs/haskell2010-roadmap.md)
+- [Haskell 2010 engineering backlog](docs/haskell2010-todo.md)
 - [Haskell 2010 conformance matrix](docs/haskell2010-conformance-matrix.md)
 - [Haskell 2010 conformance results](docs/haskell2010-conformance-results.md)
 - [Haskell 2010 implementation plan](docs/haskell2010-implementation-plan.md)
@@ -131,6 +138,9 @@ Core-0 programs.
 - [Haskell 2010 status summary](docs/haskell2010-status-summary.md)
 - [Laziness and STG plan](docs/laziness-and-stg-plan.md)
 - [Egglog Core optimizer plan](docs/egglog-core-optimizer-plan.md)
+
+The detailed Haskell 2010 engineering backlog is tracked in
+[docs/haskell2010-todo.md](docs/haskell2010-todo.md).
 
 Full documentation index:
 

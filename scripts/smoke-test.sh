@@ -18,6 +18,9 @@ cabal test all
 printf '== cabal check ==\n'
 cabal check
 
+printf '== Haskell 2010 backlog validation ==\n'
+python3 scripts/validate-haskell2010-todo.py
+
 if ! command -v clang >/dev/null 2>&1; then
   if [[ "$strict_native" -eq 1 ]]; then
     printf 'clang is required for --strict-native smoke tests\n' >&2

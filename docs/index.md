@@ -3,6 +3,8 @@
 ## Haskell 2010 Target
 
 - [Haskell 2010 roadmap](haskell2010-roadmap.md)
+- [Haskell 2010 engineering backlog](haskell2010-todo.md)
+- [Haskell 2010 engineering backlog JSON](haskell2010-todo.json)
 - [Haskell 2010 conformance matrix](haskell2010-conformance-matrix.md)
 - [Haskell 2010 conformance results](haskell2010-conformance-results.md)
 - [Haskell 2010 implementation plan](haskell2010-implementation-plan.md)

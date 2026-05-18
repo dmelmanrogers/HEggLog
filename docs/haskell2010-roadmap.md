@@ -44,6 +44,15 @@ hegglog compile Main.hs -o main
 
 The executable must behave according to the implemented Haskell 2010 semantics.
 
+## Engineering Backlog
+
+The detailed task backlog is maintained in
+[haskell2010-todo.md](haskell2010-todo.md). The roadmap defines milestones; the
+to-do document defines executable engineering tasks with stable IDs,
+dependencies, acceptance criteria, tests, documentation requirements, a
+machine-readable JSON mirror, and validation through
+`scripts/validate-haskell2010-todo.py`.
+
 ## Completed Compiler Substrate
 
 Implemented and tested today for the current `.hg` compiler-supported subset:

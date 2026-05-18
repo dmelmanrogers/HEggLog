@@ -9,6 +9,25 @@ Status values: `not started`, `current .hg only`, `parsed`, `renamed`,
 `compiled to native`, `wet-tested`, `complete`, `deferred`,
 `documented deviation`.
 
+The detailed engineering backlog is maintained in
+[haskell2010-todo.md](haskell2010-todo.md). The table below maps each major
+matrix area to stable task IDs so unimplemented rows have an explicit owner and
+implemented rows retain their regression and conformance obligations.
+
+| Matrix area | Representative rows | Backlog task IDs |
+| --- | --- | --- |
+| Lexical/layout | identifiers, operators, reserved words, comments, layout, literals | `FRONT-001`, `FRONT-002`, `FRONT-003`, `FRONT-004`, `FRONT-005`, `FRONT-006`, `FRONT-007`, `FRONT-008`, `FRONT-032`, `FRONT-033`, `FRONT-034` |
+| Modules | headers, imports, exports, qualified imports, hiding, aliases, module graph | `FRONT-009`, `FRONT-010`, `FRONT-011`, `REN-014`, `REN-015`, `REN-016`, `REN-017`, `REN-018`, `REN-019`, `REN-020`, `REN-021`, `MOD-001`, `MOD-002`, `MOD-003`, `MOD-004`, `MOD-005`, `MOD-006`, `MOD-007`, `MOD-013`, `MOD-014` |
+| Declarations | value bindings, signatures, fixity, data, newtype, type synonyms, class, instance, default, foreign | `FRONT-012`, `FRONT-013`, `FRONT-014`, `FRONT-015`, `FRONT-029`, `FRONT-030`, `FRONT-031`, `TYPE-008`, `TYPE-013`, `TYPE-014`, `TYPE-015`, `TC-001`, `TC-002`, `TC-003`, `TC-005`, `TC-022`, `FFI-001`, `FFI-009` |
+| Expressions | variables, constructors, literals, application, infix, lambda, let/where, if/case, do, lists, tuples, sections, sequences, comprehensions | `FRONT-016`, `FRONT-017`, `FRONT-018`, `FRONT-019`, `FRONT-020`, `FRONT-021`, `FRONT-022`, `FRONT-023`, `FRONT-024`, `FRONT-025`, `FRONT-026`, `CORE-016`, `CORE-017`, `CORE-018`, `CORE-019`, `CORE-021`, `CORE-022`, `TYPE-007`, `IO-010` |
+| Patterns | variable, wildcard, literal, constructor, tuple, list, as-pattern, irrefutable/lazy, nested, guards | `FRONT-027`, `FRONT-028`, `PAT-001`, `PAT-002`, `PAT-003`, `PAT-004`, `PAT-005`, `PAT-006`, `PAT-007`, `PAT-008`, `PAT-009`, `PAT-010`, `PAT-011`, `PAT-012`, `PAT-013`, `PAT-014`, `PAT-015`, `PAT-016` |
+| Types | variables, function/list/tuple types, constructors, classes, constraints, kind checking, polymorphism, defaulting | `TYPE-001`, `TYPE-002`, `TYPE-003`, `TYPE-004`, `TYPE-005`, `TYPE-006`, `TYPE-011`, `TYPE-012`, `TYPE-016`, `TYPE-017`, `TYPE-018`, `TYPE-019`, `TYPE-020`, `TYPE-021`, `TYPE-022`, `TC-006`, `TC-007`, `TC-021`, `TC-022` |
+| Compiler IR | typed Core, validator, utilities, source-to-Core, Core evaluator, STG, lowering, STG-to-LLVM | `CORE-001`, `CORE-002`, `CORE-003`, `CORE-004`, `CORE-005`, `CORE-006`, `CORE-007`, `CORE-008`, `CORE-009`, `CORE-010`, `CORE-011`, `CORE-012`, `CORE-013`, `CORE-014`, `CORE-015`, `STG-001`, `STG-010`, `LLVM-001`, `LLVM-018` |
+| Runtime/semantics | laziness, sharing, recursion, bottom, checked Int, constructors, pattern failure, IO, exceptions, FFI | `STG-014`, `STG-015`, `STG-016`, `STG-017`, `STG-018`, `STG-019`, `RTS-001`, `RTS-002`, `RTS-016`, `RTS-021`, `CORE-REC-001`, `STG-REC-001`, `RTS-REC-001`, `IO-001`, `IO-014`, `FFI-001`, `FFI-009` |
+| Prelude/libraries | Bool, Maybe, Either, Ordering, lists, tuples, Eq, Ord, Show, Num, Enum, Bounded, Monad, IO, list functions | `PRELUDE-DATA-001`, `PRELUDE-DATA-002`, `PRELUDE-DATA-003`, `PRELUDE-DATA-006`, `PRELUDE-DATA-007`, `PRELUDE-DATA-008`, `PRELUDE-DATA-009`, `TC-013`, `TC-014`, `TC-015`, `TC-017`, `TC-018`, `TC-019`, `TC-020`, `PRELUDE-001`, `PRELUDE-018`, `IO-001`, `IO-014` |
+| Egglog Core optimizer | schema, encoding, extraction, facts, rewrites, provenance, optimized/unoptimized wet tests | `EGG-CORE-001`, `EGG-CORE-002`, `EGG-CORE-003`, `EGG-CORE-004`, `EGG-CORE-005`, `EGG-CORE-006`, `EGG-CORE-007`, `EGG-CORE-008`, `EGG-CORE-009`, `EGG-CORE-010`, `EGG-CORE-011`, `EGG-CORE-012`, `EGG-CORE-013`, `EGG-CORE-014`, `EGG-CORE-015`, `EGG-CORE-016`, `EGG-CORE-017`, `EGG-CORE-018`, `EGG-CORE-019`, `EGG-CORE-020` |
+| Diagnostics, CLI, release, conformance closure | diagnostics, command model, conformance manifest/results, CI/release quality | `DIAG-001`, `DIAG-016`, `CLI-001`, `CLI-016`, `TEST-CONF-001`, `TEST-CONF-012`, `DOC-001`, `DOC-002`, `REL-001`, `REL-014` |
+
 | Haskell 2010 area | Feature | Current status | Planned milestone | Parser | Renamer | Typechecker | Core | STG/runtime | LLVM/native | Tests | Notes/deviations |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Lexical/layout | identifiers | renamed | Phase 2/3 | parsed | renamed | not started | not started | not started | not started | parser and renamer tests | Haskell variable and constructor identifiers parse and resolve to unique names. |
