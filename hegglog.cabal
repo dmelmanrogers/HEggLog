@@ -170,3 +170,24 @@ test-suite hegglog-test
       Typecheck.Infer
       Typecheck.Principal
       Typecheck.Types
+
+test-suite e2e-wet-test
+  import:           warnings
+  type:             exitcode-stdio-1.0
+  main-is:          Main.hs
+  hs-source-dirs:   test/e2e
+  default-language: GHC2021
+  default-extensions:
+      DerivingStrategies
+      LambdaCase
+      OverloadedStrings
+  build-tool-depends:
+      hegglog:hegglog
+  build-depends:
+      base >= 4.17 && < 5
+    , directory >= 1.3 && < 1.4
+    , filepath >= 1.4 && < 1.6
+    , HUnit >= 1.6 && < 1.7
+    , process >= 1.6 && < 1.7
+    , temporary >= 1.3 && < 1.4
+    , text >= 2.0 && < 2.2

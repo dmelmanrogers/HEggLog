@@ -33,6 +33,8 @@ Current semantic specs:
 - [Diagnostics specification](docs/diagnostics-spec.md)
 - [LLVM backend specification](docs/llvm-backend-spec.md)
 - [Type inference direction](docs/type-inference.md)
+- [End-to-end wet testing](docs/e2e-wet-testing.md)
+- [Recorded wet-test results](docs/e2e-results.md)
 
 ## Build
 
@@ -42,7 +44,7 @@ cabal test all
 ```
 
 CI runs `cabal build all`, `cabal test all`, `cabal check`, `git diff --check`,
-and a clang-backed native executable smoke test on pushes to `main`/`develop`
+and mandatory clang-backed end-to-end wet tests on pushes to `main`/`develop`
 and on pull requests.
 
 ## Run
@@ -208,9 +210,23 @@ The test suite is grouped by compiler concern:
 - selected golden CLI output sections
 - QuickCheck properties for ANF validation after lowering and Egglog semantic
   preservation on generated supported ANF fragments
+- black-box end-to-end wet tests that invoke the built `hegglog` CLI, compile
+  real `.hg` files, produce native executables, execute those artifacts, verify
+  stdout/stderr/exit codes, compare report-mode `Result: <value>` output, and
+  compile selected emitted LLVM through `clang`
 
 Negative type fixtures live in `examples/type-errors/`. Golden fixtures live in
-`test/golden/`.
+`test/golden/`. Wet-test programs live in `test/e2e/programs/`.
+
+Run the mandatory wet-test path with:
+
+```bash
+scripts/e2e-wet-test.sh
+```
+
+The wet suite is also a Cabal test suite named `e2e-wet-test`, so
+`cabal test all` includes it. `clang` is required; missing `clang` is a test
+failure, not a skip.
 
 ## License
 

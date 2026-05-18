@@ -39,10 +39,8 @@ jobs:
       - name: Check package metadata
         run: cabal check
 
-      - name: Native executable smoke test
-        run: |
-          cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithmetic
-          test "$(/tmp/hegglog-arithmetic)" = "14"
+      - name: Mandatory end-to-end wet tests
+        run: scripts/e2e-wet-test.sh
 
       - name: Check whitespace
         run: git diff --check

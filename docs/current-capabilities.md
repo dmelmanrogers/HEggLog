@@ -112,6 +112,33 @@ cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithme
 Native executable output requires `clang`. LLVM text output does not require an
 external LLVM toolchain.
 
+## Test Coverage And Wet Testing
+
+HeggLog has internal unit, property, golden, and differential tests for parser,
+typechecker, ANF, optimizer, Egglog, backend IR, LLVM lowering, and diagnostics.
+It also has mandatory black-box wet tests that exercise the compiler from the
+outside.
+
+The wet suite invokes the built `hegglog` executable as a subprocess, compiles
+real `.hg` files from disk, produces native executables, executes those
+artifacts directly, and verifies stdout, stderr, and exit codes. It covers:
+
+- successful native compilation and execution
+- checked arithmetic runtime errors in generated native code
+- compile-time errors and unsupported-source diagnostics
+- default Egglog compile mode and representative `--no-egglog` paths
+- emitted LLVM compiled through `clang` and executed
+- report/interpreter mode comparison through the stable `Result: <value>` line
+
+Run it with:
+
+```bash
+scripts/e2e-wet-test.sh
+```
+
+The Cabal suite is named `e2e-wet-test` and is included in `cabal test all`.
+`clang` is required for this suite.
+
 ## Runtime Semantics
 
 Runtime behavior is strict and checked:
@@ -149,7 +176,7 @@ The next high-value stabilization work is:
 
 - normalize the CLI around explicit `check`, `run`, `compile`, and `report`
   commands
-- add process-level CLI artifact tests
+- improve process-level CLI ergonomics around the now-mandatory artifact tests
 - improve nested runtime-error source spans
 - decide the v1 Bool output policy
 - expand CI to cover required LLVM toolchains where appropriate

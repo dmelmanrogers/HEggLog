@@ -4,11 +4,12 @@ This roadmap is the project-level source of truth for what exists now, what is
 being stabilized, and what should be built next. It is synchronized with the
 current codebase as of the checked `Int64` semantics, Egglog backend, LLVM
 backend, source diagnostics, top-level first-order functions, lambda lifting,
-closure conversion runtime work, and optional monomorphic lambda parameter
-inference, semi-naive Egglog rule evaluation, and Egglog provenance/debug
-traces, relation-size Egglog join planning, the Egglog `ZeroInfo` lattice, and
-Egglog comparison, checked subtraction, checked division support, and native
-executable output through `clang`.
+closure conversion runtime work, optional monomorphic lambda parameter
+inference, semi-naive Egglog rule evaluation, Egglog provenance/debug traces,
+relation-size Egglog join planning, the Egglog `ZeroInfo` lattice, Egglog
+comparison, checked subtraction, checked division support, native executable
+output through `clang`, and mandatory black-box end-to-end wet testing of native
+artifacts.
 
 For a concise support matrix and user-facing workflow reference, see
 [current-capabilities.md](current-capabilities.md).
@@ -57,9 +58,10 @@ Implemented:
   when available, plus documented `llvm-as`/`lli`/`clang` executable workflow.
 - Interpreter-vs-LLVM differential corpus for successful closed first-order and
   closure source programs when `lli` or `clang` is available.
-- Native executable tests that compile and run arithmetic, comparison,
-  division, Bool-root, no-Egglog, and runtime-error programs when `clang` is
-  available.
+- Mandatory black-box end-to-end wet tests that invoke the built `hegglog` CLI,
+  compile real `.hg` files, produce native executable artifacts, execute those
+  artifacts, verify stdout/stderr/exit codes, compare report-mode
+  `Result: <value>` output, and compile selected emitted LLVM through `clang`.
 - Runtime-error equivalence tests for checked-`Int` overflow in LLVM `+`, `-`,
   and `*` lowering.
 - Dedicated LLVM backend specification for the current supported fragment,
@@ -80,8 +82,8 @@ Implemented:
   e-graph prototype, Egglog kernel/backend, LLVM lowering, goldens, and
   QuickCheck properties.
 - MIT license metadata.
-- GitHub Actions CI for build, test, package metadata, whitespace checks, and a
-  clang-backed native executable smoke test.
+- GitHub Actions CI for build, test, package metadata, whitespace checks, and
+  mandatory clang-backed end-to-end wet tests.
 - Language and runtime specifications for the current source language, checked
   `Int64` semantics, runtime errors, evaluation order, top-level first-order
   definitions, lambda lifting, closure runtime layout, and current decision
@@ -621,17 +623,24 @@ Definition of done:
 
 ## Phase 10 - Packaging, CI, And Polish
 
-Status: not started.
+Status: partial. Mandatory end-to-end wet testing is complete; CLI polish,
+docs indexing, curated examples, and release packaging remain.
 
 Motivation: Make HeggLog easy to build, test, inspect, and release.
 
 Deliverables:
 
-- Stable CLI.
-- Complete docs index.
-- Curated examples.
-- `cabal check` clean.
-- CI matrix.
+- Completed: mandatory black-box end-to-end wet tests for successful native
+  compilation, runtime-error execution, compile-error diagnostics, report-mode
+  result comparison, default Egglog, representative `--no-egglog`, and
+  emit-LLVM-through-`clang` paths.
+- Completed: `scripts/e2e-wet-test.sh` for local and CI validation.
+- Completed: CI installation of `clang` and mandatory wet-test execution.
+- Completed: `cabal check` clean for the current package metadata.
+- Future: stable normalized CLI.
+- Future: complete docs index.
+- Future: curated examples.
+- Future: broader CI matrix.
 - Formatting/linting policy.
 - Release-quality README.
 
@@ -643,12 +652,17 @@ Acceptance criteria:
 
 - New contributors can build, test, run examples, and understand the roadmap
   from the README.
+- Completed: a fresh checkout with `clang` can run `scripts/e2e-wet-test.sh`
+  and prove native executable artifacts are compiled and executed by the
+  black-box harness.
 
 Tests required:
 
-- CI build/test jobs.
-- Documentation link checks if practical.
-- Example smoke tests.
+- Completed: CI build/test jobs for the current platform.
+- Completed: mandatory end-to-end wet tests through `cabal test all` and
+  `scripts/e2e-wet-test.sh`.
+- Future: documentation link checks if practical.
+- Future: curated example smoke tests after CLI normalization.
 
 Risks:
 
@@ -658,6 +672,8 @@ Definition of done:
 
 - The project is ready for repeated development on `main` without hidden local
   setup knowledge.
+- CLI polish follows the wet-testing baseline; the next work should normalize
+  user-facing commands without weakening the artifact tests.
 
 ## Acceptance Test Matrix
 
@@ -673,7 +689,7 @@ Definition of done:
 | 7 | Type inference tests, negative ambiguity tests, annotation compatibility |
 | 8 | Egglog semantic preservation, overflow preservation, extraction determinism |
 | 9 | Kernel equivalence tests, delta/semi-naive scheduling tests, provenance tests, join-planner tests |
-| 10 | CI matrix, docs/examples smoke tests, packaging checks |
+| 10 | Completed: mandatory wet tests, package checks, current CI jobs. Future: CI matrix, docs/examples smoke tests, packaging checks |
 
 ## Implementation Queue
 
@@ -1332,11 +1348,69 @@ Commit message suggestion:
 Finish Egglog backend expansion
 ```
 
+### Task Q - Mandatory End-to-End Wet Testing
+
+Status: complete.
+
+Prerequisite: native executable output through `clang`.
+
+Implementation scope:
+
+- Completed: add black-box e2e corpus for successful programs, native runtime
+  errors, compile errors, and unsupported recursive intent.
+- Completed: add the `e2e-wet-test` Cabal suite with a structured Haskell
+  manifest that invokes the built `hegglog` executable directly.
+- Completed: verify native executable artifacts by compiling real `.hg` files,
+  checking executable files, executing them directly, and asserting stdout,
+  stderr, and exit codes.
+- Completed: cover default Egglog and representative `--no-egglog` paths.
+- Completed: compile selected emitted LLVM files through `clang` and execute the
+  resulting binaries.
+- Completed: compare report/interpreter mode to native output through the
+  stable `Result: <value>` line.
+- Completed: add `scripts/e2e-wet-test.sh`, CI integration, methodology docs,
+  and recorded results.
+
+Files touched:
+
+- `test/e2e/Main.hs`
+- `test/e2e/programs/**`
+- `scripts/e2e-wet-test.sh`
+- `.github/workflows/ci.yml`
+- `src/CLI/Report.hs`
+- `hegglog.cabal`
+- `docs/e2e-wet-testing.md`
+- `docs/e2e-results.md`
+- `README.md`
+- `docs/current-capabilities.md`
+- `docs/roadmap.md`
+
+Tests required:
+
+- Completed: `cabal build all`
+- Completed: `cabal test all`
+- Completed: `cabal check`
+- Completed: `git diff --check`
+- Completed: `scripts/e2e-wet-test.sh`
+- Completed: representative report, native compile, and emit-LLVM commands.
+
+Acceptance criteria:
+
+- Completed: `cabal test all` includes the wet suite.
+- Completed: the wet suite requires `clang` and fails if it is unavailable.
+- Completed: native artifact compilation and execution are mandatory local and
+  CI checks.
+
+Commit message suggestion:
+
+```text
+Add mandatory end-to-end wet testing
+```
+
 ## Next Recommended Prompt
 
 ```text
-Add indexed/adaptive Egglog joins: introduce per-function lookup indexes or an
-adaptive join path for large relation tables, preserve naive/semi-naive
-equivalence and stable traces, and keep compiler backend semantic-preservation
-tests green.
+Normalize the CLI around explicit check, run, report, compile, --emit-llvm, and
+native artifact behavior; preserve the mandatory wet-test suite as the
+black-box acceptance path.
 ```

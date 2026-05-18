@@ -13,7 +13,7 @@ import Analysis.InferFacts (inferFacts)
 import Egglog.Eval (defaultRunConfig)
 import Egglog.Rebuild (canonicalizedEntries, mergeConflicts, rebuildIterations, unionsCreated)
 import Egglog.Sort (renderFunctionName)
-import Eval.Interpreter (RuntimeError, Value, evalProgram, renderRuntimeError, renderValue)
+import Eval.Interpreter (RuntimeError, Value (..), evalProgram, renderRuntimeError, renderValue)
 import IR.ANF (AExpr, AProgram (..), renderANF, renderANFProgram, toANFProgram)
 import IR.Core (CoreProgram, lower, renderCore)
 import Optimize.EgglogBackend
@@ -126,7 +126,8 @@ simplifyTopLevelAware (AProgram _ mainExpr) =
 renderFullReport :: CompileReport -> Text
 renderFullReport report =
   Text.concat
-    [ section "Parsed AST" (renderDoc (prettyProgram (reportParsed report)))
+    [ "Result: " <> renderMachineResult (reportValue report) <> "\n"
+    , section "Parsed AST" (renderDoc (prettyProgram (reportParsed report)))
     , section "Type" (renderDoc (prettyType (reportType report)))
     , section "Result" (renderValue (reportValue report))
     , section "ANF IR" (renderANFProgram (reportANF report))
@@ -137,6 +138,13 @@ renderFullReport report =
     , section "Egglog Optimizer" (renderEgglogReport (reportEgglog report))
     , section "Core IR" (renderCore (reportCore report))
     ]
+
+renderMachineResult :: Value -> Text
+renderMachineResult = \case
+  VInt n -> renderValue (VInt n)
+  VBool True -> "1"
+  VBool False -> "0"
+  VClosure {} -> "<function>"
 
 renderGoldenReport :: CompileReport -> Text
 renderGoldenReport report =

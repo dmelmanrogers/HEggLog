@@ -1,0 +1,3 @@
+-- Recursive intent: f calls itself. Recursion is not a supported HeggLog feature.
+def f(x : Int) : Int = f x;
+f 1
