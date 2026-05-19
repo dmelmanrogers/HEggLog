@@ -123,6 +123,7 @@ is built alongside them.
     generated dictionary constructors/selectors, built-in `Eq Int`, `Eq Bool`,
     `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and `Show Bool`
     dictionaries,
+    documented executable-subset monomorphism/defaulting behavior,
     Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
     Superclasses, defaults, deriving, broader `Show`, and additional numeric
     classes remain planned.

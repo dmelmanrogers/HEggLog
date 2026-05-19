@@ -337,7 +337,10 @@ The built-in executable Prelude class slice now supports `Eq Int`, `Eq Bool`,
 dictionaries and selectors. Integer literals elaborate through `fromInteger`,
 ambiguous numeric constraints default to the executable `Int` type, and binding
 groups are dependency-sorted before generalization so helper functions can be
-specialized by later bindings. `/` remains the existing checked `Int` division
+specialized by later bindings. TYPE-019 fixes the current MR decision:
+unsigned nullary value bindings without signatures can default direct standard
+constraints before generalization; signed bindings and functions with value
+parameters are protected. `/` remains the existing checked `Int` division
 primitive rather than a `Fractional` method.
 Remaining Phase 12 work includes superclasses, default methods, instance
 contexts, method-specific constraints/type variables, coherence diagnostics,

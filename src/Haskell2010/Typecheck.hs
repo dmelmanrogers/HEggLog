@@ -1282,6 +1282,9 @@ typedAltDefaultingConstraints :: TypedAlt -> [ClassConstraint]
 typedAltDefaultingConstraints (TypedAlt _ _ body) =
   typedExprDefaultingConstraints body
 
+-- TYPE-019 policy: the executable subset treats unsigned nullary bindings as
+-- eligible for standard-class defaulting before generalization. Signed bindings
+-- and functions with value parameters keep their result metas protected.
 canDefaultBindingResult :: PreparedBinding -> Bool
 canDefaultBindingResult prepared =
   not (preparedHasSignature prepared) && null (preparedPatterns prepared)

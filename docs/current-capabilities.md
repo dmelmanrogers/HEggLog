@@ -73,7 +73,7 @@ and local functions, plus the initial type class dictionary slice for
 user-defined single-parameter classes, concrete instances, explicit source
 constraints with normalized argument representation, dictionary-passed method
 calls, structured placeholder diagnostics for unsupported constraint contexts,
-and built-in `Eq Int`, `Eq Bool`,
+documented nullary-binding monomorphism/defaulting behavior, and built-in `Eq Int`, `Eq Bool`,
 `Ord Int`, `Ord Bool`, and executable `Num Int` class methods, plus guarded
 RHSs, guarded case alternatives, as-pattern aliases, and guard-fallthrough
 no-match behavior, plus the first IO printing slice for `IO`, `main :: IO ()`,
@@ -204,8 +204,9 @@ Current tests include:
   report-mode `Result: <value>` output, runs Haskell 2010 default Egglog and
   `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
   programs, user-defined type class dictionary programs, and built-in
-  `Eq`/`Ord`/`Num`/`Show` dictionary programs, numeric-defaulting programs,
-  multi-file module programs, known-constructor optimizer programs, plus IO
+  `Eq`/`Ord`/`Num`/`Show` dictionary programs, numeric-defaulting and
+  monomorphism/defaulting decision programs, multi-file module programs,
+  known-constructor optimizer programs, plus IO
   printing programs, and compiles selected emitted LLVM through `clang`
 - `haskell2010-conformance-test`, included in `cabal test all`, which reads the
   JSON conformance manifest, invokes the built `hegglog` executable as a

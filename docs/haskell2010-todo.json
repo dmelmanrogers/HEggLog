@@ -3229,7 +3229,7 @@
     {
       "id": "TYPE-019",
       "title": "monomorphism restriction decision/documentation",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "CORE-002",
@@ -3238,7 +3238,9 @@
       "blocks": [],
       "milestone": "M4",
       "acceptance_criteria": [
-        "monomorphism restriction decision/documentation is implemented, completed, or explicitly documented according to status `not started`.",
+        "The executable-subset monomorphism/defaulting decision is documented in the type inference docs and conformance matrix.",
+        "Unsigned nullary value bindings without explicit signatures are documented and tested as eligible for standard-class defaulting before generalization.",
+        "Explicitly signed bindings and functions with value parameters are documented as protected from that defaulting pass; full Haskell 2010 monomorphism-restriction coverage is deferred until broader pattern-binding and class-library support exists.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

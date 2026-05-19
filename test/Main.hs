@@ -161,6 +161,7 @@ testGroups =
       , pureTest "typechecks type class dictionaries" testHaskell2010Core0TypeClassDictionaries
       , pureTest "typechecks Prelude class dictionaries" testHaskell2010Core0PreludeClassDictionaries
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
+      , pureTest "documents monomorphism restriction defaulting policy" testHaskell2010MonomorphismRestrictionDefaulting
       , pureTest "typechecks multi-module imports" testHaskell2010Core0MultiModuleImports
       , pureTest "typechecks IO printing" testHaskell2010Core0IOPrinting
       , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
@@ -1442,6 +1443,13 @@ testHaskell2010Core0NumericDefaulting = do
   assertBool "Prelude fromInteger selector is emitted" (containsBindingOccurrence "fromInteger" coreModule)
   assertBool "Prelude Show Int instance dictionary is emitted" (containsBindingOccurrence "$fShowInt" coreModule)
   expectCoreEvalIO "numeric defaulting Core oracle" "7\n47\n" =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010MonomorphismRestrictionDefaulting :: Either String ()
+testHaskell2010MonomorphismRestrictionDefaulting = do
+  coreModule <- typecheckHaskell2010 haskell2010MonomorphismRestrictionSource
+  assertBool "MR defaulting emits Num Int dictionary" (containsBindingOccurrence "$fNumInt" coreModule)
+  assertBool "MR defaulting emits Eq Int dictionary" (containsBindingOccurrence "$fEqInt" coreModule)
+  expectCoreEvalInt "monomorphism restriction defaulting oracle" 1 =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
 testHaskell2010Core0MultiModuleImports :: Either String ()
 testHaskell2010Core0MultiModuleImports = do
@@ -5288,6 +5296,12 @@ haskell2010NumericDefaultingSource =
   \  print (1 + 2 * 3)\n\
   \  print (twice defaulted + viaFromInteger)\n\
   \  return ()\n"
+
+haskell2010MonomorphismRestrictionSource :: Text
+haskell2010MonomorphismRestrictionSource =
+  "module Main where\n\
+  \defaulted = 7\n\
+  \main = if defaulted == 7 then 1 else 0\n"
 
 haskell2010MultiModuleSources :: [(FilePath, Text)]
 haskell2010MultiModuleSources =

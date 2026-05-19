@@ -114,11 +114,23 @@ type synonym expansion and substitution like other source types. Unsupported
 constraint positions have a structured placeholder diagnostic: superclass
 contexts, method-specific constraints, instance contexts, and expression
 type-signature constraints are parsed and then rejected deliberately until their
-dedicated class-system tasks are implemented. Newtype declarations are
-typechecked with the required single-field invariant and currently share the
-boxed constructor representation used by data declarations. Remaining class,
-deriving, representation optimization, and broader surface work is tracked
-separately.
+dedicated class-system tasks are implemented.
+
+TYPE-019 records the monomorphism-restriction decision for the executable
+subset: unsigned nullary value bindings without explicit signatures are eligible
+for standard-class defaulting before generalization, while explicitly signed
+bindings and functions with value parameters keep their result metavariables
+protected from this defaulting pass. This matches the current executable
+`Int`-defaulting behavior for numeric/simple class constraints without claiming
+complete Haskell 2010 monomorphism-restriction coverage for every pattern
+binding and class-library form. Full MR conformance should be revisited when
+broader pattern bindings, superclass solving, and Prelude class coverage are in
+place.
+
+Newtype declarations are typechecked with the required single-field invariant
+and currently share the boxed constructor representation used by data
+declarations. Remaining class, deriving, representation optimization, and
+broader surface work is tracked separately.
 
 The existing optional monomorphic lambda parameter inference is carry-forward
 infrastructure and a useful implementation reference, but it is not Haskell

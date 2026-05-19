@@ -118,6 +118,10 @@ dictionary arguments. Built-in `Eq Int`, `Eq Bool`, `Ord Int`, `Ord Bool`, and
 Built-in `Show Int` and `Show Bool` cover enough `show` support for `print`.
 `fromInteger` is part of the executable `Num Int` dictionary, integer literals
 elaborate through it, and ambiguous numeric constraints default to `Int`.
+The current monomorphism-restriction decision is documented for the executable
+subset: unsigned nullary value bindings without signatures can default direct
+standard-class constraints before generalization, while signed bindings and
+functions with value parameters are protected from that defaulting pass.
 Type constructors now carry explicit `*`/arrow-kind metadata, and source type
 expressions are kind-inferred/checked for signatures, constructor fields,
 constraints, and supported built-in/user constructors; partial type-constructor

@@ -211,26 +211,26 @@ Rules:
 
 # Next 20 Implementation Tasks
 
-1. TYPE-019 — monomorphism restriction decision/documentation: Decide and document the supported Haskell 2010 behavior before broader defaulting work.
-2. TYPE-020 — type error diagnostics with spans: Preserve source attribution through typechecking failures.
-3. TYPE-021 — property tests for inference: Add invariant coverage around the growing inference surface.
-4. RTS-009 — process-lifetime arena or GC decision: Set the memory-management direction for native lazy runtime objects.
-5. RTS-019 — runtime leak/ownership documentation: Document ownership guarantees before expanding runtime allocation pressure.
-6. ADT-004 — newtype representation: Define runtime/Core representation for `newtype`.
-7. ADT-005 — record field labels: Add the name-resolution and selector surface required for records.
-8. PAT-008 — irrefutable/lazy patterns: Implement lazy pattern semantics rather than only parsed/renamed syntax.
-9. PAT-014 — exhaustiveness warning placeholder: Establish the diagnostic placeholder for later pattern coverage checking.
-10. CORE-REC-004 — recursive pattern bindings: Desugar recursive pattern bindings through the Core recursion model.
-11. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
-12. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
-13. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
-14. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
-15. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
-16. TC-003 — superclass representation: Model superclass relationships before broader class solving.
-17. TC-005 — default methods: Implement default class method typing and dictionary filling.
-18. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
-19. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
-20. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
+1. TYPE-020 — type error diagnostics with spans: Preserve source attribution through typechecking failures.
+2. TYPE-021 — property tests for inference: Add invariant coverage around the growing inference surface.
+3. RTS-009 — process-lifetime arena or GC decision: Set the memory-management direction for native lazy runtime objects.
+4. RTS-019 — runtime leak/ownership documentation: Document ownership guarantees before expanding runtime allocation pressure.
+5. ADT-004 — newtype representation: Define runtime/Core representation for `newtype`.
+6. ADT-005 — record field labels: Add the name-resolution and selector surface required for records.
+7. PAT-008 — irrefutable/lazy patterns: Implement lazy pattern semantics rather than only parsed/renamed syntax.
+8. PAT-014 — exhaustiveness warning placeholder: Establish the diagnostic placeholder for later pattern coverage checking.
+9. CORE-REC-004 — recursive pattern bindings: Desugar recursive pattern bindings through the Core recursion model.
+10. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
+11. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
+12. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
+13. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
+14. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
+15. TC-003 — superclass representation: Model superclass relationships before broader class solving.
+16. TC-005 — default methods: Implement default class method typing and dictionary filling.
+17. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
+18. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
+19. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
+20. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
 
 # Task Backlog
 
@@ -5908,7 +5908,7 @@ Notes:
 ## TYPE-019 — monomorphism restriction decision/documentation
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -5937,7 +5937,9 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- monomorphism restriction decision/documentation is implemented, completed, or explicitly documented according to status `not started`.
+- The executable-subset monomorphism/defaulting decision is documented in the type inference docs and conformance matrix.
+- Unsigned nullary value bindings without explicit signatures are documented and tested as eligible for standard-class defaulting before generalization.
+- Explicitly signed bindings and functions with value parameters are documented as protected from that defaulting pass; full Haskell 2010 monomorphism-restriction coverage is deferred until broader pattern-binding and class-library support exists.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -5953,7 +5955,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M4 (HM typechecker). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M4 (HM typechecker). Completed by documenting the executable-subset monomorphism/defaulting policy, pinning it to the existing defaulting code path, and adding unit/conformance coverage for unsigned nullary value binding defaulting.
 
 ## TYPE-020 — type error diagnostics with spans
 

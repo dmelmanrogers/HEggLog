@@ -127,6 +127,8 @@ Current initial Haskell 2010 class capabilities:
 - overloaded integer literals through `fromInteger`
 - numeric defaulting to executable `Int` for ambiguous standard-class numeric
   constraints in the supported `Eq`/`Ord`/`Num`/`Show` slice
+- executable-subset monomorphism/defaulting policy for unsigned nullary value
+  bindings without signatures
 
 Remaining planned Haskell 2010 capabilities:
 

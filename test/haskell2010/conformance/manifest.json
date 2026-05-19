@@ -275,6 +275,15 @@
       "notes": "Ambiguous numeric and Eq constraints default to executable Int."
     },
     {
+      "name": "types.monomorphism-restriction",
+      "sourceFile": "test/haskell2010/conformance/types/monomorphism-restriction.hs",
+      "category": "types",
+      "expectedStatus": "native-success",
+      "expectedStdout": "1\n",
+      "requiredStage": "native",
+      "notes": "Unsigned nullary value binding follows the documented executable-subset monomorphism/defaulting policy."
+    },
+    {
       "name": "types.type-synonym-expansion",
       "sourceFile": "test/haskell2010/conformance/types/type-synonym-expansion.hs",
       "category": "types",
