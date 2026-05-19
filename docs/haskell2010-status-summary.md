@@ -118,8 +118,10 @@ elaborate through it, and ambiguous numeric constraints default to `Int`.
 Type constructors now carry explicit `*`/arrow-kind metadata, and source type
 expressions are kind-inferred/checked for signatures, constructor fields,
 constraints, and supported built-in/user constructors; partial type-constructor
-use is rejected before Core generation. Broader class/synonym features remain
-planned.
+use is rejected before Core generation. Type synonyms are kind-inferred,
+cycle-checked, and expanded through signatures, constructor fields,
+constraints, instance heads, and default declarations before Core conversion.
+Broader class features remain planned.
 `/` remains checked concrete `Int` division; broader `Show` remains planned.
 
 ## What Core Evaluates Today

@@ -3022,7 +3022,7 @@
     {
       "id": "TYPE-013",
       "title": "type synonym expansion",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "CORE-002",
@@ -3031,7 +3031,7 @@
       "blocks": [],
       "milestone": "M4",
       "acceptance_criteria": [
-        "type synonym expansion is implemented, completed, or explicitly documented according to status `not started`.",
+        "type synonym expansion is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

@@ -39,6 +39,12 @@ newtype TypeConstructorInfo = TypeConstructorInfo
   }
   deriving stock (Show, Eq, Ord)
 
+data TypeSynonymInfo = TypeSynonymInfo
+  { typeSynonymParams :: [RName]
+  , typeSynonymBody :: RHsType
+  }
+  deriving stock (Show, Eq, Ord)
+
 typeConstructorInfo :: Int -> TypeConstructorInfo
 typeConstructorInfo arity =
   TypeConstructorInfo (kindFromArity arity)
@@ -81,6 +87,8 @@ data TypecheckError
   | OccursCheck Int MonoType
   | KindMismatch Kind Kind
   | KindOccursCheck Int Kind
+  | RecursiveTypeSynonym [RName]
+  | TypeSynonymArityMismatch RName Int Int
   | AmbiguousTypeVariable Int
   | CoreValidationFailed [CoreValidate.CoreValidationError]
   deriving stock (Show, Eq)
@@ -180,6 +188,7 @@ data InferState = InferState
   , typeVariableKinds :: Map.Map RName Kind
   , nextGeneratedUnique :: Int
   , typeConstructors :: Map.Map RName TypeConstructorInfo
+  , typeSynonyms :: Map.Map RName TypeSynonymInfo
   , dataConstructors :: Map.Map RName DataConstructorInfo
   , classInfos :: Map.Map RName ClassInfo
   , defaultTypes :: [MonoType]
@@ -267,6 +276,15 @@ renderTypecheckError = \case
     "kind mismatch: expected " <> renderKind expected <> ", got " <> renderKind actual
   KindOccursCheck meta kind ->
     "kind occurs check failed: ?k" <> renderInt meta <> " occurs in " <> renderKind kind
+  RecursiveTypeSynonym names ->
+    "recursive type synonym cycle: " <> Text.intercalate " -> " (map renderRName names)
+  TypeSynonymArityMismatch name expected actual ->
+    "type synonym `"
+      <> renderRName name
+      <> "` expects "
+      <> renderInt expected
+      <> " argument(s), got "
+      <> renderInt actual
   AmbiguousTypeVariable meta ->
     "ambiguous Core-0 type variable ?" <> renderInt meta
   CoreValidationFailed errors ->
@@ -284,6 +302,7 @@ runInfer initialTypeConstructors action =
           , typeVariableKinds = Map.empty
           , nextGeneratedUnique = 100000
           , typeConstructors = initialTypeConstructors
+          , typeSynonyms = Map.empty
           , dataConstructors = Map.empty
           , classInfos = Map.empty
           , defaultTypes = [intMonoType]
@@ -296,7 +315,9 @@ runInfer initialTypeConstructors action =
 collectTypeConstructors :: [RDecl] -> InferM (Map.Map RName TypeConstructorInfo)
 collectTypeConstructors decls = do
   seeded <- foldM seed Map.empty decls
-  modify (\state -> state {typeConstructors = seeded})
+  let synonyms = collectTypeSynonyms decls
+  validateTypeSynonymCycles synonyms
+  modify (\state -> state {typeConstructors = seeded, typeSynonyms = synonyms})
   traverse_ inferDeclKinds decls
   finalized <- finalizeTypeConstructors seeded
   modify (\state -> state {typeConstructors = finalized})
@@ -307,6 +328,8 @@ collectTypeConstructors decls = do
       insertTypeConstructor name params acc
     RNewtypeDecl name params _ _ ->
       insertTypeConstructor name params acc
+    RTypeSynonym name params _ ->
+      insertTypeConstructor name params acc
     _ ->
       pure acc
 
@@ -315,6 +338,40 @@ insertTypeConstructor name params acc = do
   paramKinds <- traverse (const freshKindMeta) params
   pure (Map.insert name (TypeConstructorInfo (foldr KindArrow StarKind paramKinds)) acc)
 
+collectTypeSynonyms :: [RDecl] -> Map.Map RName TypeSynonymInfo
+collectTypeSynonyms =
+  foldr collect Map.empty
+ where
+  collect decl acc =
+    case decl of
+      RTypeSynonym name params body ->
+        Map.insert name TypeSynonymInfo {typeSynonymParams = params, typeSynonymBody = body} acc
+      _ ->
+        acc
+
+validateTypeSynonymCycles :: Map.Map RName TypeSynonymInfo -> InferM ()
+validateTypeSynonymCycles synonyms =
+  traverse_ validateComponent (Graph.stronglyConnComp graphNodes)
+ where
+  synonymNames = Map.keysSet synonyms
+  graphNodes =
+    [ (name, name, Set.toList (typeSynonymDependencies info))
+    | (name, info) <- Map.toList synonyms
+    ]
+
+  typeSynonymDependencies info =
+    sourceTypeConstructors (typeSynonymBody info) `Set.intersection` synonymNames
+
+  dependenciesFor name =
+    maybe Set.empty typeSynonymDependencies (Map.lookup name synonyms)
+
+  validateComponent = \case
+    Graph.AcyclicSCC name ->
+      when (name `Set.member` dependenciesFor name) $
+        throwTypecheck (RecursiveTypeSynonym [name, name])
+    Graph.CyclicSCC names ->
+      throwTypecheck (RecursiveTypeSynonym names)
+
 inferDeclKinds :: RDecl -> InferM ()
 inferDeclKinds = \case
   RDataDecl typeName params constructors _ ->
@@ -322,11 +379,32 @@ inferDeclKinds = \case
       traverse_ checkConstructor constructors
   RNewtypeDecl typeName params constructor _ ->
     withTypeParameterKinds typeName params (checkConstructor constructor)
+  RTypeSynonym typeName params body ->
+    withTypeParameterKinds typeName params (checkSourceTypeKind body)
   _ ->
     pure ()
  where
   checkConstructor (RConDecl _ fields) =
     traverse_ checkSourceTypeKind fields
+
+sourceTypeConstructors :: RHsType -> Set.Set RName
+sourceTypeConstructors = \case
+  RTyVar {} ->
+    Set.empty
+  RTyCon name ->
+    Set.singleton name
+  RTyApp fn arg ->
+    sourceTypeConstructors fn <> sourceTypeConstructors arg
+  RTyFun arg result ->
+    sourceTypeConstructors arg <> sourceTypeConstructors result
+  RTyContext constraints body ->
+    Set.unions (map sourceTypeConstructors constraints) <> sourceTypeConstructors body
+  RTyTuple types ->
+    Set.unions (map sourceTypeConstructors types)
+  RTyList elementType ->
+    sourceTypeConstructors elementType
+  RTyParen inner ->
+    sourceTypeConstructors inner
 
 withTypeParameterKinds :: RName -> [RName] -> InferM a -> InferM a
 withTypeParameterKinds typeName params action = do
@@ -1334,14 +1412,14 @@ collectDefaultTypes decls =
       throwTypecheck (UnsupportedCore0 "multiple default declarations")
 
 defaultTypeMonoType :: RHsType -> InferM MonoType
-defaultTypeMonoType = \case
-  RTyCon name
-    | nameOcc name == "Int" -> pure intMonoType
-    | nameOcc name == "Integer" -> pure intMonoType
-  RTyParen inner ->
-    defaultTypeMonoType inner
-  other ->
-    throwTypecheck (UnsupportedCore0 ("default type " <> Text.pack (show other)))
+defaultTypeMonoType sourceType = do
+  expanded <- expandSourceTypeSynonyms sourceType
+  case sourceTypeWithoutParens expanded of
+    RTyCon name
+      | nameOcc name == "Int" -> pure intMonoType
+      | nameOcc name == "Integer" -> pure intMonoType
+    other ->
+      throwTypecheck (UnsupportedCore0 ("default type " <> Text.pack (show other)))
 
 collectValueBindings :: [RDecl] -> InferM [SourceBinding]
 collectValueBindings =
@@ -2216,7 +2294,8 @@ sourceClassConstraint = \case
 sourceMonoType :: RHsType -> InferM MonoType
 sourceMonoType sourceType = do
   checkSourceTypeKind sourceType
-  sourceMonoTypeUnchecked sourceType
+  expanded <- expandSourceTypeSynonyms sourceType
+  sourceMonoTypeUnchecked expanded
 
 sourceMonoTypeUnchecked :: RHsType -> InferM MonoType
 sourceMonoTypeUnchecked = \case
@@ -2238,6 +2317,93 @@ sourceMonoTypeUnchecked = \case
     TyList <$> sourceMonoTypeUnchecked elementType
   RTyParen inner ->
     sourceMonoTypeUnchecked inner
+
+expandSourceTypeSynonyms :: RHsType -> InferM RHsType
+expandSourceTypeSynonyms =
+  expandTypeSynonyms []
+
+expandTypeSynonyms :: [RName] -> RHsType -> InferM RHsType
+expandTypeSynonyms stack sourceType =
+  case typeApplicationSpine sourceType of
+    Just (name, args) -> do
+      synonyms <- typeSynonyms <$> get
+      case Map.lookup name synonyms of
+        Just info ->
+          expandSynonymApplication stack name info args
+        Nothing ->
+          expandStructurally
+    Nothing ->
+      expandStructurally
+ where
+  expandStructurally =
+    case sourceType of
+      RTyVar {} ->
+        pure sourceType
+      RTyCon {} ->
+        pure sourceType
+      RTyApp fn arg ->
+        RTyApp <$> expandTypeSynonyms stack fn <*> expandTypeSynonyms stack arg
+      RTyFun arg result ->
+        RTyFun <$> expandTypeSynonyms stack arg <*> expandTypeSynonyms stack result
+      RTyContext constraints body ->
+        RTyContext <$> traverse (expandTypeSynonyms stack) constraints <*> expandTypeSynonyms stack body
+      RTyTuple types ->
+        RTyTuple <$> traverse (expandTypeSynonyms stack) types
+      RTyList elementType ->
+        RTyList <$> expandTypeSynonyms stack elementType
+      RTyParen inner ->
+        RTyParen <$> expandTypeSynonyms stack inner
+
+expandSynonymApplication :: [RName] -> RName -> TypeSynonymInfo -> [RHsType] -> InferM RHsType
+expandSynonymApplication stack name info args
+  | name `elem` stack = throwTypecheck (RecursiveTypeSynonym (name : stack))
+  | actualArity /= expectedArity = throwTypecheck (TypeSynonymArityMismatch name expectedArity actualArity)
+  | otherwise = do
+      expandedArgs <- traverse (expandTypeSynonyms stack) args
+      let replacements = Map.fromList (zip (typeSynonymParams info) expandedArgs)
+          expandedBody = replaceSourceTypeVars replacements (typeSynonymBody info)
+      expandTypeSynonyms (name : stack) expandedBody
+ where
+  expectedArity = length (typeSynonymParams info)
+  actualArity = length args
+
+typeApplicationSpine :: RHsType -> Maybe (RName, [RHsType])
+typeApplicationSpine =
+  go []
+ where
+  go args = \case
+    RTyApp fn arg ->
+      go (arg : args) fn
+    RTyParen inner ->
+      go args inner
+    RTyCon name ->
+      Just (name, args)
+    _ ->
+      Nothing
+
+replaceSourceTypeVars :: Map.Map RName RHsType -> RHsType -> RHsType
+replaceSourceTypeVars replacements = \case
+  RTyVar name ->
+    Map.findWithDefault (RTyVar name) name replacements
+  RTyCon name ->
+    RTyCon name
+  RTyApp fn arg ->
+    RTyApp (replaceSourceTypeVars replacements fn) (replaceSourceTypeVars replacements arg)
+  RTyFun arg result ->
+    RTyFun (replaceSourceTypeVars replacements arg) (replaceSourceTypeVars replacements result)
+  RTyContext constraints body ->
+    RTyContext (map (replaceSourceTypeVars replacements) constraints) (replaceSourceTypeVars replacements body)
+  RTyTuple types ->
+    RTyTuple (map (replaceSourceTypeVars replacements) types)
+  RTyList elementType ->
+    RTyList (replaceSourceTypeVars replacements elementType)
+  RTyParen inner ->
+    RTyParen (replaceSourceTypeVars replacements inner)
+
+sourceTypeWithoutParens :: RHsType -> RHsType
+sourceTypeWithoutParens = \case
+  RTyParen inner -> sourceTypeWithoutParens inner
+  other -> other
 
 checkSourceTypeKind :: RHsType -> InferM ()
 checkSourceTypeKind sourceType = do

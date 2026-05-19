@@ -140,6 +140,9 @@ testGroups =
       [ pureTest "represents type constructor kinds" testHaskell2010KindRepresentation
       , pureTest "infers higher-kinded type constructors" testHaskell2010KindChecksHigherKindedConstructors
       , pureTest "rejects kind-mismatched source types" testHaskell2010KindRejectsMismatch
+      , pureTest "expands type synonyms" testHaskell2010TypeSynonymExpansion
+      , pureTest "infers higher-kinded type synonym parameters" testHaskell2010TypeSynonymKindInference
+      , pureTest "rejects recursive type synonyms" testHaskell2010TypeSynonymRejectsCycles
       , pureTest "typechecks explicit polymorphic identity" testHaskell2010Core0Identity
       , pureTest "typechecks explicit polymorphic const" testHaskell2010Core0Const
       , pureTest "generalizes local let polymorphism" testHaskell2010Core0PolymorphicLet
@@ -1182,6 +1185,48 @@ testHaskell2010KindRejectsMismatch =
       Left H2010Typecheck.KindMismatch {} -> Right ()
       Left err -> Left ("expected kind mismatch, got: " <> show err)
       Right coreModule -> Left ("kind-mismatched source typechecked unexpectedly: " <> show coreModule)
+
+testHaskell2010TypeSynonymExpansion :: Either String ()
+testHaskell2010TypeSynonymExpansion =
+  expectCoreEvalInt
+    "type synonym expansion"
+    42
+    =<< evalHaskell2010Binding
+      "main"
+      "module Core0 where\n\
+      \type Age = Int\n\
+      \type Pair a = (a, a)\n\
+      \data Box a = Box (Pair a)\n\
+      \firstAge :: Box Age -> Age\n\
+      \firstAge (Box (x, _)) = x\n\
+      \main = firstAge (Box (42, 0))\n"
+
+testHaskell2010TypeSynonymKindInference :: Either String ()
+testHaskell2010TypeSynonymKindInference =
+  expectCoreEvalInt
+    "higher-kinded type synonym kind inference"
+    7
+    =<< evalHaskell2010Binding
+      "main"
+      "module Core0 where\n\
+      \type Apply f = f Int\n\
+      \data Wrap f = Wrap (Apply f)\n\
+      \use :: Wrap Maybe -> Int\n\
+      \use (Wrap (Just n)) = n\n\
+      \main = use (Wrap (Just 7))\n"
+
+testHaskell2010TypeSynonymRejectsCycles :: Either String ()
+testHaskell2010TypeSynonymRejectsCycles =
+  case
+    typecheckHaskell2010Raw
+      "module Core0 where\n\
+      \type A = B\n\
+      \type B = A\n\
+      \main = 0\n"
+    of
+      Left H2010Typecheck.RecursiveTypeSynonym {} -> Right ()
+      Left err -> Left ("expected recursive type synonym rejection, got: " <> show err)
+      Right coreModule -> Left ("recursive type synonyms typechecked unexpectedly: " <> show coreModule)
 
 testHaskell2010Core0If :: Either String ()
 testHaskell2010Core0If = do

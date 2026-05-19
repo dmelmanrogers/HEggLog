@@ -266,6 +266,15 @@
       "notes": "Ambiguous numeric and Eq constraints default to executable Int."
     },
     {
+      "name": "types.type-synonym-expansion",
+      "sourceFile": "test/haskell2010/conformance/types/type-synonym-expansion.hs",
+      "category": "types",
+      "expectedStatus": "native-success",
+      "expectedStdout": "42\n",
+      "requiredStage": "native",
+      "notes": "Type synonyms expand through signatures and constructor fields before Core/native lowering."
+    },
+    {
       "name": "typeclasses.user-dictionary",
       "sourceFile": "test/haskell2010/conformance/typeclasses/user-dictionary.hs",
       "category": "typeclasses",
