@@ -44,11 +44,11 @@ data CoreProgram = CoreProgram
   }
   deriving stock (Show, Eq)
 
--- TODO: Future EqSat integration should translate CoreNode values into egglog
--- relations, run rewrite rules in Optimize.*, and extract a replacement root.
--- Binder-aware rewrites need explicit treatment of alpha equivalence, beta
--- reduction, capture avoidance, and extraction cost models before lambdas can
--- safely participate in unrestricted equality saturation.
+-- Design note: this legacy .hg Core IR is rendered for reports only. The
+-- production optimizers operate on ANF for .hg and typed Core for Haskell 2010.
+-- Reusing this node-oriented IR for equality saturation would require explicit
+-- treatment of alpha equivalence, beta reduction, capture avoidance, and
+-- extraction cost models before lambdas could participate safely.
 
 data LowerState = LowerState
   { nextId :: Int

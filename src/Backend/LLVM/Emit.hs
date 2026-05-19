@@ -82,6 +82,8 @@ emitInstruction = \case
     assign reg ("icmp " <> emitPredicate predicate <> " " <> emitTypedOperands ty lhs rhs)
   IZext reg value targetType ->
     assign reg ("zext " <> emitType (operandType value) <> " " <> emitOperand value <> " to " <> emitType targetType)
+  ITrunc reg value targetType ->
+    assign reg ("trunc " <> emitType (operandType value) <> " " <> emitOperand value <> " to " <> emitType targetType)
   IGetElementPtr reg elementType base indices ->
     assign reg $
       "getelementptr inbounds "
@@ -156,6 +158,8 @@ emitTerminator :: LLVMTerminator -> Text
 emitTerminator = \case
   TRet ty operand ->
     "  ret " <> emitType ty <> " " <> emitOperand operand
+  TRetVoid ->
+    "  ret void"
   TBr label ->
     "  br label %" <> label
   TCondBr cond thenLabel elseLabel ->

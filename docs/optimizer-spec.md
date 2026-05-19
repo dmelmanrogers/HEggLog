@@ -1,8 +1,8 @@
 # HeggLog Optimizer Specification
 
-This document defines the runtime-safety contract for HeggLog optimizers. It is
-intentionally narrower than the language specification: it describes which
-optimizations are valid for the current strict, checked-`Int64` language.
+This document defines the runtime-safety contract for HeggLog optimizers. It
+first describes optimizations valid for the current strict, checked-`Int64`
+`.hg` language, then records the Haskell 2010 Core optimizer direction.
 
 ## Contract
 
@@ -131,3 +131,23 @@ Production optimizer changes should include:
 - Open-fragment tests for type consistency and conservative behavior.
 - Extraction determinism tests when extraction behavior changes.
 - `cabal build all`, `cabal test all`, `cabal check`, and `git diff --check`.
+
+## Haskell 2010 Egglog Core Direction
+
+The current ANF optimizer is substrate for the compiler and the prototype for
+the Haskell 2010 optimizer strategy. The future optimizer will operate over
+typed Core, not directly over Haskell source syntax and not over the current
+strict ANF representation.
+
+The Haskell 2010 Core optimizer must preserve lazy semantics and bottom. That
+requires facts and guards such as totality, no-error, nonzero, no-overflow,
+known-constructor, demand, and strictness facts. Rewrites such as `x * 0 -> 0`,
+`if c then a else a -> a`, and `x / x -> 1` are unsafe without guards because
+they can erase bottom or runtime errors.
+
+Extraction from Egglog must produce typed Core, run the Core validator, preserve
+types, avoid unbound variables, preserve bottom/error behavior, and emit
+deterministic output with provenance. Optimized and unoptimized native wet tests
+must agree.
+
+See [egglog-core-optimizer-plan.md](egglog-core-optimizer-plan.md).

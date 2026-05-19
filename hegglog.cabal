@@ -36,6 +36,7 @@ executable hegglog
       base >= 4.17 && < 5
     , containers >= 0.6 && < 0.8
     , directory >= 1.3 && < 1.4
+    , filepath >= 1.4 && < 1.6
     , megaparsec >= 9 && < 10
     , mtl >= 2.2 && < 2.4
     , prettyprinter >= 1.7 && < 1.8
@@ -71,11 +72,34 @@ executable hegglog
       Egglog.Value
       Eval.ANFInterpreter
       Eval.Interpreter
+      Haskell2010.Core.Eval
+      Haskell2010.Core.FreeVars
+      Haskell2010.Core.Pretty
+      Haskell2010.Core.Subst
+      Haskell2010.Core.Syntax
+      Haskell2010.Core.Validate
+      Haskell2010.Layout
+      Haskell2010.Lexer
+      Haskell2010.ModuleGraph
+      Haskell2010.Names
+      Haskell2010.Native
+      Haskell2010.Parser
+      Haskell2010.Pretty
+      Haskell2010.Renamed
+      Haskell2010.Renamer
+      Haskell2010.STG.Eval
+      Haskell2010.STG.LLVM
+      Haskell2010.STG.Lower
+      Haskell2010.STG.Syntax
+      Haskell2010.STG.Validate
+      Haskell2010.Syntax
+      Haskell2010.Typecheck
       IR.ANF
       IR.ANF.Resolved
       IR.ANF.Validate
       IR.Core
       Optimize.EgglogBackend
+      Optimize.CoreEgglog
       Optimize.EgglogBackend.Encode
       Optimize.EgglogBackend.Extract
       Optimize.EgglogBackend.Fragment
@@ -83,7 +107,6 @@ executable hegglog
       Optimize.EgglogBackend.Rules
       Optimize.EgglogBackend.Schema
       Optimize.EGraph
-      Optimize.Placeholder
       Optimize.Rewrite
       Optimize.Simplify
       Runtime.Int
@@ -110,6 +133,7 @@ test-suite hegglog-test
       base >= 4.17 && < 5
     , containers >= 0.6 && < 0.8
     , directory >= 1.3 && < 1.4
+    , filepath >= 1.4 && < 1.6
     , megaparsec >= 9 && < 10
     , mtl >= 2.2 && < 2.4
     , prettyprinter >= 1.7 && < 1.8
@@ -146,11 +170,34 @@ test-suite hegglog-test
       Egglog.Value
       Eval.ANFInterpreter
       Eval.Interpreter
+      Haskell2010.Core.Eval
+      Haskell2010.Core.FreeVars
+      Haskell2010.Core.Pretty
+      Haskell2010.Core.Subst
+      Haskell2010.Core.Syntax
+      Haskell2010.Core.Validate
+      Haskell2010.Layout
+      Haskell2010.Lexer
+      Haskell2010.ModuleGraph
+      Haskell2010.Names
+      Haskell2010.Native
+      Haskell2010.Parser
+      Haskell2010.Pretty
+      Haskell2010.Renamed
+      Haskell2010.Renamer
+      Haskell2010.STG.Eval
+      Haskell2010.STG.LLVM
+      Haskell2010.STG.Lower
+      Haskell2010.STG.Syntax
+      Haskell2010.STG.Validate
+      Haskell2010.Syntax
+      Haskell2010.Typecheck
       IR.ANF
       IR.ANF.Resolved
       IR.ANF.Validate
       IR.Core
       Optimize.EgglogBackend
+      Optimize.CoreEgglog
       Optimize.EgglogBackend.Encode
       Optimize.EgglogBackend.Extract
       Optimize.EgglogBackend.Fragment
@@ -158,7 +205,6 @@ test-suite hegglog-test
       Optimize.EgglogBackend.Rules
       Optimize.EgglogBackend.Schema
       Optimize.EGraph
-      Optimize.Placeholder
       Optimize.Rewrite
       Optimize.Simplify
       Runtime.Int
@@ -170,3 +216,48 @@ test-suite hegglog-test
       Typecheck.Infer
       Typecheck.Principal
       Typecheck.Types
+
+test-suite e2e-wet-test
+  import:           warnings
+  type:             exitcode-stdio-1.0
+  main-is:          Main.hs
+  hs-source-dirs:   test/e2e
+  default-language: GHC2021
+  default-extensions:
+      DerivingStrategies
+      LambdaCase
+      OverloadedStrings
+  build-tool-depends:
+      hegglog:hegglog
+  build-depends:
+      base >= 4.17 && < 5
+    , directory >= 1.3 && < 1.4
+    , filepath >= 1.4 && < 1.6
+    , HUnit >= 1.6 && < 1.7
+    , process >= 1.6 && < 1.7
+    , temporary >= 1.3 && < 1.4
+    , text >= 2.0 && < 2.2
+
+test-suite haskell2010-conformance-test
+  import:           warnings
+  type:             exitcode-stdio-1.0
+  main-is:          Main.hs
+  hs-source-dirs:   test/haskell2010-conformance
+  default-language: GHC2021
+  default-extensions:
+      DerivingStrategies
+      LambdaCase
+      OverloadedStrings
+  build-tool-depends:
+      hegglog:hegglog
+  build-depends:
+      base >= 4.17 && < 5
+    , aeson >= 2.1 && < 2.3
+    , bytestring >= 0.11 && < 0.13
+    , containers >= 0.6 && < 0.8
+    , directory >= 1.3 && < 1.4
+    , filepath >= 1.4 && < 1.6
+    , HUnit >= 1.6 && < 1.7
+    , process >= 1.6 && < 1.7
+    , temporary >= 1.3 && < 1.4
+    , text >= 2.0 && < 2.2

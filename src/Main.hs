@@ -8,6 +8,16 @@ import Control.Exception (IOException, try)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
+import Haskell2010.Native
+  ( compileHaskell2010FileToLLVMWithOptions
+  , compileHaskell2010ToLLVMWithOptions
+  , defaultHaskell2010NativeOptions
+  , haskell2010LLVMText
+  , haskell2010OptimizationStatus
+  , haskell2010UseEgglog
+  , renderHaskell2010LLVMError
+  , renderHaskell2010OptimizationStatus
+  )
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (getArgs)
 import System.Exit (ExitCode (..), exitFailure)
@@ -59,21 +69,16 @@ runCompile path flags =
       Text.IO.hPutStrLn stderr compileUsage
       exitFailure
     Right cliOptions -> do
-      readSourceFile path >>= \case
-        Left message -> do
-          Text.IO.hPutStrLn stderr message
+      let options =
+            defaultCompileLLVMOptions
+              { compileUseEgglog = cliUseEgglog cliOptions
+              }
+      compilePathToLLVM options path >>= \case
+        Left err -> do
+          Text.IO.hPutStrLn stderr err
           exitFailure
-        Right source -> do
-          let options =
-                defaultCompileLLVMOptions
-                  { compileUseEgglog = cliUseEgglog cliOptions
-                  }
-          case compileToLLVM options path source of
-            Left err -> do
-              Text.IO.hPutStrLn stderr (renderCompileLLVMError err)
-              exitFailure
-            Right result -> do
-              handleCompileOutput cliOptions result
+        Right result ->
+          handleCompileOutput cliOptions result
 
 readSourceFile :: FilePath -> IO (Either Text Text)
 readSourceFile path = do
@@ -85,7 +90,76 @@ readSourceFile path = do
       Right source ->
         Right source
 
-handleCompileOutput :: CompileCLIOptions -> LLVMCompileResult -> IO ()
+data CompiledLLVMOutput = CompiledLLVMOutput
+  { compiledLLVMText :: Text
+  , compiledStatus :: Text
+  }
+  deriving stock (Show, Eq)
+
+compileSourceToLLVM :: CompileLLVMOptions -> FilePath -> Text -> Either Text CompiledLLVMOutput
+compileSourceToLLVM options path source
+  | isHaskell2010Source path =
+      case compileHaskell2010ToLLVMWithOptions haskellOptions path source of
+        Left err ->
+          Left (renderHaskell2010LLVMError err)
+        Right result ->
+          Right
+            CompiledLLVMOutput
+              { compiledLLVMText = haskell2010LLVMText result
+              , compiledStatus = renderHaskell2010OptimizationStatus (haskell2010OptimizationStatus result)
+              }
+  | otherwise =
+      case compileToLLVM options path source of
+        Left err ->
+          Left (renderCompileLLVMError err)
+        Right result ->
+          Right
+            CompiledLLVMOutput
+              { compiledLLVMText = llvmText result
+              , compiledStatus = renderLLVMOptimizationStatus (llvmOptimizationStatus result)
+              }
+ where
+  haskellOptions =
+    defaultHaskell2010NativeOptions
+      { haskell2010UseEgglog = compileUseEgglog options
+      }
+
+compilePathToLLVM :: CompileLLVMOptions -> FilePath -> IO (Either Text CompiledLLVMOutput)
+compilePathToLLVM options path
+  | isHaskell2010Source path = do
+      let haskellOptions =
+            defaultHaskell2010NativeOptions
+              { haskell2010UseEgglog = compileUseEgglog options
+              }
+      result <- compileHaskell2010FileToLLVMWithOptions haskellOptions path
+      pure $
+        case result of
+          Left err ->
+            Left (renderHaskell2010LLVMError err)
+          Right compiled ->
+            Right
+              CompiledLLVMOutput
+                { compiledLLVMText = haskell2010LLVMText compiled
+                , compiledStatus = renderHaskell2010OptimizationStatus (haskell2010OptimizationStatus compiled)
+                }
+  | otherwise =
+      readSourceFile path >>= \case
+        Left message ->
+          pure (Left message)
+        Right source ->
+          pure (compileSourceToLLVM options path source)
+
+isHaskell2010Source :: FilePath -> Bool
+isHaskell2010Source path =
+  fileExtension path == ".hs"
+
+fileExtension :: FilePath -> String
+fileExtension path =
+  case break (== '.') (reverse path) of
+    (reversedExtension, '.' : _) -> "." <> reverse reversedExtension
+    _ -> ""
+
+handleCompileOutput :: CompileCLIOptions -> CompiledLLVMOutput -> IO ()
 handleCompileOutput cliOptions result =
   case cliOutputMode cliOptions of
     EmitLLVM maybePath ->
@@ -99,26 +173,26 @@ handleCompileOutput cliOptions result =
       buildNativeOutput outputPath result
       runGeneratedExecutable outputPath
 
-emitLLVMOutput :: Maybe FilePath -> LLVMCompileResult -> IO ()
+emitLLVMOutput :: Maybe FilePath -> CompiledLLVMOutput -> IO ()
 emitLLVMOutput maybePath result =
   case maybePath of
     Nothing ->
-      Text.IO.putStr (llvmText result)
+      Text.IO.putStr (compiledLLVMText result)
     Just path -> do
       ensureParentDirectory path
-      Text.IO.writeFile path (llvmText result)
+      Text.IO.writeFile path (compiledLLVMText result)
       Text.IO.putStrLn ("wrote LLVM IR to " <> Text.pack path)
-      Text.IO.putStrLn (renderLLVMOptimizationStatus (llvmOptimizationStatus result))
+      Text.IO.putStrLn (compiledStatus result)
 
-buildNativeOutput :: FilePath -> LLVMCompileResult -> IO ()
+buildNativeOutput :: FilePath -> CompiledLLVMOutput -> IO ()
 buildNativeOutput outputPath result = do
   ensureParentDirectory outputPath
   tools <- findLLVMTools
-  nativeResult <- buildNativeExecutable tools (llvmText result) outputPath
+  nativeResult <- buildNativeExecutable tools (compiledLLVMText result) outputPath
   case nativeResult of
     NativeBuildSucceeded -> do
       Text.IO.hPutStrLn stderr ("wrote native executable to " <> Text.pack outputPath)
-      Text.IO.hPutStrLn stderr (renderLLVMOptimizationStatus (llvmOptimizationStatus result))
+      Text.IO.hPutStrLn stderr (compiledStatus result)
     NativeBuildToolchainMissing message -> do
       Text.IO.hPutStrLn stderr ("native executable build unavailable: " <> Text.pack message)
       exitFailure
@@ -132,10 +206,10 @@ buildNativeOutput outputPath result = do
       Text.IO.hPutStrLn stderr ("native executable build I/O error: " <> Text.pack message)
       exitFailure
 
-runGeneratedLLVM :: LLVMCompileResult -> IO ()
+runGeneratedLLVM :: CompiledLLVMOutput -> IO ()
 runGeneratedLLVM result = do
   tools <- findLLVMTools
-  runResult <- runLLVMText tools (llvmText result)
+  runResult <- runLLVMText tools (compiledLLVMText result)
   case runResult of
     LLVMRunSkipped message ->
       Text.IO.hPutStrLn stderr (Text.pack message)

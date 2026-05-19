@@ -2,15 +2,37 @@
 
 Date: 2026-05-18
 
+Current note: this is a historical audit of the strict `.hg` compiler
+substrate. It is not the authoritative current Haskell 2010 status document.
+The current Haskell 2010 compiler status is tracked in
+[`haskell2010-status-summary.md`](haskell2010-status-summary.md),
+[`current-capabilities.md`](current-capabilities.md), and
+[`haskell2010-conformance-matrix.md`](haskell2010-conformance-matrix.md).
+The Haskell 2010 executable subset now has parser/layout, renaming, module
+graph loading, typed Core, typechecking/desugaring, Core evaluation, STG
+lowering/evaluation, native LLVM output, IO printing, and Core Egglog
+optimization for the documented subset. Haskell 2010 conformance progress is
+now tracked by the dedicated mandatory `haskell2010-conformance-test` suite,
+with explicit native-success, runtime-error, compile-error, and
+unsupported-documented cases.
+
+This audit predates or accompanies the Haskell 2010 pivot. It evaluates the
+existing strict `.hg` compiler baseline. The active project target is now a
+Haskell 2010 native compiler, tracked in
+[`haskell2010-roadmap.md`](haskell2010-roadmap.md) and
+[`haskell2010-conformance-matrix.md`](haskell2010-conformance-matrix.md).
+
 This audit evaluates the current HeggLog codebase as a compiler implementation, with emphasis on end-to-end readiness, semantic correctness, optimizer safety, LLVM backend completeness, diagnostics, tests, documentation, and remaining work required for a practical v1 compiler.
 
 This version of the audit is synchronized with the compiler baseline that
-includes checked LLVM division, strictness-preserving Egglog rules, and native
-executable output through `clang`.
+includes checked LLVM division, strictness-preserving Egglog rules, native
+executable output through `clang`, and mandatory end-to-end wet testing.
 
 ## 1. Executive Summary
 
-HeggLog is a credible partial compiler for a well-defined, typed expression language subset. It currently has the major pieces expected of a small compiler:
+HeggLog is a credible native compiler baseline for a well-defined, typed
+strict `.hg` expression-language subset. It currently has the major pieces
+expected of a small compiler:
 
 - Located parsing for source files.
 - Type inference and elaboration, including optional lambda annotations.
@@ -21,6 +43,7 @@ HeggLog is a credible partial compiler for a well-defined, typed expression lang
 - Backend IR validation, LLVM text emission, and native executable output
   through `clang`.
 - LLVM validation and execution through external LLVM tools.
+- Mandatory wet tests for native executable artifacts.
 - A meaningful test suite across parser, typechecker, interpreter, optimizer, backend, goldens, and properties.
 
 For the current supported runtime fragment, HeggLog is a working compiler:
@@ -36,15 +59,23 @@ textual LLVM output. `--run-llvm` remains available for LLVM-tool execution, and
 
 The LLVM backend is correct-looking and well tested for its intended subset: closed `Int`/`Bool` roots, `let`, `if`, checked `+`, `-`, `*`, `/`, `<`, `==`, top-level first-order calls, lambda lifting, and local closures. Checked division was a gap at the original audit time; it is now lowered directly with division-by-zero and minimum-`Int / -1` runtime checks.
 
-The optimizer story is better than the average experimental compiler at this stage. The default compiler path uses the Egglog backend when supported and falls back explicitly when unsupported. The current baseline removes several unsafe default rewrites that would otherwise violate strict runtime-error preservation. This materially improves compiler trustworthiness.
+The optimizer story is stronger than a typical early compiler at this stage.
+The default compiler path uses the Egglog backend when supported and falls back
+explicitly when unsupported. The current baseline removes several unsafe default
+rewrites that would otherwise violate strict runtime-error preservation. This
+materially improves compiler trustworthiness.
 
-The highest-priority readiness gaps are:
+For the current `.hg` substrate, the highest-priority readiness gaps are:
 
 1. Normalize CLI commands into a polished `check`/`run`/`compile`/`report`
    surface.
 2. Improve source locations for nested runtime errors.
-3. Decide the Bool executable output format before a polished v1.
+3. Decide the Bool executable output format before a polished substrate
+   release.
 4. Keep CI and release packaging aligned with the native executable workflow.
+
+For the active project target, the next readiness frontier is the Haskell 2010
+frontend/Core/STG/lazy-runtime path.
 
 ## 2. Baseline Validation
 
@@ -183,7 +214,7 @@ The implemented language is enough to exercise a real compiler pipeline, but it 
 | Function-valued roots | Yes | Yes | Source yes | Yes | No | No | Yes | Some | LLVM rejects function-valued program roots. |
 | Recursion | No | No | No | No | No | No | No | No | Not a current source feature. |
 | Open programs | No source execution | Rejected if unbound | No | ANF fragments yes | Egglog fragments yes | No | Partial | Partial | Useful internally but not a source artifact mode. |
-| ADTs/patterns/modules | No | No | No | No | No | No | No | No | Out of scope today. |
+| ADTs/patterns/modules | No | No | No | No | No | No | No | No | Out of scope for `.hg`; the separate Haskell 2010 path now has an initial ADT/pattern slice. |
 
 ## 6. Pipeline Inventory
 
@@ -323,7 +354,7 @@ Unsupported:
 - Top-level function values as first-class values.
 - Overapplied top-level calls.
 - Recursion.
-- Heap ownership beyond process-lifetime closure allocation.
+- Heap ownership beyond the documented process-lifetime allocation model.
 
 The most important user-facing LLVM finding is now CLI polish rather than
 artifact production. In compile mode, `-o path` produces a native executable and
@@ -338,13 +369,15 @@ The checked-runtime model is well specified and substantially implemented:
 - Addition, subtraction, multiplication, and division are checked in LLVM.
 - Division is checked in interpreters, Egglog reasoning, and LLVM lowering.
 - Runtime traps are represented cleanly enough for tests.
-- Closure allocation is intentionally process-lifetime allocation.
+- Closure and Haskell 2010 boxed-runtime allocation are intentionally
+  process-lifetime allocation behind named helper functions.
 
 Readiness gaps:
 
 - Decide whether Bool roots should print as `true`/`false` or remain `0`/`1`.
 - Add more precise source locations for runtime errors.
-- Decide whether process-lifetime closure allocation is acceptable for v1 or whether explicit ownership/freeing is required.
+- Add an arena or GC only if the v1 scope expands to long-running or
+  allocation-heavy programs.
 
 The current runtime model is good enough for a small language compiler, but
 diagnostics, Bool output policy, and CLI polish should be completed before
@@ -441,7 +474,7 @@ Coverage gaps:
 2. Parser diagnostics are not fully normalized and goldened as compiler diagnostics.
 3. Runtime-error source-span precision is not deeply tested.
 4. Property tests are useful but bounded and do not replace end-to-end fuzzing.
-5. Closure memory ownership is not stress-tested because the current model is process-lifetime allocation.
+5. Allocation pressure is not stress-tested because the current documented model is process-lifetime retention.
 
 Overall, the test suite is strong for the implementation stage. The next test
 investments should focus on process-level CLI coverage, CLI normalization, and
@@ -454,7 +487,7 @@ diagnostics.
 | CLI mode confusion | Medium | Report, compile, emit, and run modes are not yet user-clean. | Introduce `check`, `run`, `compile`, `report`. |
 | Docs drift | Medium | Multiple specs can contradict code as semantics evolve. | Add docs consistency checks and resolve stale runtime text. |
 | Optimizer implementation drift | Medium | Simplifier, e-graph, and Egglog rules may diverge. | Keep only one production optimizer active or share rule specs. |
-| Closure memory model | Medium | Process-lifetime allocation is okay for examples but not long-running programs. | Decide v1 scope; document or implement ownership. |
+| Closure memory model | Medium | Process-lifetime allocation is okay for examples but not long-running programs. | Keep the documented RTS-019 scope for v1, or replace the allocation helpers with an arena/GC when workload requirements change. |
 | Runtime span precision | Medium | Correct compiler errors still feel poor if they point to broad expressions. | Thread source spans deeper into runtime errors. |
 | LLVM tool skipping | Low/Medium | Tests can pass on machines without LLVM tools, hiding integration issues. | Add CI lane with required LLVM tools. |
 | Branch/worktree state | Medium | Dirty changes and branch divergence complicate release confidence. | Land or isolate Phase 8 changes, then audit from clean main. |
@@ -470,13 +503,13 @@ To claim HeggLog is a fully working compiler for its current source language, th
 5. Docs reconciliation for stale optimizer/runtime claims.
 6. A CI lane that actually has `lli`, `llvm-as`, and clang available.
 7. A decision on Bool output format.
-8. A decision on closure lifetime/ownership scope.
+8. Allocation-pressure tests if the documented process-lifetime runtime scope expands.
 9. A release-oriented README path that teaches normal users the simplest successful workflow.
 
 Items not required for a v1 of the current language, but required for a larger general-purpose language:
 
 - Recursion.
-- ADTs and pattern matching.
+- Broader ADTs and pattern matching.
 - Modules/imports.
 - Strings and aggregate data types.
 - Better package/build support.
@@ -575,38 +608,49 @@ Exit criteria:
 
 ## 17. Recommended Next Five Implementation Tasks
 
-1. Normalize the CLI command model.
-   - Files likely affected: `src/Main.hs`, `src/CLI/Report.hs`, README, CLI/golden tests.
-   - Acceptance: `check`, `run`, `compile`, and `report` have clear stdout/stderr and exit-code behavior.
-   - Suggested commit: `Normalize compiler CLI commands`
+1. Commit the roadmap pivot.
+   - Files likely affected: docs and README.
+   - Acceptance: the project identity, Haskell 2010 target, `.hg` substrate,
+     Egglog role, and LLVM/native output role are clear and internally
+     consistent.
+   - Suggested commit: `Set Haskell 2010 native compiler roadmap`
 
-2. Add process-level CLI artifact tests.
-   - Files likely affected: test harness, README examples, CI config.
-   - Acceptance: CLI tests prove `compile -o`, `--emit-llvm -o`, `--run`, and
-     missing-toolchain behavior at the executable boundary.
-   - Suggested commit: `Test compiler artifact CLI`
+2. Build the Haskell 2010 parser/layout MVP.
+   - Files likely affected: `src/Haskell2010/*`, tests, docs.
+   - Acceptance: layout-sensitive parsing works for a documented Core-0 source
+     subset while the existing `.hg` parser still works.
+   - Suggested commit: `Add Haskell 2010 parser layout MVP`
 
-3. Track precise runtime-error source spans.
-   - Files likely affected: located syntax, ANF/source mapping, interpreters, compile diagnostics, tests.
-   - Acceptance: nested runtime errors report the smallest useful source expression.
-   - Suggested commit: `Track runtime error source spans`
+3. Add the renamer MVP.
+   - Files likely affected: `src/Haskell2010/Names.hs`,
+     `src/Haskell2010/Scope.hs`, `src/Haskell2010/Renamer.hs`, tests.
+   - Acceptance: every accepted occurrence resolves to a unique binder or
+     fails with a source-spanned diagnostic.
+   - Suggested commit: `Add Haskell 2010 renamer MVP`
 
-4. Finalize v1 docs and CI tooling.
-   - Files likely affected: docs, README, CI config, examples.
-   - Acceptance: docs no longer contradict current strictness rules; CI exercises LLVM tools; v1 language subset is explicit.
-   - Suggested commit: `Finalize compiler v1 docs`
+4. Add typed Core MVP.
+   - Files likely affected: `src/Core/*`, `src/Haskell2010/Desugar.hs`, tests.
+   - Acceptance: parsed/renamed Core-0 programs desugar to validated typed
+     Core.
+   - Suggested commit: `Add typed Core MVP`
 
-## 18. Readiness Verdict
+5. Start the lazy/STG runtime MVP.
+   - Files likely affected: `src/STG/*`, runtime files, LLVM backend
+     integration, tests.
+   - Acceptance: Core-0 lazy examples validate and run through a native wet
+     path.
+   - Suggested commit: `Add lazy runtime MVP`
 
-HeggLog is ready to be described as an actively working compiler prototype with
-a real typed frontend, optimizer stack, closure-aware backend path, LLVM
-execution path, and native executable output for a defined subset.
+## 18. Historical Readiness Verdict
 
-It is not yet ready to be described as a complete compiler in the ordinary
-user-facing sense because the CLI surface, process-level artifact tests, runtime
-diagnostic precision, Bool output policy, and LLVM-tool CI story still need
-polish.
+HeggLog is ready to be described as an actively working native compiler
+baseline for the documented strict `.hg` subset, with a real typed frontend,
+optimizer stack, closure-aware backend path, LLVM execution path, native
+executable output, and mandatory wet tests.
 
-The implementation direction is sound. The next best work is closing the
-remaining usability gaps: CLI normalization, process-level artifact tests,
-precise runtime diagnostics, and final docs/CI reconciliation.
+At the time of this historical audit, it was not yet ready to be described as a
+Haskell 2010 compiler. That verdict has been superseded by later Haskell 2010
+work: the current repository compiles the documented executable Haskell 2010
+subset to native executables through LLVM and clang. Remaining Haskell 2010
+work is tracked in the current roadmap/status/conformance documents rather than
+this substrate audit.

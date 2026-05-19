@@ -1,7 +1,8 @@
 # Diagnostics Specification
 
 This document describes the diagnostic format currently emitted by HeggLog's
-user-facing compile paths.
+user-facing `.hg` compile paths and records the diagnostic requirements for the
+planned Haskell 2010 frontend.
 
 ## Source Locations
 
@@ -105,3 +106,23 @@ Diagnostic behavior is covered by:
 - golden type-error diagnostics
 - golden LLVM unsupported-feature diagnostics
 - existing negative type fixtures in `examples/type-errors/`
+
+## Haskell 2010 Diagnostic Requirements
+
+The Haskell 2010 target will need additional diagnostic classes:
+
+- layout parse errors
+- renamer errors
+- type inference errors
+- class and instance errors
+- pattern-match errors
+- module/import errors
+- runtime source attribution for lazy evaluation
+- source spans through Core/STG where possible
+
+Current status: Haskell 2010 parser, renamer, typechecker, class/instance, and
+runtime no-matching-alternative errors exist for the executable subset, and
+guard fallthrough is covered by Core/STG/native tests. Rich source-spanned
+pattern-match diagnostics and runtime source attribution through lazy
+evaluation remain planned. The existing located `.hg` parser/typechecker and
+LLVM unsupported-source diagnostics are the carry-forward baseline.

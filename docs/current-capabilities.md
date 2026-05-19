@@ -1,25 +1,37 @@
 # Current Capabilities
 
-This document is the quick reference for what HeggLog can run, optimize, and
-compile today. For the longer project plan, see [roadmap.md](roadmap.md).
+This document describes what HeggLog can do today and separates current `.hg`
+support from the active Haskell 2010 target.
 
-## Working Compiler Baseline
+## Current Native Compiler Capability
 
-HeggLog is a working compiler for a supported typed functional subset. The
-compiler can parse and typecheck source programs, lower them through ANF and
-Backend IR, optionally optimize supported ANF with the Egglog backend, emit
-LLVM IR, and build native executables through `clang`.
+The current compiler-supported source language is the strict HeggLog `.hg`
+subset. For that subset, HeggLog can:
 
-The source interpreter remains the semantic reference for the language. The
-LLVM/native backend is intentionally narrower than the interpreter and rejects
-unsupported programs structurally.
+- parse source files
+- typecheck and elaborate source
+- run report/interpreter mode
+- lower to ANF and resolved ANF
+- infer analysis facts
+- optimize supported typed strict ANF through the Egglog backend
+- lower to Backend IR
+- emit LLVM IR
+- build native executables through `clang`
+- execute native artifacts under mandatory wet tests
 
-## Interpreted Language Support
+The native executable path supports checked signed `Int64` arithmetic,
+checked division, conditionals, top-level first-order direct calls,
+lambda-lifted non-capturing lambdas, and closure-converted local function
+values where the program root is printable.
 
-Report/interpreter mode supports the implemented expression language:
+## Current Source Language
 
-- signed checked `Int64` runtime values
-- `Bool`
+The current compiled source is the strict HeggLog `.hg` subset. It is not
+Haskell 2010.
+
+Implemented `.hg` source forms:
+
+- `Int` and `Bool` literals
 - variables
 - nonrecursive `let`
 - `if`
@@ -28,128 +40,189 @@ Report/interpreter mode supports the implemented expression language:
 - `==` over `Int` and `Bool`
 - lambda expressions
 - function application
-- ordered nonrecursive top-level first-order function definitions
-- local higher-order functions
+- ordered nonrecursive top-level first-order definitions
 - optional lambda parameter annotations when monomorphic inference is concrete
+- local higher-order functions through closure conversion
 
-Run report/interpreter mode with:
+Not implemented in the current `.hg` language:
 
-```bash
-cabal run hegglog -- examples/test.hg
-```
+- Haskell 2010 layout
+- modules and imports
+- ADTs
+- pattern matching
+- type classes and instances
+- Prelude/library surface
+- IO `main`
+- lazy semantics
+- GHC extensions
 
-## Egglog Optimization Support
+## Haskell 2010 Target Status
 
-The compile path tries Egglog optimization by default when the program shape is
-inside the supported optimizer fragment. Unsupported optimizer fragments fall
-back explicitly to unoptimized ANF; they do not block compilation.
+Haskell 2010 compilation is the active roadmap. A Haskell2010 parser/layout
+frontend now exists and produces an isolated source AST, and the renamer now
+produces a unique-name resolved AST with lexical scopes, namespace separation,
+import ambiguity checks, and fixity resolution. An isolated typed Core IR,
+validator, free-variable pass, substitution pass, and pretty-printer now exist
+and are unit-tested. A Haskell typechecker/desugarer now emits validating typed
+Core for the current executable subset: `Int`, `Bool`, functions, lazy
+lets/arguments, user `data` declarations, polymorphic constructors, constructor
+cases, lazy constructor fields, nested constructor patterns, list and tuple
+syntax/patterns/types, built-in `Maybe`, `Either`, `Ordering`, and generated
+Core Prelude bindings for basic list/Bool functions, plus recursive top-level
+and local functions, plus the initial type class dictionary slice for
+user-defined single-parameter classes, concrete instances, explicit source
+constraints with normalized argument representation, dictionary-passed method
+calls, structured placeholder diagnostics for unsupported constraint contexts,
+source-spanned typecheck diagnostics including delayed dictionary failures,
+documented nullary-binding monomorphism/defaulting behavior, and built-in `Eq Int`, `Eq Bool`,
+`Ord Int`, `Ord Bool`, and executable `Num Int` class methods, plus guarded
+RHSs, guarded case alternatives, as-pattern aliases, and guard-fallthrough
+no-match behavior, plus the first IO printing slice for `IO`, `main :: IO ()`,
+`putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing, and
+built-in `Show Int`/`Show Bool`. A Core
+reference evaluator executes validating typed Core with erased type
+abstraction/application, checked `Int` primitives, and structured runtime
+errors. An isolated STG-like IR, validator, and pure heap evaluator now model
+the lazy runtime MVP with updateable thunks, single-entry thunks, sharing,
+black-hole detection, constructor case dispatch, constructor field binding,
+list/tuple/Prelude constructor dispatch, and checked primitives. Core-to-STG
+lowering now translates validating Core modules
+into validating STG while preserving lazy semantics. The Haskell 2010 native
+path now emits LLVM for the current executable subset using boxed values,
+updateable and single-entry thunks, function closures, enter/apply, Bool,
+user-constructor, list, tuple, `Maybe`/`Either`/`Ordering` case dispatch,
+boxed constructor field arrays, process-lifetime heap allocation through
+`hegglog_hs_alloc_process_lifetime` under the documented no-free/no-GC
+ownership policy, and checked primitive aborts, then uses the existing clang
+toolchain path to produce native executables. The Haskell 2010 native path also
+executes `main :: IO ()` actions for `putStrLn` and `print`
+output using native string literal objects, list-of-`Char` traversal, and
+built-in `Show Int`/`Show Bool`.
+The Haskell 2010
+native path now runs an Egglog Core optimizer by
+default for safe typed Core fragments before STG lowering; `--no-egglog`
+disables that optimizer for comparison and debugging. The optimizer covers
+safe Core-0 `Int`/`Bool` fragments plus known literal and saturated
+known-constructor case/projection rewrites for ADT/list/tuple/dictionary-shaped
+Core while preserving lazy constructor fields and forced bottom behavior.
+Haskell 2010 conformance is now tracked by a dedicated mandatory suite backed
+by `test/haskell2010/conformance/manifest.json`; the current compiler passes
+the documented executable-subset cases, while incomplete Haskell 2010 features
+are represented as explicit failing or unsupported-documented fixtures.
 
-The Egglog backend currently optimizes typed pure first-order ANF with:
+Current status:
 
-- integer constants and checked arithmetic: `+`, `-`, `*`, `/`
-- integer `<`
-- integer and boolean `==`
-- boolean and integer `if`
-- variables
-- lets
-- integer constant, boolean constant, and zero/nonzero lattice facts
+- Haskell 2010 parser/layout: parsed and parser-tested
+- Haskell 2010 renamer: implemented and unit-tested
+- Haskell 2010 typed Core: implemented and unit-tested as an isolated IR
+- Haskell 2010 HM typechecker: implemented and unit-tested for the first
+  executable subset, including custom ADTs, polymorphic constructors, recursive
+  binding groups, lists, tuples, and built-in Prelude data constructors
+- Haskell source desugaring to typed Core: implemented and unit-tested for
+  functions, lambdas, application, `let`, `if`, Bool/user-constructor `case`,
+  nested/list/tuple constructor patterns, list/tuple expressions, short-circuit
+  Bool operators, generated Prelude list functions, primitive `/`, and
+  dictionary-backed `Eq`/`Ord`/`Num` methods, guarded RHSs, guarded case
+  alternatives, and as-pattern aliases, including singleton self-recursive bindings and
+  mutually recursive top-level groups, user-defined single-parameter classes,
+  concrete instances, structured explicit constraints, placeholder diagnostics
+  for unsupported constraint contexts, dictionary constructors/selectors,
+  dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Ord Int`,
+  `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool` dictionaries, plus
+  source-spanned Haskell 2010 typecheck diagnostics, plus
+  `putStrLn`, `print`, `return`, `(>>)`, and expression-only `do` sequencing
+- Haskell 2010 Core reference evaluator: implemented and unit-tested for
+  arithmetic, polymorphic instantiation, Bool and user ADT cases, lazy
+  lets/arguments, lazy constructor fields, Prelude list functions, tuple and
+  built-in Prelude constructor cases, short-circuit Bool operators, and
+  guarded self recursion, local factorial recursion, top-level fibonacci
+  recursion, mutual recursion, recursive list functions, recursive pattern
+  bindings, user class dictionary
+  calls, built-in `Eq`/`Ord`/`Num` dictionary calls, guarded RHS/as-pattern
+  programs, IO output actions, guard fallthrough no-match reporting, and
+  division-by-zero reporting
+- Haskell 2010 STG-like lazy IR/runtime MVP: implemented and unit-tested for
+  validation, lazy lets/arguments, case demand, constructor dispatch, thunk
+  sharing/update behavior, single-entry thunks, black-hole detection, and
+  checked primitive errors
+- Core-to-STG lowering: implemented and unit-tested for Core-0 arithmetic,
+  polymorphic type erasure, Bool/user ADT case, nested constructor patterns,
+  list/tuple/Prelude constructor cases, generated Prelude list functions, lazy
+  lets/arguments, recursive binding groups, forced runtime errors, and curried
+  partial application, plus guarded RHS/as-pattern semantics and guard
+  fallthrough errors
+- Haskell 2010 native executable path: implemented and wet-tested for
+  arithmetic, polymorphic identity, lazy lets/arguments, Bool case, custom ADTs,
+  `Maybe`, built-in `Maybe`/`Either`/`Ordering`, lists, tuples, Prelude list
+  functions, short-circuit Bool operators, nested constructor patterns, lazy
+  constructor fields, top-level/local/mutual/list recursion, forced
+  division-by-zero failure, curried partial application, user-defined type
+  class dictionary calls, built-in `Eq`/`Ord`/`Num` class dictionary calls,
+  guarded RHS/as-pattern programs, `main :: IO ()` printing through `putStrLn`
+  and `print`, process-lifetime runtime allocation, and guard-fallthrough
+  runtime failure
+- Haskell 2010 Egglog Core optimizer: implemented and unit/wet-tested for
+  safe Core-0 arithmetic identities, checked constant folding, known Bool case
+  selection, known literal and saturated known-constructor case/projection
+  rewrites, typed Core extraction/validation, selected-Core validation,
+  provenance reporting, lazy let preservation, lazy constructor-field
+  preservation, strict bottom preservation, and optimized/unoptimized native
+  agreement
+- Haskell 2010 conformance suite: implemented as
+  `haskell2010-conformance-test`; it contains 52 manifest-tracked fixtures with
+  37 native-success cases, 1 native-runtime-error case, 6 compile-error cases,
+  and 8 unsupported-documented cases
 
-The Egglog backend does not currently optimize local closures, higher-order
-programs, recursive functions, user-defined data, or effectful constructs.
+Progress is tracked in
+[haskell2010-conformance-matrix.md](haskell2010-conformance-matrix.md).
 
-Use `--no-egglog` to compile without Egglog optimization:
+## Carry-Forward Infrastructure
 
-```bash
-cabal run hegglog -- compile examples/llvm/division.hg -o /tmp/hegglog-division --no-egglog
-```
+The current `.hg` compiler provides reusable compiler infrastructure for the
+Haskell 2010 target:
 
-## LLVM And Native Compile Support
+- LLVM backend structure
+- native executable toolchain integration through `clang`
+- Backend IR validation patterns
+- closure conversion infrastructure
+- checked arithmetic/division runtime handling
+- Egglog kernel
+- current ANF Egglog backend as optimizer prototype
+- provenance/debug tracing
+- mandatory wet-test framework
+- CI build/test/package checks
 
-The LLVM/native backend supports closed programs with printable `Int` or `Bool`
-roots. Supported compiled forms include:
+The future Haskell 2010 pipeline must keep these boundaries clean: the
+Haskell2010 frontend emits typed Core, the Core Egglog adapter optimizes typed
+Core, the STG/runtime layer implements laziness, and LLVM remains the native
+machine-code path.
 
-- `Int` and `Bool` literals
-- variables bound by `let`
-- nonrecursive `let`
-- `if`
-- checked integer `+`, `-`, `*`, and `/`
-- integer `<`
-- `==` over `Int` and `Bool`
-- ordered top-level first-order functions
-- saturated direct calls to top-level functions
-- lambda-lifted non-capturing lambdas
-- closure-converted local function values, including captured variables and
-  local closure calls
+## Testing
 
-Unsupported compile targets include:
+Current tests include:
 
-- function-valued roots
-- partial or over-applied top-level calls
-- using a top-level function as a first-class value
-- recursion
-- open programs with free variables
-- strings, arrays, records, tuples, modules, imports, ADTs, and pattern matching
+- parser, typechecker, interpreter, ANF, optimizer, Egglog, backend, LLVM,
+  golden, and property tests
+- native executable tests in the normal Cabal suite
+- `e2e-wet-test`, included in `cabal test all`, which invokes the built
+  `hegglog` CLI, compiles real `.hg` and executable-subset `.hs` files,
+  executes native artifacts, verifies stdout/stderr/exit codes, compares
+  report-mode `Result: <value>` output, runs Haskell 2010 default Egglog and
+  `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
+  programs, user-defined type class dictionary programs, and built-in
+  `Eq`/`Ord`/`Num`/`Show` dictionary programs, numeric-defaulting and
+  monomorphism/defaulting decision programs, multi-file module programs,
+  known-constructor optimizer programs, plus IO
+  printing programs, and compiles selected emitted LLVM through `clang`
+- `haskell2010-conformance-test`, included in `cabal test all`, which reads the
+  JSON conformance manifest, invokes the built `hegglog` executable as a
+  subprocess, compiles native-success cases to actual executables, executes
+  those artifacts directly, compares stdout exactly, verifies runtime-error
+  cases exit nonzero, verifies compile-error diagnostics, and ensures
+  unsupported-documented cases fail explicitly rather than silently passing
 
-Emit LLVM IR:
-
-```bash
-cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm -o /tmp/hegglog.ll
-```
-
-Build a native executable:
-
-```bash
-cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithmetic
-/tmp/hegglog-arithmetic
-```
-
-Build and run in one command:
-
-```bash
-cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithmetic --run
-```
-
-Native executable output requires `clang`. LLVM text output does not require an
-external LLVM toolchain.
-
-## Runtime Semantics
-
-Runtime behavior is strict and checked:
-
-- `Int` is a signed 64-bit runtime value.
-- Integer literals must fit in the nonnegative source literal range before
-  evaluation.
-- `+`, `-`, and `*` are checked for signed `Int64` overflow.
-- `/` checks division by zero and the minimum-`Int / -1` overflow case.
-- `if` evaluates the condition, then only the selected branch.
-- `let` evaluates the right-hand side before the body.
-- Generated native code prints `Int` roots as decimal text and `Bool` roots as
-  `0` or `1`.
-- Generated native code aborts on checked arithmetic runtime errors.
-
-## Known Limitations
-
-- User-facing Hindley-Milner polymorphism is not implemented.
-- Optional top-level type signatures are not implemented; top-level definitions
-  require explicit signatures.
-- ADTs, pattern matching, modules, imports, strings, and aggregate data types
-  are absent.
-- Some diagnostics remain developer-oriented, especially parser normalization
-  and precise nested runtime-error source locations.
-- Closure allocation currently uses process-lifetime heap ownership; long-term
-  ownership and freeing are not finalized.
-- Advanced Egglog boolean/domain reasoning and indexed/adaptive joins remain
-  future work.
-- Release packaging is still minimal Cabal metadata rather than a polished
-  distribution.
-
-## Next Roadmap Items
-
-The next high-value stabilization work is:
-
-- normalize the CLI around explicit `check`, `run`, `compile`, and `report`
-  commands
-- add process-level CLI artifact tests
-- improve nested runtime-error source spans
-- decide the v1 Bool output policy
-- expand CI to cover required LLVM toolchains where appropriate
+Future Haskell 2010 conformance work should extend this direct executable
+coverage as the full pattern coverage checker, richer pattern diagnostics,
+broader `Show`/`String` interop, and broader IO are implemented. Structured
+exhaustiveness warning placeholders are already exposed through the Haskell
+2010 typechecker and native compilation result APIs.

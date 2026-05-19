@@ -1,8 +1,45 @@
 # HeggLog Runtime Specification
 
-This document describes the current runtime behavior and the intended direction
-for future runtime features. The current runtime is mostly interpreter behavior
-plus the small C/LLVM-facing runtime surface emitted by the LLVM backend.
+This document describes the current strict `.hg` runtime behavior and the
+intended runtime direction for the Haskell 2010 native compiler target. The
+current runtime is mostly interpreter behavior plus the small C/LLVM-facing
+runtime surface emitted by the LLVM backend.
+
+## Current Runtime
+
+The current runtime belongs to the strict `.hg` compiler-supported subset. It
+supports checked signed `Int64`, `Bool`, closures where currently supported by
+the interpreter and LLVM closure-conversion path, native executable printing,
+checked arithmetic/division, and runtime-error behavior for overflow and
+division failures. Native heap allocation is now deliberately routed through
+process-lifetime allocation helpers in both LLVM backends:
+`hegglog_alloc_process_lifetime` for the strict `.hg` path and
+`hegglog_hs_alloc_process_lifetime` for the Haskell 2010 STG path. These
+helpers abort on allocation failure and never free objects during program
+execution.
+
+Native executable runtime errors currently call `abort`, exit nonzero, and do
+not print a rich runtime diagnostic. The wet tests record that current
+convention.
+
+## Haskell 2010 Runtime Target
+
+The Haskell 2010 runtime target requires:
+
+- lazy thunks
+- sharing and update
+- constructor closures
+- recursive heap bindings for `letrec`
+- black holes or documented equivalent behavior
+- case as demand
+- IO
+- heap management through a GC, arena, reference counting, or another explicit
+  allocation model; the current executable subset uses process-lifetime
+  allocation rather than GC
+
+The current strict runtime is not sufficient for Haskell 2010 laziness. The
+planned STG/runtime path is documented in
+[laziness-and-stg-plan.md](laziness-and-stg-plan.md).
 
 ## Current Runtime Values
 
@@ -112,6 +149,10 @@ Current behavior:
 - `Int` roots are printed with `printf("%lld\n", value)`.
 - `Bool` roots are zero-extended to `i32` and printed with `printf("%d\n",
   value)`.
+- In the Haskell 2010 path, `main :: IO ()` roots execute the compiled IO
+  action instead of scalar root printing. The implemented IO subset supports
+  `putStrLn`, `print` through `Show Int`/`Show Bool`, `return`, `(>>)`, and
+  expression-only `do` sequencing.
 
 The interpreter/report mode prints values through Haskell renderers:
 
@@ -175,6 +216,17 @@ declare void @abort()
 declare noalias ptr @malloc(i64)
 ```
 
+The generated runtime keeps `malloc` behind a backend-owned allocation helper:
+
+```llvm
+define ptr @hegglog_alloc_process_lifetime(i64 %size) { ... }
+define ptr @hegglog_hs_alloc_process_lifetime(i64 %size) { ... }
+```
+
+The helper is the current ownership boundary: allocation failure branches to
+`abort`, returned memory is process-lifetime, and generated programs do not
+emit object destructors or a collection phase.
+
 Checked arithmetic intrinsics are declared only when needed:
 
 ```llvm
@@ -186,8 +238,50 @@ declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)
 Division does not use an LLVM overflow intrinsic. It emits comparisons and
 branches before `sdiv`, and declares `abort` when division checks are present.
 
-`malloc` is declared only for programs that allocate closures. There is no
-custom HeggLog runtime library yet.
+In the strict `.hg` backend, `malloc` is declared only for programs that
+allocate closures because only those programs need the process-lifetime helper.
+The Haskell 2010 STG backend emits its boxed runtime helpers for the native
+path, so `malloc` remains part of that generated runtime surface.
+
+## Runtime Ownership And Leak Policy
+
+RTS-019 fixes the current ownership contract as an explicit process-lifetime
+model. This is an intentional executable-subset decision, not an accidental
+memory leak in an otherwise collecting runtime.
+
+Owned by generated process-lifetime allocation helpers:
+
+- Strict `.hg` closure-converted local closures.
+- Haskell 2010 boxed `Int`, `Bool`, `Char`, `String`, function, thunk, and data
+  objects.
+- Haskell 2010 closure/thunk environment arrays.
+- Haskell 2010 boxed constructor field arrays.
+- Haskell 2010 runtime string buffers produced while implementing `Show Int`.
+
+Not heap-owned by the generated runtime:
+
+- Unboxed strict `.hg` `Int`/`Bool` values.
+- LLVM registers, stack values, and function parameters.
+- Static format-string globals and other LLVM globals.
+- Source/Core/STG interpreter data structures, which remain owned by the host
+  Haskell process while tests or compiler commands run.
+
+Leak policy:
+
+- Generated native programs may retain every runtime allocation until process
+  exit.
+- There are no generated `free` calls, object finalizers, reference counts,
+  tracing GC roots, or sweep phases in the current runtime.
+- Allocation failure is the only allocation lifecycle event handled at runtime;
+  helpers null-check `malloc` and call `abort`.
+- Long-running programs and allocation-heavy workloads are outside the current
+  executable-subset performance claim until an arena or GC task replaces this
+  helper implementation.
+
+Tests assert this ownership boundary by checking that generated LLVM direct
+`malloc` calls occur only inside the named allocation helpers. Future arena or
+GC work should preserve those helper names as the backend/runtime API unless a
+deliberate migration updates the tests and documentation together.
 
 ## Function Runtime
 
@@ -214,7 +308,8 @@ captured values in deterministic name order.
 Current policy:
 
 - Environment layout: one LLVM struct shape per closure capture list.
-- Allocation: heap allocation with `malloc`.
+- Allocation: process-lifetime heap allocation through the generated runtime
+  allocation helper.
 - Allocation failure: null-check and `abort`.
 - Lifetime management: process-lifetime allocation; closures are not freed in
   the first runtime pass.
@@ -230,19 +325,41 @@ Future refinements:
 
 ## Future Allocation And Memory Management
 
-Closure conversion introduces heap allocation for closure objects.
+Closure conversion and the Haskell 2010 boxed STG runtime introduce heap
+allocation for closure, thunk, constructor-field-array, and short-lived runtime
+string-buffer objects.
+
+Decision for RTS-009:
+
+- The current supported native executable subset uses process-lifetime
+  allocation.
+- There is no tracing GC, reference counting, or per-object free in this
+  version.
+- All generated heap allocations go through a named runtime allocation helper
+  before reaching `malloc`, making the ownership policy testable and leaving one
+  IR/API boundary for a future arena block allocator or collector.
+
+Documentation decision for RTS-019:
+
+- The above ownership/leak policy is the current runtime contract.
+- Process-lifetime retention is acceptable for the supported compiler examples,
+  conformance fixtures, and wet tests.
+- It is not a claim of suitability for long-running server-style programs or
+  arbitrary allocation-heavy Haskell workloads.
 
 Possible policies:
 
-- Arena allocation for short-lived compiled programs.
+- Arena allocation for short-lived compiled programs. The current helper is the
+  API boundary for this future optimization.
 - Reference counting for deterministic cleanup.
 - Tracing garbage collection for richer functional workloads.
 - Borrow/escape analysis to stack-allocate non-escaping environments.
 
-Decision needed:
+Future decision needed:
 
-- Choose the long-term ownership policy for closures and future aggregate
-  values.
+- Choose whether the helper remains process-lifetime allocation for v1 or grows
+  a block arena or collector when larger aggregate-heavy programs become a
+  supported workload.
 
 ## Runtime Acceptance Criteria
 
@@ -264,3 +381,5 @@ Current checked tests cover:
 - LLVM execution matching interpreter output for supported examples.
 - LLVM closure differential examples for captured variables, returned closures,
   and higher-order local function values when execution tools are available.
+- LLVM shape tests that direct `malloc` calls stay inside process-lifetime
+  allocation helpers for both native backends.

@@ -1,0 +1,143 @@
+# Laziness and STG Plan
+
+## Why Laziness Is Required
+
+A Haskell 2010 compiler must implement non-strict semantics. Strict compilation
+is not Haskell semantics.
+
+Required examples:
+
+```haskell
+const 1 (1 `div` 0)
+```
+
+evaluates to `1`.
+
+```haskell
+let x = 1 `div` 0 in 5
+```
+
+evaluates to `5`.
+
+```haskell
+case (1 `div` 0) of ...
+```
+
+raises a runtime error because `case` demands the scrutinee.
+
+The current `.hg` runtime is strict and therefore is not sufficient for Haskell
+2010. It remains the regression baseline for the current compiler-supported
+subset.
+
+## Runtime Objects
+
+The Haskell 2010 runtime needs object representations for:
+
+- closure header
+- function closure
+- thunk closure
+- constructor closure
+- indirection/update closure
+- black-hole marker
+- primitive values
+- boxed and unboxed value decisions
+
+The object header should carry enough tag or info-table data for enter,
+update, case dispatch, and diagnostics. The first implementation can choose a
+simple uniform representation before optimizing layout.
+
+## Evaluation
+
+Required evaluation operations:
+
+- enter closure
+- force thunk
+- update thunk
+- represent case as demand
+- force primitive operands
+- treat constructors as values
+- preserve sharing after thunk evaluation
+- support recursive heap bindings for `letrec`
+
+Function arguments are lazy unless forced. Primitive operations force their
+operands. Case forces the scrutinee enough to choose an alternative. Let binds
+thunks rather than evaluating right-hand sides eagerly.
+
+## STG-like IR
+
+The STG-like IR should model:
+
+- functions
+- thunks
+- constructors
+- `let` and `letrec`
+- case expressions
+- alternatives
+- primitive operations
+- update flags
+
+Validation must check unique binders, resolved variables, arity, constructor
+tags, alternative coverage where applicable, and type/representation
+consistency.
+
+Current implementation status: `Haskell2010.STG.Syntax`,
+`Haskell2010.STG.Validate`, and `Haskell2010.STG.Eval` implement the in-process
+STG runtime MVP. The evaluator models heap closures, updateable and
+single-entry thunks, sharing after update, black-hole detection, case demand,
+Bool, user-constructor, list, tuple, and Prelude-data dispatch, constructor
+fields, recursive heap bindings, and checked primitive errors.
+`Haskell2010.STG.Lower` now lowers validating Core modules into
+validating STG while erasing type abstraction/application and preserving lazy
+semantics against the STG evaluator. Native runtime object layout, LLVM
+lowering, and runtime linking are implemented for the current executable subset,
+including custom ADTs, nested constructor patterns, lists, tuples, built-in
+Prelude data constructors, generated Core Prelude list/Bool functions, and
+recursive top-level/local functions. User-defined type class dictionaries lower
+as ordinary constructor closures with selector/method calls in the initial
+dictionary slice. The first IO action layer is implemented for `main :: IO ()`,
+`putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing, native
+string literal and list-of-`Char` output, and built-in `Show Int`/`Show Bool`;
+broader IO remains a future expansion. RTS-009 chooses process-lifetime
+allocation for this executable subset: generated STG LLVM routes heap-object,
+environment, constructor-field-array, and runtime string-buffer allocations
+through `hegglog_hs_alloc_process_lifetime`, which aborts on allocation failure
+and does not free or collect objects before process exit. RTS-019 documents the
+corresponding leak/ownership contract: this retention is intentional for the
+current executable subset, all native heap allocation must stay behind the
+allocation helper boundary, and long-running allocation-heavy workloads remain
+outside the supported runtime claim until an arena or GC task replaces the
+helper implementation.
+
+## LLVM Lowering
+
+The lazy backend lowers STG-like IR to LLVM by using:
+
+- closure layout
+- runtime calls
+- enter/apply convention
+- case dispatch
+- constructor tags
+- heap allocation
+- process-lifetime allocation helper
+- runtime linking
+
+Generated LLVM for Haskell 2010 source now includes a boxed lazy STG runtime for
+the current executable subset. The current strict `.hg` LLVM backend remains
+separate and does not by itself implement lazy Haskell semantics, even though it
+provides the shared LLVM and clang toolchain path.
+
+## Testing
+
+Required tests:
+
+- laziness
+- sharing
+- recursive thunk/black-hole behavior
+- terminating top-level/local/mutual/list recursion
+- constructor case dispatch
+- checked arithmetic and division runtime errors
+- native wet tests
+
+Representative wet tests must compile `.hs` sources to native executables and
+run the artifacts directly, comparing optimized and `--no-egglog` behavior
+where applicable.

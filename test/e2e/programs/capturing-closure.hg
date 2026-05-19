@@ -1,0 +1,5 @@
+let addN = \n : Int ->
+  \x : Int -> x + n
+in
+let add3 = addN 3 in
+add3 39

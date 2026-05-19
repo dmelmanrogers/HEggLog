@@ -1,5 +1,14 @@
 # HeggLog LLVM Backend
 
+This document describes the LLVM/native backend for the current strict `.hg`
+compiler-supported subset. The backend emits LLVM IR and can produce native
+executables through `clang` for that subset.
+
+The Haskell 2010 target will reuse the LLVM/native direction, but Haskell 2010
+lowering requires typed Core, an STG-like lazy IR, runtime linking, and lazy
+runtime support. The current strict backend is not sufficient for lazy Haskell
+semantics by itself.
+
 The LLVM backend is the first executable code generation path for HeggLog. It is
 intentionally narrow but now includes a first closure runtime pass: it compiles
 closed, pure programs with first-order roots, ordered top-level functions,
@@ -81,8 +90,9 @@ Lowering uses SSA:
 - `if` lowers to then/else/join blocks with a `phi` in the join block
 - top-level functions lower to LLVM functions with typed parameters
 - direct calls lower to ordinary LLVM `call` instructions
-- closure allocation calls `malloc`, stores a code pointer plus captured fields,
-  and aborts on null allocation
+- closure allocation calls the generated `hegglog_alloc_process_lifetime`
+  helper, stores a code pointer plus captured fields, and aborts on allocation
+  failure inside that helper
 - closure calls load the code pointer and lower to indirect LLVM calls
 
 Nested `if` expressions work because each branch returns the current predecessor
@@ -117,7 +127,9 @@ define i32 @main() { ... }
 
 Programs that contain checked `+`, `-`, or `*` declare the corresponding LLVM
 overflow intrinsics and `abort`. Programs that contain checked `/` declare
-`abort`. Programs that allocate closures declare `malloc` and `abort`.
+`abort`. Programs that allocate closures declare `malloc` and `abort`, define
+`hegglog_alloc_process_lifetime`, and route closure allocation through that
+process-lifetime ownership boundary.
 
 Top-level source functions emit deterministic LLVM functions named with a
 collision-free escaped form of the source name, prefixed by `hegglog_fun_`.
@@ -126,6 +138,9 @@ policy, and direct calls in function bodies or the root call those generated
 functions.
 
 `main` prints `Int` roots as decimal integers and `Bool` roots as `0` or `1`.
+For Haskell 2010 `main :: IO ()`, the generated wrapper forces the IO action
+instead; the current IO subset lowers `putStrLn`, `print` for `Show Int` and
+`Show Bool`, `return`, and `(>>)`.
 The emitter uses opaque pointer syntax (`ptr`) for the `printf` declaration and
 format-string pointers.
 

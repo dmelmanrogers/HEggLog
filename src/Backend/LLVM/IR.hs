@@ -54,6 +54,7 @@ data LLVMInstruction
   | IDiv Register LLVMType LLVMOperand LLVMOperand
   | IIcmp Register LLVMPredicate LLVMType LLVMOperand LLVMOperand
   | IZext Register LLVMOperand LLVMType
+  | ITrunc Register LLVMOperand LLVMType
   | IGetElementPtr Register LLVMType LLVMOperand [(LLVMType, LLVMOperand)]
   | ILoad Register LLVMType LLVMOperand
   | IStore LLVMType LLVMOperand LLVMOperand
@@ -64,6 +65,7 @@ data LLVMInstruction
 
 data LLVMTerminator
   = TRet LLVMType LLVMOperand
+  | TRetVoid
   | TBr Text
   | TCondBr LLVMOperand Text Text
   | TUnreachable

@@ -1,8 +1,13 @@
 # LLVM Backend Specification
 
-This specification defines the current HeggLog LLVM backend contract. It is
-normative for the v0 backend fragment; `docs/llvm-backend.md` remains the
-operational guide for CLI use and toolchain workflow.
+This specification defines the current HeggLog LLVM backend contract for the
+strict `.hg` compiler-supported subset. It is normative for the v0 backend
+fragment; `docs/llvm-backend.md` remains the operational guide for CLI use and
+toolchain workflow.
+
+The future Haskell 2010 backend will still use LLVM/native machine-code output,
+but it must lower from STG-like lazy IR and link a runtime system. This current
+strict backend does not implement lazy Haskell semantics on its own.
 
 ## Scope
 
@@ -90,6 +95,11 @@ The generated C-compatible `main` prints root values as:
 - `Int`: signed decimal text followed by a newline
 - `Bool`: `1` for true and `0` for false, followed by a newline
 
+The Haskell 2010 STG-to-LLVM path additionally recognizes `main :: IO ()`.
+For that entrypoint shape, `main` forces the compiled IO action instead of
+auto-printing a scalar root. The implemented IO subset supports `putStrLn`,
+`print` through `Show Int`/`Show Bool`, `return`, and `(>>)`.
+
 ## Evaluation Contract
 
 ANF lowering makes operand evaluation order explicit before Backend IR lowering.
@@ -107,8 +117,9 @@ for:
 - captured variable lookup through the closure environment
 - closure calls through local function values
 
-The supported fragment is pure. There are no user-visible side effects before
-the generated `main` prints the root value.
+The strict `.hg` supported fragment is pure. Haskell 2010 `main :: IO ()`
+programs in the implemented output subset can write stdout through the compiled
+IO action.
 
 ## Runtime Errors
 
@@ -305,3 +316,7 @@ change:
 - runtime declarations
 - external tool expectations
 - differential or golden test obligations
+
+Haskell 2010 lowering must also update this specification or add a successor
+spec covering STG-to-LLVM lowering, runtime linking, constructor/thunk layout,
+enter/apply convention, and lazy runtime diagnostics.
