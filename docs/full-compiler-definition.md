@@ -48,6 +48,12 @@ left and right operator sections over the supported infix operator subset.
 Sections lower to generated lambdas and then continue through the existing
 Core, STG, LLVM, and native execution pipeline.
 
+The Haskell 2010 typechecker also exposes structured exhaustiveness warning
+placeholders for partial `case`, function, and lambda patterns through
+`typecheckModuleToCoreWithWarnings`; native compilation preserves those
+warnings in `Haskell2010LLVMResult`. This is not yet a full Haskell 2010
+coverage checker.
+
 The success criterion is documented in
 [`haskell2010-roadmap.md`](haskell2010-roadmap.md): `hegglog compile Main.hs -o
 main` must produce a native executable whose behavior matches the implemented

@@ -221,5 +221,7 @@ Current tests include:
   unsupported-documented cases fail explicitly rather than silently passing
 
 Future Haskell 2010 conformance work should extend this direct executable
-coverage as richer pattern diagnostics, broader `Show`/`String` interop, and
-broader IO are implemented.
+coverage as the full pattern coverage checker, richer pattern diagnostics,
+broader `Show`/`String` interop, and broader IO are implemented. Structured
+exhaustiveness warning placeholders are already exposed through the Haskell
+2010 typechecker and native compilation result APIs.

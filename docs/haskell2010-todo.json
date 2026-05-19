@@ -5649,7 +5649,7 @@
     {
       "id": "PAT-014",
       "title": "exhaustiveness warning placeholder",
-      "status": "not started",
+      "status": "complete",
       "category": "core",
       "depends_on": [
         "ADT-001",
@@ -5658,15 +5658,18 @@
       "blocks": [],
       "milestone": "M8",
       "acceptance_criteria": [
-        "exhaustiveness warning placeholder is implemented, completed, or explicitly documented according to status `not started`.",
+        "Exhaustiveness warning placeholders are implemented as structured typechecker warnings with rendering and source spans where source spans are available.",
+        "Partial case alternatives and partial function/lambda constructor patterns emit warnings; total Bool cases and complete constructor families do not.",
+        "Native compile results expose typecheck warnings without changing successful executable behavior.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
-        "Core validator tests",
-        "Core golden tests",
-        "desugaring tests",
-        "negative Core tests"
+        "Haskell 2010 typechecker warning API tests",
+        "Haskell 2010 native warning propagation tests",
+        "cabal test hegglog-test --test-options='--hide-successes'",
+        "cabal test haskell2010-conformance-test --test-options='--hide-successes'",
+        "python3 scripts/validate-haskell2010-todo.py"
       ],
       "docs": [
         "docs/full-compiler-definition.md",

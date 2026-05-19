@@ -186,9 +186,11 @@ constructors/selectors, dictionary-passed method calls, and built-in `Eq Int`,
 defaulting to executable `Int`, inferred constrained helper schemes, and
 SCC-based binding generalization. It also covers import-driven dependency-file
 loading, export/import filtering, whole-program Core flattening, and root
-`main` native entrypoint selection for the executable subset. Full Haskell
-2010 type classes, broader `Show`, richer pattern diagnostics, broader
-Prelude, and broader IO remain planned. The strict
+`main` native entrypoint selection for the executable subset. It exposes
+structured exhaustiveness warning placeholders for partial `case`, function,
+and lambda patterns through the typechecker and native API. Full Haskell
+2010 type classes, broader `Show`, a full pattern coverage checker, richer
+pattern diagnostics, broader Prelude, and broader IO remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

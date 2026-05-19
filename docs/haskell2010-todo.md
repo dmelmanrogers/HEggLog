@@ -211,23 +211,22 @@ Rules:
 
 # Next 20 Implementation Tasks
 
-1. PAT-014 — exhaustiveness warning placeholder: Establish the diagnostic placeholder for later pattern coverage checking.
-2. CORE-REC-004 — recursive pattern bindings: Desugar recursive pattern bindings through the Core recursion model.
-3. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
-4. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
-5. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
-6. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
-7. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
-8. TC-003 — superclass representation: Model superclass relationships before broader class solving.
-9. TC-005 — default methods: Implement default class method typing and dictionary filling.
-10. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
-11. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
-13. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
-14. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
-15. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
-18. TC-020 — Ix: Implement or explicitly defer the Haskell 2010 `Ix` class surface.
-19. TC-021 — numeric literal overloading: Finish the Haskell 2010 numeric literal overloading surface.
-20. TC-022 — defaulting: Finish the Haskell 2010 defaulting behavior for the supported numeric/class surface.
+1. CORE-REC-004 — recursive pattern bindings: Desugar recursive pattern bindings through the Core recursion model.
+2. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
+3. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
+4. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
+5. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
+6. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
+7. TC-003 — superclass representation: Model superclass relationships before broader class solving.
+8. TC-005 — default methods: Implement default class method typing and dictionary filling.
+9. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
+10. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
+11. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
+12. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
+13. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
+14. TC-020 — Ix: Implement or explicitly defer the Haskell 2010 `Ix` class surface.
+15. TC-021 — numeric literal overloading: Finish the Haskell 2010 numeric literal overloading surface.
+16. TC-022 — defaulting: Finish the Haskell 2010 defaulting behavior for the supported numeric/class surface.
 
 # Task Backlog
 
@@ -10123,7 +10122,7 @@ Notes:
 ## PAT-014 — exhaustiveness warning placeholder
 
 Status:
-- not started
+- complete
 
 Category:
 - core
@@ -10136,7 +10135,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver exhaustiveness warning placeholder for ADTs and pattern matching while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Delivered a conservative Haskell 2010 typechecker warning channel for shallow pattern exhaustiveness placeholders. `typecheckModuleToCoreWithWarnings` returns source-spanned warning metadata for case alternatives, function pattern arguments, and lambda pattern arguments when the checker cannot prove coverage from irrefutable patterns, wildcard/default alternatives, or complete constructor families. Native compilation carries the same warning list in `Haskell2010LLVMResult` without changing CLI stderr or runtime semantics.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -10146,22 +10145,31 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Haskell2010/Core/Syntax.hs`
-- `src/Haskell2010/Core/Validate.hs`
-- `src/Haskell2010/Core/Eval.hs`
-- `src/Haskell2010/Core/Pretty.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `src/Haskell2010/Native.hs`
 - `test/Main.hs`
+- `docs/current-capabilities.md`
+- `docs/full-compiler-definition.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-frontend-spec.md`
+- `docs/haskell2010-roadmap.md`
+- `docs/haskell2010-status-summary.md`
+- `docs/haskell2010-todo.md`
+- `docs/haskell2010-todo.json`
 
 Acceptance criteria:
-- exhaustiveness warning placeholder is implemented, completed, or explicitly documented according to status `not started`.
+- Exhaustiveness warning placeholders are implemented as structured typechecker warnings with rendering and source spans where source spans are available.
+- Partial `case` alternatives and partial function/lambda constructor patterns emit warnings; total Bool cases and complete constructor families do not.
+- Native compile results expose typecheck warnings without changing successful executable behavior.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
 Required tests:
-- Core validator tests
-- Core golden tests
-- desugaring tests
-- negative Core tests
+- Haskell 2010 typechecker warning API tests
+- Haskell 2010 native warning propagation tests
+- `cabal test hegglog-test --test-options='--hide-successes'`
+- `cabal test haskell2010-conformance-test --test-options='--hide-successes'`
+- `python3 scripts/validate-haskell2010-todo.py`
 
 Documentation updates:
 - `docs/full-compiler-definition.md`

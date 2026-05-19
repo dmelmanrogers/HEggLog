@@ -33,7 +33,13 @@ import Haskell2010.STG.LLVM (STGLLVMError, lowerSTGProgramToLLVMByName, renderST
 import Haskell2010.STG.Lower (STGLowerError, lowerCoreModule, renderSTGLowerError)
 import Haskell2010.STG.Syntax (STGProgram)
 import Haskell2010.Syntax (HsModule)
-import Haskell2010.Typecheck (TypecheckError, renderTypecheckError, typecheckModuleToCore)
+import Haskell2010.Typecheck
+  ( TypecheckError
+  , TypecheckResult (..)
+  , TypecheckWarning
+  , renderTypecheckError
+  , typecheckModuleToCoreWithWarnings
+  )
 import Backend.LLVM.Emit (emitLLVMModule)
 import Backend.LLVM.IR (LLVMModule)
 import qualified Optimize.CoreEgglog as CoreEgglog
@@ -56,6 +62,7 @@ data Haskell2010LLVMResult = Haskell2010LLVMResult
   { haskell2010Parsed :: HsModule
   , haskell2010Renamed :: RHsModule
   , haskell2010OriginalCore :: CoreModule
+  , haskell2010Warnings :: [TypecheckWarning]
   , haskell2010Core :: CoreModule
   , haskell2010OptimizationStatus :: Haskell2010OptimizationStatus
   , haskell2010STG :: STGProgram
@@ -137,7 +144,8 @@ compileHaskell2010RenamedToLLVMWithOptions ::
   RName ->
   Either Haskell2010LLVMError Haskell2010LLVMResult
 compileHaskell2010RenamedToLLVMWithOptions options parsed renamed mainName = do
-  originalCore <- mapLeft Haskell2010LLVMTypecheckError (typecheckModuleToCore renamed)
+  typecheckResult <- mapLeft Haskell2010LLVMTypecheckError (typecheckModuleToCoreWithWarnings renamed)
+  let originalCore = typecheckResultCore typecheckResult
   (core, optimizationStatus) <-
     optimizeCoreIfEnabled options originalCore
   stg <- mapLeft Haskell2010LLVMLowerError (lowerCoreModule core)
@@ -147,6 +155,7 @@ compileHaskell2010RenamedToLLVMWithOptions options parsed renamed mainName = do
       { haskell2010Parsed = parsed
       , haskell2010Renamed = renamed
       , haskell2010OriginalCore = originalCore
+      , haskell2010Warnings = typecheckResultWarnings typecheckResult
       , haskell2010Core = core
       , haskell2010OptimizationStatus = optimizationStatus
       , haskell2010STG = stg

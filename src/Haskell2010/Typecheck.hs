@@ -1,14 +1,19 @@
 module Haskell2010.Typecheck
   ( Kind (..)
+  , PatternExhaustivenessContext (..)
   , TypeConstructorInfo (..)
   , TypecheckError (..)
+  , TypecheckResult (..)
+  , TypecheckWarning (..)
   , kindArity
   , kindFromArity
   , renderKind
   , typeConstructorArity
   , typeConstructorInfo
   , renderTypecheckError
+  , renderTypecheckWarning
   , typecheckModuleToCore
+  , typecheckModuleToCoreWithWarnings
   )
 where
 
@@ -18,7 +23,7 @@ import Data.Foldable (traverse_)
 import qualified Data.Graph as Graph
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -97,6 +102,23 @@ data TypecheckError
   | UnsolvedClassConstraint ClassConstraint
   | AmbiguousTypeVariable Int
   | CoreValidationFailed [CoreValidate.CoreValidationError]
+  deriving stock (Show, Eq)
+
+data TypecheckWarning
+  = TypecheckWarningAt SourceSpan TypecheckWarning
+  | NonExhaustivePatternMatch PatternExhaustivenessContext
+  deriving stock (Show, Eq)
+
+data PatternExhaustivenessContext
+  = CasePatternExhaustiveness
+  | FunctionPatternExhaustiveness RName
+  | LambdaPatternExhaustiveness
+  deriving stock (Show, Eq, Ord)
+
+data TypecheckResult = TypecheckResult
+  { typecheckResultCore :: CoreModule
+  , typecheckResultWarnings :: [TypecheckWarning]
+  }
   deriving stock (Show, Eq)
 
 data MonoType
@@ -294,13 +316,18 @@ data InferState = InferState
   , classInfos :: Map.Map RName ClassInfo
   , defaultTypes :: [MonoType]
   , typecheckSpanStack :: [SourceSpan]
+  , typecheckWarnings :: [TypecheckWarning]
   }
   deriving stock (Show, Eq)
 
 type InferM = StateT InferState (Either TypecheckError)
 
 typecheckModuleToCore :: RHsModule -> Either TypecheckError CoreModule
-typecheckModuleToCore sourceModule = do
+typecheckModuleToCore =
+  fmap typecheckResultCore . typecheckModuleToCoreWithWarnings
+
+typecheckModuleToCoreWithWarnings :: RHsModule -> Either TypecheckError TypecheckResult
+typecheckModuleToCoreWithWarnings sourceModule = do
   let sourceDecls = rModuleDecls sourceModule
       tupleArities = collectTupleArities sourceDecls
       preludeValues = collectPreludeValueNames sourceDecls
@@ -367,7 +394,12 @@ typecheckModuleToCore sourceModule = do
                 many -> [CoreRec (concatMap bindPairs many)]
           }
   case CoreValidate.validateModule (CoreValidate.moduleValidationEnv coreModule) coreModule of
-    Right () -> Right coreModule
+    Right () ->
+      Right
+        TypecheckResult
+          { typecheckResultCore = coreModule
+          , typecheckResultWarnings = typecheckWarnings finalState
+          }
     Left errors -> Left (CoreValidationFailed errors)
 
 renderTypecheckError :: TypecheckError -> Text
@@ -430,6 +462,31 @@ renderTypecheckErrorDetail = \case
     "generated Core failed validation: "
       <> Text.intercalate "; " (map CoreValidate.renderValidationError errors)
 
+renderTypecheckWarning :: TypecheckWarning -> Text
+renderTypecheckWarning = \case
+  TypecheckWarningAt sourceRange warning ->
+    renderSourceDiagnostic sourceRange "warning" (renderTypecheckWarningDetail warning)
+  warning ->
+    renderTypecheckWarningDetail warning
+
+renderTypecheckWarningDetail :: TypecheckWarning -> Text
+renderTypecheckWarningDetail = \case
+  TypecheckWarningAt _ warning ->
+    renderTypecheckWarningDetail warning
+  NonExhaustivePatternMatch context ->
+    "non-exhaustive pattern match placeholder: "
+      <> renderPatternExhaustivenessContext context
+      <> " is not yet proven exhaustive by the Haskell 2010 coverage checker"
+
+renderPatternExhaustivenessContext :: PatternExhaustivenessContext -> Text
+renderPatternExhaustivenessContext = \case
+  CasePatternExhaustiveness ->
+    "case alternatives"
+  FunctionPatternExhaustiveness name ->
+    "function `" <> renderRName name <> "`"
+  LambdaPatternExhaustiveness ->
+    "lambda pattern"
+
 runInfer :: Map.Map RName TypeConstructorInfo -> InferM a -> Either TypecheckError (a, InferState)
 runInfer initialTypeConstructors action =
   let initialState =
@@ -447,6 +504,7 @@ runInfer initialTypeConstructors action =
           , classInfos = Map.empty
           , defaultTypes = [intMonoType]
           , typecheckSpanStack = []
+          , typecheckWarnings = []
           }
    in swapState <$> runStateT action initialState
  where
@@ -1640,11 +1698,18 @@ matchMonoTypes variables patternTy actualTy replacements =
           matchMonoTypes variables patternElement actualElement replacements
         _ -> Nothing
 
-data SourceBinding = SourceBinding RName [RPat] RRhs [RDecl]
+data SourceBinding = SourceBinding
+  { sourceBindingSpan :: Maybe SourceSpan
+  , sourceBindingName :: RName
+  , sourceBindingPatterns :: [RPat]
+  , sourceBindingRhs :: RRhs
+  , sourceBindingWhereDecls :: [RDecl]
+  }
   deriving stock (Show, Eq, Ord)
 
 data PreparedBinding = PreparedBinding
-  { preparedName :: RName
+  { preparedSpan :: Maybe SourceSpan
+  , preparedName :: RName
   , preparedPatterns :: [RPat]
   , preparedRhs :: RRhs
   , preparedWhereDecls :: [RDecl]
@@ -1734,16 +1799,32 @@ collectValueBindings =
         RForeignDecl {} ->
           pure acc
         RFunctionBinding name patterns rhs whereDecls ->
-          pure (acc <> [SourceBinding name patterns rhs whereDecls])
+          pure
+            ( acc
+                <> [ SourceBinding
+                      { sourceBindingSpan = rDeclSpan decl
+                      , sourceBindingName = name
+                      , sourceBindingPatterns = patterns
+                      , sourceBindingRhs = rhs
+                      , sourceBindingWhereDecls = whereDecls
+                      }
+                   ]
+            )
         RPatternBinding (RPVar name) rhs whereDecls ->
-          pure (acc <> [SourceBinding name [] rhs whereDecls])
+          pure
+            ( acc
+                <> [ SourceBinding
+                      { sourceBindingSpan = rDeclSpan decl
+                      , sourceBindingName = name
+                      , sourceBindingPatterns = []
+                      , sourceBindingRhs = rhs
+                      , sourceBindingWhereDecls = whereDecls
+                      }
+                   ]
+            )
         RPatternBinding pat _ _ ->
           withTypecheckSpan (rPatSpan pat) $
             throwTypecheck (UnsupportedCore0 ("top-level pattern binding " <> renderPatternShape pat))
-
-sourceBindingName :: SourceBinding -> RName
-sourceBindingName (SourceBinding name _ _ _) =
-  name
 
 ensureSignatureHasBinding :: [RName] -> RName -> InferM ()
 ensureSignatureHasBinding bindingNames name =
@@ -1751,15 +1832,16 @@ ensureSignatureHasBinding bindingNames name =
     throwTypecheck (SignatureWithoutBinding name)
 
 prepareBinding :: Map.Map RName Scheme -> SourceBinding -> InferM PreparedBinding
-prepareBinding signatures (SourceBinding name patterns rhs whereDecls) =
-  case Map.lookup name signatures of
+prepareBinding signatures binding =
+  case Map.lookup (sourceBindingName binding) signatures of
     Just scheme ->
       pure
         PreparedBinding
-          { preparedName = name
-          , preparedPatterns = patterns
-          , preparedRhs = rhs
-          , preparedWhereDecls = whereDecls
+          { preparedSpan = sourceBindingSpan binding
+          , preparedName = sourceBindingName binding
+          , preparedPatterns = sourceBindingPatterns binding
+          , preparedRhs = sourceBindingRhs binding
+          , preparedWhereDecls = sourceBindingWhereDecls binding
           , preparedExpected = schemeBody scheme
           , preparedScheme = scheme
           , preparedHasSignature = True
@@ -1768,20 +1850,28 @@ prepareBinding signatures (SourceBinding name patterns rhs whereDecls) =
       expected <- freshMeta
       pure
         PreparedBinding
-          { preparedName = name
-          , preparedPatterns = patterns
-          , preparedRhs = rhs
-          , preparedWhereDecls = whereDecls
+          { preparedSpan = sourceBindingSpan binding
+          , preparedName = sourceBindingName binding
+          , preparedPatterns = sourceBindingPatterns binding
+          , preparedRhs = sourceBindingRhs binding
+          , preparedWhereDecls = sourceBindingWhereDecls binding
           , preparedExpected = expected
           , preparedScheme = Scheme [] [] expected
           , preparedHasSignature = False
           }
 
 inferPreparedBinding :: TypeEnv -> PreparedBinding -> InferM InferredBinding
-inferPreparedBinding env prepared = do
-  expr <- inferFunctionBindingExpr env (preparedPatterns prepared) (preparedRhs prepared) (preparedWhereDecls prepared)
-  unify (preparedExpected prepared) (typedExprType expr)
-  pure (InferredBinding prepared expr)
+inferPreparedBinding env prepared =
+  withTypecheckSpan (preparedSpan prepared) $ do
+    expr <-
+      inferFunctionBindingExpr
+        env
+        (FunctionPatternExhaustiveness (preparedName prepared))
+        (preparedPatterns prepared)
+        (preparedRhs prepared)
+        (preparedWhereDecls prepared)
+    unify (preparedExpected prepared) (typedExprType expr)
+    pure (InferredBinding prepared expr)
 
 finalizeBinding :: TypeEnv -> Map.Map RName Scheme -> InferredBinding -> InferM TypedBinding
 finalizeBinding outerEnv signatures (InferredBinding prepared rhs) =
@@ -1862,19 +1952,32 @@ collectInstanceMethods :: [RDecl] -> InferM (Map.Map RName SourceBinding)
 collectInstanceMethods =
   foldM collect Map.empty
  where
-  collect acc = \case
-    RFunctionBinding name patterns rhs whereDecls ->
-      case Map.lookup name acc of
-        Just _ ->
-          throwTypecheck (UnsupportedCore0 ("duplicate instance method `" <> renderRName name <> "`"))
-        Nothing ->
-          pure (Map.insert name (SourceBinding name patterns rhs whereDecls) acc)
-    RTypeSignature {} ->
-      pure acc
-    RFixityDecl {} ->
-      pure acc
-    other ->
-      throwTypecheck (UnsupportedCore0 ("instance declaration item " <> Text.pack (show other)))
+  collect acc decl =
+    withTypecheckSpan (rDeclSpan decl) $
+      case decl of
+        RFunctionBinding name patterns rhs whereDecls ->
+          case Map.lookup name acc of
+            Just _ ->
+              throwTypecheck (UnsupportedCore0 ("duplicate instance method `" <> renderRName name <> "`"))
+            Nothing ->
+              pure
+                ( Map.insert
+                    name
+                    SourceBinding
+                      { sourceBindingSpan = rDeclSpan decl
+                      , sourceBindingName = name
+                      , sourceBindingPatterns = patterns
+                      , sourceBindingRhs = rhs
+                      , sourceBindingWhereDecls = whereDecls
+                      }
+                    acc
+                )
+        RTypeSignature {} ->
+          pure acc
+        RFixityDecl {} ->
+          pure acc
+        other ->
+          throwTypecheck (UnsupportedCore0 ("instance declaration item " <> Text.pack (show other)))
 
 inferInstanceMethod ::
   TypeEnv ->
@@ -1887,12 +1990,19 @@ inferInstanceMethod env info instanceType methodMap method =
   case Map.lookup (classMethodName method) methodMap of
     Nothing ->
       throwTypecheck (UnsupportedCore0 ("missing instance method `" <> renderRName (classMethodName method) <> "`"))
-    Just (SourceBinding _ patterns rhs whereDecls) -> do
-      let replacements = Map.singleton (classInfoVariable info) instanceType
-          expected = replaceTypeVars replacements (classMethodFieldType method)
-      expr <- inferFunctionBindingExpr env patterns rhs whereDecls
-      unify expected (typedExprType expr)
-      pure expr
+    Just binding ->
+      withTypecheckSpan (sourceBindingSpan binding) $ do
+        let replacements = Map.singleton (classInfoVariable info) instanceType
+            expected = replaceTypeVars replacements (classMethodFieldType method)
+        expr <-
+          inferFunctionBindingExpr
+            env
+            (FunctionPatternExhaustiveness (sourceBindingName binding))
+            (sourceBindingPatterns binding)
+            (sourceBindingRhs binding)
+            (sourceBindingWhereDecls binding)
+        unify expected (typedExprType expr)
+        pure expr
 
 aliasPatternBinder :: RName -> MonoType -> TypedExpr -> TypedExpr -> TypedExpr
 aliasPatternBinder name ty scrutinee body =
@@ -1927,29 +2037,29 @@ monoTypeOccurrence = \case
   TyTuple fields -> "Tuple" <> renderInt (length fields)
   TyList element -> "List_" <> monoTypeOccurrence element
 
-inferFunctionBindingExpr :: TypeEnv -> [RPat] -> RRhs -> [RDecl] -> InferM TypedExpr
-inferFunctionBindingExpr env patterns rhs whereDecls = do
-  inferLambdaRhs env patterns rhs whereDecls
+inferFunctionBindingExpr :: TypeEnv -> PatternExhaustivenessContext -> [RPat] -> RRhs -> [RDecl] -> InferM TypedExpr
+inferFunctionBindingExpr env context patterns rhs whereDecls = do
+  inferLambdaRhs env context patterns rhs whereDecls
 
 inferLambda :: TypeEnv -> [RPat] -> RExpr -> InferM TypedExpr
 inferLambda env patterns bodyExpr =
-  inferLambdaBody env patterns (inferExpr) bodyExpr
+  inferLambdaBody env LambdaPatternExhaustiveness patterns (inferExpr) bodyExpr
 
-inferLambdaRhs :: TypeEnv -> [RPat] -> RRhs -> [RDecl] -> InferM TypedExpr
-inferLambdaRhs env patterns rhs whereDecls =
-  inferLambdaBody env patterns (\bodyEnv _ -> inferRhs bodyEnv rhs whereDecls) (RUnit)
+inferLambdaRhs :: TypeEnv -> PatternExhaustivenessContext -> [RPat] -> RRhs -> [RDecl] -> InferM TypedExpr
+inferLambdaRhs env context patterns rhs whereDecls =
+  inferLambdaBody env context patterns (\bodyEnv _ -> inferRhs bodyEnv rhs whereDecls) (RUnit)
 
-inferLambdaBody :: TypeEnv -> [RPat] -> (TypeEnv -> RExpr -> InferM TypedExpr) -> RExpr -> InferM TypedExpr
-inferLambdaBody env patterns inferBody bodyExpr = do
-  (binders, bodyEnv, wrapPatterns) <- inferLambdaPatterns env patterns
+inferLambdaBody :: TypeEnv -> PatternExhaustivenessContext -> [RPat] -> (TypeEnv -> RExpr -> InferM TypedExpr) -> RExpr -> InferM TypedExpr
+inferLambdaBody env context patterns inferBody bodyExpr = do
+  (binders, bodyEnv, wrapPatterns) <- inferLambdaPatterns context env patterns
   body <- wrapPatterns <$> inferBody bodyEnv bodyExpr
   pure (foldr wrapLambda body binders)
  where
   wrapLambda binder body =
     TLam binder body (TyFun (typedBinderType binder) (typedExprType body))
 
-inferLambdaPatterns :: TypeEnv -> [RPat] -> InferM ([TypedBinder], TypeEnv, TypedExpr -> TypedExpr)
-inferLambdaPatterns initialEnv =
+inferLambdaPatterns :: PatternExhaustivenessContext -> TypeEnv -> [RPat] -> InferM ([TypedBinder], TypeEnv, TypedExpr -> TypedExpr)
+inferLambdaPatterns context initialEnv =
   go [] initialEnv id
  where
   go binders env wrap = \case
@@ -1975,6 +2085,7 @@ inferLambdaPatterns initialEnv =
           caseBinder <- freshTermBinder "$case" patTy
           let scrutinee = TVar (typedBinderName binder) (Scheme [] [] patTy) [] patTy
           plan <- inferPatternPlan env patTy scrutinee pat
+          warnIfNonExhaustivePatterns context patTy [(pat, RUnguarded RUnit)]
           let wrapOne = caseForPatternPlan scrutinee caseBinder plan
           go (binders <> [binder]) (patternEnv plan) (wrap . wrapOne) rest
 
@@ -2089,6 +2200,7 @@ inferExpr env expr =
         typedScrutinee <- inferExpr env scrutinee
         scrutineeTy <- applyCurrent (typedExprType typedScrutinee)
         resultTy <- freshMeta
+        warnIfNonExhaustivePatterns CasePatternExhaustiveness scrutineeTy [(pat, rhs) | RAlt pat rhs _ <- alternatives]
         case alternatives of
           firstAlt : _ -> do
             firstIrrefutable <- caseAltCanElideRuntimeCase firstAlt
@@ -2455,6 +2567,209 @@ constructorCanElideRuntimeCase name = do
           pure (dataConstructorRepresentation info == CoreNewtypeConstructor)
         Nothing ->
           pure False
+
+warnIfNonExhaustivePatterns :: PatternExhaustivenessContext -> MonoType -> [(RPat, RRhs)] -> InferM ()
+warnIfNonExhaustivePatterns context scrutineeTy alternatives = do
+  exhaustive <- alternativesProveExhaustive scrutineeTy alternatives
+  unless exhaustive $
+    emitTypecheckWarning (NonExhaustivePatternMatch context)
+
+alternativesProveExhaustive :: MonoType -> [(RPat, RRhs)] -> InferM Bool
+alternativesProveExhaustive scrutineeTy alternatives = do
+  scrutineeTy' <- applyCurrent scrutineeTy
+  let totalAlternatives = [(pat, rhs) | (pat, rhs) <- alternatives, rhsProvesTotal rhs]
+  direct <- anyM (patternProvesExhaustive scrutineeTy' . fst) totalAlternatives
+  if direct
+    then pure True
+    else constructorFamilyCovered scrutineeTy' (map fst totalAlternatives)
+
+rhsProvesTotal :: RRhs -> Bool
+rhsProvesTotal = \case
+  RUnguarded {} ->
+    True
+  RGuarded branches ->
+    any (guardProvesTrue . fst) branches
+
+guardProvesTrue :: RExpr -> Bool
+guardProvesTrue = \case
+  RCon name ->
+    name == trueDataConName || nameOcc name == "True"
+  RVar name ->
+    nameOcc name == "otherwise"
+  RParen inner ->
+    guardProvesTrue inner
+  _ ->
+    False
+
+patternProvesExhaustive :: MonoType -> RPat -> InferM Bool
+patternProvesExhaustive scrutineeTy pat =
+  case pat of
+    RPVar {} ->
+      pure True
+    RPWildcard ->
+      pure True
+    RPIrrefutable {} ->
+      pure True
+    RPParen inner ->
+      patternProvesExhaustive scrutineeTy inner
+    RPAs _ inner ->
+      patternProvesExhaustive scrutineeTy inner
+    RPTuple fields ->
+      case scrutineeTy of
+        TyTuple fieldTypes
+          | length fieldTypes == length fields ->
+              andM (zipWith patternProvesExhaustive fieldTypes fields)
+        _ ->
+          pure False
+    RPCon name fields ->
+      constructorPatternProvesExhaustive scrutineeTy name fields
+    RPRecordCon name fields ->
+      recordPatternProvesExhaustive scrutineeTy name fields
+    _ ->
+      pure False
+
+constructorPatternProvesExhaustive :: MonoType -> RName -> [RPat] -> InferM Bool
+constructorPatternProvesExhaustive scrutineeTy name fields = do
+  canonical <- canonicalConstructorName name
+  familyCovered <- constructorFamilyCovered scrutineeTy [RPCon canonical fields]
+  fieldsCovered <-
+    if canonical == trueDataConName || canonical == falseDataConName
+      then pure (null fields)
+      else constructorFieldsProveExhaustive canonical fields
+  pure (familyCovered && fieldsCovered)
+
+recordPatternProvesExhaustive :: MonoType -> RName -> [(RName, RPat)] -> InferM Bool
+recordPatternProvesExhaustive scrutineeTy name fields = do
+  canonical <- canonicalConstructorName name
+  maybeInfo <- lookupDataConstructorInfo canonical
+  case maybeInfo of
+    Nothing ->
+      pure False
+    Just info -> do
+      orderedFields <- orderRecordPatternFields canonical info fields
+      familyCovered <- constructorFamilyCovered scrutineeTy [RPRecordCon canonical fields]
+      fieldsCovered <- constructorFieldsProveExhaustive canonical orderedFields
+      pure (familyCovered && fieldsCovered)
+
+constructorFieldsProveExhaustive :: RName -> [RPat] -> InferM Bool
+constructorFieldsProveExhaustive name fields = do
+  maybeInfo <- lookupDataConstructorInfo name
+  case maybeInfo of
+    Nothing ->
+      pure False
+    Just info -> do
+      (fieldTypes, _) <- instantiateConstructorPattern info
+      if length fieldTypes == length fields
+        then andM (zipWith patternProvesExhaustive fieldTypes fields)
+        else pure False
+
+constructorFamilyCovered :: MonoType -> [RPat] -> InferM Bool
+constructorFamilyCovered scrutineeTy patterns = do
+  family <- constructorFamilyForType scrutineeTy
+  case family of
+    Nothing ->
+      pure False
+    Just required -> do
+      covered <- Set.fromList . mapMaybe id <$> traverse coveredConstructor patterns
+      pure (required `Set.isSubsetOf` covered)
+
+coveredConstructor :: RPat -> InferM (Maybe RName)
+coveredConstructor = \case
+  RPParen inner ->
+    coveredConstructor inner
+  RPAs _ inner ->
+    coveredConstructor inner
+  RPCon name fields -> do
+    canonical <- canonicalConstructorName name
+    if canonical == trueDataConName || canonical == falseDataConName
+      then pure (if null fields then Just canonical else Nothing)
+      else do
+        fieldsCovered <- constructorFieldsProveExhaustive canonical fields
+        pure (if fieldsCovered then Just canonical else Nothing)
+  RPRecordCon name fields -> do
+    canonical <- canonicalConstructorName name
+    maybeInfo <- lookupDataConstructorInfo canonical
+    case maybeInfo of
+      Nothing ->
+        pure Nothing
+      Just info -> do
+        orderedFields <- orderRecordPatternFields canonical info fields
+        fieldsCovered <- constructorFieldsProveExhaustive canonical orderedFields
+        pure (if fieldsCovered then Just canonical else Nothing)
+  RPList [] ->
+    pure (Just listNilDataConName)
+  RPTuple fields ->
+    if all patternSyntacticallyIrrefutable fields
+      then pure (Just (tupleDataConName (length fields)))
+      else pure Nothing
+  pat
+    | patternSyntacticallyIrrefutable pat ->
+        pure Nothing
+  _ ->
+    pure Nothing
+
+patternSyntacticallyIrrefutable :: RPat -> Bool
+patternSyntacticallyIrrefutable = \case
+  RPVar {} -> True
+  RPWildcard -> True
+  RPIrrefutable {} -> True
+  RPParen inner -> patternSyntacticallyIrrefutable inner
+  RPAs _ inner -> patternSyntacticallyIrrefutable inner
+  RPTuple fields -> all patternSyntacticallyIrrefutable fields
+  _ -> False
+
+constructorFamilyForType :: MonoType -> InferM (Maybe (Set.Set RName))
+constructorFamilyForType scrutineeTy
+  | scrutineeTy == boolMonoType =
+      pure (Just (Set.fromList [trueDataConName, falseDataConName]))
+constructorFamilyForType scrutineeTy =
+  case scrutineeTy of
+    TyList {} ->
+      pure (Just (Set.fromList [listNilDataConName, listConsDataConName]))
+    TyTuple fields ->
+      pure (Just (Set.singleton (tupleDataConName (length fields))))
+    ty -> do
+      constructors <- dataConstructors <$> get
+      case monoTypeHead ty of
+        Nothing ->
+          pure Nothing
+        Just headName ->
+          let matching =
+                Set.fromList
+                  [ name
+                  | (name, info) <- Map.toList constructors
+                  , monoTypeHead (dataConstructorResult info) == Just headName
+                  , not (isClassDictionaryConstructorName name)
+                  ]
+           in pure (if Set.null matching then Nothing else Just matching)
+
+isClassDictionaryConstructorName :: RName -> Bool
+isClassDictionaryConstructorName name =
+  "$Mk" `Text.isPrefixOf` nameOcc name && "Dict" `Text.isSuffixOf` nameOcc name
+
+monoTypeHead :: MonoType -> Maybe RName
+monoTypeHead = \case
+  TyCon name -> Just name
+  TyApp fn _ -> monoTypeHead fn
+  _ -> Nothing
+
+canonicalConstructorName :: RName -> InferM RName
+canonicalConstructorName name
+  | name == trueDataConName || nameOcc name == "True" =
+      pure trueDataConName
+  | name == falseDataConName || nameOcc name == "False" =
+      pure falseDataConName
+  | otherwise =
+      case preludeConstructorInfo name of
+        Just (coreName, _) -> pure coreName
+        Nothing -> pure name
+
+lookupDataConstructorInfo :: RName -> InferM (Maybe DataConstructorInfo)
+lookupDataConstructorInfo name = do
+  constructors <- dataConstructors <$> get
+  case Map.lookup name constructors of
+    Just info -> pure (Just info)
+    Nothing -> pure (snd <$> preludeConstructorInfo name)
 
 caseForPatternPlan :: TypedExpr -> TypedBinder -> PatternPlan -> TypedExpr -> TypedExpr
 caseForPatternPlan scrutinee caseBinder plan body
@@ -4900,6 +5215,24 @@ zipWithM_ :: Monad m => (a -> b -> m c) -> [a] -> [b] -> m ()
 zipWithM_ f lhs rhs =
   sequence_ (zipWith f lhs rhs)
 
+anyM :: Monad m => (a -> m Bool) -> [a] -> m Bool
+anyM _ [] =
+  pure False
+anyM f (value : rest) = do
+  result <- f value
+  if result
+    then pure True
+    else anyM f rest
+
+andM :: Monad m => [m Bool] -> m Bool
+andM [] =
+  pure True
+andM (action : rest) = do
+  result <- action
+  if result
+    then andM rest
+    else pure False
+
 throwTypecheck :: TypecheckError -> InferM a
 throwTypecheck err = do
   spans <- typecheckSpanStack <$> get
@@ -4909,6 +5242,17 @@ throwTypecheck err = do
         err
       _ ->
         maybe err (`TypecheckErrorAt` err) (listToMaybe spans)
+
+emitTypecheckWarning :: TypecheckWarning -> InferM ()
+emitTypecheckWarning warning = do
+  spans <- typecheckSpanStack <$> get
+  let spanned =
+        case warning of
+          TypecheckWarningAt {} ->
+            warning
+          _ ->
+            maybe warning (`TypecheckWarningAt` warning) (listToMaybe spans)
+  modify (\state -> state {typecheckWarnings = typecheckWarnings state <> [spanned]})
 
 withTypecheckSpan :: Maybe SourceSpan -> InferM a -> InferM a
 withTypecheckSpan Nothing action =

@@ -175,6 +175,7 @@ testGroups =
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       , pureTest "renders Haskell 2010 type errors with source spans" testHaskell2010TypeErrorDiagnosticsWithSpans
+      , pureTest "records Haskell 2010 exhaustiveness warning placeholders" testHaskell2010ExhaustivenessWarningPlaceholders
       , ioTest "property-checks generated Haskell 2010 inference programs" $
           checkProperty propHaskell2010InferenceValidPrograms
       , ioTest "property-checks generated Haskell 2010 dictionary inference programs" $
@@ -1662,6 +1663,57 @@ testHaskell2010TypeErrorDiagnosticsWithSpans =
           ("unsolved type-class constraint" `Text.isInfixOf` H2010Typecheck.renderTypecheckError err)
       Left err -> Left ("expected source-spanned type error, got: " <> show err)
       Right coreModule -> Left ("ill-typed source typechecked unexpectedly: " <> show coreModule)
+
+testHaskell2010ExhaustivenessWarningPlaceholders :: Either String ()
+testHaskell2010ExhaustivenessWarningPlaceholders = do
+  partialCase <- typecheckHaskell2010WithWarnings haskell2010PartialCaseWarningSource
+  let partialCaseWarnings = H2010Typecheck.typecheckResultWarnings partialCase
+  assertBool
+    "partial case emits a case warning"
+    (warningMentionsCase partialCaseWarnings)
+  assertBool
+    "partial case warning has a source span"
+    (warningHasTestSourceSpan partialCaseWarnings)
+
+  totalCase <- typecheckHaskell2010WithWarnings haskell2010TotalBoolCaseWarningSource
+  expectEqual "total Bool case has no warnings" [] (H2010Typecheck.typecheckResultWarnings totalCase)
+
+  totalADTCase <- typecheckHaskell2010WithWarnings haskell2010TotalADTCaseWarningSource
+  expectEqual "total user ADT case has no warnings" [] (H2010Typecheck.typecheckResultWarnings totalADTCase)
+
+  partialFunction <- typecheckHaskell2010WithWarnings haskell2010PartialFunctionWarningSource
+  assertBool
+    "partial function emits a function warning"
+    (warningMentionsFunction (H2010Typecheck.typecheckResultWarnings partialFunction))
+
+  nativeResult <- compileHaskell2010Native haskell2010PartialCaseWarningSource
+  assertBool
+    "native result exposes typecheck warnings"
+    (warningMentionsCase (H2010Native.haskell2010Warnings nativeResult))
+ where
+  renderedWarnings =
+    map H2010Typecheck.renderTypecheckWarning
+
+  warningMentionsCase warnings =
+    any
+      ( \rendered ->
+          "non-exhaustive pattern match placeholder" `Text.isInfixOf` rendered
+            && "case alternatives" `Text.isInfixOf` rendered
+      )
+      (renderedWarnings warnings)
+
+  warningMentionsFunction warnings =
+    any
+      ( \rendered ->
+          "non-exhaustive pattern match placeholder" `Text.isInfixOf` rendered
+            && "function `fromJust" `Text.isInfixOf` rendered
+      )
+      (renderedWarnings warnings)
+
+  warningHasTestSourceSpan warnings =
+    any
+      ("<haskell2010-renamer-test>:" `Text.isPrefixOf`)
+      (renderedWarnings warnings)
 
 testHaskell2010Core0UnsupportedEquality :: Either String ()
 testHaskell2010Core0UnsupportedEquality =
@@ -5318,6 +5370,13 @@ typecheckHaskell2010Raw source = do
   renamed <- mapLeft (error . Text.unpack . H2010Renamer.renderRenameError) (renameHaskell2010Raw source)
   H2010Typecheck.typecheckModuleToCore renamed
 
+typecheckHaskell2010WithWarnings :: Text -> Either String H2010Typecheck.TypecheckResult
+typecheckHaskell2010WithWarnings source = do
+  renamed <- mapLeft (Text.unpack . H2010Renamer.renderRenameError) (renameHaskell2010Raw source)
+  mapLeft
+    (Text.unpack . H2010Typecheck.renderTypecheckError)
+    (H2010Typecheck.typecheckModuleToCoreWithWarnings renamed)
+
 haskell2010TypecheckErrorDetail :: H2010Typecheck.TypecheckError -> H2010Typecheck.TypecheckError
 haskell2010TypecheckErrorDetail = \case
   H2010Typecheck.TypecheckErrorAt _ err ->
@@ -5583,6 +5642,34 @@ haskell2010BoolCaseSource =
   \main = case False of\n\
   \  True -> 0\n\
   \  False -> 7\n"
+
+haskell2010PartialCaseWarningSource :: Text
+haskell2010PartialCaseWarningSource =
+  "module Main where\n\
+  \main = case True of\n\
+  \  True -> 1\n"
+
+haskell2010TotalBoolCaseWarningSource :: Text
+haskell2010TotalBoolCaseWarningSource =
+  "module Main where\n\
+  \main = case True of\n\
+  \  True -> 1\n\
+  \  False -> 0\n"
+
+haskell2010TotalADTCaseWarningSource :: Text
+haskell2010TotalADTCaseWarningSource =
+  "module Main where\n\
+  \data Choice = One | Two Int\n\
+  \main = case Two 4 of\n\
+  \  One -> 1\n\
+  \  Two _ -> 2\n"
+
+haskell2010PartialFunctionWarningSource :: Text
+haskell2010PartialFunctionWarningSource =
+  "module Main where\n\
+  \fromJust :: Maybe Int -> Int\n\
+  \fromJust (Just x) = x\n\
+  \main = fromJust (Just 1)\n"
 
 haskell2010KnownConstructorCaseSource :: Text
 haskell2010KnownConstructorCaseSource =

@@ -45,7 +45,7 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Remaining pattern diagnostics and exhaustiveness placeholders.
+1. Recursive pattern bindings through the Core recursion model.
 2. Haskell 2010 conformance matrix expansion for the broader executable
    surface.
 3. Broader `Show`/`String` interoperability, including `Show Char`,

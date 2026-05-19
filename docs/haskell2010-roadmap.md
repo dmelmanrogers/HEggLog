@@ -251,7 +251,9 @@ patterns, tuple patterns, and list patterns are covered by Core, STG, native,
 and wet tests. Guarded RHSs, guarded case alternatives, as-pattern aliases, and
 guard-fallthrough no-match behavior are also implemented and wet-tested.
 Irrefutable/lazy pattern semantics are implemented for the executable subset;
-richer source-spanned pattern diagnostics remain later work.
+structured exhaustiveness warning placeholders are exposed by the typechecker
+and native API. A full Haskell 2010 coverage checker and richer pattern-match
+diagnostics remain later work.
 
 Deliverables:
 
@@ -571,7 +573,7 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. Remaining pattern diagnostics and exhaustiveness placeholders.
+1. Recursive pattern bindings through the Core recursion model.
 2. Haskell 2010 conformance matrix expansion for the broader executable
    surface.
 3. Broader `Show`/`String` interoperability, including `Show Char`,
