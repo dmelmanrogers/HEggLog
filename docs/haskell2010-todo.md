@@ -211,26 +211,26 @@ Rules:
 
 # Next 20 Implementation Tasks
 
-1. TYPE-021 — property tests for inference: Add invariant coverage around the growing inference surface.
-2. RTS-019 — runtime leak/ownership documentation: Document ownership guarantees before expanding runtime allocation pressure.
-3. ADT-004 — newtype representation: Define runtime/Core representation for `newtype`.
-4. ADT-005 — record field labels: Add the name-resolution and selector surface required for records.
-5. PAT-008 — irrefutable/lazy patterns: Implement lazy pattern semantics rather than only parsed/renamed syntax.
-6. PAT-014 — exhaustiveness warning placeholder: Establish the diagnostic placeholder for later pattern coverage checking.
-7. CORE-REC-004 — recursive pattern bindings: Desugar recursive pattern bindings through the Core recursion model.
-8. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
-9. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
-10. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
-11. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
-12. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
-13. TC-003 — superclass representation: Model superclass relationships before broader class solving.
-14. TC-005 — default methods: Implement default class method typing and dictionary filling.
-15. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
-16. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
-17. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
-18. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
-19. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
-20. TC-020 — Ix: Implement or explicitly defer the Haskell 2010 `Ix` class surface.
+1. RTS-019 — runtime leak/ownership documentation: Document ownership guarantees before expanding runtime allocation pressure.
+2. ADT-004 — newtype representation: Define runtime/Core representation for `newtype`.
+3. ADT-005 — record field labels: Add the name-resolution and selector surface required for records.
+4. PAT-008 — irrefutable/lazy patterns: Implement lazy pattern semantics rather than only parsed/renamed syntax.
+5. PAT-014 — exhaustiveness warning placeholder: Establish the diagnostic placeholder for later pattern coverage checking.
+6. CORE-REC-004 — recursive pattern bindings: Desugar recursive pattern bindings through the Core recursion model.
+7. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
+8. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
+9. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
+10. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
+11. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
+12. TC-003 — superclass representation: Model superclass relationships before broader class solving.
+13. TC-005 — default methods: Implement default class method typing and dictionary filling.
+14. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
+15. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
+16. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
+17. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
+18. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
+19. TC-020 — Ix: Implement or explicitly defer the Haskell 2010 `Ix` class surface.
+20. TC-021 — numeric literal overloading: Finish the Haskell 2010 numeric literal overloading surface.
 
 # Task Backlog
 
@@ -6028,7 +6028,7 @@ Notes:
 ## TYPE-021 — property tests for inference
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -6057,7 +6057,9 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- property tests for inference is implemented, completed, or explicitly documented according to status `not started`.
+- Generated well-typed Haskell 2010 inference programs typecheck and emit validating Core.
+- Generated custom type-class dictionary inference programs typecheck, emit validating Core, and retain dictionary constructor metadata.
+- Generated signature-mismatch programs fail with structured inference/type errors rather than emitting Core.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -6073,7 +6075,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M4 (HM typechecker). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M4 (HM typechecker). Completed with QuickCheck-backed Haskell 2010 inference properties covering generated `Int`/`Bool` expressions, let/lambda/if/operator forms, custom dictionary solving, Core validation, and structured negative failures.
 
 ## TYPE-022 — negative type tests
 

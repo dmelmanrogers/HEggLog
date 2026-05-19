@@ -3307,7 +3307,7 @@
     {
       "id": "TYPE-021",
       "title": "property tests for inference",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "CORE-002",
@@ -3316,7 +3316,9 @@
       "blocks": [],
       "milestone": "M4",
       "acceptance_criteria": [
-        "property tests for inference is implemented, completed, or explicitly documented according to status `not started`.",
+        "Generated well-typed Haskell 2010 inference programs typecheck and emit validating Core.",
+        "Generated custom type-class dictionary inference programs typecheck, emit validating Core, and retain dictionary constructor metadata.",
+        "Generated signature-mismatch programs fail with structured inference/type errors rather than emitting Core.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

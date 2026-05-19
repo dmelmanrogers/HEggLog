@@ -169,6 +169,12 @@ testGroups =
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       , pureTest "renders Haskell 2010 type errors with source spans" testHaskell2010TypeErrorDiagnosticsWithSpans
+      , ioTest "property-checks generated Haskell 2010 inference programs" $
+          checkProperty propHaskell2010InferenceValidPrograms
+      , ioTest "property-checks generated Haskell 2010 dictionary inference programs" $
+          checkProperty propHaskell2010DictionaryInferencePrograms
+      , ioTest "property-checks generated Haskell 2010 inference failures" $
+          checkProperty propHaskell2010InferenceRejectsInvalidPrograms
       , pureTest "rejects unsupported Core-0 equality" testHaskell2010Core0UnsupportedEquality
       ]
   , TestGroup
@@ -4737,10 +4743,97 @@ propEgglogSupportedSemanticPreservation (SupportedANF expression) =
                   , OEB.optimizeWithEgglog EEV.defaultRunConfig expression === Right result
                   ]
 
+propHaskell2010InferenceValidPrograms :: Haskell2010InferenceProgram -> Property
+propHaskell2010InferenceValidPrograms (Haskell2010InferenceProgram expectedType source) =
+  counterexample (Text.unpack source) $
+    case typecheckHaskell2010Raw source of
+      Left err ->
+        counterexample (Text.unpack (H2010Typecheck.renderTypecheckError err)) False
+      Right coreModule ->
+        validateGeneratedHaskell2010Core expectedType coreModule
+
+propHaskell2010DictionaryInferencePrograms :: Haskell2010DictionaryInferenceProgram -> Property
+propHaskell2010DictionaryInferencePrograms (Haskell2010DictionaryInferenceProgram source) =
+  counterexample (Text.unpack source) $
+    case typecheckHaskell2010Raw source of
+      Left err ->
+        counterexample (Text.unpack (H2010Typecheck.renderTypecheckError err)) False
+      Right coreModule ->
+        conjoin
+          [ validateGeneratedHaskell2010Core Haskell2010PropBool coreModule
+          , counterexample
+              "generated custom class dictionary constructor was not emitted"
+              (property (containsConstructorOccurrence "$MkSameDict" coreModule))
+          ]
+
+propHaskell2010InferenceRejectsInvalidPrograms :: Haskell2010InvalidInferenceProgram -> Property
+propHaskell2010InferenceRejectsInvalidPrograms (Haskell2010InvalidInferenceProgram source) =
+  counterexample (Text.unpack source) $
+    case typecheckHaskell2010Raw source of
+      Left err ->
+        counterexample (Text.unpack (H2010Typecheck.renderTypecheckError err)) $
+          property (isExpectedHaskell2010InferenceFailure err)
+      Right coreModule ->
+        counterexample ("invalid generated program typechecked:\n" <> show coreModule) False
+
+validateGeneratedHaskell2010Core :: Haskell2010PropType -> H2010Core.CoreModule -> Property
+validateGeneratedHaskell2010Core expectedType coreModule =
+  conjoin
+    [ case H2010CoreValidate.validateModule (H2010CoreValidate.moduleValidationEnv coreModule) coreModule of
+        Left errors ->
+          counterexample ("generated Core failed validation: " <> show errors) False
+        Right () ->
+          property True
+    , case haskell2010MainBindingType coreModule of
+        Left message ->
+          counterexample message False
+        Right actualType ->
+          actualType === haskell2010PropCoreType expectedType
+    ]
+
+haskell2010MainBindingType :: H2010Core.CoreModule -> Either String H2010Core.CoreType
+haskell2010MainBindingType coreModule =
+  case [H2010Core.coreBinderType binder | bind <- H2010Core.coreModuleBinds coreModule, binder <- H2010Core.bindersOf bind, H2010Names.nameOcc (H2010Core.coreBinderName binder) == "main"] of
+    [] ->
+      Left "generated Core is missing a main binding"
+    [ty] ->
+      Right ty
+    types ->
+      Left ("generated Core has multiple main bindings: " <> show types)
+
+isExpectedHaskell2010InferenceFailure :: H2010Typecheck.TypecheckError -> Bool
+isExpectedHaskell2010InferenceFailure err =
+  case haskell2010TypecheckErrorDetail err of
+    H2010Typecheck.TypeMismatch {} -> True
+    H2010Typecheck.OccursCheck {} -> True
+    H2010Typecheck.UnsolvedClassConstraint {} -> True
+    H2010Typecheck.AmbiguousTypeVariable {} -> True
+    _ -> False
+
 newtype ClosedExpr = ClosedExpr Expr
   deriving stock (Show)
 
 newtype SupportedANF = SupportedANF AExpr
+  deriving stock (Show)
+
+data Haskell2010PropType
+  = Haskell2010PropInt
+  | Haskell2010PropBool
+  deriving stock (Show, Eq)
+
+data Haskell2010GeneratedExpr = Haskell2010GeneratedExpr
+  { generatedHaskell2010ExprType :: Haskell2010PropType
+  , generatedHaskell2010ExprText :: Text
+  }
+  deriving stock (Show, Eq)
+
+data Haskell2010InferenceProgram = Haskell2010InferenceProgram Haskell2010PropType Text
+  deriving stock (Show)
+
+newtype Haskell2010DictionaryInferenceProgram = Haskell2010DictionaryInferenceProgram Text
+  deriving stock (Show)
+
+newtype Haskell2010InvalidInferenceProgram = Haskell2010InvalidInferenceProgram Text
   deriving stock (Show)
 
 instance Arbitrary ClosedExpr where
@@ -4757,7 +4850,193 @@ instance Arbitrary SupportedANF where
   shrink _ =
     []
 
+instance Arbitrary Haskell2010InferenceProgram where
+  arbitrary =
+    sized $ \size -> do
+      ty <- elements [Haskell2010PropInt, Haskell2010PropBool]
+      expression <- genHaskell2010Expr ty (min 6 size) [] 0
+      pure (Haskell2010InferenceProgram ty (haskell2010InferenceProgramSource ty expression))
+  shrink _ =
+    []
+
+instance Arbitrary Haskell2010DictionaryInferenceProgram where
+  arbitrary =
+    sized $ \size -> do
+      ty <- elements [Haskell2010PropInt, Haskell2010PropBool]
+      lhs <- genHaskell2010Expr ty (min 5 size) [] 0
+      rhs <- genHaskell2010Expr ty (min 5 size) [] 100
+      pure (Haskell2010DictionaryInferenceProgram (haskell2010DictionaryInferenceProgramSource lhs rhs))
+  shrink _ =
+    []
+
+instance Arbitrary Haskell2010InvalidInferenceProgram where
+  arbitrary =
+    sized $ \size -> do
+      expectedType <- elements [Haskell2010PropInt, Haskell2010PropBool]
+      let actualType = oppositeHaskell2010PropType expectedType
+      expression <- genHaskell2010Expr actualType (min 5 size) [] 0
+      pure (Haskell2010InvalidInferenceProgram (haskell2010InvalidInferenceProgramSource expectedType expression))
+  shrink _ =
+    []
+
 type TypedName = (Name, Type)
+
+type Haskell2010PropEnv = [(Text, Haskell2010PropType)]
+
+haskell2010InferenceProgramSource :: Haskell2010PropType -> Haskell2010GeneratedExpr -> Text
+haskell2010InferenceProgramSource expectedType expression =
+  Text.unlines
+    [ "module Main where"
+    , "idp x = x"
+    , "value = " <> generatedHaskell2010ExprText expression
+    , "main :: " <> renderHaskell2010PropType expectedType
+    , "main = idp value"
+    ]
+
+haskell2010DictionaryInferenceProgramSource :: Haskell2010GeneratedExpr -> Haskell2010GeneratedExpr -> Text
+haskell2010DictionaryInferenceProgramSource lhs rhs =
+  Text.unlines
+    [ "module Main where"
+    , "class Same a where"
+    , "  same :: a -> a -> Bool"
+    , "instance Same Int where"
+    , "  same x y = x == y"
+    , "instance Same Bool where"
+    , "  same x y = x == y"
+    , "left = " <> generatedHaskell2010ExprText lhs
+    , "right = " <> generatedHaskell2010ExprText rhs
+    , "main :: Bool"
+    , "main = same left right"
+    ]
+
+haskell2010InvalidInferenceProgramSource :: Haskell2010PropType -> Haskell2010GeneratedExpr -> Text
+haskell2010InvalidInferenceProgramSource expectedType expression =
+  Text.unlines
+    [ "module Main where"
+    , "bad = " <> generatedHaskell2010ExprText expression
+    , "main :: " <> renderHaskell2010PropType expectedType
+    , "main = bad"
+    ]
+
+genHaskell2010Expr :: Haskell2010PropType -> Int -> Haskell2010PropEnv -> Int -> Gen Haskell2010GeneratedExpr
+genHaskell2010Expr ty size env next
+  | size <= 0 = genHaskell2010AtomExpr ty env
+  | otherwise =
+      frequency
+        [ (4, genHaskell2010AtomExpr ty env)
+        , (3, genHaskell2010LetExpr ty size env next)
+        , (3, genHaskell2010IfExpr ty size env next)
+        , (2, genHaskell2010LambdaAppExpr ty size env next)
+        , (if ty == Haskell2010PropInt then 4 else 0, genHaskell2010IntOpExpr size env next)
+        , (if ty == Haskell2010PropBool then 4 else 0, genHaskell2010BoolOpExpr size env next)
+        ]
+
+genHaskell2010AtomExpr :: Haskell2010PropType -> Haskell2010PropEnv -> Gen Haskell2010GeneratedExpr
+genHaskell2010AtomExpr ty env =
+  Haskell2010GeneratedExpr ty
+    <$> frequency
+      (literalChoices <> variableChoices)
+ where
+  literalChoices =
+    case ty of
+      Haskell2010PropInt ->
+        [(4, Text.pack . show <$> chooseInt (0, 30))]
+      Haskell2010PropBool ->
+        [(2, pure "True"), (2, pure "False")]
+  variableChoices =
+    [(2, pure name) | (name, nameType) <- env, nameType == ty]
+
+genHaskell2010LetExpr :: Haskell2010PropType -> Int -> Haskell2010PropEnv -> Int -> Gen Haskell2010GeneratedExpr
+genHaskell2010LetExpr ty size env next = do
+  rhsType <- elements [Haskell2010PropInt, Haskell2010PropBool]
+  rhs <- genHaskell2010Expr rhsType (size `div` 2) env (next + 1)
+  let name = "p" <> Text.pack (show next)
+  body <- genHaskell2010Expr ty (size `div` 2) ((name, rhsType) : env) (next + 2)
+  pure $
+    Haskell2010GeneratedExpr ty $
+      "(let " <> name <> " = " <> generatedHaskell2010ExprText rhs <> " in " <> generatedHaskell2010ExprText body <> ")"
+
+genHaskell2010IfExpr :: Haskell2010PropType -> Int -> Haskell2010PropEnv -> Int -> Gen Haskell2010GeneratedExpr
+genHaskell2010IfExpr ty size env next = do
+  condition <- genHaskell2010Expr Haskell2010PropBool (size `div` 2) env (next + 1)
+  thenBranch <- genHaskell2010Expr ty (size `div` 2) env (next + 2)
+  elseBranch <- genHaskell2010Expr ty (size `div` 2) env (next + 3)
+  pure $
+    Haskell2010GeneratedExpr ty $
+      "(if "
+        <> generatedHaskell2010ExprText condition
+        <> " then "
+        <> generatedHaskell2010ExprText thenBranch
+        <> " else "
+        <> generatedHaskell2010ExprText elseBranch
+        <> ")"
+
+genHaskell2010LambdaAppExpr :: Haskell2010PropType -> Int -> Haskell2010PropEnv -> Int -> Gen Haskell2010GeneratedExpr
+genHaskell2010LambdaAppExpr ty size env next =
+  case ty of
+    Haskell2010PropInt -> do
+      argument <- genHaskell2010Expr Haskell2010PropInt (size `div` 2) env (next + 1)
+      let param = "n" <> Text.pack (show next)
+      pure $
+        Haskell2010GeneratedExpr Haskell2010PropInt $
+          "((\\" <> param <> " -> " <> param <> " + 1) " <> generatedHaskell2010ExprText argument <> ")"
+    Haskell2010PropBool ->
+      oneof
+        [ do
+            argument <- genHaskell2010Expr Haskell2010PropInt (size `div` 2) env (next + 1)
+            let param = "n" <> Text.pack (show next)
+            pure $
+              Haskell2010GeneratedExpr Haskell2010PropBool $
+                "((\\" <> param <> " -> " <> param <> " == " <> param <> ") " <> generatedHaskell2010ExprText argument <> ")"
+        , do
+            argument <- genHaskell2010Expr Haskell2010PropBool (size `div` 2) env (next + 1)
+            let param = "b" <> Text.pack (show next)
+            pure $
+              Haskell2010GeneratedExpr Haskell2010PropBool $
+                "((\\" <> param <> " -> if " <> param <> " then True else False) " <> generatedHaskell2010ExprText argument <> ")"
+        ]
+
+genHaskell2010IntOpExpr :: Int -> Haskell2010PropEnv -> Int -> Gen Haskell2010GeneratedExpr
+genHaskell2010IntOpExpr size env next = do
+  op <- elements [" + ", " - ", " * "]
+  lhs <- genHaskell2010Expr Haskell2010PropInt (size `div` 2) env (next + 1)
+  rhs <- genHaskell2010Expr Haskell2010PropInt (size `div` 2) env (next + 2)
+  pure $
+    Haskell2010GeneratedExpr Haskell2010PropInt $
+      "(" <> generatedHaskell2010ExprText lhs <> op <> generatedHaskell2010ExprText rhs <> ")"
+
+genHaskell2010BoolOpExpr :: Int -> Haskell2010PropEnv -> Int -> Gen Haskell2010GeneratedExpr
+genHaskell2010BoolOpExpr size env next =
+  oneof
+    [ do
+        lhs <- genHaskell2010Expr Haskell2010PropInt (size `div` 2) env (next + 1)
+        rhs <- genHaskell2010Expr Haskell2010PropInt (size `div` 2) env (next + 2)
+        op <- elements [" == ", " < "]
+        pure $
+          Haskell2010GeneratedExpr Haskell2010PropBool $
+            "(" <> generatedHaskell2010ExprText lhs <> op <> generatedHaskell2010ExprText rhs <> ")"
+    , do
+        lhs <- genHaskell2010Expr Haskell2010PropBool (size `div` 2) env (next + 1)
+        rhs <- genHaskell2010Expr Haskell2010PropBool (size `div` 2) env (next + 2)
+        pure $
+          Haskell2010GeneratedExpr Haskell2010PropBool $
+            "(" <> generatedHaskell2010ExprText lhs <> " == " <> generatedHaskell2010ExprText rhs <> ")"
+    ]
+
+renderHaskell2010PropType :: Haskell2010PropType -> Text
+renderHaskell2010PropType = \case
+  Haskell2010PropInt -> "Int"
+  Haskell2010PropBool -> "Bool"
+
+haskell2010PropCoreType :: Haskell2010PropType -> H2010Core.CoreType
+haskell2010PropCoreType = \case
+  Haskell2010PropInt -> H2010Core.intTy
+  Haskell2010PropBool -> H2010Core.boolTy
+
+oppositeHaskell2010PropType :: Haskell2010PropType -> Haskell2010PropType
+oppositeHaskell2010PropType = \case
+  Haskell2010PropInt -> Haskell2010PropBool
+  Haskell2010PropBool -> Haskell2010PropInt
 
 genSupportedANF :: Type -> Int -> [TypedName] -> Int -> Gen AExpr
 genSupportedANF ty size env next

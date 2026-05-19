@@ -136,6 +136,14 @@ Class constraints also retain their originating expression/type span so delayed
 dictionary-resolution failures, such as an unsolved `Num Bool` constraint, still
 point back to the source expression that produced the constraint.
 
+TYPE-021 adds generated inference-property coverage for the Haskell 2010
+typechecker. QuickCheck now builds small `Int`/`Bool` programs with literals,
+lets, lambdas, `if`, arithmetic, comparisons, and equality, then asserts that
+well-typed programs infer and emit validating Core with the expected `main`
+type. A separate generated custom-class slice checks dictionary solving and
+dictionary constructor metadata, and generated signature-mismatch programs must
+fail with structured type errors instead of producing Core.
+
 Newtype declarations are typechecked with the required single-field invariant
 and currently share the boxed constructor representation used by data
 declarations. Remaining class, deriving, representation optimization, and
