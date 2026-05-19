@@ -2026,6 +2026,7 @@ testHaskell2010NativeLLVMShape = do
   llvmText <- compileHaskell2010NativeText haskell2010PartialApplicationSource
   assertBool "native LLVM defines process-lifetime allocator" ("define ptr @hegglog_hs_alloc_process_lifetime(i64 %size)" `Text.isInfixOf` llvmText)
   assertBool "native LLVM object allocation uses process-lifetime allocator" ("call ptr @hegglog_hs_alloc_process_lifetime(i64 48)" `Text.isInfixOf` llvmText)
+  expectEqual "native LLVM direct malloc calls stay inside allocator helper" 1 (countTextOccurrences "call ptr @malloc" llvmText)
   assertBool "native LLVM defines lazy force runtime" ("define ptr @hegglog_hs_force" `Text.isInfixOf` llvmText)
   assertBool "native LLVM allocates thunks" ("@hegglog_hs_make_thunk" `Text.isInfixOf` llvmText)
   assertBool "native LLVM boxes Int results" ("@hegglog_hs_make_int" `Text.isInfixOf` llvmText)
@@ -4073,6 +4074,7 @@ testLLVMCompileCapturingLambda = do
   assertBool
     "strict LLVM defines process-lifetime allocator"
     ("define ptr @hegglog_alloc_process_lifetime(i64 %size)" `Text.isInfixOf` llvmText)
+  expectEqual "strict LLVM direct malloc calls stay inside allocator helper" 1 (countTextOccurrences "call ptr @malloc" llvmText)
   assertBool
     "closure stores code pointer"
     ("store ptr @hegglog_fun__uclosure_uf_u0" `Text.isInfixOf` llvmText)
@@ -4699,6 +4701,17 @@ checkLLVMDiagnosticGolden source goldenPath = do
         expectEqualText "LLVM diagnostic golden output" (Text.stripEnd expected) (BC.renderCompileLLVMError err)
       Right result ->
         Left ("expected LLVM diagnostic failure, got LLVM:\n" <> Text.unpack (BC.llvmText result))
+
+countTextOccurrences :: Text -> Text -> Int
+countTextOccurrences needle haystack
+  | Text.null needle = 0
+  | otherwise = go haystack
+ where
+  go text =
+    case Text.breakOn needle text of
+      (_, rest)
+        | Text.null rest -> 0
+        | otherwise -> 1 + go (Text.drop (Text.length needle) rest)
 
 checkProperty :: Testable prop => prop -> IO (Either String ())
 checkProperty prop = do

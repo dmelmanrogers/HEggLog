@@ -4453,7 +4453,7 @@
     {
       "id": "RTS-019",
       "title": "runtime leak/ownership documentation",
-      "status": "in progress",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "STG-001"
@@ -4461,7 +4461,9 @@
       "blocks": [],
       "milestone": "M6",
       "acceptance_criteria": [
-        "runtime leak/ownership documentation is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Runtime ownership documentation enumerates process-lifetime allocation classes and non-owned runtime values.",
+        "The leak policy explicitly states that generated native programs may retain runtime allocations until process exit and currently emit no `free`, finalizers, reference counting, tracing GC, or sweep phase.",
+        "Native LLVM shape tests assert direct `malloc` calls stay inside allocation helpers for both the strict `.hg` and Haskell 2010 STG backends.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

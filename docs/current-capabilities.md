@@ -92,9 +92,10 @@ path now emits LLVM for the current executable subset using boxed values,
 updateable and single-entry thunks, function closures, enter/apply, Bool,
 user-constructor, list, tuple, `Maybe`/`Either`/`Ordering` case dispatch,
 boxed constructor field arrays, process-lifetime heap allocation through
-`hegglog_hs_alloc_process_lifetime`, and checked primitive aborts, then uses
-the existing clang toolchain path to produce native executables. The Haskell
-2010 native path also executes `main :: IO ()` actions for `putStrLn` and `print`
+`hegglog_hs_alloc_process_lifetime` under the documented no-free/no-GC
+ownership policy, and checked primitive aborts, then uses the existing clang
+toolchain path to produce native executables. The Haskell 2010 native path also
+executes `main :: IO ()` actions for `putStrLn` and `print`
 output using native string literal objects, list-of-`Char` traversal, and
 built-in `Show Int`/`Show Bool`.
 The Haskell 2010

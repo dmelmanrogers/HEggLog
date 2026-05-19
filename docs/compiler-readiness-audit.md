@@ -354,7 +354,7 @@ Unsupported:
 - Top-level function values as first-class values.
 - Overapplied top-level calls.
 - Recursion.
-- Heap ownership beyond process-lifetime closure allocation.
+- Heap ownership beyond the documented process-lifetime allocation model.
 
 The most important user-facing LLVM finding is now CLI polish rather than
 artifact production. In compile mode, `-o path` produces a native executable and
@@ -369,13 +369,15 @@ The checked-runtime model is well specified and substantially implemented:
 - Addition, subtraction, multiplication, and division are checked in LLVM.
 - Division is checked in interpreters, Egglog reasoning, and LLVM lowering.
 - Runtime traps are represented cleanly enough for tests.
-- Closure allocation is intentionally process-lifetime allocation.
+- Closure and Haskell 2010 boxed-runtime allocation are intentionally
+  process-lifetime allocation behind named helper functions.
 
 Readiness gaps:
 
 - Decide whether Bool roots should print as `true`/`false` or remain `0`/`1`.
 - Add more precise source locations for runtime errors.
-- Decide whether process-lifetime closure allocation is acceptable for v1 or whether explicit ownership/freeing is required.
+- Add an arena or GC only if the v1 scope expands to long-running or
+  allocation-heavy programs.
 
 The current runtime model is good enough for a small language compiler, but
 diagnostics, Bool output policy, and CLI polish should be completed before
@@ -472,7 +474,7 @@ Coverage gaps:
 2. Parser diagnostics are not fully normalized and goldened as compiler diagnostics.
 3. Runtime-error source-span precision is not deeply tested.
 4. Property tests are useful but bounded and do not replace end-to-end fuzzing.
-5. Closure memory ownership is not stress-tested because the current model is process-lifetime allocation.
+5. Allocation pressure is not stress-tested because the current documented model is process-lifetime retention.
 
 Overall, the test suite is strong for the implementation stage. The next test
 investments should focus on process-level CLI coverage, CLI normalization, and
@@ -485,7 +487,7 @@ diagnostics.
 | CLI mode confusion | Medium | Report, compile, emit, and run modes are not yet user-clean. | Introduce `check`, `run`, `compile`, `report`. |
 | Docs drift | Medium | Multiple specs can contradict code as semantics evolve. | Add docs consistency checks and resolve stale runtime text. |
 | Optimizer implementation drift | Medium | Simplifier, e-graph, and Egglog rules may diverge. | Keep only one production optimizer active or share rule specs. |
-| Closure memory model | Medium | Process-lifetime allocation is okay for examples but not long-running programs. | Decide v1 scope; document or implement ownership. |
+| Closure memory model | Medium | Process-lifetime allocation is okay for examples but not long-running programs. | Keep the documented RTS-019 scope for v1, or replace the allocation helpers with an arena/GC when workload requirements change. |
 | Runtime span precision | Medium | Correct compiler errors still feel poor if they point to broad expressions. | Thread source spans deeper into runtime errors. |
 | LLVM tool skipping | Low/Medium | Tests can pass on machines without LLVM tools, hiding integration issues. | Add CI lane with required LLVM tools. |
 | Branch/worktree state | Medium | Dirty changes and branch divergence complicate release confidence. | Land or isolate Phase 8 changes, then audit from clean main. |
@@ -501,7 +503,7 @@ To claim HeggLog is a fully working compiler for its current source language, th
 5. Docs reconciliation for stale optimizer/runtime claims.
 6. A CI lane that actually has `lli`, `llvm-as`, and clang available.
 7. A decision on Bool output format.
-8. A decision on closure lifetime/ownership scope.
+8. Allocation-pressure tests if the documented process-lifetime runtime scope expands.
 9. A release-oriented README path that teaches normal users the simplest successful workflow.
 
 Items not required for a v1 of the current language, but required for a larger general-purpose language:

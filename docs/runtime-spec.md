@@ -243,6 +243,46 @@ allocate closures because only those programs need the process-lifetime helper.
 The Haskell 2010 STG backend emits its boxed runtime helpers for the native
 path, so `malloc` remains part of that generated runtime surface.
 
+## Runtime Ownership And Leak Policy
+
+RTS-019 fixes the current ownership contract as an explicit process-lifetime
+model. This is an intentional executable-subset decision, not an accidental
+memory leak in an otherwise collecting runtime.
+
+Owned by generated process-lifetime allocation helpers:
+
+- Strict `.hg` closure-converted local closures.
+- Haskell 2010 boxed `Int`, `Bool`, `Char`, `String`, function, thunk, and data
+  objects.
+- Haskell 2010 closure/thunk environment arrays.
+- Haskell 2010 boxed constructor field arrays.
+- Haskell 2010 runtime string buffers produced while implementing `Show Int`.
+
+Not heap-owned by the generated runtime:
+
+- Unboxed strict `.hg` `Int`/`Bool` values.
+- LLVM registers, stack values, and function parameters.
+- Static format-string globals and other LLVM globals.
+- Source/Core/STG interpreter data structures, which remain owned by the host
+  Haskell process while tests or compiler commands run.
+
+Leak policy:
+
+- Generated native programs may retain every runtime allocation until process
+  exit.
+- There are no generated `free` calls, object finalizers, reference counts,
+  tracing GC roots, or sweep phases in the current runtime.
+- Allocation failure is the only allocation lifecycle event handled at runtime;
+  helpers null-check `malloc` and call `abort`.
+- Long-running programs and allocation-heavy workloads are outside the current
+  executable-subset performance claim until an arena or GC task replaces this
+  helper implementation.
+
+Tests assert this ownership boundary by checking that generated LLVM direct
+`malloc` calls occur only inside the named allocation helpers. Future arena or
+GC work should preserve those helper names as the backend/runtime API unless a
+deliberate migration updates the tests and documentation together.
+
 ## Function Runtime
 
 Top-level first-order functions compile to direct LLVM functions.
@@ -299,6 +339,14 @@ Decision for RTS-009:
   before reaching `malloc`, making the ownership policy testable and leaving one
   IR/API boundary for a future arena block allocator or collector.
 
+Documentation decision for RTS-019:
+
+- The above ownership/leak policy is the current runtime contract.
+- Process-lifetime retention is acceptable for the supported compiler examples,
+  conformance fixtures, and wet tests.
+- It is not a claim of suitability for long-running server-style programs or
+  arbitrary allocation-heavy Haskell workloads.
+
 Possible policies:
 
 - Arena allocation for short-lived compiled programs. The current helper is the
@@ -333,3 +381,5 @@ Current checked tests cover:
 - LLVM execution matching interpreter output for supported examples.
 - LLVM closure differential examples for captured variables, returned closures,
   and higher-order local function values when execution tools are available.
+- LLVM shape tests that direct `malloc` calls stay inside process-lifetime
+  allocation helpers for both native backends.
