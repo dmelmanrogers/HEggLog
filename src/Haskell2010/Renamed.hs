@@ -2,7 +2,9 @@
 
 module Haskell2010.Renamed
   ( RAlt (RAlt)
-  , RConDecl (RConDecl)
+  , RConDecl (RConDecl, RRecordConDecl)
+  , RConDeclFields (..)
+  , RConField (..)
   , RDecl
       ( RTypeSignature
       , RFunctionBinding
@@ -36,6 +38,7 @@ module Haskell2010.Renamed
       , RArithmeticSeq
       , RListComp
       , RExprTypeSig
+      , RRecordCon
       )
   , RExport (..)
   , RHsModule (..)
@@ -60,6 +63,7 @@ module Haskell2010.Renamed
       , RPAs
       , RPIrrefutable
       , RPParen
+      , RPRecordCon
       )
   , RRhs (RUnguarded, RGuarded)
   , RStmt (RBindStmt, RLetStmt, RExprStmt)
@@ -188,15 +192,28 @@ setRDeclSpan :: SourceSpan -> RDecl -> RDecl
 setRDeclSpan sourceRange (SpannedRDecl _ node) =
   SpannedRDecl (Just sourceRange) node
 
-data RConDecl = SpannedRConDecl (Maybe SourceSpan) RName [RHsType]
+data RConDecl = SpannedRConDecl (Maybe SourceSpan) RName RConDeclFields
+  deriving stock (Show, Eq, Ord)
+
+data RConDeclFields
+  = RPrefixConFields [RHsType]
+  | RRecordConFields [RConField]
+  deriving stock (Show, Eq, Ord)
+
+data RConField = RConField [RName] RHsType
   deriving stock (Show, Eq, Ord)
 
 pattern RConDecl :: RName -> [RHsType] -> RConDecl
-pattern RConDecl name fields <- SpannedRConDecl _ name fields
+pattern RConDecl name fields <- SpannedRConDecl _ name (RPrefixConFields fields)
   where
-    RConDecl name fields = SpannedRConDecl Nothing name fields
+    RConDecl name fields = SpannedRConDecl Nothing name (RPrefixConFields fields)
 
-{-# COMPLETE RConDecl #-}
+pattern RRecordConDecl :: RName -> [RConField] -> RConDecl
+pattern RRecordConDecl name fields <- SpannedRConDecl _ name (RRecordConFields fields)
+  where
+    RRecordConDecl name fields = SpannedRConDecl Nothing name (RRecordConFields fields)
+
+{-# COMPLETE RConDecl, RRecordConDecl #-}
 
 rConDeclSpan :: RConDecl -> Maybe SourceSpan
 rConDeclSpan (SpannedRConDecl sourceRange _ _) =
@@ -257,6 +274,7 @@ data RExprNode
   | RArithmeticSeqNode RExpr (Maybe RExpr) (Maybe RExpr)
   | RListCompNode RExpr [RStmt]
   | RExprTypeSigNode RExpr RHsType
+  | RRecordConNode RName [(RName, RExpr)]
   deriving stock (Show, Eq, Ord)
 
 pattern RVar :: RName -> RExpr
@@ -354,7 +372,12 @@ pattern RExprTypeSig expr sourceType <- SpannedRExpr _ (RExprTypeSigNode expr so
   where
     RExprTypeSig expr sourceType = SpannedRExpr Nothing (RExprTypeSigNode expr sourceType)
 
-{-# COMPLETE RVar, RCon, RLit, RApp, RInfixApp, RLambda, RLet, RIf, RCase, RDo, RList, RTuple, RUnit, RParen, RLeftSection, RRightSection, RArithmeticSeq, RListComp, RExprTypeSig #-}
+pattern RRecordCon :: RName -> [(RName, RExpr)] -> RExpr
+pattern RRecordCon name fields <- SpannedRExpr _ (RRecordConNode name fields)
+  where
+    RRecordCon name fields = SpannedRExpr Nothing (RRecordConNode name fields)
+
+{-# COMPLETE RVar, RCon, RLit, RApp, RInfixApp, RLambda, RLet, RIf, RCase, RDo, RList, RTuple, RUnit, RParen, RLeftSection, RRightSection, RArithmeticSeq, RListComp, RExprTypeSig, RRecordCon #-}
 
 rExprSpan :: RExpr -> Maybe SourceSpan
 rExprSpan (SpannedRExpr sourceRange _) =
@@ -429,6 +452,7 @@ data RPatNode
   | RPAsNode RName RPat
   | RPIrrefutableNode RPat
   | RPParenNode RPat
+  | RPRecordConNode RName [(RName, RPat)]
   deriving stock (Show, Eq, Ord)
 
 pattern RPVar :: RName -> RPat
@@ -476,7 +500,12 @@ pattern RPParen pat <- SpannedRPat _ (RPParenNode pat)
   where
     RPParen pat = SpannedRPat Nothing (RPParenNode pat)
 
-{-# COMPLETE RPVar, RPCon, RPLit, RPWildcard, RPTuple, RPList, RPAs, RPIrrefutable, RPParen #-}
+pattern RPRecordCon :: RName -> [(RName, RPat)] -> RPat
+pattern RPRecordCon name fields <- SpannedRPat _ (RPRecordConNode name fields)
+  where
+    RPRecordCon name fields = SpannedRPat Nothing (RPRecordConNode name fields)
+
+{-# COMPLETE RPVar, RPCon, RPLit, RPWildcard, RPTuple, RPList, RPAs, RPIrrefutable, RPParen, RPRecordCon #-}
 
 rPatSpan :: RPat -> Maybe SourceSpan
 rPatSpan (SpannedRPat sourceRange _) =

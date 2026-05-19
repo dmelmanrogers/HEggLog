@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-19 04:48:47 UTC
+Date/time: 2026-05-19 06:09:43 UTC
 
-Commit hash tested: TYPE-020 working tree before final task commit. The final
+Commit hash tested: ADT-005 working tree before final task commit. The final
 commit for the task records the same source tree plus this results document.
 
 Primary conformance command run:
@@ -34,14 +34,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 52 |
-| Haskell source files in corpus | 53 |
-| HUnit test cases executed | 54 |
-| Native-success fixtures | 37 |
+| Manifest conformance fixtures | 53 |
+| Haskell source files in corpus | 54 |
+| HUnit test cases executed | 55 |
+| Native-success fixtures | 38 |
 | Native-runtime-error fixtures | 1 |
 | Compile-error fixtures | 6 |
 | Unsupported-documented fixtures | 8 |
-| Native subprocess compile/run checks | 40 |
+| Native subprocess compile/run checks | 41 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -54,7 +54,7 @@ explicit conformance cases rather than omitted.
 
 | Category | Manifest fixtures | Status |
 | --- | ---: | --- |
-| `adts` | 2 | representative native tests exist |
+| `adts` | 3 | representative native tests exist, including record labels/selectors |
 | `declarations` | 4 | representative native tests exist |
 | `egglog` | 1 | optimized/unoptimized native agreement covered |
 | `expressions` | 10 | representative native tests exist |

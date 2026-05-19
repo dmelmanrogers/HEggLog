@@ -43,6 +43,7 @@ import Text.Megaparsec
   , sepBy
   , sepBy1
   , sepEndBy
+  , sepEndBy1
   )
 import qualified Text.Megaparsec.Char as C
 
@@ -346,10 +347,23 @@ atomExpr =
     choice
     [ try parenExpr
     , try listExpr
+    , try recordConExpr
     , literalExpr
     , Var <$> qvarid
     , Con <$> qconid
     ]
+
+recordConExpr :: Parser Expr
+recordConExpr = withSpan setExprSpan $ do
+  constructor <- qconid
+  fields <- bracesComma recordExprField
+  pure (RecordCon constructor fields)
+ where
+  recordExprField = do
+    name <- qvarid
+    void (symbol "=")
+    expr <- exprParser
+    pure (name, expr)
 
 literalExpr :: Parser Expr
 literalExpr =
@@ -474,6 +488,7 @@ patParser = withSpan setPatSpan $ do
     choice
       [ try asPat
       , try irrefutablePat
+      , try recordConPat
       , try conAppPat
       , patAtom
       ]
@@ -493,6 +508,15 @@ patParser = withSpan setPatSpan $ do
     constructor <- qconid
     args <- many patAtom
     pure (PCon constructor args)
+  recordConPat = do
+    constructor <- qconid
+    fields <- bracesComma recordPatField
+    pure (PRecordCon constructor fields)
+  recordPatField = do
+    name <- qvarid
+    void (symbol "=")
+    pat <- patParser
+    pure (name, pat)
 
 patAtom :: Parser Pat
 patAtom =
@@ -595,8 +619,15 @@ parenType = withSpan setHsTypeSpan $ do
 
 constructorDecl :: Parser ConDecl
 constructorDecl =
-  withSpan setConDeclSpan $
-    ConDecl <$> qconid <*> many typeAtom
+  withSpan setConDeclSpan $ do
+    constructorName <- qconid
+    try (RecordConDecl constructorName <$> bracesComma1 recordFieldDecl)
+      <|> (ConDecl constructorName <$> many typeAtom)
+ where
+  recordFieldDecl = do
+    names <- qvarid `sepBy1` comma
+    void (symbol "::")
+    ConField names <$> typeParser
 
 derivingDecl :: Parser [Text]
 derivingDecl =
@@ -676,6 +707,14 @@ allChildren =
 bracketsComma :: Parser a -> Parser [a]
 bracketsComma parser =
   symbol "[" *> parser `sepBy` comma <* symbol "]"
+
+bracesComma :: Parser a -> Parser [a]
+bracesComma parser =
+  symbol "{" *> parser `sepEndBy` comma <* symbol "}"
+
+bracesComma1 :: Parser a -> Parser [a]
+bracesComma1 parser =
+  symbol "{" *> parser `sepEndBy1` comma <* symbol "}"
 
 withSpan :: (SourceSpan -> a -> a) -> Parser a -> Parser a
 withSpan setSpan parser = do

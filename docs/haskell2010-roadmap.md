@@ -449,7 +449,8 @@ Deliverables:
 
 - list comprehensions, arithmetic sequences, remaining where/declaration forms,
   and lazy pattern forms
-- records if included
+- record updates and partial record construction semantics beyond the current
+  implemented record labels/selectors/construction/pattern subset
 - `newtype`, type synonyms, deriving, and default declarations
 - foreign declarations documented as implemented, deferred, or deviating
 

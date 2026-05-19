@@ -3,7 +3,9 @@
 module Haskell2010.Syntax
   ( Alt (Alt)
   , Assoc (..)
-  , ConDecl (ConDecl)
+  , ConDecl (ConDecl, RecordConDecl)
+  , ConDeclFields (..)
+  , ConField (..)
   , Decl
       ( TypeSignature
       , FunctionBinding
@@ -38,6 +40,7 @@ module Haskell2010.Syntax
       , ArithmeticSeq
       , ListComp
       , ExprTypeSig
+      , RecordCon
       )
   , Fixity (..)
   , HsModule (..)
@@ -65,6 +68,7 @@ module Haskell2010.Syntax
       , PAs
       , PIrrefutable
       , PParen
+      , PRecordCon
       )
   , Rhs (Unguarded, Guarded)
   , Stmt (BindStmt, LetStmt, ExprStmt)
@@ -211,15 +215,28 @@ data Assoc
   | InfixN
   deriving stock (Show, Eq, Ord)
 
-data ConDecl = SpannedConDecl (Maybe SourceSpan) Text [HsType]
+data ConDecl = SpannedConDecl (Maybe SourceSpan) Text ConDeclFields
+  deriving stock (Show, Eq, Ord)
+
+data ConDeclFields
+  = PrefixConFields [HsType]
+  | RecordConFields [ConField]
+  deriving stock (Show, Eq, Ord)
+
+data ConField = ConField [Text] HsType
   deriving stock (Show, Eq, Ord)
 
 pattern ConDecl :: Text -> [HsType] -> ConDecl
-pattern ConDecl name fields <- SpannedConDecl _ name fields
+pattern ConDecl name fields <- SpannedConDecl _ name (PrefixConFields fields)
   where
-    ConDecl name fields = SpannedConDecl Nothing name fields
+    ConDecl name fields = SpannedConDecl Nothing name (PrefixConFields fields)
 
-{-# COMPLETE ConDecl #-}
+pattern RecordConDecl :: Text -> [ConField] -> ConDecl
+pattern RecordConDecl name fields <- SpannedConDecl _ name (RecordConFields fields)
+  where
+    RecordConDecl name fields = SpannedConDecl Nothing name (RecordConFields fields)
+
+{-# COMPLETE ConDecl, RecordConDecl #-}
 
 conDeclSpan :: ConDecl -> Maybe SourceSpan
 conDeclSpan (SpannedConDecl sourceRange _ _) =
@@ -280,6 +297,7 @@ data ExprNode
   | ArithmeticSeqNode Expr (Maybe Expr) (Maybe Expr)
   | ListCompNode Expr [Stmt]
   | ExprTypeSigNode Expr HsType
+  | RecordConNode Text [(Text, Expr)]
   deriving stock (Show, Eq, Ord)
 
 pattern Var :: Text -> Expr
@@ -377,7 +395,12 @@ pattern ExprTypeSig expr sourceType <- SpannedExpr _ (ExprTypeSigNode expr sourc
   where
     ExprTypeSig expr sourceType = SpannedExpr Nothing (ExprTypeSigNode expr sourceType)
 
-{-# COMPLETE Var, Con, Lit, App, InfixApp, Lambda, Let, If, Case, Do, List, Tuple, Unit, Paren, LeftSection, RightSection, ArithmeticSeq, ListComp, ExprTypeSig #-}
+pattern RecordCon :: Text -> [(Text, Expr)] -> Expr
+pattern RecordCon name fields <- SpannedExpr _ (RecordConNode name fields)
+  where
+    RecordCon name fields = SpannedExpr Nothing (RecordConNode name fields)
+
+{-# COMPLETE Var, Con, Lit, App, InfixApp, Lambda, Let, If, Case, Do, List, Tuple, Unit, Paren, LeftSection, RightSection, ArithmeticSeq, ListComp, ExprTypeSig, RecordCon #-}
 
 exprSpan :: Expr -> Maybe SourceSpan
 exprSpan (SpannedExpr sourceRange _) =
@@ -452,6 +475,7 @@ data PatNode
   | PAsNode Text Pat
   | PIrrefutableNode Pat
   | PParenNode Pat
+  | PRecordConNode Text [(Text, Pat)]
   deriving stock (Show, Eq, Ord)
 
 pattern PVar :: Text -> Pat
@@ -499,7 +523,12 @@ pattern PParen pat <- SpannedPat _ (PParenNode pat)
   where
     PParen pat = SpannedPat Nothing (PParenNode pat)
 
-{-# COMPLETE PVar, PCon, PLit, PWildcard, PTuple, PList, PAs, PIrrefutable, PParen #-}
+pattern PRecordCon :: Text -> [(Text, Pat)] -> Pat
+pattern PRecordCon name fields <- SpannedPat _ (PRecordConNode name fields)
+  where
+    PRecordCon name fields = SpannedPat Nothing (PRecordConNode name fields)
+
+{-# COMPLETE PVar, PCon, PLit, PWildcard, PTuple, PList, PAs, PIrrefutable, PParen, PRecordCon #-}
 
 patSpan :: Pat -> Maybe SourceSpan
 patSpan (SpannedPat sourceRange _) =

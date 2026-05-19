@@ -218,6 +218,13 @@ lower through the same Core-to-STG path. Guarded RHS/as-pattern Core and
 guard-fallthrough no-match errors are covered by Core-to-STG preservation
 tests, alongside IO output preservation tests.
 
+Record field labels are implemented for the executable ADT subset. The parser
+and renamer preserve labelled constructor declarations, complete record
+construction, and record patterns; the typechecker emits selector functions as
+Core bindings; and the native wet path includes a record selector/construction
+example. Record updates and partial record construction are still tracked as
+future surface semantics.
+
 Lowered STG runs through the in-process STG evaluator as the semantic check.
 The current executable Haskell 2010 subset is also emitted as boxed lazy STG LLVM
 and compiled to native executables through the existing clang toolchain.

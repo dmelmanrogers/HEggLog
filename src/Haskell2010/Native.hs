@@ -224,6 +224,7 @@ patternTopLevelTerms :: RPat -> [RName]
 patternTopLevelTerms = \case
   RPVar name -> [name]
   RPCon _ patterns -> concatMap patternTopLevelTerms patterns
+  RPRecordCon _ fields -> concatMap (patternTopLevelTerms . snd) fields
   RPLit {} -> []
   RPWildcard -> []
   RPTuple patterns -> concatMap patternTopLevelTerms patterns

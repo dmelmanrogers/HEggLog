@@ -151,6 +151,16 @@ Core coercions, and Core-to-STG lowering erases the wrapper to the single field
 representation before native code generation. Remaining class, deriving, and
 broader surface work is tracked separately.
 
+ADT-005 adds the supported record-label subset. Record declarations introduce
+field selector names in the term namespace, record construction is typechecked
+against the constructor's labelled fields and currently requires every field
+exactly once, and record patterns desugar through the existing positional
+constructor-pattern path with omitted fields treated as wildcards. Selector
+bindings are emitted as ordinary Core functions: data selectors lower to cases
+over the labelled constructors, while single-field newtype selectors lower to
+typed coercions. Record update syntax and partial construction semantics remain
+future surface work.
+
 The existing optional monomorphic lambda parameter inference is carry-forward
 infrastructure and a useful implementation reference, but it is not Haskell
 2010 typechecking. Haskell 2010 progress is tracked in

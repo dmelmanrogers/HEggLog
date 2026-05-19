@@ -105,6 +105,7 @@ testGroups =
       , pureTest "Haskell 2010 module header, imports, and declarations parse" testHaskell2010ModuleParsing
       , pureTest "Haskell 2010 layout blocks parse" testHaskell2010LayoutParsing
       , pureTest "Haskell 2010 expression surface forms parse" testHaskell2010ExpressionSurfaceParsing
+      , pureTest "Haskell 2010 record field syntax parses" testHaskell2010RecordFieldSyntaxParsing
       , pureTest "Haskell 2010 malformed layout is rejected" testHaskell2010MalformedLayout
       , pureTest "Haskell 2010 imports after declarations are rejected" testHaskell2010ImportAfterDecl
       ]
@@ -147,6 +148,8 @@ testGroups =
       , pureTest "erases newtype constructors to Core coercions" testHaskell2010NewtypeRepresentation
       , pureTest "infers higher-kinded newtype parameters" testHaskell2010NewtypeKindInference
       , pureTest "rejects invalid newtype constructor arity" testHaskell2010NewtypeRejectsInvalidArity
+      , pureTest "typechecks record field labels selectors and patterns" testHaskell2010RecordFieldLabels
+      , pureTest "rejects incomplete record construction" testHaskell2010RecordRejectsIncompleteConstruction
       , pureTest "represents class constraints structurally" testHaskell2010ConstraintRepresentation
       , pureTest "rejects invalid class constraint arity" testHaskell2010ConstraintRejectsInvalidArity
       , pureTest "rejects unsupported class constraint contexts deliberately" testHaskell2010ClassConstraintPlaceholders
@@ -692,6 +695,22 @@ testHaskell2010ExpressionSurfaceParsing = do
   isForeignDecl = \case
     H2010.ForeignDecl {} -> True
     _ -> False
+
+testHaskell2010RecordFieldSyntaxParsing :: Either String ()
+testHaskell2010RecordFieldSyntaxParsing = do
+  parsed <-
+    parseHaskell2010
+      "module Records where\n\
+      \data Person = Person { age, score :: Int }\n\
+      \main = case Person { score = 2, age = 1 } of\n\
+      \  Person { age = a } -> a\n"
+  case H2010.moduleDecls parsed of
+    [ H2010.DataDecl "Person" [] [H2010.RecordConDecl "Person" [H2010.ConField ["age", "score"] _]] []
+      , H2010.FunctionBinding "main" [] (H2010.Unguarded (H2010.Case (H2010.RecordCon "Person" exprFields) [H2010.Alt (H2010.PRecordCon "Person" patFields) _ []])) []
+      ] -> do
+        expectEqual "record construction field order is parsed from source order" ["score", "age"] (map fst exprFields)
+        expectEqual "record pattern fields are parsed" ["age"] (map fst patFields)
+    other -> Left ("unexpected record field syntax parse: " <> show other)
 
 testHaskell2010MalformedLayout :: Either String ()
 testHaskell2010MalformedLayout =
@@ -1296,6 +1315,33 @@ testHaskell2010NewtypeRejectsInvalidArity =
         | H2010Typecheck.InvalidNewtypeConstructorArity {} <- haskell2010TypecheckErrorDetail err -> Right ()
       Left err -> Left ("expected invalid newtype constructor arity, got: " <> show err)
       Right coreModule -> Left ("invalid newtype constructor typechecked unexpectedly: " <> show coreModule)
+
+testHaskell2010RecordFieldLabels :: Either String ()
+testHaskell2010RecordFieldLabels = do
+  coreModule <- typecheckHaskell2010 haskell2010RecordFieldSource
+  assertBool "record selector age is emitted" (containsBindingOccurrence "age" coreModule)
+  assertBool "record selector score is emitted" (containsBindingOccurrence "score" coreModule)
+  (_, ageRhs) <- lookupCoreBindingOccurrence "age" coreModule
+  assertBool "data record selector lowers to Core case" (containsCase ageRhs)
+  expectCoreEvalInt "record field selector/pattern Core oracle" 43 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+  newtypeModule <- typecheckHaskell2010 haskell2010NewtypeRecordFieldSource
+  (_, unAgeRhs) <- lookupCoreBindingOccurrence "unAge" newtypeModule
+  assertBool "newtype record selector lowers to coercion" (containsCoerce unAgeRhs)
+  assertBool "newtype record selector avoids constructor case" (not (containsConstructorAlt "Age" unAgeRhs))
+  expectCoreEvalInt "newtype record selector Core oracle" 42 =<< evalHaskell2010CoreModuleBinding "main" newtypeModule
+
+testHaskell2010RecordRejectsIncompleteConstruction :: Either String ()
+testHaskell2010RecordRejectsIncompleteConstruction =
+  case
+    typecheckHaskell2010Raw
+      "module Main where\n\
+      \data Person = Person { age :: Int, score :: Int }\n\
+      \main = Person { age = 1 }\n"
+    of
+      Left err
+        | "missing fields" `Text.isInfixOf` H2010Typecheck.renderTypecheckError err -> Right ()
+      Left err -> Left ("expected incomplete record construction rejection, got: " <> show err)
+      Right coreModule -> Left ("incomplete record construction typechecked unexpectedly: " <> show coreModule)
 
 testHaskell2010ConstraintRepresentation :: Either String ()
 testHaskell2010ConstraintRepresentation =
@@ -5427,6 +5473,7 @@ haskell2010NativeSuccessExamples =
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
   , ("sections", haskell2010SectionsSource, "6\n")
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
+  , ("adt-record-fields", haskell2010RecordFieldSource, "43\n")
   , ("adt-maybe", haskell2010PolymorphicADTSource, "4\n")
   , ("adt-nested", haskell2010NestedADTSource, "3\n")
   , ("adt-lazy-field", haskell2010LazyADTFieldSource, "5\n")
@@ -5735,6 +5782,20 @@ haskell2010NewtypeRepresentationSource =
   \unAge :: Age -> Int\n\
   \unAge (Age n) = n\n\
   \main = unAge (Age 42)\n"
+
+haskell2010RecordFieldSource :: Text
+haskell2010RecordFieldSource =
+  "module Main where\n\
+  \data Person = Person { age :: Int, score :: Int }\n\
+  \bump :: Person -> Int\n\
+  \bump (Person { score = s, age = a }) = a + s\n\
+  \main = bump (Person { score = 2, age = 40 }) + age (Person { age = 1, score = 0 })\n"
+
+haskell2010NewtypeRecordFieldSource :: Text
+haskell2010NewtypeRecordFieldSource =
+  "module Main where\n\
+  \newtype Age = Age { unAge :: Int }\n\
+  \main = unAge (Age { unAge = 42 })\n"
 
 haskell2010PolymorphicADTSource :: Text
 haskell2010PolymorphicADTSource =

@@ -81,7 +81,7 @@ Required namespaces and scopes:
 - local `let` and `where` bindings
 - lambda binders
 - pattern binders
-- constructor fields when records are implemented
+- record field selectors for labelled constructors
 
 Required errors:
 

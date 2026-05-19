@@ -211,23 +211,21 @@ Rules:
 
 # Next 20 Implementation Tasks
 
-1. ADT-004 — newtype representation: Define runtime/Core representation for `newtype`.
-2. ADT-005 — record field labels: Add the name-resolution and selector surface required for records.
-3. PAT-008 — irrefutable/lazy patterns: Implement lazy pattern semantics rather than only parsed/renamed syntax.
-4. PAT-014 — exhaustiveness warning placeholder: Establish the diagnostic placeholder for later pattern coverage checking.
-5. CORE-REC-004 — recursive pattern bindings: Desugar recursive pattern bindings through the Core recursion model.
-6. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
-7. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
-8. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
-9. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
-10. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
-11. TC-003 — superclass representation: Model superclass relationships before broader class solving.
-12. TC-005 — default methods: Implement default class method typing and dictionary filling.
-13. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
-14. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
-15. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
-16. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
-17. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
+1. PAT-008 — irrefutable/lazy patterns: Implement lazy pattern semantics rather than only parsed/renamed syntax.
+2. PAT-014 — exhaustiveness warning placeholder: Establish the diagnostic placeholder for later pattern coverage checking.
+3. CORE-REC-004 — recursive pattern bindings: Desugar recursive pattern bindings through the Core recursion model.
+4. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
+5. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
+6. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
+7. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
+8. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
+9. TC-003 — superclass representation: Model superclass relationships before broader class solving.
+10. TC-005 — default methods: Implement default class method typing and dictionary filling.
+11. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
+12. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
+13. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
+14. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
+15. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
 18. TC-020 — Ix: Implement or explicitly defer the Haskell 2010 `Ix` class surface.
 19. TC-021 — numeric literal overloading: Finish the Haskell 2010 numeric literal overloading surface.
 20. TC-022 — defaulting: Finish the Haskell 2010 defaulting behavior for the supported numeric/class surface.
@@ -8193,6 +8191,7 @@ Files likely touched:
 - `src/Backend/LLVM/`
 - `src/Haskell2010/Native.hs`
 - `test/Main.hs`
+- `test/haskell2010/conformance/`
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
@@ -9182,7 +9181,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M8 (ADTs and pattern matching). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M8 (ADTs and pattern matching). Status reflects the codebase after ADT-005 record field label implementation and should be revised whenever implementation or conformance coverage changes.
 
 ## ADT-002 — constructor metadata
 
@@ -9342,7 +9341,7 @@ Notes:
 ## ADT-005 — record field labels
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -9355,7 +9354,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver record field labels for ADTs and pattern matching while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver record field labels for ADTs and pattern matching while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. The implemented subset parses and renames record declarations, emits selector functions, typechecks complete record construction, supports record patterns with omitted-field wildcards, handles single-field newtype selectors as coercions, and rejects incomplete/unknown/duplicate record construction fields.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -9365,13 +9364,16 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
+- `src/Haskell2010/Syntax.hs`
+- `src/Haskell2010/Renamed.hs`
+- `src/Haskell2010/Parser.hs`
+- `src/Haskell2010/Renamer.hs`
 - `src/Haskell2010/Typecheck.hs`
-- `src/Haskell2010/Core/Syntax.hs`
+- `src/Haskell2010/Native.hs`
 - `test/Main.hs`
-- `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- record field labels is implemented, completed, or explicitly documented according to status `not started`.
+- record field labels is implemented, completed, and covered for the supported executable subset.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -9387,7 +9389,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M8 (ADTs and pattern matching). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Record update syntax, partial record construction with bottom-filled fields, and duplicate field labels spanning incompatible constructors remain outside this task.
 
 ## ADT-006 — constructor runtime layout
 

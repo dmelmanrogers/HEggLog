@@ -5215,7 +5215,7 @@
     {
       "id": "ADT-005",
       "title": "record field labels",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TYPE-015",
@@ -5224,7 +5224,7 @@
       "blocks": [],
       "milestone": "M8",
       "acceptance_criteria": [
-        "record field labels is implemented, completed, or explicitly documented according to status `not started`.",
+        "record field labels is implemented, completed, and covered for the supported executable subset.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

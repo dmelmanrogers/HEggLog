@@ -186,11 +186,47 @@ data TypedAlt = TypedAlt CoreAltCon [TypedBinder] TypedExpr
 data DataConstructorInfo = DataConstructorInfo
   { dataConstructorTyVars :: [RName]
   , dataConstructorFields :: [MonoType]
+  , dataConstructorFieldLabels :: [Maybe RName]
   , dataConstructorResult :: MonoType
   , dataConstructorScheme :: Scheme
   , dataConstructorRepresentation :: CoreConstructorRepresentation
   }
   deriving stock (Show, Eq, Ord)
+
+data RecordSelectorInfo = RecordSelectorInfo
+  { recordSelectorName :: RName
+  , recordSelectorTyVars :: [RName]
+  , recordSelectorResultType :: MonoType
+  , recordSelectorFieldType :: MonoType
+  , recordSelectorScheme :: Scheme
+  , recordSelectorAlternatives :: [RecordSelectorAlternative]
+  }
+  deriving stock (Show, Eq, Ord)
+
+data RecordSelectorAlternative = RecordSelectorAlternative
+  { recordSelectorConstructor :: RName
+  , recordSelectorFieldIndex :: Int
+  , recordSelectorConstructorFields :: [MonoType]
+  , recordSelectorConstructorRepresentation :: CoreConstructorRepresentation
+  }
+  deriving stock (Show, Eq, Ord)
+
+positionalDataConstructorInfo ::
+  [RName] ->
+  [MonoType] ->
+  MonoType ->
+  Scheme ->
+  CoreConstructorRepresentation ->
+  DataConstructorInfo
+positionalDataConstructorInfo tyVars fields resultTy scheme representation =
+  DataConstructorInfo
+    { dataConstructorTyVars = tyVars
+    , dataConstructorFields = fields
+    , dataConstructorFieldLabels = replicate (length fields) Nothing
+    , dataConstructorResult = resultTy
+    , dataConstructorScheme = scheme
+    , dataConstructorRepresentation = representation
+    }
 
 data ClassInfo = ClassInfo
   { classInfoName :: RName
@@ -254,6 +290,7 @@ data InferState = InferState
   , typeConstructors :: Map.Map RName TypeConstructorInfo
   , typeSynonyms :: Map.Map RName TypeSynonymInfo
   , dataConstructors :: Map.Map RName DataConstructorInfo
+  , recordSelectors :: Map.Map RName RecordSelectorInfo
   , classInfos :: Map.Map RName ClassInfo
   , defaultTypes :: [MonoType]
   , typecheckSpanStack :: [SourceSpan]
@@ -277,18 +314,21 @@ typecheckModuleToCore sourceModule = do
       defaults <- collectDefaultTypes sourceDecls
       modify (\state -> state {defaultTypes = defaults})
       constructors <- collectDataConstructors sourceDecls
+      let allConstructors =
+            Map.unions
+              [ constructors
+              , classDictionaryConstructors classes
+              , builtinDataConstructors
+              ]
+      selectors <- collectRecordSelectors allConstructors
       modify
         ( \state ->
             state
-              { dataConstructors =
-                  Map.unions
-                    [ constructors
-                    , classDictionaryConstructors classes
-                    , builtinDataConstructors
-                    ]
+              { dataConstructors = allConstructors
+              , recordSelectors = selectors
               }
         )
-      let classEnv = classMethodTypeEnv classes
+      let classEnv = classMethodTypeEnv classes `Map.union` recordSelectorTypeEnv selectors
       (bindings, env) <- inferBindingGroup classEnv sourceDecls
       instances <- inferInstanceDictionaries env sourceDecls
       pure (bindings, env, instances)
@@ -306,6 +346,7 @@ typecheckModuleToCore sourceModule = do
           []
   coreBinds <- traverse (bindingToCore elaborationEnv) typedBindings
   classCoreBinds <- classSelectorCoreBinds (substitution finalState) classesForCore
+  recordCoreBinds <- recordSelectorCoreBinds (substitution finalState) (recordSelectors finalState)
   builtinInstanceCoreBinds <- traverse (builtinInstanceDictionaryToCore classesForCore) builtinInstances
   instanceCoreBinds <- traverse (instanceDictionaryToCore (substitution finalState) classesForCore instances) typedInstances
   preludeCoreBinds <- preludeCoreBindings preludeValues
@@ -320,7 +361,7 @@ typecheckModuleToCore sourceModule = do
           { coreModuleName = rModuleName sourceModule
           , coreModuleConstructors = coreConstructors
           , coreModuleBinds =
-              case preludeCoreBinds <> classCoreBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> sourceCoreBinds of
+              case preludeCoreBinds <> classCoreBinds <> recordCoreBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> sourceCoreBinds of
                 [] -> []
                 [one] -> [one]
                 many -> [CoreRec (concatMap bindPairs many)]
@@ -402,6 +443,7 @@ runInfer initialTypeConstructors action =
           , typeConstructors = initialTypeConstructors
           , typeSynonyms = Map.empty
           , dataConstructors = Map.empty
+          , recordSelectors = Map.empty
           , classInfos = Map.empty
           , defaultTypes = [intMonoType]
           , typecheckSpanStack = []
@@ -446,10 +488,13 @@ validateNewtypeDecl = \case
     pure ()
 
 validateNewtypeConstructor :: RConDecl -> InferM ()
-validateNewtypeConstructor conDecl@(RConDecl constructorName fields) =
+validateNewtypeConstructor conDecl =
   withTypecheckSpan (rConDeclSpan conDecl) $
     unless (length fields == 1) $
       throwTypecheck (InvalidNewtypeConstructorArity constructorName (length fields))
+ where
+  constructorName = conDeclName conDecl
+  fields = conDeclFieldTypes conDecl
 
 collectTypeSynonyms :: [RDecl] -> Map.Map RName TypeSynonymInfo
 collectTypeSynonyms =
@@ -497,8 +542,8 @@ inferDeclKinds = \case
   _ ->
     pure ()
  where
-  checkConstructor (RConDecl _ fields) =
-    traverse_ checkSourceTypeKind fields
+  checkConstructor constructor =
+    traverse_ checkSourceTypeKind (conDeclFieldTypes constructor)
 
 sourceTypeConstructors :: RHsType -> Set.Set RName
 sourceTypeConstructors = \case
@@ -571,19 +616,115 @@ collectDataConstructors =
     _ ->
       pure acc
 
-  insertConstructor representation typeName params acc (RConDecl constructorName fields) = do
-    fieldTypes <- traverse sourceMonoType fields
+  insertConstructor representation typeName params acc constructor = do
+    let constructorName = conDeclName constructor
+        sourceFields = conDeclFieldTypes constructor
+        fieldLabels = conDeclFieldLabels constructor
+    fieldTypes <- traverse sourceMonoType sourceFields
     let resultTy = foldl TyApp (TyCon typeName) (map TyVar params)
         scheme = Scheme params [] (foldr TyFun resultTy fieldTypes)
         info =
           DataConstructorInfo
             { dataConstructorTyVars = params
             , dataConstructorFields = fieldTypes
+            , dataConstructorFieldLabels = fieldLabels
             , dataConstructorResult = resultTy
             , dataConstructorScheme = scheme
             , dataConstructorRepresentation = representation
             }
     pure (Map.insert constructorName info acc)
+
+conDeclName :: RConDecl -> RName
+conDeclName = \case
+  RConDecl name _ -> name
+  RRecordConDecl name _ -> name
+
+conDeclFieldTypes :: RConDecl -> [RHsType]
+conDeclFieldTypes = \case
+  RConDecl _ fields ->
+    fields
+  RRecordConDecl _ fields ->
+    concatMap (\(RConField labels sourceType) -> replicate (length labels) sourceType) fields
+
+conDeclFieldLabels :: RConDecl -> [Maybe RName]
+conDeclFieldLabels = \case
+  RConDecl _ fields ->
+    replicate (length fields) Nothing
+  RRecordConDecl _ fields ->
+    concatMap (\(RConField labels _) -> map Just labels) fields
+
+collectRecordSelectors :: Map.Map RName DataConstructorInfo -> InferM (Map.Map RName RecordSelectorInfo)
+collectRecordSelectors constructors =
+  foldM collectSelector Map.empty recordFields
+ where
+  recordFields =
+    [ (selectorName, constructorName, fieldIndex, info, fieldTy)
+    | (constructorName, info) <- Map.toList constructors
+    , (fieldIndex, (Just selectorName, fieldTy)) <- zip [0 ..] (zip (dataConstructorFieldLabels info) (dataConstructorFields info))
+    ]
+
+  collectSelector acc (selectorName, constructorName, fieldIndex, info, fieldTy)
+    | duplicatedConstructorField selectorName constructorName acc =
+        throwTypecheck
+          ( UnsupportedCore0
+              ( "duplicate record field `"
+                  <> renderRName selectorName
+                  <> "` in constructor `"
+                  <> renderRName constructorName
+                  <> "`"
+              )
+          )
+    | otherwise =
+        case Map.lookup selectorName acc of
+          Nothing ->
+            pure (Map.insert selectorName (newSelector selectorName constructorName fieldIndex info fieldTy) acc)
+          Just existing ->
+            if recordSelectorResultType existing == dataConstructorResult info
+              && recordSelectorFieldType existing == fieldTy
+              then pure (Map.insert selectorName (appendSelectorAlternative existing constructorName fieldIndex info) acc)
+              else
+                throwTypecheck
+                  ( UnsupportedCore0
+                      ( "record field `"
+                          <> renderRName selectorName
+                          <> "` has inconsistent constructor result or field types"
+                      )
+                  )
+
+  duplicatedConstructorField selectorName constructorName acc =
+    case Map.lookup selectorName acc of
+      Nothing -> False
+      Just existing ->
+        any ((== constructorName) . recordSelectorConstructor) (recordSelectorAlternatives existing)
+
+  newSelector selectorName constructorName fieldIndex info fieldTy =
+    let scheme = Scheme (dataConstructorTyVars info) [] (TyFun (dataConstructorResult info) fieldTy)
+     in RecordSelectorInfo
+          { recordSelectorName = selectorName
+          , recordSelectorTyVars = dataConstructorTyVars info
+          , recordSelectorResultType = dataConstructorResult info
+          , recordSelectorFieldType = fieldTy
+          , recordSelectorScheme = scheme
+          , recordSelectorAlternatives = [selectorAlternative constructorName fieldIndex info]
+          }
+
+  appendSelectorAlternative selector constructorName fieldIndex info =
+    selector
+      { recordSelectorAlternatives =
+          recordSelectorAlternatives selector <> [selectorAlternative constructorName fieldIndex info]
+      }
+
+  selectorAlternative constructorName fieldIndex info =
+    RecordSelectorAlternative
+      { recordSelectorConstructor = constructorName
+      , recordSelectorFieldIndex = fieldIndex
+      , recordSelectorConstructorFields = dataConstructorFields info
+      , recordSelectorConstructorRepresentation = dataConstructorRepresentation info
+      }
+
+recordSelectorTypeEnv :: Map.Map RName RecordSelectorInfo -> TypeEnv
+recordSelectorTypeEnv =
+  Map.map recordSelectorScheme
 
 collectClassInfos :: [RDecl] -> InferM (Map.Map RName ClassInfo)
 collectClassInfos =
@@ -676,7 +817,7 @@ classDictionaryConstructors =
         resultTy = classDictionaryType info classTy
         scheme = Scheme [classVar] [] (foldr TyFun resultTy fields)
      in ( classInfoDictConstructorName info
-        , DataConstructorInfo [classVar] fields resultTy scheme CoreDataConstructor
+        , positionalDataConstructorInfo [classVar] fields resultTy scheme CoreDataConstructor
         )
 
 classDictionaryType :: ClassInfo -> MonoType -> MonoType
@@ -820,21 +961,21 @@ builtinClassInfoByOccurrence occurrence = do
 builtinDataConstructors :: Map.Map RName DataConstructorInfo
 builtinDataConstructors =
   Map.fromList
-    [ (listNilDataConName, DataConstructorInfo [a] [] listA (Scheme [a] [] listA) CoreDataConstructor)
+    [ (listNilDataConName, positionalDataConstructorInfo [a] [] listA (Scheme [a] [] listA) CoreDataConstructor)
     ,
       ( listConsDataConName
-      , DataConstructorInfo
+      , positionalDataConstructorInfo
           [a]
           [aTy, listA]
           listA
           (Scheme [a] [] (TyFun aTy (TyFun listA listA)))
           CoreDataConstructor
       )
-    , (unitDataConName, DataConstructorInfo [] [] unitMonoType (Scheme [] [] unitMonoType) CoreDataConstructor)
-    , (maybeNothingDataConName, DataConstructorInfo [a] [] maybeA (Scheme [a] [] maybeA) CoreDataConstructor)
+    , (unitDataConName, positionalDataConstructorInfo [] [] unitMonoType (Scheme [] [] unitMonoType) CoreDataConstructor)
+    , (maybeNothingDataConName, positionalDataConstructorInfo [a] [] maybeA (Scheme [a] [] maybeA) CoreDataConstructor)
     ,
       ( maybeJustDataConName
-      , DataConstructorInfo
+      , positionalDataConstructorInfo
           [a]
           [aTy]
           maybeA
@@ -843,7 +984,7 @@ builtinDataConstructors =
       )
     ,
       ( eitherLeftDataConName
-      , DataConstructorInfo
+      , positionalDataConstructorInfo
           [a, b]
           [aTy]
           eitherAB
@@ -852,16 +993,16 @@ builtinDataConstructors =
       )
     ,
       ( eitherRightDataConName
-      , DataConstructorInfo
+      , positionalDataConstructorInfo
           [a, b]
           [bTy]
           eitherAB
           (Scheme [a, b] [] (TyFun bTy eitherAB))
           CoreDataConstructor
       )
-    , (orderingLTDataConName, DataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
-    , (orderingEQDataConName, DataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
-    , (orderingGTDataConName, DataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
+    , (orderingLTDataConName, positionalDataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
+    , (orderingEQDataConName, positionalDataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
+    , (orderingGTDataConName, positionalDataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
     ]
  where
   a = preludeTypeVariable "a" (-1001)
@@ -989,9 +1130,9 @@ declTupleArities = \case
   RPatternBinding pat rhs whereDecls ->
     patternTupleArities pat <> rhsTupleArities rhs <> collectTupleArities whereDecls
   RDataDecl _ _ constructors _ ->
-    Set.unions [Set.unions (map typeTupleArities fields) | RConDecl _ fields <- constructors]
-  RNewtypeDecl _ _ (RConDecl _ fields) _ ->
-    Set.unions (map typeTupleArities fields)
+    Set.unions [Set.unions (map typeTupleArities (conDeclFieldTypes constructor)) | constructor <- constructors]
+  RNewtypeDecl _ _ constructor _ ->
+    Set.unions (map typeTupleArities (conDeclFieldTypes constructor))
   RTypeSynonym _ _ ty ->
     typeTupleArities ty
   RClassDecl constraints _ _ decls ->
@@ -1032,6 +1173,7 @@ exprTupleArities = \case
     exprTupleArities start <> foldMap exprTupleArities step <> foldMap exprTupleArities end
   RListComp body statements -> exprTupleArities body <> Set.unions (map stmtTupleArities statements)
   RExprTypeSig expr ty -> exprTupleArities expr <> typeTupleArities ty
+  RRecordCon _ fields -> Set.unions (map (exprTupleArities . snd) fields)
 
 stmtTupleArities :: RStmt -> Set.Set Int
 stmtTupleArities = \case
@@ -1047,6 +1189,7 @@ patternTupleArities :: RPat -> Set.Set Int
 patternTupleArities = \case
   RPVar {} -> Set.empty
   RPCon _ patterns -> Set.unions (map patternTupleArities patterns)
+  RPRecordCon _ fields -> Set.unions (map (patternTupleArities . snd) fields)
   RPLit {} -> Set.empty
   RPWildcard -> Set.empty
   RPTuple patterns -> Set.insert (length patterns) (Set.unions (map patternTupleArities patterns))
@@ -1115,6 +1258,7 @@ exprPreludeValueNames = \case
     exprPreludeValueNames start <> foldMap exprPreludeValueNames step <> foldMap exprPreludeValueNames end
   RListComp body statements -> exprPreludeValueNames body <> concatMap stmtPreludeValueNames statements
   RExprTypeSig expr _ -> exprPreludeValueNames expr
+  RRecordCon _ fields -> concatMap (exprPreludeValueNames . snd) fields
 
 stmtPreludeValueNames :: RStmt -> [RName]
 stmtPreludeValueNames = \case
@@ -1130,6 +1274,7 @@ patternPreludeValueNames :: RPat -> [RName]
 patternPreludeValueNames = \case
   RPVar {} -> []
   RPCon _ patterns -> concatMap patternPreludeValueNames patterns
+  RPRecordCon _ fields -> concatMap (patternPreludeValueNames . snd) fields
   RPLit {} -> []
   RPWildcard -> []
   RPTuple patterns -> concatMap patternPreludeValueNames patterns
@@ -1279,6 +1424,8 @@ exprFreeTermNames = \case
     exprFreeTermNames body <> Set.unions (map stmtFreeTermNames statements)
   RExprTypeSig expr _ ->
     exprFreeTermNames expr
+  RRecordCon _ fields ->
+    Set.unions (map (exprFreeTermNames . snd) fields)
 
 stmtFreeTermNames :: RStmt -> Set.Set RName
 stmtFreeTermNames = \case
@@ -1901,6 +2048,8 @@ inferExpr env expr =
             pure (TVar name scheme typeArguments instantiatedTy)
       RCon name ->
         inferConstructor name
+      RRecordCon name fields ->
+        inferRecordConstruction env name fields
       RLit (LInt value) ->
         inferIntegerLiteral value
       RLit literal ->
@@ -2018,6 +2167,27 @@ inferDo env (statement@(RLetStmt decls) : rest) =
 inferDo _ (statement@(RBindStmt {}) : _) =
   withTypecheckSpan (rStmtSpan statement) $
     throwTypecheck (UnsupportedCore0 "do bind statements")
+
+inferRecordConstruction :: TypeEnv -> RName -> [(RName, RExpr)] -> InferM TypedExpr
+inferRecordConstruction env name fields = do
+  constructors <- dataConstructors <$> get
+  case Map.lookup name constructors of
+    Nothing ->
+      throwTypecheck (UnsupportedCore0 ("record constructor `" <> renderRName name <> "`"))
+    Just info -> do
+      orderedFields <- orderRecordFields "record construction" name info fields
+      (fieldTypes, resultTy, typeArguments) <- instantiateConstructorFields info
+      typedFields <- traverse (inferExpr env) orderedFields
+      mapM_ (uncurry unify) (zip fieldTypes (map typedExprType typedFields))
+      constructorTy <- applyCurrent (foldr TyFun resultTy fieldTypes)
+      typedConstructor <- typedConstructorExpr name info typeArguments constructorTy
+      foldM applyConstructorArgument typedConstructor typedFields
+ where
+  applyConstructorArgument function argument = do
+    resultTy <- freshMeta
+    unify (typedExprType function) (TyFun (typedExprType argument) resultTy)
+    resultTy' <- applyCurrent resultTy
+    pure (TApp function argument resultTy')
 
 inferConstructor :: RName -> InferM TypedExpr
 inferConstructor name
@@ -2297,6 +2467,8 @@ inferPatternPlan env expectedTy scrutinee pat =
             }
       RPCon name args ->
         inferConstructorPattern env expectedTy scrutinee name args
+      RPRecordCon name fields ->
+        inferRecordConstructorPattern env expectedTy scrutinee name fields
       RPTuple patterns ->
         inferTuplePattern env expectedTy patterns
       RPList patterns ->
@@ -2332,6 +2504,16 @@ inferConstructorPattern env expectedTy scrutinee name args
               inferKnownConstructorPattern env expectedTy scrutinee coreName args info
         Just info -> do
           inferKnownConstructorPattern env expectedTy scrutinee name args info
+
+inferRecordConstructorPattern :: TypeEnv -> MonoType -> TypedExpr -> RName -> [(RName, RPat)] -> InferM PatternPlan
+inferRecordConstructorPattern env expectedTy scrutinee name fields = do
+  constructors <- dataConstructors <$> get
+  case Map.lookup name constructors of
+    Nothing ->
+      throwTypecheck (UnsupportedCore0 ("record constructor pattern `" <> renderRName name <> "`"))
+    Just info -> do
+      orderedFields <- orderRecordPatternFields name info fields
+      inferKnownConstructorPattern env expectedTy scrutinee name orderedFields info
 
 inferKnownConstructorPattern :: TypeEnv -> MonoType -> TypedExpr -> RName -> [RPat] -> DataConstructorInfo -> InferM PatternPlan
 inferKnownConstructorPattern env expectedTy scrutinee name args info = do
@@ -2465,6 +2647,130 @@ instantiateConstructorPattern info = do
     ( map (replaceTypeVars replacementMap) (dataConstructorFields info)
     , replaceTypeVars replacementMap (dataConstructorResult info)
     )
+
+instantiateConstructorFields :: DataConstructorInfo -> InferM ([MonoType], MonoType, [MonoType])
+instantiateConstructorFields info = do
+  replacements <- traverse (\name -> (name,) <$> freshMeta) (dataConstructorTyVars info)
+  let replacementMap = Map.fromList replacements
+      typeArguments = map snd replacements
+  pure
+    ( map (replaceTypeVars replacementMap) (dataConstructorFields info)
+    , replaceTypeVars replacementMap (dataConstructorResult info)
+    , typeArguments
+    )
+
+orderRecordFields :: Text -> RName -> DataConstructorInfo -> [(RName, a)] -> InferM [a]
+orderRecordFields context constructorName info fields = do
+  labelMap <- recordLabelIndexMap context constructorName info
+  seen <- ensureRecordFieldInputs context constructorName labelMap (map fst fields)
+  let missing = [label | label <- Map.keys labelMap, label `Set.notMember` seen]
+  unless (null missing) $
+    throwTypecheck
+      ( UnsupportedCore0
+          ( context
+              <> " for `"
+              <> renderRName constructorName
+              <> "` is missing fields "
+              <> Text.intercalate ", " (map renderRName missing)
+          )
+      )
+  pure
+    [ value
+    | (_, index) <- List.sortOn snd (Map.toList labelMap)
+    , let value = fieldValues Map.! index
+    ]
+ where
+  fieldValues =
+    Map.fromList
+      [ (index, value)
+      | (label, value) <- fields
+      , Just index <- [Map.lookup label (recordLabelIndexMapPure info)]
+      ]
+
+orderRecordPatternFields :: RName -> DataConstructorInfo -> [(RName, RPat)] -> InferM [RPat]
+orderRecordPatternFields constructorName info fields = do
+  labelMap <- recordLabelIndexMap "record pattern" constructorName info
+  _ <- ensureRecordFieldInputs "record pattern" constructorName labelMap (map fst fields)
+  let provided = Map.fromList [(label, pat) | (label, pat) <- fields]
+  pure
+    [ maybe RPWildcard id (Map.lookup label provided)
+    | (label, _) <- List.sortOn snd (Map.toList labelMap)
+    ]
+
+recordLabelIndexMap :: Text -> RName -> DataConstructorInfo -> InferM (Map.Map RName Int)
+recordLabelIndexMap context constructorName info =
+  case dataConstructorFieldLabels info of
+    [] ->
+      throwTypecheck (UnsupportedCore0 (context <> " for non-record constructor `" <> renderRName constructorName <> "`"))
+    labels
+      | all (== Nothing) labels ->
+          throwTypecheck (UnsupportedCore0 (context <> " for non-record constructor `" <> renderRName constructorName <> "`"))
+      | otherwise ->
+          case sequence labels of
+            Nothing ->
+              throwTypecheck (UnsupportedCore0 (context <> " for partially labelled constructor `" <> renderRName constructorName <> "`"))
+            Just names -> do
+              ensureNoDuplicateRecordLabels constructorName names
+              pure (Map.fromList (zip names [0 ..]))
+
+recordLabelIndexMapPure :: DataConstructorInfo -> Map.Map RName Int
+recordLabelIndexMapPure info =
+  Map.fromList
+    [ (label, index)
+    | (index, Just label) <- zip [0 ..] (dataConstructorFieldLabels info)
+    ]
+
+ensureRecordFieldInputs :: Text -> RName -> Map.Map RName Int -> [RName] -> InferM (Set.Set RName)
+ensureRecordFieldInputs context constructorName labelMap labels =
+  go Set.empty labels
+ where
+  go seen [] =
+    pure seen
+  go seen (label : rest)
+    | label `Set.member` seen =
+        throwTypecheck
+          ( UnsupportedCore0
+              ( context
+                  <> " for `"
+                  <> renderRName constructorName
+                  <> "` repeats field `"
+                  <> renderRName label
+                  <> "`"
+              )
+          )
+    | label `Map.notMember` labelMap =
+        throwTypecheck
+          ( UnsupportedCore0
+              ( context
+                  <> " for `"
+                  <> renderRName constructorName
+                  <> "` uses unknown field `"
+                  <> renderRName label
+                  <> "`"
+              )
+          )
+    | otherwise =
+        go (Set.insert label seen) rest
+
+ensureNoDuplicateRecordLabels :: RName -> [RName] -> InferM ()
+ensureNoDuplicateRecordLabels constructorName labels =
+  go Set.empty labels
+ where
+  go _ [] =
+    pure ()
+  go seen (label : rest)
+    | label `Set.member` seen =
+        throwTypecheck
+          ( UnsupportedCore0
+              ( "duplicate record field `"
+                  <> renderRName label
+                  <> "` in constructor `"
+                  <> renderRName constructorName
+                  <> "`"
+              )
+          )
+    | otherwise =
+        go (Set.insert label seen) rest
 
 caseBinderFor :: MonoType -> [RAlt] -> InferM TypedBinder
 caseBinderFor scrutineeTy alternatives =
@@ -4011,6 +4317,78 @@ classSelectorCoreBinds subst classes =
         body = CTypeLam [classInfoVariable info] (CLam dictBinder caseExpr (CTyFun dictTy methodTy)) binderTy
     pure (CoreNonRec (CoreBinder (classMethodName method) binderTy) body)
 
+recordSelectorCoreBinds :: Subst -> Map.Map RName RecordSelectorInfo -> Either TypecheckError [CoreBind]
+recordSelectorCoreBinds subst selectors =
+  traverse selectorBind (Map.elems selectors)
+ where
+  selectorBind selector = do
+    binderTy <- schemeToCoreTypeWith subst Map.empty (recordSelectorScheme selector)
+    argumentTy <- monoToCoreType subst Map.empty (recordSelectorResultType selector)
+    resultTy <- monoToCoreType subst Map.empty (recordSelectorFieldType selector)
+    let selectorName = recordSelectorName selector
+    coreAlternatives <- traverse (selectorAlternative selectorName) (recordSelectorAlternatives selector)
+    let argumentBinder =
+          CoreBinder
+            ( RName
+                TermNamespace
+                ("$record_" <> nameOcc selectorName)
+                (5430000 + nameUnique selectorName)
+                False
+            )
+            argumentTy
+        body =
+          case recordSelectorAlternatives selector of
+            [alternative]
+              | recordSelectorConstructorRepresentation alternative == CoreNewtypeConstructor ->
+                  CCoerce (CVar (coreBinderName argumentBinder) argumentTy) resultTy
+            _ ->
+              CCase
+                (CVar (coreBinderName argumentBinder) argumentTy)
+                ( CoreBinder
+                    ( RName
+                        TermNamespace
+                        ("$record_case_" <> nameOcc selectorName)
+                        (5440000 + nameUnique selectorName)
+                        False
+                    )
+                    argumentTy
+                )
+                coreAlternatives
+                resultTy
+        lambdaBody = CLam argumentBinder body (CTyFun argumentTy resultTy)
+        rhs =
+          case recordSelectorTyVars selector of
+            [] -> lambdaBody
+            variables -> CTypeLam variables lambdaBody binderTy
+    pure (CoreNonRec (CoreBinder selectorName binderTy) rhs)
+
+  selectorAlternative selectorName alternative = do
+    fieldTypes <- traverse (monoToCoreType subst Map.empty) (recordSelectorConstructorFields alternative)
+    let constructorName = recordSelectorConstructor alternative
+        fieldBinders =
+          [ CoreBinder
+              ( RName
+                  TermNamespace
+                  ( "$record_field"
+                      <> renderInt index
+                      <> "_"
+                      <> nameOcc selectorName
+                      <> "_"
+                      <> nameOcc constructorName
+                  )
+                  (5450000 + nameUnique selectorName * 10000 + nameUnique constructorName * 100 + index)
+                  False
+              )
+              fieldTy
+          | (index, fieldTy) <- zip [0 ..] fieldTypes
+          ]
+        selectedBinder = fieldBinders !! recordSelectorFieldIndex alternative
+    pure $
+      CoreAlt
+        (ConstructorAlt constructorName)
+        fieldBinders
+        (CVar (coreBinderName selectedBinder) (coreBinderType selectedBinder))
+
 instanceDictionaryToCore ::
   Subst ->
   Map.Map RName ClassInfo ->
@@ -4371,6 +4749,7 @@ renderPatternShape :: RPat -> Text
 renderPatternShape = \case
   RPVar name -> "variable `" <> renderRName name <> "`"
   RPCon name _ -> "constructor `" <> renderRName name <> "`"
+  RPRecordCon name _ -> "record constructor `" <> renderRName name <> "`"
   RPLit literal -> "literal `" <> Text.pack (show literal) <> "`"
   RPWildcard -> "wildcard"
   RPTuple {} -> "tuple"

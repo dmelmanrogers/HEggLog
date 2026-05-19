@@ -221,6 +221,15 @@
       "notes": "Maybe-like polymorphic constructor case."
     },
     {
+      "name": "adts.record-fields",
+      "sourceFile": "test/haskell2010/conformance/adts/record-fields.hs",
+      "category": "adts",
+      "expectedStatus": "native-success",
+      "expectedStdout": "43\n",
+      "requiredStage": "native",
+      "notes": "Record declaration labels, selector functions, complete record construction, and record pattern matching."
+    },
+    {
       "name": "lists-tuples.list-length",
       "sourceFile": "test/haskell2010/conformance/lists-tuples/list-length.hs",
       "category": "lists-tuples",

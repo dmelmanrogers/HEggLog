@@ -351,10 +351,12 @@ collectDeclBinders context =
       pure scope
     S.DataDecl name _ constructors _ -> do
       withType <- defineOne TypeNamespace name scope
-      foldM defineConstructor withType constructors
+      withConstructors <- foldM defineConstructor withType constructors
+      defineMany TermNamespace (List.nub (concatMap recordFieldOccurrences constructors)) withConstructors
     S.NewtypeDecl name _ constructor _ -> do
       withType <- defineOne TypeNamespace name scope
-      defineConstructor withType constructor
+      withConstructor <- defineConstructor withType constructor
+      defineMany TermNamespace (List.nub (recordFieldOccurrences constructor)) withConstructor
     S.TypeSynonym name _ _ ->
       defineOne TypeNamespace name scope
     S.ClassDecl _ className _ decls -> do
@@ -369,6 +371,14 @@ collectDeclBinders context =
 
   defineConstructor scope (S.ConDecl constructorName _) =
     defineOne ConstructorNamespace constructorName scope
+  defineConstructor scope (S.RecordConDecl constructorName _) =
+    defineOne ConstructorNamespace constructorName scope
+
+  recordFieldOccurrences = \case
+    S.ConDecl {} ->
+      []
+    S.RecordConDecl _ fields ->
+      concatMap (\(S.ConField names _) -> names) fields
 
 collectClassMethods :: Scope -> [S.Decl] -> RenameM Scope
 collectClassMethods initialScope decls =
@@ -554,9 +564,17 @@ renameDeclRaw = \case
     pure (RForeignDecl text)
 
 renameConDecl :: S.ConDecl -> RenameM RConDecl
-renameConDecl sourceConDecl@(S.ConDecl constructorName fields) = do
-  renamed <- RConDecl <$> lookupName ConstructorNamespace constructorName <*> traverse renameType fields
+renameConDecl sourceConDecl = do
+  renamed <-
+    case sourceConDecl of
+      S.ConDecl constructorName fields ->
+        RConDecl <$> lookupName ConstructorNamespace constructorName <*> traverse renameType fields
+      S.RecordConDecl constructorName fields ->
+        RRecordConDecl <$> lookupName ConstructorNamespace constructorName <*> traverse renameConField fields
   pure (maybe renamed (`setRConDeclSpan` renamed) (S.conDeclSpan sourceConDecl))
+ where
+  renameConField (S.ConField names sourceType) =
+    RConField <$> traverse (lookupName TermNamespace) names <*> renameType sourceType
 
 renameRhs :: S.Rhs -> RenameM RRhs
 renameRhs rhs = do
@@ -582,6 +600,8 @@ renameExprRaw = \case
     RVar <$> lookupName TermNamespace occ
   S.Con occ ->
     RCon <$> lookupName ConstructorNamespace occ
+  S.RecordCon occ fields ->
+    RRecordCon <$> lookupName ConstructorNamespace occ <*> traverse renameRecordExprField fields
   S.Lit literal ->
     pure (RLit literal)
   S.App function argument ->
@@ -618,6 +638,9 @@ renameExprRaw = \case
     RListComp <$> renameExpr body <*> renameStmtList statements
   S.ExprTypeSig inner sourceType ->
     RExprTypeSig <$> renameExpr inner <*> renameImplicitForallType sourceType
+ where
+  renameRecordExprField (name, expr) =
+    (,) <$> lookupName TermNamespace name <*> renameExpr expr
 
 renameStmtList :: [S.Stmt] -> RenameM [RStmt]
 renameStmtList [] =
@@ -665,6 +688,8 @@ renamePat pat = do
         RPVar <$> lookupName TermNamespace occ
       S.PCon occ args ->
         RPCon <$> lookupName ConstructorNamespace occ <*> traverse renamePat args
+      S.PRecordCon occ fields ->
+        RPRecordCon <$> lookupName ConstructorNamespace occ <*> traverse renameRecordPatField fields
       S.PLit literal ->
         pure (RPLit literal)
       S.PWildcard ->
@@ -680,6 +705,9 @@ renamePat pat = do
       S.PParen inner ->
         RPParen <$> renamePat inner
   pure (maybe renamed (`setRPatSpan` renamed) (S.patSpan pat))
+ where
+  renameRecordPatField (name, fieldPat) =
+    (,) <$> lookupName TermNamespace name <*> renamePat fieldPat
 
 renameImplicitForallType :: S.HsType -> RenameM RHsType
 renameImplicitForallType sourceType =
@@ -723,6 +751,7 @@ patternBinderOccurrences pat = do
   collect = \case
     S.PVar occ -> [occ]
     S.PCon _ args -> concatMap collect args
+    S.PRecordCon _ fields -> concatMap (collect . snd) fields
     S.PLit {} -> []
     S.PWildcard -> []
     S.PTuple patterns -> concatMap collect patterns
@@ -853,7 +882,7 @@ declaredNames = \case
   RFixityDecl {} ->
     []
   RDataDecl name _ constructors _ ->
-    name : concatMap conDeclNames constructors
+    name : List.nub (concatMap conDeclNames constructors)
   RNewtypeDecl name _ constructor _ ->
     name : conDeclNames constructor
   RTypeSynonym name _ _ ->
@@ -870,7 +899,7 @@ declaredNames = \case
 declaredChildren :: RDecl -> Map.Map RName [RName]
 declaredChildren = \case
   RDataDecl name _ constructors _ ->
-    Map.singleton name (concatMap conDeclNames constructors)
+    Map.singleton name (List.nub (concatMap conDeclNames constructors))
   RNewtypeDecl name _ constructor _ ->
     Map.singleton name (conDeclNames constructor)
   RClassDecl _ className _ decls ->
@@ -879,8 +908,11 @@ declaredChildren = \case
     Map.empty
 
 conDeclNames :: RConDecl -> [RName]
-conDeclNames (RConDecl name _) =
-  [name]
+conDeclNames = \case
+  RConDecl name _ ->
+    [name]
+  RRecordConDecl name fields ->
+    name : List.nub (concatMap (\(RConField labels _) -> labels) fields)
 
 classMemberName :: RDecl -> [RName]
 classMemberName = \case
@@ -895,6 +927,7 @@ patternNames :: RPat -> [RName]
 patternNames = \case
   RPVar name -> [name]
   RPCon _ patterns -> concatMap patternNames patterns
+  RPRecordCon _ fields -> concatMap (patternNames . snd) fields
   RPLit {} -> []
   RPWildcard -> []
   RPTuple patterns -> concatMap patternNames patterns
@@ -964,6 +997,8 @@ resolveExprFixities expr =
       RListComp <$> resolveExprFixities body <*> traverse resolveStmt statements
     RExprTypeSig inner sourceType ->
       RExprTypeSig <$> resolveExprFixities inner <*> pure sourceType
+    RRecordCon name fields ->
+      RRecordCon name <$> traverse (\(fieldName, fieldExpr) -> (fieldName,) <$> resolveExprFixities fieldExpr) fields
     _ ->
       pure expr
 
