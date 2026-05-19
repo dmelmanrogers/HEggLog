@@ -43,6 +43,8 @@ freeVarsExpr = \case
       <> ( Set.unions (map (freeVarsAlt binder) alternatives)
              `Set.difference` Set.singleton (coreBinderName binder)
          )
+  CCoerce expression _ ->
+    freeVarsExpr expression
   CPrimOp _ arguments _ ->
     Set.unions (map freeVarsExpr arguments)
 

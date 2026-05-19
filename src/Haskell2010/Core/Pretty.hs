@@ -80,6 +80,8 @@ renderCoreExpr = \case
           <> " }"
       )
       ty
+  CCoerce expression ty ->
+    withType ("coerce[" <> renderCoreType ty <> "] " <> renderCoreExpr expression) ty
   CPrimOp op arguments ty ->
     withType
       ( renderCorePrimOp op

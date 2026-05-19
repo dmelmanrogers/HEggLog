@@ -26,6 +26,7 @@ data STGLowerError
 
 data LowerState = LowerState
   { lowerNextUnique :: Int
+  , lowerValidationEnv :: CoreValidate.CoreValidationEnv
   }
   deriving stock (Show, Eq)
 
@@ -36,11 +37,12 @@ data ValueApp = ValueApp CoreExpr CoreType
 
 lowerCoreModule :: CoreModule -> Either STGLowerError STGProgram
 lowerCoreModule coreModule =
-  case CoreValidate.validateModule (CoreValidate.moduleValidationEnv coreModule) coreModule of
+  case CoreValidate.validateModule validationEnv coreModule of
     Left errors -> Left (STGLowerInvalidCore errors)
     Right () -> do
       program <-
         runLowerWith
+          validationEnv
           (namesInModule coreModule)
           ( STGProgram (coreModuleConstructors coreModule)
               <$> traverse lowerBind (coreModuleBinds coreModule)
@@ -48,40 +50,46 @@ lowerCoreModule coreModule =
       case STGValidate.validateProgram program of
         Left errors -> Left (STGLowerInvalidSTG errors)
         Right () -> Right program
+ where
+  validationEnv =
+    CoreValidate.moduleValidationEnv coreModule
 
 lowerCoreBind :: CoreBind -> Either STGLowerError STGBind
 lowerCoreBind coreBind =
-  runLowerWith (namesInBind coreBind) (lowerBind coreBind)
+  runLowerWith CoreValidate.defaultValidationEnv (namesInBind coreBind) (lowerBind coreBind)
 
 lowerCoreExpr :: CoreExpr -> Either STGLowerError STGExpr
 lowerCoreExpr expression =
   case CoreValidate.validateExpr expression of
     Left errors -> Left (STGLowerInvalidCore errors)
     Right () -> do
-      stgExpr <- runLowerWith (namesInExpr expression) (lowerExpr expression)
+      stgExpr <- runLowerWith CoreValidate.defaultValidationEnv (namesInExpr expression) (lowerExpr expression)
       case STGValidate.validateExpr stgExpr of
         Left errors -> Left (STGLowerInvalidSTG errors)
         Right () -> Right stgExpr
 
-runLowerWith :: [RName] -> LowerM a -> Either STGLowerError a
-runLowerWith names action =
+runLowerWith :: CoreValidate.CoreValidationEnv -> [RName] -> LowerM a -> Either STGLowerError a
+runLowerWith validationEnv names action =
   fst <$> runStateT action initialState
  where
   initialState =
     LowerState
       { lowerNextUnique = maximum (1000000 : map nameUnique names) + 1
+      , lowerValidationEnv = validationEnv
       }
 
 lowerBind :: CoreBind -> LowerM STGBind
 lowerBind = \case
-  CoreNonRec binder rhs ->
-    STGNonRec (lowerBinder binder) <$> lowerRhs rhs
+  CoreNonRec binder rhs -> do
+    stgBinder <- lowerBinder binder
+    STGNonRec stgBinder <$> lowerRhs rhs
   CoreRec pairs ->
     STGRec <$> traverse lowerPair pairs
  where
   lowerPair (binder, rhs) = do
+    stgBinder <- lowerBinder binder
     loweredRhs <- lowerRhs rhs
-    pure (lowerBinder binder, loweredRhs)
+    pure (stgBinder, loweredRhs)
 
 lowerRhs :: CoreExpr -> LowerM STGRhs
 lowerRhs expression =
@@ -95,18 +103,19 @@ lowerNonConstructorRhs :: CoreExpr -> LowerM STGRhs
 lowerNonConstructorRhs expression =
   case stripTypeLambdas expression of
     CLam binder body _ ->
-      STGFunction [lowerBinder binder] <$> lowerExpr body
+      STGFunction <$> ((: []) <$> lowerBinder binder) <*> lowerExpr body
     CCon name ty ->
-      pure (STGConstructor name [] ty)
+      STGConstructor name [] <$> runtimeType ty
     other ->
       STGThunk Updatable <$> lowerExpr other
 
 lowerConstructorRhs :: RName -> [CoreExpr] -> CoreType -> LowerM STGRhs
 lowerConstructorRhs name fields resultTy = do
   (binds, atoms) <- atomizeMany fields
+  resultRuntimeTy <- runtimeType resultTy
   if null binds
-    then pure (STGConstructor name atoms resultTy)
-    else STGThunk Updatable <$> constructorValueExpr binds name atoms resultTy
+    then pure (STGConstructor name atoms resultRuntimeTy)
+    else STGThunk Updatable <$> constructorValueExpr binds name atoms resultRuntimeTy
 
 lowerExpr :: CoreExpr -> LowerM STGExpr
 lowerExpr expression =
@@ -117,11 +126,11 @@ lowerExpr expression =
     Nothing ->
       case expression of
         CVar name ty ->
-          pure (STGAtom (STGVar name ty))
+          STGAtom . STGVar name <$> runtimeType ty
         CLit literal ty ->
-          pure (STGAtom (STGLit literal ty))
+          STGAtom . STGLit literal <$> runtimeType ty
         CCon name ty ->
-          pure (STGAtom (STGCon name ty))
+          STGAtom . STGCon name <$> runtimeType ty
         CLam {} ->
           lowerLambdaValue expression
         CApp {} ->
@@ -129,18 +138,21 @@ lowerExpr expression =
         CTypeLam _ body _ ->
           lowerExpr body
         CTypeApp fn _ ty ->
-          retagExpr ty <$> lowerExpr fn
+          retagExpr <$> runtimeType ty <*> lowerExpr fn
         CLet bind body ty ->
-          STGLet <$> lowerBind bind <*> lowerExpr body <*> pure ty
+          STGLet <$> lowerBind bind <*> lowerExpr body <*> runtimeType ty
         CCase scrutinee binder alternatives ty ->
           STGCase
             <$> lowerExpr scrutinee
-            <*> pure (lowerBinder binder)
+            <*> lowerBinder binder
             <*> traverse lowerAlt alternatives
-            <*> pure ty
+            <*> runtimeType ty
+        CCoerce inner ty ->
+          retagExpr <$> runtimeType ty <*> lowerExpr inner
         CPrimOp op arguments ty -> do
           (binds, atoms) <- atomizeMany arguments
-          pure (wrapLets binds (STGPrim op atoms ty))
+          ty' <- runtimeType ty
+          pure (wrapLets binds (STGPrim op atoms ty'))
 
 lowerApplication :: CoreExpr -> LowerM STGExpr
 lowerApplication expression = do
@@ -154,14 +166,16 @@ lowerApplicationChain prefixBinds calleeName = \case
     throwLower (STGLowerUnsupported ("empty Core application spine in " <> renderCoreExpr (CVar calleeName unitTy)))
   [ValueApp argument resultTy] -> do
     (argumentBinds, argumentAtom) <- atomizeExpr argument
-    pure (wrapLets (prefixBinds <> argumentBinds) (STGApp calleeName [argumentAtom] resultTy))
+    resultRuntimeTy <- runtimeType resultTy
+    pure (wrapLets (prefixBinds <> argumentBinds) (STGApp calleeName [argumentAtom] resultRuntimeTy))
   ValueApp argument resultTy : rest -> do
     (argumentBinds, argumentAtom) <- atomizeExpr argument
-    tmpBinder <- freshBinder resultTy
+    resultRuntimeTy <- runtimeType resultTy
+    tmpBinder <- freshBinder resultRuntimeTy
     let partialBind =
           STGNonRec
             tmpBinder
-            (STGThunk SingleEntry (STGApp calleeName [argumentAtom] resultTy))
+            (STGThunk SingleEntry (STGApp calleeName [argumentAtom] resultRuntimeTy))
     lowerApplicationChain
       (prefixBinds <> argumentBinds <> [partialBind])
       (stgBinderName tmpBinder)
@@ -191,49 +205,56 @@ atomizeMany =
     go (binds <> newBinds) (atoms <> [atom]) rest
 
 atomizeExpr :: CoreExpr -> LowerM ([STGBind], STGAtom)
-atomizeExpr expression =
-  case atomFromExpr expression of
+atomizeExpr expression = do
+  maybeAtom <- atomFromExpr expression
+  case maybeAtom of
     Just atom ->
       pure ([], atom)
     Nothing -> do
-      let ty = runtimeExprType expression
+      ty <- runtimeExprType expression
       binder <- freshBinder ty
       rhs <- lowerRhs expression
       pure ([STGNonRec binder rhs], STGVar (stgBinderName binder) ty)
 
-atomFromExpr :: CoreExpr -> Maybe STGAtom
-atomFromExpr = \case
-  CVar name ty ->
-    Just (STGVar name ty)
-  CLit literal ty ->
-    Just (STGLit literal ty)
-  CCon name ty ->
-    Just (STGCon name ty)
-  CTypeApp fn _ ty ->
-    retagAtom ty <$> atomFromExpr fn
-  _ ->
-    Nothing
+atomFromExpr :: CoreExpr -> LowerM (Maybe STGAtom)
+atomFromExpr expression =
+  case expression of
+    CVar name ty ->
+      Just . STGVar name <$> runtimeType ty
+    CLit literal ty ->
+      Just . STGLit literal <$> runtimeType ty
+    CCon name ty ->
+      Just . STGCon name <$> runtimeType ty
+    CTypeApp fn _ ty -> do
+      ty' <- runtimeType ty
+      fmap (retagAtom ty') <$> atomFromExpr fn
+    CCoerce inner ty -> do
+      ty' <- runtimeType ty
+      fmap (retagAtom ty') <$> atomFromExpr inner
+    _ ->
+      pure Nothing
 
 constructorValueExpr :: [STGBind] -> RName -> [STGAtom] -> CoreType -> LowerM STGExpr
 constructorValueExpr prefixBinds name atoms resultTy = do
-  binder <- freshBinder resultTy
-  let constructorBind = STGNonRec binder (STGConstructor name atoms resultTy)
-  pure (wrapLets (prefixBinds <> [constructorBind]) (STGAtom (STGVar (stgBinderName binder) resultTy)))
+  resultRuntimeTy <- runtimeType resultTy
+  binder <- freshBinder resultRuntimeTy
+  let constructorBind = STGNonRec binder (STGConstructor name atoms resultRuntimeTy)
+  pure (wrapLets (prefixBinds <> [constructorBind]) (STGAtom (STGVar (stgBinderName binder) resultRuntimeTy)))
 
 lowerLambdaValue :: CoreExpr -> LowerM STGExpr
 lowerLambdaValue expression = do
-  let ty = runtimeExprType expression
+  ty <- runtimeExprType expression
   binder <- freshBinder ty
   rhs <- lowerRhs expression
   pure (STGLet (STGNonRec binder rhs) (STGAtom (STGVar (stgBinderName binder) ty)) ty)
 
 lowerAlt :: CoreAlt -> LowerM STGAlt
 lowerAlt (CoreAlt altCon binders body) =
-  STGAlt altCon (map lowerBinder binders) <$> lowerExpr body
+  STGAlt altCon <$> traverse lowerBinder binders <*> lowerExpr body
 
-lowerBinder :: CoreBinder -> STGBinder
+lowerBinder :: CoreBinder -> LowerM STGBinder
 lowerBinder (CoreBinder name ty) =
-  STGBinder name ty
+  STGBinder name <$> runtimeType ty
 
 freshBinder :: CoreType -> LowerM STGBinder
 freshBinder ty = do
@@ -286,14 +307,19 @@ stripTypeApplications = \case
   CTypeApp fn _ _ -> stripTypeApplications fn
   other -> other
 
-runtimeExprType :: CoreExpr -> CoreType
+runtimeExprType :: CoreExpr -> LowerM CoreType
 runtimeExprType = \case
   CTypeLam _ body _ ->
     runtimeExprType body
   CTypeApp _ _ ty ->
-    ty
+    runtimeType ty
   other ->
-    exprType other
+    runtimeType (exprType other)
+
+runtimeType :: CoreType -> LowerM CoreType
+runtimeType ty = do
+  env <- lowerValidationEnv <$> get
+  pure (CoreValidate.eraseNewtypeType env ty)
 
 retagExpr :: CoreType -> STGExpr -> STGExpr
 retagExpr ty = \case
@@ -352,6 +378,8 @@ namesInExpr = \case
     namesInBind bind <> namesInExpr body <> namesInType ty
   CCase scrutinee binder alternatives ty ->
     namesInExpr scrutinee <> namesInBinder binder <> concatMap namesInAlt alternatives <> namesInType ty
+  CCoerce expression ty ->
+    namesInExpr expression <> namesInType ty
   CPrimOp _ arguments ty ->
     concatMap namesInExpr arguments <> namesInType ty
 

@@ -149,6 +149,8 @@ evalExpr coreEnv env = \case
   CCase scrutinee binder alternatives _ -> do
     scrutineeValue <- evalExpr coreEnv env scrutinee
     evalCaseAlternative coreEnv env binder alternatives scrutineeValue
+  CCoerce expression _ ->
+    evalExpr coreEnv env expression
   CPrimOp op arguments _ ->
     traverse (evalExpr coreEnv env) arguments >>= evalPrimitive coreEnv op
 

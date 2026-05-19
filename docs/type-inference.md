@@ -145,8 +145,10 @@ dictionary constructor metadata, and generated signature-mismatch programs must
 fail with structured type errors instead of producing Core.
 
 Newtype declarations are typechecked with the required single-field invariant
-and currently share the boxed constructor representation used by data
-declarations. Remaining class, deriving, representation optimization, and
+and have a distinct Core representation. Constructors are recorded as
+`CoreNewtypeConstructor`, construction and pattern unwrapping elaborate to typed
+Core coercions, and Core-to-STG lowering erases the wrapper to the single field
+representation before native code generation. Remaining class, deriving, and
 broader surface work is tracked separately.
 
 The existing optional monomorphic lambda parameter inference is carry-forward

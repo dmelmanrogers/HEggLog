@@ -71,6 +71,9 @@ substExpr target replacement expression =
                   (alternatives', supplyAfterAlternatives) =
                     substAlts supplyAfterBinder alternativesForSubstitution
                in (CCase scrutinee' binder' alternatives' ty, supplyAfterAlternatives)
+    CCoerce expression' ty ->
+      let (expression'', supplyAfterExpression) = go supply expression'
+       in (CCoerce expression'' ty, supplyAfterExpression)
     CPrimOp op arguments ty ->
       let (arguments', supplyAfterArguments) = substExprs supply arguments
        in (CPrimOp op arguments' ty, supplyAfterArguments)
@@ -213,6 +216,8 @@ renameBound old new = \case
       (renameBinder old new binder)
       (map (renameAltBound old new) alternatives)
       ty
+  CCoerce expression ty ->
+    CCoerce (renameBound old new expression) ty
   CPrimOp op arguments ty ->
     CPrimOp op (map (renameBound old new) arguments) ty
 
@@ -251,6 +256,8 @@ allNamesExpr = \case
       <> allNamesBinder binder
       <> Set.unions (map allNamesAlt alternatives)
       <> allNamesType ty
+  CCoerce expression ty ->
+    allNamesExpr expression <> allNamesType ty
   CPrimOp _ arguments ty ->
     Set.unions (map allNamesExpr arguments) <> allNamesType ty
 

@@ -188,6 +188,7 @@ data DataConstructorInfo = DataConstructorInfo
   , dataConstructorFields :: [MonoType]
   , dataConstructorResult :: MonoType
   , dataConstructorScheme :: Scheme
+  , dataConstructorRepresentation :: CoreConstructorRepresentation
   }
   deriving stock (Show, Eq, Ord)
 
@@ -221,18 +222,21 @@ data PatternPlan = PatternPlan
   , patternAltBinders :: [TypedBinder]
   , patternEnv :: TypeEnv
   , patternWrapBody :: TypedExpr -> TypedExpr
+  , patternNeedsRuntimeCase :: Bool
   }
 
 data TypedExpr
   = TVar RName Scheme [MonoType] MonoType
   | TLit Literal MonoType
   | TCon RName Scheme [MonoType] MonoType
+  | TNewtypeCon RName Scheme [MonoType] MonoType TypedBinder
   | TTuple [TypedExpr] MonoType
   | TList [TypedExpr] MonoType
   | TLam TypedBinder TypedExpr MonoType
   | TApp TypedExpr TypedExpr MonoType
   | TLet [TypedBinding] TypedExpr MonoType
   | TCase TypedExpr TypedBinder [TypedAlt] MonoType
+  | TCoerce TypedExpr MonoType
   | TPrim CorePrimOp [TypedExpr] MonoType
   deriving stock (Show, Eq, Ord)
 
@@ -294,7 +298,13 @@ typecheckModuleToCore sourceModule = do
       instances =
         builtinInstanceDictionaryRefs builtinInstances
           <> instanceDictionaryRefs (substitution finalState) classesForCore typedInstances
-  coreBinds <- traverse (bindingToCore (CoreElabEnv (substitution finalState) Map.empty instances [])) typedBindings
+      elaborationEnv =
+        CoreElabEnv
+          (substitution finalState)
+          Map.empty
+          instances
+          []
+  coreBinds <- traverse (bindingToCore elaborationEnv) typedBindings
   classCoreBinds <- classSelectorCoreBinds (substitution finalState) classesForCore
   builtinInstanceCoreBinds <- traverse (builtinInstanceDictionaryToCore classesForCore) builtinInstances
   instanceCoreBinds <- traverse (instanceDictionaryToCore (substitution finalState) classesForCore instances) typedInstances
@@ -555,13 +565,13 @@ collectDataConstructors =
  where
   collect acc = \case
     RDataDecl typeName params constructors _ ->
-      foldM (insertConstructor typeName params) acc constructors
+      foldM (insertConstructor CoreDataConstructor typeName params) acc constructors
     RNewtypeDecl typeName params constructor _ ->
-      insertConstructor typeName params acc constructor
+      insertConstructor CoreNewtypeConstructor typeName params acc constructor
     _ ->
       pure acc
 
-  insertConstructor typeName params acc (RConDecl constructorName fields) = do
+  insertConstructor representation typeName params acc (RConDecl constructorName fields) = do
     fieldTypes <- traverse sourceMonoType fields
     let resultTy = foldl TyApp (TyCon typeName) (map TyVar params)
         scheme = Scheme params [] (foldr TyFun resultTy fieldTypes)
@@ -571,6 +581,7 @@ collectDataConstructors =
             , dataConstructorFields = fieldTypes
             , dataConstructorResult = resultTy
             , dataConstructorScheme = scheme
+            , dataConstructorRepresentation = representation
             }
     pure (Map.insert constructorName info acc)
 
@@ -665,7 +676,7 @@ classDictionaryConstructors =
         resultTy = classDictionaryType info classTy
         scheme = Scheme [classVar] [] (foldr TyFun resultTy fields)
      in ( classInfoDictConstructorName info
-        , DataConstructorInfo [classVar] fields resultTy scheme
+        , DataConstructorInfo [classVar] fields resultTy scheme CoreDataConstructor
         )
 
 classDictionaryType :: ClassInfo -> MonoType -> MonoType
@@ -809,7 +820,7 @@ builtinClassInfoByOccurrence occurrence = do
 builtinDataConstructors :: Map.Map RName DataConstructorInfo
 builtinDataConstructors =
   Map.fromList
-    [ (listNilDataConName, DataConstructorInfo [a] [] listA (Scheme [a] [] listA))
+    [ (listNilDataConName, DataConstructorInfo [a] [] listA (Scheme [a] [] listA) CoreDataConstructor)
     ,
       ( listConsDataConName
       , DataConstructorInfo
@@ -817,9 +828,10 @@ builtinDataConstructors =
           [aTy, listA]
           listA
           (Scheme [a] [] (TyFun aTy (TyFun listA listA)))
+          CoreDataConstructor
       )
-    , (unitDataConName, DataConstructorInfo [] [] unitMonoType (Scheme [] [] unitMonoType))
-    , (maybeNothingDataConName, DataConstructorInfo [a] [] maybeA (Scheme [a] [] maybeA))
+    , (unitDataConName, DataConstructorInfo [] [] unitMonoType (Scheme [] [] unitMonoType) CoreDataConstructor)
+    , (maybeNothingDataConName, DataConstructorInfo [a] [] maybeA (Scheme [a] [] maybeA) CoreDataConstructor)
     ,
       ( maybeJustDataConName
       , DataConstructorInfo
@@ -827,6 +839,7 @@ builtinDataConstructors =
           [aTy]
           maybeA
           (Scheme [a] [] (TyFun aTy maybeA))
+          CoreDataConstructor
       )
     ,
       ( eitherLeftDataConName
@@ -835,6 +848,7 @@ builtinDataConstructors =
           [aTy]
           eitherAB
           (Scheme [a, b] [] (TyFun aTy eitherAB))
+          CoreDataConstructor
       )
     ,
       ( eitherRightDataConName
@@ -843,10 +857,11 @@ builtinDataConstructors =
           [bTy]
           eitherAB
           (Scheme [a, b] [] (TyFun bTy eitherAB))
+          CoreDataConstructor
       )
-    , (orderingLTDataConName, DataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType))
-    , (orderingEQDataConName, DataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType))
-    , (orderingGTDataConName, DataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType))
+    , (orderingLTDataConName, DataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
+    , (orderingEQDataConName, DataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
+    , (orderingGTDataConName, DataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
     ]
  where
   a = preludeTypeVariable "a" (-1001)
@@ -894,6 +909,8 @@ typedExprClassConstraints = \case
     []
   TCon _ scheme typeArguments _ ->
     instantiateSchemeConstraints scheme typeArguments
+  TNewtypeCon _ scheme typeArguments _ _ ->
+    instantiateSchemeConstraints scheme typeArguments
   TTuple fields _ ->
     concatMap typedExprClassConstraints fields
   TList elements _ ->
@@ -906,6 +923,8 @@ typedExprClassConstraints = \case
     concatMap typedBindingClassConstraints bindings <> typedExprClassConstraints body
   TCase scrutinee _ alternatives _ ->
     typedExprClassConstraints scrutinee <> concatMap typedAltClassConstraints alternatives
+  TCoerce expression _ ->
+    typedExprClassConstraints expression
   TPrim _ arguments _ ->
     concatMap typedExprClassConstraints arguments
 
@@ -943,6 +962,7 @@ constructorInfosToCore subst =
     CoreConstructorInfo (dataConstructorTyVars info)
       <$> traverse (monoToCoreType subst Map.empty) (dataConstructorFields info)
       <*> monoToCoreType subst Map.empty (dataConstructorResult info)
+      <*> pure (dataConstructorRepresentation info)
 
 tupleConstructorInfos :: Set.Set Int -> Map.Map RName CoreConstructorInfo
 tupleConstructorInfos =
@@ -950,7 +970,7 @@ tupleConstructorInfos =
 
 tupleConstructorInfo :: Int -> CoreConstructorInfo
 tupleConstructorInfo arity =
-  CoreConstructorInfo variables fields (CTyTuple fields)
+  CoreConstructorInfo variables fields (CTyTuple fields) CoreDataConstructor
  where
   variables = [preludeTypeVariable ("t" <> renderInt index) (-1100 - index) | index <- [0 .. arity - 1]]
   fields = map CTyVar variables
@@ -1307,6 +1327,8 @@ typedExprDefaultingConstraints = \case
     []
   TCon _ scheme typeArguments _ ->
     instantiateSchemeConstraints scheme typeArguments
+  TNewtypeCon _ scheme typeArguments _ _ ->
+    instantiateSchemeConstraints scheme typeArguments
   TTuple fields _ ->
     concatMap typedExprDefaultingConstraints fields
   TList elements _ ->
@@ -1319,6 +1341,8 @@ typedExprDefaultingConstraints = \case
     typedExprDefaultingConstraints body
   TCase scrutinee _ alternatives _ ->
     typedExprDefaultingConstraints scrutinee <> concatMap typedAltDefaultingConstraints alternatives
+  TCoerce expression _ ->
+    typedExprDefaultingConstraints expression
   TPrim _ arguments _ ->
     concatMap typedExprDefaultingConstraints arguments
 
@@ -1385,6 +1409,8 @@ refreshExprReferences subst schemes = \case
     TLit literal ty
   TCon name scheme typeArguments ty ->
     TCon name scheme typeArguments ty
+  TNewtypeCon name scheme typeArguments ty binder ->
+    TNewtypeCon name scheme typeArguments ty binder
   TTuple fields ty ->
     TTuple (map (refreshExprReferences subst schemes) fields) ty
   TList elements ty ->
@@ -1397,6 +1423,8 @@ refreshExprReferences subst schemes = \case
     TLet (map (refreshBindingReferences subst schemes) bindings) (refreshExprReferences subst schemes body) ty
   TCase scrutinee binder alternatives ty ->
     TCase (refreshExprReferences subst schemes scrutinee) binder (map (refreshAltReferences subst schemes) alternatives) ty
+  TCoerce expression ty ->
+    TCoerce (refreshExprReferences subst schemes expression) ty
   TPrim op arguments ty ->
     TPrim op (map (refreshExprReferences subst schemes) arguments) ty
 
@@ -1800,16 +1828,7 @@ inferLambdaPatterns initialEnv =
           caseBinder <- freshTermBinder "$case" patTy
           let scrutinee = TVar (typedBinderName binder) (Scheme [] [] patTy) [] patTy
           plan <- inferPatternPlan env patTy scrutinee pat
-          let wrapOne body =
-                TCase
-                  scrutinee
-                  caseBinder
-                  [ TypedAlt
-                      (patternAltCon plan)
-                      (patternAltBinders plan)
-                      (patternWrapBody plan body)
-                  ]
-                  (typedExprType body)
+          let wrapOne = caseForPatternPlan scrutinee caseBinder plan
           go (binders <> [binder]) (patternEnv plan) (wrap . wrapOne) rest
 
 inferRhs :: TypeEnv -> RRhs -> [RDecl] -> InferM TypedExpr
@@ -1923,7 +1942,18 @@ inferExpr env expr =
         resultTy <- freshMeta
         caseBinder <- caseBinderFor scrutineeTy alternatives
         typedAlternatives <- traverse (inferCaseAlt env scrutineeTy caseBinder resultTy) alternatives
-        pure (TCase typedScrutinee caseBinder typedAlternatives resultTy)
+        case typedAlternatives of
+          [(plan, body)]
+            | not (patternNeedsRuntimeCase plan) ->
+                pure body
+          _ ->
+            pure
+              ( TCase
+                  typedScrutinee
+                  caseBinder
+                  [TypedAlt (patternAltCon plan) (patternAltBinders plan) body | (plan, body) <- typedAlternatives]
+                  resultTy
+              )
       RDo statements ->
         inferDo env statements
       RList expressions -> do
@@ -2004,10 +2034,23 @@ inferConstructor name
               throwTypecheck (UnsupportedCore0 ("constructor `" <> renderRName name <> "`"))
             Just (coreName, info) -> do
               (instantiatedTy, typeArguments) <- instantiate (dataConstructorScheme info)
-              pure (TCon coreName (dataConstructorScheme info) typeArguments instantiatedTy)
+              typedConstructorExpr coreName info typeArguments instantiatedTy
         Just info -> do
           (instantiatedTy, typeArguments) <- instantiate (dataConstructorScheme info)
-          pure (TCon name (dataConstructorScheme info) typeArguments instantiatedTy)
+          typedConstructorExpr name info typeArguments instantiatedTy
+
+typedConstructorExpr :: RName -> DataConstructorInfo -> [MonoType] -> MonoType -> InferM TypedExpr
+typedConstructorExpr name info typeArguments instantiatedTy =
+  case dataConstructorRepresentation info of
+    CoreDataConstructor ->
+      pure (TCon name (dataConstructorScheme info) typeArguments instantiatedTy)
+    CoreNewtypeConstructor ->
+      case instantiatedTy of
+        TyFun fieldTy _ -> do
+          binder <- freshTermBinder ("$newtype_" <> nameOcc name) fieldTy
+          pure (TNewtypeCon name (dataConstructorScheme info) typeArguments instantiatedTy binder)
+        _ ->
+          throwTypecheck (UnsupportedCore0 ("newtype constructor `" <> renderRName name <> "` has non-function type"))
 
 inferPreludeValue :: RName -> InferM TypedExpr
 inferPreludeValue name =
@@ -2196,14 +2239,29 @@ classMethodSingleVariable methodOccurrence method =
             )
         )
 
-inferCaseAlt :: TypeEnv -> MonoType -> TypedBinder -> MonoType -> RAlt -> InferM TypedAlt
+inferCaseAlt :: TypeEnv -> MonoType -> TypedBinder -> MonoType -> RAlt -> InferM (PatternPlan, TypedExpr)
 inferCaseAlt env scrutineeTy caseBinder resultTy alt@(RAlt pat rhs whereDecls) =
   withTypecheckSpan (rAltSpan alt) $ do
     let scrutinee = TVar (typedBinderName caseBinder) (Scheme [] [] scrutineeTy) [] scrutineeTy
     plan <- inferPatternPlan env scrutineeTy scrutinee pat
     typedBody <- patternWrapBody plan <$> inferRhs (patternEnv plan) rhs whereDecls
     unify resultTy (typedExprType typedBody)
-    pure (TypedAlt (patternAltCon plan) (patternAltBinders plan) typedBody)
+    pure (plan, typedBody)
+
+caseForPatternPlan :: TypedExpr -> TypedBinder -> PatternPlan -> TypedExpr -> TypedExpr
+caseForPatternPlan scrutinee caseBinder plan body
+  | patternNeedsRuntimeCase plan =
+      TCase
+        scrutinee
+        caseBinder
+        [ TypedAlt
+            (patternAltCon plan)
+            (patternAltBinders plan)
+            (patternWrapBody plan body)
+        ]
+        (typedExprType body)
+  | otherwise =
+      patternWrapBody plan body
 
 inferPatternPlan :: TypeEnv -> MonoType -> TypedExpr -> RPat -> InferM PatternPlan
 inferPatternPlan env expectedTy scrutinee pat =
@@ -2216,6 +2274,7 @@ inferPatternPlan env expectedTy scrutinee pat =
             , patternAltBinders = []
             , patternEnv = Map.insert name (Scheme [] [] expectedTy) env
             , patternWrapBody = aliasPatternBinder name expectedTy scrutinee
+            , patternNeedsRuntimeCase = True
             }
       RPWildcard ->
         pure
@@ -2224,6 +2283,7 @@ inferPatternPlan env expectedTy scrutinee pat =
             , patternAltBinders = []
             , patternEnv = env
             , patternWrapBody = id
+            , patternNeedsRuntimeCase = True
             }
       RPLit literal -> do
         unify expectedTy (literalMonoType literal)
@@ -2233,13 +2293,14 @@ inferPatternPlan env expectedTy scrutinee pat =
             , patternAltBinders = []
             , patternEnv = env
             , patternWrapBody = id
+            , patternNeedsRuntimeCase = True
             }
       RPCon name args ->
-        inferConstructorPattern env expectedTy name args
+        inferConstructorPattern env expectedTy scrutinee name args
       RPTuple patterns ->
         inferTuplePattern env expectedTy patterns
       RPList patterns ->
-        inferListPattern env expectedTy patterns
+        inferListPattern env expectedTy scrutinee patterns
       RPParen inner ->
         inferPatternPlan env expectedTy scrutinee inner
       RPAs name inner -> do
@@ -2252,8 +2313,8 @@ inferPatternPlan env expectedTy scrutinee pat =
       RPIrrefutable {} ->
         throwTypecheck (UnsupportedCore0 "irrefutable pattern semantics")
 
-inferConstructorPattern :: TypeEnv -> MonoType -> RName -> [RPat] -> InferM PatternPlan
-inferConstructorPattern env expectedTy name args
+inferConstructorPattern :: TypeEnv -> MonoType -> TypedExpr -> RName -> [RPat] -> InferM PatternPlan
+inferConstructorPattern env expectedTy scrutinee name args
   | nameOcc name == "True" && null args = do
       unify expectedTy boolMonoType
       pure (nullaryConstructorPlan env trueDataConName)
@@ -2268,12 +2329,12 @@ inferConstructorPattern env expectedTy name args
             Nothing ->
               throwTypecheck (UnsupportedCore0 ("constructor pattern `" <> renderRName name <> "`"))
             Just (coreName, info) ->
-              inferKnownConstructorPattern env expectedTy coreName args info
+              inferKnownConstructorPattern env expectedTy scrutinee coreName args info
         Just info -> do
-          inferKnownConstructorPattern env expectedTy name args info
+          inferKnownConstructorPattern env expectedTy scrutinee name args info
 
-inferKnownConstructorPattern :: TypeEnv -> MonoType -> RName -> [RPat] -> DataConstructorInfo -> InferM PatternPlan
-inferKnownConstructorPattern env expectedTy name args info = do
+inferKnownConstructorPattern :: TypeEnv -> MonoType -> TypedExpr -> RName -> [RPat] -> DataConstructorInfo -> InferM PatternPlan
+inferKnownConstructorPattern env expectedTy scrutinee name args info = do
   (fieldTypes, resultTy) <- instantiateConstructorPattern info
   unless (length fieldTypes == length args) $
     throwTypecheck
@@ -2287,17 +2348,37 @@ inferKnownConstructorPattern env expectedTy name args info = do
           )
       )
   unify expectedTy resultTy
-  fieldPlans <- traverse inferFieldPattern (zip fieldTypes args)
-  let fieldBinders = map fieldPatternBinder fieldPlans
-      env' = foldl (\acc plan -> Map.union (fieldPatternEnv plan) acc) env fieldPlans
-      wrap = foldr (.) id (map fieldPatternWrap fieldPlans)
-  pure
-    PatternPlan
-      { patternAltCon = ConstructorAlt name
-      , patternAltBinders = fieldBinders
-      , patternEnv = env'
-      , patternWrapBody = wrap
-      }
+  case dataConstructorRepresentation info of
+    CoreNewtypeConstructor ->
+      case (fieldTypes, args) of
+        ([fieldTy], [fieldPat]) -> do
+          fieldTy' <- applyCurrent fieldTy
+          let fieldScrutinee = TCoerce scrutinee fieldTy'
+          nestedPlan <- inferPatternPlan Map.empty fieldTy' fieldScrutinee fieldPat
+          nestedCaseBinder <- freshTermBinder "$newtype" fieldTy'
+          pure
+            PatternPlan
+              { patternAltCon = DefaultAlt
+              , patternAltBinders = []
+              , patternEnv = Map.union (patternEnv nestedPlan) env
+              , patternWrapBody = caseForPatternPlan fieldScrutinee nestedCaseBinder nestedPlan
+              , patternNeedsRuntimeCase = False
+              }
+        _ ->
+          throwTypecheck (InvalidNewtypeConstructorArity name (length fieldTypes))
+    CoreDataConstructor -> do
+      fieldPlans <- traverse inferFieldPattern (zip fieldTypes args)
+      let fieldBinders = map fieldPatternBinder fieldPlans
+          env' = foldl (\acc plan -> Map.union (fieldPatternEnv plan) acc) env fieldPlans
+          wrap = foldr (.) id (map fieldPatternWrap fieldPlans)
+      pure
+        PatternPlan
+          { patternAltCon = ConstructorAlt name
+          , patternAltBinders = fieldBinders
+          , patternEnv = env'
+          , patternWrapBody = wrap
+          , patternNeedsRuntimeCase = True
+          }
 
 inferTuplePattern :: TypeEnv -> MonoType -> [RPat] -> InferM PatternPlan
 inferTuplePattern env expectedTy patterns = do
@@ -2313,17 +2394,18 @@ inferTuplePattern env expectedTy patterns = do
       , patternAltBinders = fieldBinders
       , patternEnv = env'
       , patternWrapBody = wrap
+      , patternNeedsRuntimeCase = True
       }
 
-inferListPattern :: TypeEnv -> MonoType -> [RPat] -> InferM PatternPlan
-inferListPattern env expectedTy patterns = do
+inferListPattern :: TypeEnv -> MonoType -> TypedExpr -> [RPat] -> InferM PatternPlan
+inferListPattern env expectedTy scrutinee patterns = do
   elementTy <- freshMeta
   unify expectedTy (TyList elementTy)
   case patterns of
     [] ->
       pure (nullaryConstructorPlan env listNilDataConName)
     headPat : tailPats ->
-      inferConstructorPattern env expectedTy listConsDataConName [headPat, RPList tailPats]
+      inferConstructorPattern env expectedTy scrutinee listConsDataConName [headPat, RPList tailPats]
 
 nullaryConstructorPlan :: TypeEnv -> RName -> PatternPlan
 nullaryConstructorPlan env name =
@@ -2332,6 +2414,7 @@ nullaryConstructorPlan env name =
     , patternAltBinders = []
     , patternEnv = env
     , patternWrapBody = id
+    , patternNeedsRuntimeCase = True
     }
 
 data FieldPatternPlan = FieldPatternPlan
@@ -2366,16 +2449,7 @@ inferFieldPattern (fieldTy, pat) =
       nestedCaseBinder <- freshTermBinder "$case" fieldTy
       let scrutinee = TVar (typedBinderName fieldBinder) (Scheme [] [] fieldTy) [] fieldTy
       nestedPlan <- inferPatternPlan Map.empty fieldTy scrutinee pat
-      let wrap body =
-            TCase
-              scrutinee
-              nestedCaseBinder
-              [ TypedAlt
-                  (patternAltCon nestedPlan)
-                  (patternAltBinders nestedPlan)
-                  (patternWrapBody nestedPlan body)
-              ]
-              (typedExprType body)
+      let wrap = caseForPatternPlan scrutinee nestedCaseBinder nestedPlan
       pure
         FieldPatternPlan
           { fieldPatternBinder = fieldBinder
@@ -3335,7 +3409,13 @@ bindingIsSelfRecursive binding =
   typedBindingName binding `Set.member` typedExprFreeTermNames (typedBindingRhs binding)
 
 exprToCore :: CoreElabEnv -> TypedExpr -> Either TypecheckError CoreExpr
-exprToCore env = \case
+exprToCore env expression =
+  case newtypeApplicationToCore env expression of
+    Just converted -> converted
+    Nothing -> exprToCoreDefault env expression
+
+exprToCoreDefault :: CoreElabEnv -> TypedExpr -> Either TypecheckError CoreExpr
+exprToCoreDefault env = \case
   TVar name scheme typeArguments ty -> do
     let subst = coreElabSubst env
         metas = coreElabMetas env
@@ -3363,6 +3443,21 @@ exprToCore env = \case
       case schemeVars scheme of
         [] -> CCon name resultTy
         _ -> CTypeApp constructorExpr coreTypeArguments resultTy
+  TNewtypeCon _ _ _ ty binder -> do
+    let subst = coreElabSubst env
+        metas = coreElabMetas env
+    coreBinder <- typedBinderToCore subst metas binder
+    coreTy <- monoToCoreType subst metas ty
+    case coreTy of
+      CTyFun _ resultTy ->
+        pure
+          ( CLam
+              coreBinder
+              (CCoerce (CVar (coreBinderName coreBinder) (coreBinderType coreBinder)) resultTy)
+              coreTy
+          )
+      _ ->
+        Left (UnsupportedCore0 "newtype constructor elaborated to non-function Core type")
   TTuple fields ty -> do
     coreFields <- traverse (exprToCore env) fields
     resultTy <- monoToCoreType (coreElabSubst env) (coreElabMetas env) ty
@@ -3412,6 +3507,10 @@ exprToCore env = \case
     coreAlternatives <- traverse (altToCore env) alternatives
     coreTy <- monoToCoreType subst metas ty
     pure (CCase coreScrutinee coreBinder coreAlternatives coreTy)
+  TCoerce expression' ty -> do
+    coreExpression <- exprToCore env expression'
+    coreTy <- monoToCoreType (coreElabSubst env) (coreElabMetas env) ty
+    pure (CCoerce coreExpression coreTy)
   TPrim op arguments ty -> do
     coreArguments <- traverse (exprToCore env) arguments
     coreTy <- monoToCoreType (coreElabSubst env) (coreElabMetas env) ty
@@ -3423,6 +3522,27 @@ exprToCore env = \case
             CTyFun _ result -> result
             _ -> exprType callee
      in CApp callee dictionary remainingResult
+
+newtypeApplicationToCore :: CoreElabEnv -> TypedExpr -> Maybe (Either TypecheckError CoreExpr)
+newtypeApplicationToCore env expression =
+  case collectTypedValueApps expression of
+    (TNewtypeCon _ _ _ _ _, [argument]) ->
+      Just $ do
+        coreArgument <- exprToCore env argument
+        coreTy <- monoToCoreType (coreElabSubst env) (coreElabMetas env) (typedExprType expression)
+        pure (CCoerce coreArgument coreTy)
+    _ ->
+      Nothing
+
+collectTypedValueApps :: TypedExpr -> (TypedExpr, [TypedExpr])
+collectTypedValueApps =
+  go []
+ where
+  go arguments = \case
+    TApp fn argument _ ->
+      go (argument : arguments) fn
+    other ->
+      (other, arguments)
 
 dictionaryBindersFor :: Subst -> Map.Map Int RName -> RName -> Scheme -> Either TypecheckError [(ClassConstraint, CoreBinder)]
 dictionaryBindersFor subst metas owner scheme =
@@ -3935,7 +4055,7 @@ constructorApp name typeArguments arguments resultTy =
             CoreValidate.constructorFunctionType (tupleConstructorInfo (length arguments))
         | otherwise ->
             let fields = map exprType arguments
-             in CoreValidate.constructorFunctionType (CoreConstructorInfo [] fields resultTy)
+             in CoreValidate.constructorFunctionType (CoreConstructorInfo [] fields resultTy CoreDataConstructor)
   typedConstructor =
     case typeArguments of
       [] -> CCon name constructorTy
@@ -4005,12 +4125,14 @@ typedExprType = \case
   TVar _ _ _ ty -> ty
   TLit _ ty -> ty
   TCon _ _ _ ty -> ty
+  TNewtypeCon _ _ _ ty _ -> ty
   TTuple _ ty -> ty
   TList _ ty -> ty
   TLam _ _ ty -> ty
   TApp _ _ ty -> ty
   TLet _ _ ty -> ty
   TCase _ _ _ ty -> ty
+  TCoerce _ ty -> ty
   TPrim _ _ ty -> ty
 
 typedExprMetaVars :: TypedExpr -> Set.Set Int
@@ -4022,6 +4144,10 @@ typedExprMetaVars expression =
       TLit {} -> Set.empty
       TCon _ scheme typeArguments _ ->
         freeMetaVarsScheme scheme <> Set.unions (map freeMetaVars typeArguments)
+      TNewtypeCon _ scheme typeArguments _ binder ->
+        freeMetaVarsScheme scheme
+          <> Set.unions (map freeMetaVars typeArguments)
+          <> freeMetaVars (typedBinderType binder)
       TTuple fields _ ->
         Set.unions (map typedExprMetaVars fields)
       TList elements _ ->
@@ -4036,6 +4162,8 @@ typedExprMetaVars expression =
         typedExprMetaVars scrutinee
           <> freeMetaVars (typedBinderType binder)
           <> Set.unions (map typedAltMetaVars alternatives)
+      TCoerce inner _ ->
+        typedExprMetaVars inner
       TPrim _ arguments _ ->
         Set.unions (map typedExprMetaVars arguments)
 
@@ -4056,6 +4184,8 @@ typedExprFreeTermNames = \case
     Set.empty
   TCon {} ->
     Set.empty
+  TNewtypeCon _ _ _ _ _ ->
+    Set.empty
   TTuple fields _ ->
     Set.unions (map typedExprFreeTermNames fields)
   TList elements _ ->
@@ -4074,6 +4204,8 @@ typedExprFreeTermNames = \case
     typedExprFreeTermNames scrutinee
       <> Set.unions (map typedAltFreeTermNames alternatives)
       `Set.difference` Set.singleton (typedBinderName binder)
+  TCoerce expression _ ->
+    typedExprFreeTermNames expression
   TPrim _ arguments _ ->
     Set.unions (map typedExprFreeTermNames arguments)
 

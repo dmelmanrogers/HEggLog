@@ -6,6 +6,7 @@ module Haskell2010.Core.Validate
   , constructorFieldsForResult
   , defaultValidationEnv
   , emptyValidationEnv
+  , eraseNewtypeType
   , literalType
   , moduleValidationEnv
   , renderValidationError
@@ -50,6 +51,7 @@ data CoreValidationError
   | CorePrimitiveArityMismatch CorePrimOp Int Int
   | CorePrimitiveArgumentMismatch CorePrimOp Int CoreType CoreType
   | CorePrimitiveResultMismatch CorePrimOp CoreType CoreType
+  | CoreInvalidCoercion CoreType CoreType
   deriving stock (Show, Eq, Ord)
 
 type Scope = Map.Map RName CoreType
@@ -71,18 +73,18 @@ defaultValidationEnv =
 
 builtinConstructorInfos :: [(RName, CoreConstructorInfo)]
 builtinConstructorInfos =
-  [ (trueDataConName, CoreConstructorInfo [] [] boolTy)
-  , (falseDataConName, CoreConstructorInfo [] [] boolTy)
-  , (listNilDataConName, CoreConstructorInfo [a] [] (CTyList aTy))
-  , (listConsDataConName, CoreConstructorInfo [a] [aTy, CTyList aTy] (CTyList aTy))
-  , (unitDataConName, CoreConstructorInfo [] [] unitTy)
-  , (maybeNothingDataConName, CoreConstructorInfo [a] [] maybeA)
-  , (maybeJustDataConName, CoreConstructorInfo [a] [aTy] maybeA)
-  , (eitherLeftDataConName, CoreConstructorInfo [a, b] [aTy] eitherAB)
-  , (eitherRightDataConName, CoreConstructorInfo [a, b] [bTy] eitherAB)
-  , (orderingLTDataConName, CoreConstructorInfo [] [] orderingTy)
-  , (orderingEQDataConName, CoreConstructorInfo [] [] orderingTy)
-  , (orderingGTDataConName, CoreConstructorInfo [] [] orderingTy)
+  [ (trueDataConName, dataConstructor [] [] boolTy)
+  , (falseDataConName, dataConstructor [] [] boolTy)
+  , (listNilDataConName, dataConstructor [a] [] (CTyList aTy))
+  , (listConsDataConName, dataConstructor [a] [aTy, CTyList aTy] (CTyList aTy))
+  , (unitDataConName, dataConstructor [] [] unitTy)
+  , (maybeNothingDataConName, dataConstructor [a] [] maybeA)
+  , (maybeJustDataConName, dataConstructor [a] [aTy] maybeA)
+  , (eitherLeftDataConName, dataConstructor [a, b] [aTy] eitherAB)
+  , (eitherRightDataConName, dataConstructor [a, b] [bTy] eitherAB)
+  , (orderingLTDataConName, dataConstructor [] [] orderingTy)
+  , (orderingEQDataConName, dataConstructor [] [] orderingTy)
+  , (orderingGTDataConName, dataConstructor [] [] orderingTy)
   ]
  where
   a = builtinTypeVariable "a" (-1001)
@@ -91,6 +93,8 @@ builtinConstructorInfos =
   bTy = CTyVar b
   maybeA = CTyApp (CTyCon maybeTyConName) aTy
   eitherAB = CTyApp (CTyApp (CTyCon eitherTyConName) aTy) bTy
+  dataConstructor variables fields result =
+    CoreConstructorInfo variables fields result CoreDataConstructor
 
 builtinTypeVariable :: Text -> Int -> RName
 builtinTypeVariable occurrence unique =
@@ -184,6 +188,11 @@ validateScopedExpr env scope = \case
       , checkCaseBinder (exprType scrutinee) (coreBinderType binder)
       , failWith (defaultAlternativeErrors alternatives)
       , collectValidations (map (validateCaseAlt env (extendScope [binder] scope) binder ty) alternatives)
+      ]
+  CCoerce expression ty ->
+    collectValidations
+      [ validateScopedExpr env scope expression
+      , validateCoercion env (exprType expression) ty
       ]
   CPrimOp op arguments ty ->
     collectValidations $
@@ -351,7 +360,7 @@ literalType = \case
   LString {} -> stringTy
 
 constructorFunctionType :: CoreConstructorInfo -> CoreType
-constructorFunctionType (CoreConstructorInfo variables fields result) =
+constructorFunctionType (CoreConstructorInfo variables fields result _) =
   case variables of
     [] -> body
     _ -> CTyForall variables body
@@ -363,6 +372,63 @@ constructorFieldsForResult :: CoreConstructorInfo -> CoreType -> Maybe [CoreType
 constructorFieldsForResult info actualResult = do
   substitutions <- matchCoreType (Set.fromList (constructorTyVars info)) Map.empty (constructorResult info) actualResult
   pure (map (substCoreType substitutions) (constructorFields info))
+
+eraseNewtypeType :: CoreValidationEnv -> CoreType -> CoreType
+eraseNewtypeType env =
+  go Set.empty
+ where
+  go seen ty =
+    let structurallyErased =
+          case ty of
+            CTyVar {} -> ty
+            CTyCon {} -> ty
+            CTyApp fn arg -> CTyApp (go seen fn) (go seen arg)
+            CTyFun arg result -> CTyFun (go seen arg) (go seen result)
+            CTyForall variables body -> CTyForall variables (go seen body)
+            CTyTuple fields -> CTyTuple (map (go seen) fields)
+            CTyList elementTy -> CTyList (go seen elementTy)
+     in case matchingNewtypeField seen structurallyErased of
+          Nothing -> structurallyErased
+          Just (constructorName, fieldTy) ->
+            go (Set.insert constructorName seen) fieldTy
+
+  matchingNewtypeField seen actualResult =
+    firstJust
+      [ (constructorName,) <$> instantiatedNewtypeField info actualResult
+      | (constructorName, info) <- Map.toList (coreConstructorTypes env)
+      , constructorName `Set.notMember` seen
+      , constructorRepresentation info == CoreNewtypeConstructor
+      ]
+
+instantiatedNewtypeField :: CoreConstructorInfo -> CoreType -> Maybe CoreType
+instantiatedNewtypeField info actualResult =
+  case constructorFields info of
+    [fieldTy] -> do
+      substitutions <- matchCoreType (Set.fromList (constructorTyVars info)) Map.empty (constructorResult info) actualResult
+      pure (substCoreType substitutions fieldTy)
+    _ ->
+      Nothing
+
+validateCoercion :: CoreValidationEnv -> CoreType -> CoreType -> Either [CoreValidationError] ()
+validateCoercion env sourceTy targetTy
+  | sourceTy == targetTy = Right ()
+  | any (newtypeCoercionMatches sourceTy targetTy) (Map.elems (coreConstructorTypes env)) = Right ()
+  | otherwise = Left [CoreInvalidCoercion sourceTy targetTy]
+
+newtypeCoercionMatches :: CoreType -> CoreType -> CoreConstructorInfo -> Bool
+newtypeCoercionMatches sourceTy targetTy info
+  | constructorRepresentation info /= CoreNewtypeConstructor = False
+  | otherwise =
+      wraps || unwraps
+ where
+  wraps =
+    case instantiatedNewtypeField info targetTy of
+      Just fieldTy -> fieldTy == sourceTy
+      Nothing -> False
+  unwraps =
+    case instantiatedNewtypeField info sourceTy of
+      Just fieldTy -> fieldTy == targetTy
+      Nothing -> False
 
 validateBinder :: CoreBinder -> Either [CoreValidationError] ()
 validateBinder binder
@@ -463,6 +529,8 @@ exprBinderNames = \case
     exprBinderNames scrutinee
       <> [coreBinderName binder]
       <> concatMap altBinderNames alternatives
+  CCoerce expression _ ->
+    exprBinderNames expression
   CPrimOp _ arguments _ ->
     concatMap exprBinderNames arguments
 
@@ -669,10 +737,23 @@ renderValidationError = \case
       <> renderCoreType expected
       <> ", got "
       <> renderCoreType actual
+  CoreInvalidCoercion sourceTy targetTy ->
+    "Core coercion is not backed by a newtype constructor: "
+      <> renderCoreType sourceTy
+      <> " to "
+      <> renderCoreType targetTy
 
 renderInt :: Int -> Text
 renderInt =
   Text.pack . show
+
+firstJust :: [Maybe a] -> Maybe a
+firstJust [] =
+  Nothing
+firstJust (value : rest) =
+  case value of
+    Just found -> Just found
+    Nothing -> firstJust rest
 
 (<|>) :: Maybe a -> Maybe a -> Maybe a
 Nothing <|> fallback =

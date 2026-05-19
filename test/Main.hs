@@ -144,6 +144,7 @@ testGroups =
       , pureTest "infers higher-kinded type synonym parameters" testHaskell2010TypeSynonymKindInference
       , pureTest "rejects recursive type synonyms" testHaskell2010TypeSynonymRejectsCycles
       , pureTest "typechecks newtype constructors and patterns" testHaskell2010NewtypeTyping
+      , pureTest "erases newtype constructors to Core coercions" testHaskell2010NewtypeRepresentation
       , pureTest "infers higher-kinded newtype parameters" testHaskell2010NewtypeKindInference
       , pureTest "rejects invalid newtype constructor arity" testHaskell2010NewtypeRejectsInvalidArity
       , pureTest "represents class constraints structurally" testHaskell2010ConstraintRepresentation
@@ -238,6 +239,7 @@ testGroups =
   , TestGroup
       "Haskell 2010 Native Output"
       [ pureTest "emits boxed lazy STG runtime LLVM" testHaskell2010NativeLLVMShape
+      , pureTest "erases newtype constructor allocation in native LLVM" testHaskell2010NativeNewtypeErasure
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
       , ioTest "native executable preserves lazy Core-0 semantics" testHaskell2010NativeExecutableExecution
       , ioTest "native runtime errors fail when forced" testHaskell2010NativeRuntimeError
@@ -1256,6 +1258,19 @@ testHaskell2010NewtypeTyping =
       \unAge (Age n) = n\n\
       \main = unAge (Age 42)\n"
 
+testHaskell2010NewtypeRepresentation :: Either String ()
+testHaskell2010NewtypeRepresentation = do
+  coreModule <- typecheckHaskell2010 haskell2010NewtypeRepresentationSource
+  (_, ageInfo) <- lookupUserConstructorOccurrence "Age" coreModule
+  expectEqual "Age constructor representation" H2010Core.CoreNewtypeConstructor (H2010Core.constructorRepresentation ageInfo)
+  (_, unAgeRhs) <- lookupCoreBindingOccurrence "unAge" coreModule
+  assertBool "newtype pattern erases constructor case" (not (containsConstructorAlt "Age" unAgeRhs))
+  assertBool "newtype pattern emits representation coercion" (containsCoerce unAgeRhs)
+  (_, mainRhs) <- lookupCoreBindingOccurrence "main" coreModule
+  assertBool "newtype construction emits representation coercion" (containsCoerce mainRhs)
+  assertBool "newtype construction emits no Age constructor value" (not (containsConstructorExpr "Age" mainRhs))
+  expectCoreEvalInt "newtype representation Core oracle" 42 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010NewtypeKindInference :: Either String ()
 testHaskell2010NewtypeKindInference =
   expectCoreEvalInt
@@ -1406,6 +1421,12 @@ userConstructorMetadata =
           && not ("$Mk" `Text.isPrefixOf` H2010Names.nameOcc name)
     )
     . H2010Core.coreModuleConstructors
+
+lookupUserConstructorOccurrence :: Text -> H2010Core.CoreModule -> Either String (H2010Names.RName, H2010Core.CoreConstructorInfo)
+lookupUserConstructorOccurrence occurrence coreModule =
+  case List.find ((== occurrence) . H2010Names.nameOcc . fst) (Map.toList (userConstructorMetadata coreModule)) of
+    Just pair -> Right pair
+    Nothing -> Left ("missing user Core constructor `" <> Text.unpack occurrence <> "`")
 
 testHaskell2010Core0PreludeData :: Either String ()
 testHaskell2010Core0PreludeData = do
@@ -2031,6 +2052,15 @@ testHaskell2010NativeLLVMShape = do
   assertBool "native LLVM allocates thunks" ("@hegglog_hs_make_thunk" `Text.isInfixOf` llvmText)
   assertBool "native LLVM boxes Int results" ("@hegglog_hs_make_int" `Text.isInfixOf` llvmText)
   assertBool "native LLVM enters closures indirectly" ("call ptr %fun_code" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeNewtypeErasure :: Either String ()
+testHaskell2010NativeNewtypeErasure = do
+  llvmText <- compileHaskell2010NativeText haskell2010NewtypeRepresentationSource
+  baselineText <- compileHaskell2010NativeText "module Main where\nmain = 42\n"
+  expectEqual
+    "native LLVM newtype data allocations match unwrapped Int baseline"
+    (countTextOccurrences "call ptr @hegglog_hs_make_data" baselineText)
+    (countTextOccurrences "call ptr @hegglog_hs_make_data" llvmText)
 
 testHaskell2010NativeLLVMExecution :: IO (Either String ())
 testHaskell2010NativeLLVMExecution = do
@@ -5698,6 +5728,14 @@ haskell2010ADTBoxSource =
   \main = case Box 7 of\n\
   \  Box x -> x\n"
 
+haskell2010NewtypeRepresentationSource :: Text
+haskell2010NewtypeRepresentationSource =
+  "module Main where\n\
+  \newtype Age = Age Int\n\
+  \unAge :: Age -> Int\n\
+  \unAge (Age n) = n\n\
+  \main = unAge (Age 42)\n"
+
 haskell2010PolymorphicADTSource :: Text
 haskell2010PolymorphicADTSource =
   "module Main where\n\
@@ -5898,6 +5936,7 @@ containsTypeLambda = \case
   H2010Core.CLet bind body _ -> bindContainsTypeLambda bind || containsTypeLambda body
   H2010Core.CCase scrutinee _ alternatives _ ->
     containsTypeLambda scrutinee || any altContainsTypeLambda alternatives
+  H2010Core.CCoerce expression _ -> containsTypeLambda expression
   H2010Core.CPrimOp _ arguments _ -> any containsTypeLambda arguments
   _ -> False
 
@@ -5910,6 +5949,7 @@ containsTermLambda = \case
   H2010Core.CLet bind body _ -> bindContainsTermLambda bind || containsTermLambda body
   H2010Core.CCase scrutinee _ alternatives _ ->
     containsTermLambda scrutinee || any altContainsTermLambda alternatives
+  H2010Core.CCoerce expression _ -> containsTermLambda expression
   H2010Core.CPrimOp _ arguments _ -> any containsTermLambda arguments
   _ -> False
 
@@ -5939,6 +5979,7 @@ containsCase = \case
   H2010Core.CTypeLam _ body _ -> containsCase body
   H2010Core.CTypeApp callee _ _ -> containsCase callee
   H2010Core.CLet bind body _ -> bindContainsCase bind || containsCase body
+  H2010Core.CCoerce expression _ -> containsCase expression
   H2010Core.CPrimOp _ arguments _ -> any containsCase arguments
   _ -> False
 
@@ -5956,6 +5997,7 @@ countCases = \case
   H2010Core.CTypeLam _ body _ -> countCases body
   H2010Core.CTypeApp callee _ _ -> countCases callee
   H2010Core.CLet bind body _ -> bindCountCases bind + countCases body
+  H2010Core.CCoerce expression _ -> countCases expression
   H2010Core.CPrimOp _ arguments _ -> sum (map countCases arguments)
   _ -> 0
 
@@ -5982,8 +6024,55 @@ containsConstructorAlt occurrence = \case
   H2010Core.CTypeLam _ body _ -> containsConstructorAlt occurrence body
   H2010Core.CTypeApp callee _ _ -> containsConstructorAlt occurrence callee
   H2010Core.CLet bind body _ -> bindContainsConstructorAlt occurrence bind || containsConstructorAlt occurrence body
+  H2010Core.CCoerce expression _ -> containsConstructorAlt occurrence expression
   H2010Core.CPrimOp _ arguments _ -> any (containsConstructorAlt occurrence) arguments
   _ -> False
+
+containsConstructorExpr :: Text -> H2010Core.CoreExpr -> Bool
+containsConstructorExpr occurrence = \case
+  H2010Core.CCon name _ ->
+    H2010Names.nameOcc name == occurrence
+  H2010Core.CLam _ body _ -> containsConstructorExpr occurrence body
+  H2010Core.CApp callee arg _ -> containsConstructorExpr occurrence callee || containsConstructorExpr occurrence arg
+  H2010Core.CTypeLam _ body _ -> containsConstructorExpr occurrence body
+  H2010Core.CTypeApp callee _ _ -> containsConstructorExpr occurrence callee
+  H2010Core.CLet bind body _ -> bindContainsConstructorExpr occurrence bind || containsConstructorExpr occurrence body
+  H2010Core.CCase scrutinee _ alternatives _ ->
+    containsConstructorExpr occurrence scrutinee || any (altContainsConstructorExpr occurrence) alternatives
+  H2010Core.CCoerce expression _ -> containsConstructorExpr occurrence expression
+  H2010Core.CPrimOp _ arguments _ -> any (containsConstructorExpr occurrence) arguments
+  _ -> False
+
+bindContainsConstructorExpr :: Text -> H2010Core.CoreBind -> Bool
+bindContainsConstructorExpr occurrence = \case
+  H2010Core.CoreNonRec _ rhs -> containsConstructorExpr occurrence rhs
+  H2010Core.CoreRec pairs -> any (containsConstructorExpr occurrence . snd) pairs
+
+altContainsConstructorExpr :: Text -> H2010Core.CoreAlt -> Bool
+altContainsConstructorExpr occurrence (H2010Core.CoreAlt _ _ body) =
+  containsConstructorExpr occurrence body
+
+containsCoerce :: H2010Core.CoreExpr -> Bool
+containsCoerce = \case
+  H2010Core.CCoerce _ _ -> True
+  H2010Core.CLam _ body _ -> containsCoerce body
+  H2010Core.CApp callee arg _ -> containsCoerce callee || containsCoerce arg
+  H2010Core.CTypeLam _ body _ -> containsCoerce body
+  H2010Core.CTypeApp callee _ _ -> containsCoerce callee
+  H2010Core.CLet bind body _ -> bindContainsCoerce bind || containsCoerce body
+  H2010Core.CCase scrutinee _ alternatives _ ->
+    containsCoerce scrutinee || any altContainsCoerce alternatives
+  H2010Core.CPrimOp _ arguments _ -> any containsCoerce arguments
+  _ -> False
+
+bindContainsCoerce :: H2010Core.CoreBind -> Bool
+bindContainsCoerce = \case
+  H2010Core.CoreNonRec _ rhs -> containsCoerce rhs
+  H2010Core.CoreRec pairs -> any (containsCoerce . snd) pairs
+
+altContainsCoerce :: H2010Core.CoreAlt -> Bool
+altContainsCoerce (H2010Core.CoreAlt _ _ body) =
+  containsCoerce body
 
 bindContainsConstructorAlt :: Text -> H2010Core.CoreBind -> Bool
 bindContainsConstructorAlt occurrence = \case
@@ -6041,6 +6130,8 @@ containsVarOccurrence occurrence = \case
       || ( H2010Names.nameOcc (H2010Core.coreBinderName binder) /= occurrence
              && any (altContainsVarOccurrence occurrence) alternatives
          )
+  H2010Core.CCoerce expression _ ->
+    containsVarOccurrence occurrence expression
   H2010Core.CPrimOp _ arguments _ ->
     any (containsVarOccurrence occurrence) arguments
   _ ->
@@ -6071,6 +6162,7 @@ countTypeApps = \case
   H2010Core.CLet bind body _ -> bindCountTypeApps bind + countTypeApps body
   H2010Core.CCase scrutinee _ alternatives _ ->
     countTypeApps scrutinee + sum (map altCountTypeApps alternatives)
+  H2010Core.CCoerce expression _ -> countTypeApps expression
   H2010Core.CPrimOp _ arguments _ -> sum (map countTypeApps arguments)
   _ -> 0
 

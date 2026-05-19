@@ -185,13 +185,14 @@ validateConstructorRhs env scope name fields resultTy =
         Nothing ->
           Left [STGConstructorResultMismatch name (CoreValidate.constructorResult info) resultTy]
         Just expectedFields ->
-          collectValidations $
-            [checkConstructorArity name expectedFields fields]
-              <> map (validateAtom env scope) fields
-              <> zipWith
-                (checkConstructorField name)
-                [0 ..]
-                (zip expectedFields (map stgAtomType fields))
+          let expectedRuntimeFields = map (CoreValidate.eraseNewtypeType env) expectedFields
+           in collectValidations $
+                [checkConstructorArity name expectedRuntimeFields fields]
+                  <> map (validateAtom env scope) fields
+                  <> zipWith
+                    (checkConstructorField name)
+                    [0 ..]
+                    (zip expectedRuntimeFields (map stgAtomType fields))
 
 validateCalleeApplication :: Scope -> RName -> [STGAtom] -> CoreType -> Either [STGValidationError] ()
 validateCalleeApplication scope callee arguments resultTy =
@@ -259,14 +260,15 @@ validateAltCon env scrutineeTy altCon binders =
             Nothing ->
               Left [STGConstructorResultMismatch name (CoreValidate.constructorResult info) scrutineeTy]
             Just expectedFields ->
-              collectValidations
-                [ checkAltArity altCon (length expectedFields) binders
-                , collectValidations $
-                    zipWith
-                      (checkAltField name)
-                      [0 ..]
-                      (zip expectedFields binders)
-                ]
+              let expectedRuntimeFields = map (CoreValidate.eraseNewtypeType env) expectedFields
+               in collectValidations
+                    [ checkAltArity altCon (length expectedRuntimeFields) binders
+                    , collectValidations $
+                        zipWith
+                          (checkAltField name)
+                          [0 ..]
+                          (zip expectedRuntimeFields binders)
+                    ]
 
 validatePrimitive :: CorePrimOp -> [STGAtom] -> CoreType -> [Either [STGValidationError] ()]
 validatePrimitive op arguments resultTy =

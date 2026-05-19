@@ -156,6 +156,8 @@ optimizeExpr config validationEnv env expression = do
         let altEnvBase = Map.insert (coreBinderName binder) (coreBinderType binder) env
         optimizedAlts <- traverse (optimizeAlt altEnvBase) alternatives
         pure (CCase optimizedScrutinee binder optimizedAlts ty)
+      CCoerce inner ty ->
+        CCoerce <$> optimizeExpr config validationEnv env inner <*> pure ty
       CPrimOp op arguments ty ->
         CPrimOp op <$> traverse (optimizeExpr config validationEnv env) arguments <*> pure ty
   tryEgglogRewrite config env rebuilt >>= tryKnownCaseRewrite validationEnv env
@@ -411,6 +413,8 @@ toANFExpr env expression =
       | otherwise -> unsupported
       where
         _ = ty
+    CCoerce inner _ ->
+      toANFExpr env inner
     CCase scrutinee binder alternatives ty
       | coreBinderName binder `Set.notMember` Set.unions [freeVarsExpr body | CoreAlt _ _ body <- alternatives]
       , Just (trueBody, falseBody) <- boolCaseBodies alternatives
@@ -463,6 +467,8 @@ atomize env expression =
       do
         atom <- toANFAtom env expression
         pure (atom, id)
+    CCoerce inner _ ->
+      atomize env inner
     _ -> do
       expr <- toANFExpr env expression
       temp <- freshANFTemp (exprType expression)
@@ -757,6 +763,8 @@ expressionCost = \case
   CLet bind body _ -> 1 + bindCost bind + expressionCost body
   CCase scrutinee _ alternatives _ ->
     1 + expressionCost scrutinee + sum [expressionCost body | CoreAlt _ _ body <- alternatives]
+  CCoerce expression _ ->
+    expressionCost expression
   CPrimOp _ arguments _ ->
     2 + sum (map expressionCost arguments)
 
@@ -787,6 +795,8 @@ uniquesInExpr = \case
     uniquesInExpr scrutinee
       <> [nameUnique (coreBinderName binder)]
       <> concatMap uniquesInAlt alternatives
+  CCoerce expression _ ->
+    uniquesInExpr expression
   CPrimOp _ arguments _ -> concatMap uniquesInExpr arguments
 
 uniquesInAlt :: CoreAlt -> [Int]

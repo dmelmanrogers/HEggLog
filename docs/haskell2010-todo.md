@@ -9287,7 +9287,7 @@ Notes:
 ## ADT-004 — newtype representation
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -9316,9 +9316,14 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- newtype representation is implemented, completed, or explicitly documented according to status `not started`.
+- newtype representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+
+Implementation notes:
+- `newtype` constructors are represented distinctly in Core metadata as `CoreNewtypeConstructor`.
+- Construction and pattern unwrapping elaborate to typed Core coercions instead of boxed data constructor values or constructor-case alternatives.
+- Core-to-STG lowering erases newtype types to their runtime representation so native code does not allocate an additional wrapper beyond the existing baseline runtime objects.
 
 Required tests:
 - typechecker unit tests

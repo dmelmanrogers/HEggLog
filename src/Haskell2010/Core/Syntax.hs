@@ -4,6 +4,7 @@ module Haskell2010.Core.Syntax
   , CoreBind (..)
   , CoreBinder (..)
   , CoreConstructorInfo (..)
+  , CoreConstructorRepresentation (..)
   , CoreExpr (..)
   , CoreModule (..)
   , CorePrimOp (..)
@@ -54,7 +55,13 @@ data CoreConstructorInfo = CoreConstructorInfo
   { constructorTyVars :: [RName]
   , constructorFields :: [CoreType]
   , constructorResult :: CoreType
+  , constructorRepresentation :: CoreConstructorRepresentation
   }
+  deriving stock (Show, Eq, Ord)
+
+data CoreConstructorRepresentation
+  = CoreDataConstructor
+  | CoreNewtypeConstructor
   deriving stock (Show, Eq, Ord)
 
 data CoreType
@@ -88,6 +95,7 @@ data CoreExpr
   | CTypeApp CoreExpr [CoreType] CoreType
   | CLet CoreBind CoreExpr CoreType
   | CCase CoreExpr CoreBinder [CoreAlt] CoreType
+  | CCoerce CoreExpr CoreType
   | CPrimOp CorePrimOp [CoreExpr] CoreType
   deriving stock (Show, Eq, Ord)
 
@@ -126,6 +134,7 @@ exprType = \case
   CTypeApp _ _ ty -> ty
   CLet _ _ ty -> ty
   CCase _ _ _ ty -> ty
+  CCoerce _ ty -> ty
   CPrimOp _ _ ty -> ty
 
 bindersOf :: CoreBind -> [CoreBinder]

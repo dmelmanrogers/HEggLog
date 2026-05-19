@@ -5182,7 +5182,7 @@
     {
       "id": "ADT-004",
       "title": "newtype representation",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TYPE-015",
@@ -5191,9 +5191,14 @@
       "blocks": [],
       "milestone": "M8",
       "acceptance_criteria": [
-        "newtype representation is implemented, completed, or explicitly documented according to status `not started`.",
+        "newtype representation is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+      ],
+      "implementation_notes": [
+        "Core constructor metadata distinguishes `CoreNewtypeConstructor` from boxed data constructors.",
+        "Newtype construction and pattern unwrapping elaborate to typed Core coercions instead of boxed constructor values or constructor-case alternatives.",
+        "Core-to-STG lowering erases newtype types to their runtime representation, so native code avoids wrapper allocation beyond baseline runtime objects."
       ],
       "required_tests": [
         "typechecker unit tests",
