@@ -143,6 +143,9 @@ testGroups =
       , pureTest "expands type synonyms" testHaskell2010TypeSynonymExpansion
       , pureTest "infers higher-kinded type synonym parameters" testHaskell2010TypeSynonymKindInference
       , pureTest "rejects recursive type synonyms" testHaskell2010TypeSynonymRejectsCycles
+      , pureTest "typechecks newtype constructors and patterns" testHaskell2010NewtypeTyping
+      , pureTest "infers higher-kinded newtype parameters" testHaskell2010NewtypeKindInference
+      , pureTest "rejects invalid newtype constructor arity" testHaskell2010NewtypeRejectsInvalidArity
       , pureTest "typechecks explicit polymorphic identity" testHaskell2010Core0Identity
       , pureTest "typechecks explicit polymorphic const" testHaskell2010Core0Const
       , pureTest "generalizes local let polymorphism" testHaskell2010Core0PolymorphicLet
@@ -1227,6 +1230,44 @@ testHaskell2010TypeSynonymRejectsCycles =
       Left H2010Typecheck.RecursiveTypeSynonym {} -> Right ()
       Left err -> Left ("expected recursive type synonym rejection, got: " <> show err)
       Right coreModule -> Left ("recursive type synonyms typechecked unexpectedly: " <> show coreModule)
+
+testHaskell2010NewtypeTyping :: Either String ()
+testHaskell2010NewtypeTyping =
+  expectCoreEvalInt
+    "newtype constructor and pattern typing"
+    42
+    =<< evalHaskell2010Binding
+      "main"
+      "module Core0 where\n\
+      \newtype Age = Age Int\n\
+      \unAge :: Age -> Int\n\
+      \unAge (Age n) = n\n\
+      \main = unAge (Age 42)\n"
+
+testHaskell2010NewtypeKindInference :: Either String ()
+testHaskell2010NewtypeKindInference =
+  expectCoreEvalInt
+    "higher-kinded newtype parameter inference"
+    7
+    =<< evalHaskell2010Binding
+      "main"
+      "module Core0 where\n\
+      \newtype Wrap f = Wrap (f Int)\n\
+      \use :: Wrap Maybe -> Int\n\
+      \use (Wrap (Just n)) = n\n\
+      \main = use (Wrap (Just 7))\n"
+
+testHaskell2010NewtypeRejectsInvalidArity :: Either String ()
+testHaskell2010NewtypeRejectsInvalidArity =
+  case
+    typecheckHaskell2010Raw
+      "module Core0 where\n\
+      \newtype Bad = Bad Int Bool\n\
+      \main = 0\n"
+    of
+      Left H2010Typecheck.InvalidNewtypeConstructorArity {} -> Right ()
+      Left err -> Left ("expected invalid newtype constructor arity, got: " <> show err)
+      Right coreModule -> Left ("invalid newtype constructor typechecked unexpectedly: " <> show coreModule)
 
 testHaskell2010Core0If :: Either String ()
 testHaskell2010Core0If = do

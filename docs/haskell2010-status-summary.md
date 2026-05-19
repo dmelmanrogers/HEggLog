@@ -26,12 +26,14 @@ values when the root is printable.
 HeggLog now compiles the current Haskell 2010 executable subset from `.hs`
 source to native executables. The subset includes `Int`, `Bool`, functions,
 lazy lets and arguments, custom ADTs, polymorphic constructors, constructor
-cases, nested constructor patterns, list and tuple expressions/patterns/types,
-built-in `Maybe`, `Either`, and `Ordering`, generated Core bindings for basic
-Prelude list/Bool functions, recursive top-level/local functions, recursive
-list functions, lazy constructor fields, user-defined single-parameter classes
-with concrete instances and explicit constrained functions, and built-in
-Prelude dictionaries for `Eq Int`, `Eq Bool`, `Ord Int`, `Ord Bool`, and
+cases, nested constructor patterns, newtype constructor expressions and
+patterns through the current boxed representation, list and tuple
+expressions/patterns/types, built-in `Maybe`, `Either`, and `Ordering`,
+generated Core bindings for basic Prelude list/Bool functions, recursive
+top-level/local functions, recursive list functions, lazy constructor fields,
+user-defined single-parameter classes with concrete instances and explicit
+constrained functions, and built-in Prelude dictionaries for `Eq Int`,
+`Eq Bool`, `Ord Int`, `Ord Bool`, and
 executable `Num Int` methods. Guarded RHSs, guarded case alternatives,
 as-pattern aliases, and guard-fallthrough no-match behavior are also
 implemented. The first IO printing slice is implemented for `IO`,
@@ -91,12 +93,13 @@ The Haskell2010 path now typechecks renamed source and emits validating typed
 Core for the current executable subset: explicit signatures, HM generalization
 and instantiation, top-level functions, lambdas, application, local `let`, `if`
 desugared to Bool `case`, explicit Bool and user-constructor `case`, custom
-`data` declarations, polymorphic constructors, constructor patterns, nested
-constructor patterns, list and tuple expressions/patterns/types, built-in
-Prelude data constructors, wildcard patterns, literal patterns, short-circuit
-`&&`/`||`, generated Prelude bindings for `id`, `const`, `not`, `otherwise`,
-`map`, `foldr`, `length`, `filter`, and `reverse`; dictionary-backed `Eq`,
-`Ord`, and `Num` methods for the first built-in instances; guarded RHSs and
+`data` declarations, `newtype` declarations with exactly one field,
+polymorphic constructors, constructor patterns, nested constructor patterns,
+list and tuple expressions/patterns/types, built-in Prelude data constructors,
+wildcard patterns, literal patterns, short-circuit `&&`/`||`, generated Prelude
+bindings for `id`, `const`, `not`, `otherwise`, `map`, `foldr`, `length`,
+`filter`, and `reverse`; dictionary-backed `Eq`, `Ord`, and `Num` methods for
+the first built-in instances; guarded RHSs and
 guarded case alternatives desugared to Bool `case`; as-pattern aliases lowered
 as local Core bindings; `IO` actions for `putStrLn`, `print`, `return`, `(>>)`,
 expression-only `do` sequencing; left and right operator sections over the
@@ -219,9 +222,10 @@ and compiled to native executables through the existing clang toolchain.
    as oracle. Completed for the safe Core-0 `Int`/`Bool` fragment and expanded
    to known literal and saturated known-constructor case/projection rewrites.
 10. Broader ADT and pattern-match Core support. Completed for custom ADTs,
-    polymorphic constructors, constructor cases, nested constructor patterns,
-    lazy constructor fields, STG lowering/evaluation, native LLVM execution,
-    and wet-tested default/no-egglog CLI runs.
+    newtype typing through the current boxed representation, polymorphic
+    constructors, constructor cases, nested constructor patterns, lazy
+    constructor fields, STG lowering/evaluation, native LLVM execution, and
+    wet-tested default/no-egglog CLI runs.
 11. Prelude Bool/list/tuple runtime expansion. Completed for built-in list,
     tuple, unit, `Maybe`, `Either`, and `Ordering` constructors/types,
     short-circuit Bool operators, generated Core Prelude bindings for `id`,

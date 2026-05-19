@@ -89,6 +89,7 @@ data TypecheckError
   | KindOccursCheck Int Kind
   | RecursiveTypeSynonym [RName]
   | TypeSynonymArityMismatch RName Int Int
+  | InvalidNewtypeConstructorArity RName Int
   | AmbiguousTypeVariable Int
   | CoreValidationFailed [CoreValidate.CoreValidationError]
   deriving stock (Show, Eq)
@@ -285,6 +286,11 @@ renderTypecheckError = \case
       <> renderInt expected
       <> " argument(s), got "
       <> renderInt actual
+  InvalidNewtypeConstructorArity name actual ->
+    "newtype constructor `"
+      <> renderRName name
+      <> "` must have exactly one field, got "
+      <> renderInt actual
   AmbiguousTypeVariable meta ->
     "ambiguous Core-0 type variable ?" <> renderInt meta
   CoreValidationFailed errors ->
@@ -318,6 +324,7 @@ collectTypeConstructors decls = do
   let synonyms = collectTypeSynonyms decls
   validateTypeSynonymCycles synonyms
   modify (\state -> state {typeConstructors = seeded, typeSynonyms = synonyms})
+  traverse_ validateNewtypeDecl decls
   traverse_ inferDeclKinds decls
   finalized <- finalizeTypeConstructors seeded
   modify (\state -> state {typeConstructors = finalized})
@@ -337,6 +344,18 @@ insertTypeConstructor :: RName -> [RName] -> Map.Map RName TypeConstructorInfo -
 insertTypeConstructor name params acc = do
   paramKinds <- traverse (const freshKindMeta) params
   pure (Map.insert name (TypeConstructorInfo (foldr KindArrow StarKind paramKinds)) acc)
+
+validateNewtypeDecl :: RDecl -> InferM ()
+validateNewtypeDecl = \case
+  RNewtypeDecl _ _ constructor _ ->
+    validateNewtypeConstructor constructor
+  _ ->
+    pure ()
+
+validateNewtypeConstructor :: RConDecl -> InferM ()
+validateNewtypeConstructor (RConDecl constructorName fields) =
+  unless (length fields == 1) $
+    throwTypecheck (InvalidNewtypeConstructorArity constructorName (length fields))
 
 collectTypeSynonyms :: [RDecl] -> Map.Map RName TypeSynonymInfo
 collectTypeSynonyms =

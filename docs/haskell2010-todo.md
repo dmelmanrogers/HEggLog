@@ -211,26 +211,26 @@ Rules:
 
 # Next 20 Implementation Tasks
 
-1. TYPE-014 — newtype typing: Required before `newtype` can move from renamed syntax to executable semantics.
-2. TYPE-016 — constraint representation: Finish the explicit internal model used by class constraints, diagnostics, and dictionary elaboration.
-3. TYPE-017 — class constraints placeholder: Close the remaining placeholder behavior so constraints are represented deliberately.
-4. TYPE-019 — monomorphism restriction decision/documentation: Decide and document the supported Haskell 2010 behavior before broader defaulting work.
-5. TYPE-020 — type error diagnostics with spans: Preserve source attribution through typechecking failures.
-6. TYPE-021 — property tests for inference: Add invariant coverage around the growing inference surface.
-7. RTS-009 — process-lifetime arena or GC decision: Set the memory-management direction for native lazy runtime objects.
-8. RTS-019 — runtime leak/ownership documentation: Document ownership guarantees before expanding runtime allocation pressure.
-9. ADT-004 — newtype representation: Define runtime/Core representation for `newtype`.
-10. ADT-005 — record field labels: Add the name-resolution and selector surface required for records.
-11. PAT-008 — irrefutable/lazy patterns: Implement lazy pattern semantics rather than only parsed/renamed syntax.
-12. PAT-014 — exhaustiveness warning placeholder: Establish the diagnostic placeholder for later pattern coverage checking.
-13. CORE-REC-004 — recursive pattern bindings: Desugar recursive pattern bindings through the Core recursion model.
-14. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
-15. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
-16. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
-17. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
-18. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
-19. TC-003 — superclass representation: Model superclass relationships before broader class solving.
-20. TC-004 — method signatures: Broaden class method typechecking beyond the current single-parameter slice.
+1. TYPE-016 — constraint representation: Finish the explicit internal model used by class constraints, diagnostics, and dictionary elaboration.
+2. TYPE-017 — class constraints placeholder: Close the remaining placeholder behavior so constraints are represented deliberately.
+3. TYPE-019 — monomorphism restriction decision/documentation: Decide and document the supported Haskell 2010 behavior before broader defaulting work.
+4. TYPE-020 — type error diagnostics with spans: Preserve source attribution through typechecking failures.
+5. TYPE-021 — property tests for inference: Add invariant coverage around the growing inference surface.
+6. RTS-009 — process-lifetime arena or GC decision: Set the memory-management direction for native lazy runtime objects.
+7. RTS-019 — runtime leak/ownership documentation: Document ownership guarantees before expanding runtime allocation pressure.
+8. ADT-004 — newtype representation: Define runtime/Core representation for `newtype`.
+9. ADT-005 — record field labels: Add the name-resolution and selector surface required for records.
+10. PAT-008 — irrefutable/lazy patterns: Implement lazy pattern semantics rather than only parsed/renamed syntax.
+11. PAT-014 — exhaustiveness warning placeholder: Establish the diagnostic placeholder for later pattern coverage checking.
+12. CORE-REC-004 — recursive pattern bindings: Desugar recursive pattern bindings through the Core recursion model.
+13. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
+14. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
+15. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
+16. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
+17. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
+18. TC-003 — superclass representation: Model superclass relationships before broader class solving.
+19. TC-005 — default methods: Implement default class method typing and dictionary filling.
+20. TC-006 — constraint solver: Build the solver needed beyond exact local and concrete instance lookup.
 
 # Task Backlog
 
@@ -5623,7 +5623,7 @@ Notes:
 ## TYPE-014 — newtype typing
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -5652,7 +5652,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- newtype typing is implemented, completed, or explicitly documented according to status `not started`.
+- newtype typing is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -5668,7 +5668,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M4 (HM typechecker). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M4 (HM typechecker). Newtype declarations now typecheck through the current constructor metadata path, enforce Haskell's exactly-one-field newtype constructor invariant, infer/check parameter kinds including higher-kinded fields, and support constructor expressions and patterns in the executable subset. Runtime/Core representation optimization remains ADT-004.
 
 ## TYPE-015 — ADT constructor typing
 

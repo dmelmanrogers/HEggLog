@@ -168,6 +168,15 @@
       "notes": "Multiple top-level value definitions in one module."
     },
     {
+      "name": "declarations.newtype-wrapper",
+      "sourceFile": "test/haskell2010/conformance/declarations/newtype-wrapper.hs",
+      "category": "declarations",
+      "expectedStatus": "native-success",
+      "expectedStdout": "42\n",
+      "requiredStage": "native",
+      "notes": "Newtype constructor and pattern typing through the current boxed executable representation."
+    },
+    {
       "name": "laziness.const-unused-div",
       "sourceFile": "test/haskell2010/conformance/laziness/const-unused-div.hs",
       "category": "laziness",
