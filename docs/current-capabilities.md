@@ -136,7 +136,8 @@ Current status:
   lets/arguments, lazy constructor fields, Prelude list functions, tuple and
   built-in Prelude constructor cases, short-circuit Bool operators, and
   guarded self recursion, local factorial recursion, top-level fibonacci
-  recursion, mutual recursion, recursive list functions, user class dictionary
+  recursion, mutual recursion, recursive list functions, recursive pattern
+  bindings, user class dictionary
   calls, built-in `Eq`/`Ord`/`Num` dictionary calls, guarded RHS/as-pattern
   programs, IO output actions, guard fallthrough no-match reporting, and
   division-by-zero reporting

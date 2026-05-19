@@ -160,6 +160,9 @@ Required desugarings include:
 
 Every desugared Core program must validate. Desugaring must preserve source
 spans or provenance enough for diagnostics through later phases.
+Non-variable pattern bindings lower to lazy selector bindings; when those
+selectors are mutually recursive, they participate in the existing Core
+recursive binding-group model.
 
 ## Current Status
 
@@ -184,13 +187,14 @@ constructors/selectors, dictionary-passed method calls, and built-in `Eq Int`,
 `print`, `return`, `(>>)`, and expression-only `do` sequencing with local
 `let`. It also covers `fromInteger`, overloaded integer literals, numeric
 defaulting to executable `Int`, inferred constrained helper schemes, and
-SCC-based binding generalization. It also covers import-driven dependency-file
-loading, export/import filtering, whole-program Core flattening, and root
-`main` native entrypoint selection for the executable subset. It exposes
-structured exhaustiveness warning placeholders for partial `case`, function,
-and lambda patterns through the typechecker and native API. Full Haskell
-2010 type classes, broader `Show`, a full pattern coverage checker, richer
-pattern diagnostics, broader Prelude, and broader IO remain planned. The strict
+SCC-based binding generalization, and recursive non-variable pattern bindings.
+It also covers import-driven dependency-file loading, export/import filtering,
+whole-program Core flattening, and root `main` native entrypoint selection for
+the executable subset. It exposes structured exhaustiveness warning
+placeholders for partial `case`, function, and lambda patterns through the
+typechecker and native API. Full Haskell 2010 type classes, broader `Show`, a
+full pattern coverage checker, richer pattern diagnostics, broader Prelude, and
+broader IO remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

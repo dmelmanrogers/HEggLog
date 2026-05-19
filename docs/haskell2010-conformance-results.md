@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-19 07:02:09 UTC
+Date/time: 2026-05-19 07:19:31 UTC
 
-Commit hash tested: PAT-014 working tree before final task commit. The final
+Commit hash tested: CORE-REC-004 working tree before final task commit. The final
 commit for the task records the same source tree plus this results document.
 
 Primary conformance command run:

@@ -211,22 +211,21 @@ Rules:
 
 # Next 20 Implementation Tasks
 
-1. CORE-REC-004 — recursive pattern bindings: Desugar recursive pattern bindings through the Core recursion model.
-2. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
-3. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
-4. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
-5. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
-6. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
-7. TC-003 — superclass representation: Model superclass relationships before broader class solving.
-8. TC-005 — default methods: Implement default class method typing and dictionary filling.
-9. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
-10. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
-11. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
-12. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
-13. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
-14. TC-020 — Ix: Implement or explicitly defer the Haskell 2010 `Ix` class surface.
-15. TC-021 — numeric literal overloading: Finish the Haskell 2010 numeric literal overloading surface.
-16. TC-022 — defaulting: Finish the Haskell 2010 defaulting behavior for the supported numeric/class surface.
+1. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
+2. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
+3. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
+4. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
+5. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
+6. TC-003 — superclass representation: Model superclass relationships before broader class solving.
+7. TC-005 — default methods: Implement default class method typing and dictionary filling.
+8. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
+9. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
+10. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
+11. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
+12. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
+13. TC-020 — Ix: Implement or explicitly defer the Haskell 2010 `Ix` class surface.
+14. TC-021 — numeric literal overloading: Finish the Haskell 2010 numeric literal overloading surface.
+15. TC-022 — defaulting: Finish the Haskell 2010 defaulting behavior for the supported numeric/class surface.
 
 # Task Backlog
 
@@ -10434,7 +10433,7 @@ Notes:
 ## CORE-REC-004 — recursive pattern bindings
 
 Status:
-- not started
+- complete
 
 Category:
 - core
@@ -10446,7 +10445,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver recursive pattern bindings for Recursion and letrec while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Delivered recursive pattern bindings for the Haskell 2010 executable subset by lowering non-variable pattern bindings into lazy selector bindings that participate in the normal binding SCC analysis. Pattern selectors can now reference each other and other names in the same recursive group, emit Core `CoreRec` groups when needed, lower through STG, and compile through native execution.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -10456,22 +10455,27 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Haskell2010/Core/Syntax.hs`
-- `src/Haskell2010/Core/Validate.hs`
-- `src/Haskell2010/Core/Eval.hs`
-- `src/Haskell2010/Core/Pretty.hs`
+- `src/Haskell2010/Typecheck.hs`
 - `test/Main.hs`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-roadmap.md`
+- `docs/haskell2010-status-summary.md`
+- `docs/haskell2010-todo.md`
+- `docs/haskell2010-todo.json`
 
 Acceptance criteria:
-- recursive pattern bindings is implemented, completed, or explicitly documented according to status `not started`.
+- Recursive non-variable pattern bindings are accepted by the Haskell 2010 typechecker.
+- Pattern-bound selector names participate in recursive SCC analysis and emit Core recursive groups where dependencies require them.
+- Recursive pattern binding behavior is checked through Core evaluation, STG lowering/evaluation, and native LLVM/executable tests.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
 Required tests:
-- Core validator tests
-- Core golden tests
-- desugaring tests
-- negative Core tests
+- Haskell 2010 recursive pattern binding typechecker test
+- Core recursive group assertion
+- Core and STG evaluator oracle tests
+- Haskell 2010 native LLVM/executable test coverage
+- `cabal test hegglog-test --test-options='--hide-successes'`
 
 Documentation updates:
 - `docs/full-compiler-definition.md`

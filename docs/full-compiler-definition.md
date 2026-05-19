@@ -46,7 +46,9 @@ A full Haskell 2010 compiler requires:
 The current executable Haskell 2010 subset includes typed Core desugaring for
 left and right operator sections over the supported infix operator subset.
 Sections lower to generated lambdas and then continue through the existing
-Core, STG, LLVM, and native execution pipeline.
+Core, STG, LLVM, and native execution pipeline. Recursive non-variable pattern
+bindings also lower into lazy selector bindings that participate in the normal
+Core recursive binding model.
 
 The Haskell 2010 typechecker also exposes structured exhaustiveness warning
 placeholders for partial `case`, function, and lambda patterns through

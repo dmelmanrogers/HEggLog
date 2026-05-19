@@ -5817,7 +5817,7 @@
     {
       "id": "CORE-REC-004",
       "title": "recursive pattern bindings",
-      "status": "not started",
+      "status": "complete",
       "category": "core",
       "depends_on": [
         "STG-006"
@@ -5825,15 +5825,18 @@
       "blocks": [],
       "milestone": "M9",
       "acceptance_criteria": [
-        "recursive pattern bindings is implemented, completed, or explicitly documented according to status `not started`.",
+        "Recursive non-variable pattern bindings are accepted by the Haskell 2010 typechecker.",
+        "Pattern-bound selector names participate in recursive SCC analysis and emit Core recursive groups where dependencies require them.",
+        "Recursive pattern binding behavior is checked through Core evaluation, STG lowering/evaluation, and native LLVM/executable tests.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
-        "Core validator tests",
-        "Core golden tests",
-        "desugaring tests",
-        "negative Core tests"
+        "Haskell 2010 recursive pattern binding typechecker test",
+        "Core recursive group assertion",
+        "Core and STG evaluator oracle tests",
+        "Haskell 2010 native LLVM/executable test coverage",
+        "cabal test hegglog-test --test-options='--hide-successes'"
       ],
       "docs": [
         "docs/full-compiler-definition.md",

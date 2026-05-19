@@ -298,7 +298,8 @@ Status: implemented for the supported executable subset. Singleton
 self-recursive top-level and local bindings now emit recursive Core groups,
 mutual binding groups remain recursive, cons patterns parse as constructor
 patterns, and factorial, fibonacci, mutual recursion, guarded self recursion,
-and recursive list functions are covered by Core, STG, native, and wet tests.
+recursive list functions, and recursive non-variable pattern bindings are
+covered by Core, STG, native, and wet tests.
 Nontermination remains isolated to the existing black-hole/runtime tests.
 
 Deliverables:
@@ -306,6 +307,7 @@ Deliverables:
 - recursive top-level functions
 - mutually recursive bindings
 - recursive local `let`/`where`
+- recursive pattern bindings through Core recursive selector groups
 - recursive closures/thunks
 
 Acceptance criteria:
@@ -313,6 +315,7 @@ Acceptance criteria:
 - factorial compiles
 - fibonacci compiles
 - recursive list functions compile
+- recursive pattern bindings compile
 - nontermination tests are isolated from the normal test suite
 
 ### Phase 12 - Type Classes and Dictionary Passing
@@ -573,7 +576,7 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. Recursive pattern bindings through the Core recursion model.
+1. `Char` runtime representation across native/runtime execution.
 2. Haskell 2010 conformance matrix expansion for the broader executable
    surface.
 3. Broader `Show`/`String` interoperability, including `Show Char`,
@@ -636,7 +639,8 @@ Completed immediate tasks:
 - Haskell 2010 recursion coverage for the executable subset, including
   singleton self-recursive Core emission, local recursive `let` bindings,
   top-level fibonacci recursion, mutually recursive functions, cons-pattern
-  recursive list functions, and default/no-egglog native wet tests.
+  recursive list functions, recursive pattern bindings, and default/no-egglog
+  native wet tests.
 - Haskell 2010 type class dictionary representation, including user-defined
   single-parameter classes, concrete instances, structured explicit source constraints,
   generated dictionary constructors/selectors, Core dictionary arguments,

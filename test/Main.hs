@@ -164,6 +164,7 @@ testGroups =
       , pureTest "typechecks nested constructor patterns" testHaskell2010Core0NestedADTPatterns
       , pureTest "typechecks lists tuples and Prelude constructors" testHaskell2010Core0PreludeData
       , pureTest "typechecks recursive bindings" testHaskell2010Core0Recursion
+      , pureTest "typechecks recursive pattern bindings" testHaskell2010RecursivePatternBindings
       , pureTest "typechecks type class dictionaries" testHaskell2010Core0TypeClassDictionaries
       , pureTest "typechecks Prelude class dictionaries" testHaskell2010Core0PreludeClassDictionaries
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
@@ -1512,6 +1513,18 @@ testHaskell2010Core0Recursion = do
   expectCoreEvalInt "local factorial Core oracle" 120 =<< evalHaskell2010Binding "main" haskell2010LocalFactorialSource
   expectCoreEvalInt "mutual recursion Core oracle" 1 =<< evalHaskell2010Binding "main" haskell2010MutualRecursionSource
   expectCoreEvalInt "recursive list Core oracle" 10 =<< evalHaskell2010Binding "main" haskell2010RecursiveListSource
+
+testHaskell2010RecursivePatternBindings :: Either String ()
+testHaskell2010RecursivePatternBindings = do
+  coreModule <- typecheckHaskell2010 haskell2010RecursivePatternBindingSource
+  assertBool
+    "recursive pattern selectors are emitted"
+    (all (`containsBindingOccurrence` coreModule) ["ones", "x", "xs"])
+  assertBool
+    "recursive pattern selectors share a Core recursive group"
+    (coreModuleHasRecursiveOccurrences ["x", "xs"] coreModule)
+  expectCoreEvalInt "recursive pattern binding Core oracle" 2 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+  checkCoreToSTGInt "recursive pattern binding" 2 haskell2010RecursivePatternBindingSource
 
 testHaskell2010Core0TypeClassDictionaries :: Either String ()
 testHaskell2010Core0TypeClassDictionaries = do
@@ -5543,6 +5556,7 @@ haskell2010NativeSuccessExamples =
   , ("fibonacci", haskell2010FibonacciSource, "21\n")
   , ("mutual-recursion", haskell2010MutualRecursionSource, "1\n")
   , ("recursive-list", haskell2010RecursiveListSource, "10\n")
+  , ("recursive-pattern-binding", haskell2010RecursivePatternBindingSource, "2\n")
   , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
   , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
@@ -5564,6 +5578,7 @@ haskell2010NativeExecutableExamples =
   , ("partial-application", haskell2010PartialApplicationSource, "1\n")
   , ("prelude-lists", haskell2010ListPreludeSource, "321\n")
   , ("recursive-list", haskell2010RecursiveListSource, "10\n")
+  , ("recursive-pattern-binding", haskell2010RecursivePatternBindingSource, "2\n")
   , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
   , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
@@ -5771,6 +5786,14 @@ haskell2010RecursiveListSource =
   \  [] -> 0\n\
   \  y : ys -> y + sumList ys\n\
   \main = sumList [1, 2, 3, 4]\n"
+
+haskell2010RecursivePatternBindingSource :: Text
+haskell2010RecursivePatternBindingSource =
+  "module Main where\n\
+  \ones@(x : xs) = 1 : ones\n\
+  \main = case xs of\n\
+  \  y : _ -> x + y\n\
+  \  _ -> 0\n"
 
 haskell2010TypeClassDictionarySource :: Text
 haskell2010TypeClassDictionarySource =
@@ -6290,6 +6313,18 @@ coreBindPairs :: H2010Core.CoreBind -> [(H2010Core.CoreBinder, H2010Core.CoreExp
 coreBindPairs = \case
   H2010Core.CoreNonRec binder rhs -> [(binder, rhs)]
   H2010Core.CoreRec pairs -> pairs
+
+coreModuleHasRecursiveOccurrences :: [Text] -> H2010Core.CoreModule -> Bool
+coreModuleHasRecursiveOccurrences occurrences coreModule =
+  any recContainsAll (H2010Core.coreModuleBinds coreModule)
+ where
+  wanted = Set.fromList occurrences
+
+  recContainsAll = \case
+    H2010Core.CoreRec pairs ->
+      wanted `Set.isSubsetOf` Set.fromList [H2010Names.nameOcc (H2010Core.coreBinderName binder) | (binder, _) <- pairs]
+    H2010Core.CoreNonRec {} ->
+      False
 
 containsBindingPrefix :: Text -> H2010Core.CoreModule -> Bool
 containsBindingPrefix prefix coreModule =

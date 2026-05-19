@@ -31,6 +31,7 @@ patterns through the current boxed representation, list and tuple
 expressions/patterns/types, built-in `Maybe`, `Either`, and `Ordering`,
 generated Core bindings for basic Prelude list/Bool functions, recursive
 top-level/local functions, recursive list functions, lazy constructor fields,
+recursive non-variable pattern bindings through the Core recursion model,
 user-defined single-parameter classes with concrete instances and explicit
 constrained functions, and built-in Prelude dictionaries for `Eq Int`,
 `Eq Bool`, `Ord Int`, `Ord Bool`, and
@@ -344,7 +345,7 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Implement recursive pattern bindings while preserving the `.hg` compiler,
+Implement `Char` runtime representation while preserving the `.hg` compiler,
 Core evaluator, STG runtime,
 Core-to-STG lowering, native executable path, Egglog Core optimizer,
 ADT/list/tuple/Prelude/recursion/typeclass-dictionary support, built-in

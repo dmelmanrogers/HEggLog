@@ -1256,6 +1256,22 @@ patternTupleArities = \case
   RPIrrefutable pat -> patternTupleArities pat
   RPParen pat -> patternTupleArities pat
 
+patternBindingNames :: RPat -> [RName]
+patternBindingNames =
+  List.nub . go
+ where
+  go = \case
+    RPVar name -> [name]
+    RPCon _ patterns -> concatMap go patterns
+    RPRecordCon _ fields -> concatMap (go . snd) fields
+    RPLit {} -> []
+    RPWildcard -> []
+    RPTuple patterns -> concatMap go patterns
+    RPList patterns -> concatMap go patterns
+    RPAs name pat -> name : go pat
+    RPIrrefutable pat -> go pat
+    RPParen pat -> go pat
+
 typeTupleArities :: RHsType -> Set.Set Int
 typeTupleArities = \case
   RTyVar {} -> Set.empty
@@ -1702,6 +1718,7 @@ data SourceBinding = SourceBinding
   { sourceBindingSpan :: Maybe SourceSpan
   , sourceBindingName :: RName
   , sourceBindingPatterns :: [RPat]
+  , sourceBindingPatternBinding :: Maybe RPat
   , sourceBindingRhs :: RRhs
   , sourceBindingWhereDecls :: [RDecl]
   }
@@ -1711,6 +1728,7 @@ data PreparedBinding = PreparedBinding
   { preparedSpan :: Maybe SourceSpan
   , preparedName :: RName
   , preparedPatterns :: [RPat]
+  , preparedPatternBinding :: Maybe RPat
   , preparedRhs :: RRhs
   , preparedWhereDecls :: [RDecl]
   , preparedExpected :: MonoType
@@ -1805,6 +1823,7 @@ collectValueBindings =
                       { sourceBindingSpan = rDeclSpan decl
                       , sourceBindingName = name
                       , sourceBindingPatterns = patterns
+                      , sourceBindingPatternBinding = Nothing
                       , sourceBindingRhs = rhs
                       , sourceBindingWhereDecls = whereDecls
                       }
@@ -1817,14 +1836,26 @@ collectValueBindings =
                       { sourceBindingSpan = rDeclSpan decl
                       , sourceBindingName = name
                       , sourceBindingPatterns = []
+                      , sourceBindingPatternBinding = Nothing
                       , sourceBindingRhs = rhs
                       , sourceBindingWhereDecls = whereDecls
                       }
                    ]
             )
-        RPatternBinding pat _ _ ->
-          withTypecheckSpan (rPatSpan pat) $
-            throwTypecheck (UnsupportedCore0 ("top-level pattern binding " <> renderPatternShape pat))
+        RPatternBinding pat rhs whereDecls ->
+          pure
+            ( acc
+                <> [ SourceBinding
+                      { sourceBindingSpan = rDeclSpan decl
+                      , sourceBindingName = name
+                      , sourceBindingPatterns = []
+                      , sourceBindingPatternBinding = Just pat
+                      , sourceBindingRhs = rhs
+                      , sourceBindingWhereDecls = whereDecls
+                      }
+                   | name <- patternBindingNames pat
+                   ]
+            )
 
 ensureSignatureHasBinding :: [RName] -> RName -> InferM ()
 ensureSignatureHasBinding bindingNames name =
@@ -1840,6 +1871,7 @@ prepareBinding signatures binding =
           { preparedSpan = sourceBindingSpan binding
           , preparedName = sourceBindingName binding
           , preparedPatterns = sourceBindingPatterns binding
+          , preparedPatternBinding = sourceBindingPatternBinding binding
           , preparedRhs = sourceBindingRhs binding
           , preparedWhereDecls = sourceBindingWhereDecls binding
           , preparedExpected = schemeBody scheme
@@ -1853,6 +1885,7 @@ prepareBinding signatures binding =
           { preparedSpan = sourceBindingSpan binding
           , preparedName = sourceBindingName binding
           , preparedPatterns = sourceBindingPatterns binding
+          , preparedPatternBinding = sourceBindingPatternBinding binding
           , preparedRhs = sourceBindingRhs binding
           , preparedWhereDecls = sourceBindingWhereDecls binding
           , preparedExpected = expected
@@ -1864,12 +1897,21 @@ inferPreparedBinding :: TypeEnv -> PreparedBinding -> InferM InferredBinding
 inferPreparedBinding env prepared =
   withTypecheckSpan (preparedSpan prepared) $ do
     expr <-
-      inferFunctionBindingExpr
-        env
-        (FunctionPatternExhaustiveness (preparedName prepared))
-        (preparedPatterns prepared)
-        (preparedRhs prepared)
-        (preparedWhereDecls prepared)
+      case preparedPatternBinding prepared of
+        Nothing ->
+          inferFunctionBindingExpr
+            env
+            (FunctionPatternExhaustiveness (preparedName prepared))
+            (preparedPatterns prepared)
+            (preparedRhs prepared)
+            (preparedWhereDecls prepared)
+        Just pat ->
+          inferPatternBindingSelectorExpr
+            env
+            (preparedName prepared)
+            pat
+            (preparedRhs prepared)
+            (preparedWhereDecls prepared)
     unify (preparedExpected prepared) (typedExprType expr)
     pure (InferredBinding prepared expr)
 
@@ -1967,6 +2009,7 @@ collectInstanceMethods =
                       { sourceBindingSpan = rDeclSpan decl
                       , sourceBindingName = name
                       , sourceBindingPatterns = patterns
+                      , sourceBindingPatternBinding = Nothing
                       , sourceBindingRhs = rhs
                       , sourceBindingWhereDecls = whereDecls
                       }
@@ -2040,6 +2083,16 @@ monoTypeOccurrence = \case
 inferFunctionBindingExpr :: TypeEnv -> PatternExhaustivenessContext -> [RPat] -> RRhs -> [RDecl] -> InferM TypedExpr
 inferFunctionBindingExpr env context patterns rhs whereDecls = do
   inferLambdaRhs env context patterns rhs whereDecls
+
+inferPatternBindingSelectorExpr :: TypeEnv -> RName -> RPat -> RRhs -> [RDecl] -> InferM TypedExpr
+inferPatternBindingSelectorExpr env name pat rhs whereDecls = do
+  scrutinee <- inferRhs env rhs whereDecls
+  (bindings, _patternEnv) <- inferIrrefutablePatternBindings (typedExprType scrutinee) scrutinee pat
+  case List.find ((== name) . typedBindingName) bindings of
+    Just binding ->
+      pure (typedBindingRhs binding)
+    Nothing ->
+      throwTypecheck (UnsupportedCore0 ("pattern binding does not bind `" <> renderRName name <> "`"))
 
 inferLambda :: TypeEnv -> [RPat] -> RExpr -> InferM TypedExpr
 inferLambda env patterns bodyExpr =
@@ -5301,19 +5354,6 @@ renderMonoTypePrec contextPrec = \case
     "(" <> Text.intercalate ", " (map renderMonoType fields) <> ")"
   TyList elementType ->
     "[" <> renderMonoType elementType <> "]"
-
-renderPatternShape :: RPat -> Text
-renderPatternShape = \case
-  RPVar name -> "variable `" <> renderRName name <> "`"
-  RPCon name _ -> "constructor `" <> renderRName name <> "`"
-  RPRecordCon name _ -> "record constructor `" <> renderRName name <> "`"
-  RPLit literal -> "literal `" <> Text.pack (show literal) <> "`"
-  RPWildcard -> "wildcard"
-  RPTuple {} -> "tuple"
-  RPList {} -> "list"
-  RPAs name _ -> "as-pattern `" <> renderRName name <> "`"
-  RPIrrefutable {} -> "irrefutable pattern"
-  RPParen pat -> renderPatternShape pat
 
 renderInt :: Int -> Text
 renderInt =
