@@ -5480,7 +5480,7 @@
     {
       "id": "PAT-008",
       "title": "irrefutable/lazy patterns",
-      "status": "not started",
+      "status": "complete",
       "category": "core",
       "depends_on": [
         "ADT-001",
@@ -5489,15 +5489,16 @@
       "blocks": [],
       "milestone": "M8",
       "acceptance_criteria": [
-        "irrefutable/lazy patterns is implemented, completed, or explicitly documented according to status `not started`.",
+        "irrefutable/lazy patterns are implemented for the executable Haskell 2010 subset and validated through Core, STG, native, and conformance tests.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
         "Core validator tests",
-        "Core golden tests",
         "desugaring tests",
-        "negative Core tests"
+        "Core evaluator lazy/demand tests",
+        "native executable tests",
+        "conformance native-success fixture"
       ],
       "docs": [
         "docs/full-compiler-definition.md",

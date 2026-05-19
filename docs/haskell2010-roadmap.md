@@ -250,8 +250,8 @@ variable patterns, wildcard patterns, literal patterns, nested constructor
 patterns, tuple patterns, and list patterns are covered by Core, STG, native,
 and wet tests. Guarded RHSs, guarded case alternatives, as-pattern aliases, and
 guard-fallthrough no-match behavior are also implemented and wet-tested.
-Irrefutable/lazy pattern semantics and richer source-spanned pattern diagnostics
-remain later work.
+Irrefutable/lazy pattern semantics are implemented for the executable subset;
+richer source-spanned pattern diagnostics remain later work.
 
 Deliverables:
 
@@ -447,8 +447,8 @@ Acceptance criteria:
 
 Deliverables:
 
-- list comprehensions, arithmetic sequences, remaining where/declaration forms,
-  and lazy pattern forms
+- list comprehensions, arithmetic sequences, and remaining where/declaration
+  forms
 - record updates and partial record construction semantics beyond the current
   implemented record labels/selectors/construction/pattern subset
 - `newtype`, type synonyms, deriving, and default declarations
@@ -571,7 +571,7 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. Remaining pattern diagnostics and irrefutable/lazy pattern semantics.
+1. Remaining pattern diagnostics and exhaustiveness placeholders.
 2. Haskell 2010 conformance matrix expansion for the broader executable
    surface.
 3. Broader `Show`/`String` interoperability, including `Show Char`,

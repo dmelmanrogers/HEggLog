@@ -466,13 +466,13 @@
       "notes": "Handle-based IO and do-bind statements are beyond the current output-only IO slice."
     },
     {
-      "name": "unsupported.irrefutable-pattern",
-      "sourceFile": "test/haskell2010/conformance/unsupported/irrefutable-pattern.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "irrefutable",
-      "requiredStage": "typecheck",
-      "notes": "Irrefutable/lazy pattern semantics are parsed/renamed but not implemented."
+      "name": "patterns.irrefutable-pattern",
+      "sourceFile": "test/haskell2010/conformance/patterns/irrefutable-pattern.hs",
+      "category": "patterns",
+      "expectedStatus": "native-success",
+      "expectedStdout": "7\n",
+      "requiredStage": "native",
+      "notes": "Irrefutable/lazy patterns match without forcing the scrutinee and force mismatches only through demanded binders."
     },
     {
       "name": "unsupported.package-module-search-path",

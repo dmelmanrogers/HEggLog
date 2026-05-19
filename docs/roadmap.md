@@ -45,7 +45,7 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. Remaining pattern diagnostics and irrefutable/lazy pattern semantics.
+1. Remaining pattern diagnostics and exhaustiveness placeholders.
 2. Haskell 2010 conformance matrix expansion for the broader executable
    surface.
 3. Broader `Show`/`String` interoperability, including `Show Char`,
@@ -130,7 +130,8 @@ Completed Haskell 2010 roadmap work:
   alternatives, as-pattern aliases in parameters and case patterns, Core/STG
   no-matching-alternative behavior for guard fallthrough, native empty-case
   lowering, and default/no-egglog wet tests. Irrefutable/lazy pattern semantics
-  and richer source-spanned pattern diagnostics remain planned.
+  are implemented for the executable subset; richer source-spanned pattern
+  diagnostics remain planned.
 - Haskell 2010 IO printing slice: implemented `IO` typechecking and native
   `main :: IO ()` entrypoint execution, `putStrLn`, `print`, `return`, `(>>)`,
   expression-only `do` sequencing with local `let`, built-in `Show Int` and

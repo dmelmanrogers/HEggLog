@@ -211,18 +211,17 @@ Rules:
 
 # Next 20 Implementation Tasks
 
-1. PAT-008 — irrefutable/lazy patterns: Implement lazy pattern semantics rather than only parsed/renamed syntax.
-2. PAT-014 — exhaustiveness warning placeholder: Establish the diagnostic placeholder for later pattern coverage checking.
-3. CORE-REC-004 — recursive pattern bindings: Desugar recursive pattern bindings through the Core recursion model.
-4. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
-5. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
-6. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
-7. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
-8. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
-9. TC-003 — superclass representation: Model superclass relationships before broader class solving.
-10. TC-005 — default methods: Implement default class method typing and dictionary filling.
-11. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
-12. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
+1. PAT-014 — exhaustiveness warning placeholder: Establish the diagnostic placeholder for later pattern coverage checking.
+2. CORE-REC-004 — recursive pattern bindings: Desugar recursive pattern bindings through the Core recursion model.
+3. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
+4. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
+5. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
+6. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
+7. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
+8. TC-003 — superclass representation: Model superclass relationships before broader class solving.
+9. TC-005 — default methods: Implement default class method typing and dictionary filling.
+10. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
+11. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
 13. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
 14. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
 15. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
@@ -9231,7 +9230,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M8 (ADTs and pattern matching). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M8 (ADTs and pattern matching). Status reflects the codebase after the PAT-008 implementation and should be revised whenever implementation or conformance coverage changes.
 
 ## ADT-003 — polymorphic ADTs
 
@@ -9812,7 +9811,7 @@ Notes:
 ## PAT-008 — irrefutable/lazy patterns
 
 Status:
-- not started
+- complete
 
 Category:
 - core
@@ -9825,7 +9824,12 @@ Blocks:
 - none
 
 Scope:
-- Deliver irrefutable/lazy patterns for ADTs and pattern matching while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Irrefutable/lazy patterns are implemented for function and lambda parameters,
+  case alternatives, constructor patterns, record constructor patterns, tuple
+  patterns, list patterns, as-patterns, literals, wildcards, and nested lazy
+  patterns. Lazy patterns bind variables through lazy Core lets and defer
+  constructor mismatch or field projection failure until the demanded binder is
+  evaluated.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -9835,22 +9839,23 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Haskell2010/Core/Syntax.hs`
-- `src/Haskell2010/Core/Validate.hs`
-- `src/Haskell2010/Core/Eval.hs`
-- `src/Haskell2010/Core/Pretty.hs`
+- `src/Haskell2010/Typecheck.hs`
 - `test/Main.hs`
+- `test/haskell2010/conformance/manifest.json`
+- `test/haskell2010/conformance/patterns/irrefutable-pattern.hs`
+- `docs/haskell2010-conformance-matrix.md`
 
 Acceptance criteria:
-- irrefutable/lazy patterns is implemented, completed, or explicitly documented according to status `not started`.
+- irrefutable/lazy patterns are implemented for the executable Haskell 2010 subset and validated through Core, STG, native, and conformance tests.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
 Required tests:
 - Core validator tests
-- Core golden tests
 - desugaring tests
-- negative Core tests
+- Core evaluator lazy/demand tests
+- native executable tests
+- conformance native-success fixture
 
 Documentation updates:
 - `docs/full-compiler-definition.md`

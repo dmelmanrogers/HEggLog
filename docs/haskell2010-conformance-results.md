@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-19 06:09:43 UTC
+Date/time: 2026-05-19 06:36:58 UTC
 
-Commit hash tested: ADT-005 working tree before final task commit. The final
+Commit hash tested: PAT-008 working tree before final task commit. The final
 commit for the task records the same source tree plus this results document.
 
 Primary conformance command run:
@@ -37,11 +37,11 @@ Summary:
 | Manifest conformance fixtures | 53 |
 | Haskell source files in corpus | 54 |
 | HUnit test cases executed | 55 |
-| Native-success fixtures | 38 |
+| Native-success fixtures | 39 |
 | Native-runtime-error fixtures | 1 |
 | Compile-error fixtures | 6 |
-| Unsupported-documented fixtures | 8 |
-| Native subprocess compile/run checks | 41 |
+| Unsupported-documented fixtures | 7 |
+| Native subprocess compile/run checks | 42 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -64,9 +64,9 @@ explicit conformance cases rather than omitted.
 | `lists-tuples` | 2 | representative native tests exist |
 | `modules` | 2 | single-module and same-directory import tests exist |
 | `negative` | 6 | compile-error diagnostics covered, including a source-spanned type error |
-| `patterns` | 1 | guards/as-patterns representative native test exists |
+| `patterns` | 2 | guards/as-patterns and irrefutable/lazy pattern representative native tests exist |
 | `prelude` | 2 | list functions and class dictionaries covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
 | `typeclasses` | 2 | user dictionary and synonym-normalized constraint tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |
-| `unsupported` | 8 | unsupported features documented by failing cases |
+| `unsupported` | 7 | unsupported features documented by failing cases |

@@ -42,7 +42,7 @@ sequencing with local `let`, and built-in `Show Int`/`Show Bool` dictionaries.
 The following Haskell 2010 requirements are planned but not
 implemented:
 
-- irrefutable/lazy pattern semantics and richer pattern-match diagnostics
+- richer pattern-match diagnostics, including exhaustiveness placeholders
 - superclasses, default methods, instance contexts, deriving, and broader
   `Show`
 - broader Prelude/library subset
@@ -277,8 +277,8 @@ and compiled to native executables through the existing clang toolchain.
     alternatives, alias bindings for as-patterns in parameters and case
     alternatives, Core/STG no-matching-alternative behavior for guard
     fallthrough, native empty-case lowering, and wet-tested default/no-egglog
-    CLI runs. Irrefutable/lazy pattern semantics and richer source-spanned
-    pattern diagnostics remain planned.
+    CLI runs. Irrefutable/lazy patterns are implemented for the executable
+    subset; richer source-spanned pattern diagnostics remain planned.
 16. IO printing and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
     `putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing with
     local `let`, built-in `Show Int`/`Show Bool`, Core/STG output oracles,
@@ -339,8 +339,8 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Implement remaining pattern diagnostics and irrefutable/lazy pattern semantics
-while preserving the `.hg` compiler, Core evaluator, STG runtime,
+Implement remaining pattern diagnostics while preserving the `.hg` compiler,
+Core evaluator, STG runtime,
 Core-to-STG lowering, native executable path, Egglog Core optimizer,
 ADT/list/tuple/Prelude/recursion/typeclass-dictionary support, built-in
 `Eq`/`Ord`/`Num`/`Show` dictionary support, numeric defaulting,

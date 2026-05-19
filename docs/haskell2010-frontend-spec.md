@@ -187,8 +187,8 @@ defaulting to executable `Int`, inferred constrained helper schemes, and
 SCC-based binding generalization. It also covers import-driven dependency-file
 loading, export/import filtering, whole-program Core flattening, and root
 `main` native entrypoint selection for the executable subset. Full Haskell
-2010 type classes, broader `Show`, irrefutable/lazy patterns, richer pattern
-diagnostics, broader Prelude, and broader IO remain planned. The strict
+2010 type classes, broader `Show`, richer pattern diagnostics, broader
+Prelude, and broader IO remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

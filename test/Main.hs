@@ -150,6 +150,8 @@ testGroups =
       , pureTest "rejects invalid newtype constructor arity" testHaskell2010NewtypeRejectsInvalidArity
       , pureTest "typechecks record field labels selectors and patterns" testHaskell2010RecordFieldLabels
       , pureTest "rejects incomplete record construction" testHaskell2010RecordRejectsIncompleteConstruction
+      , pureTest "typechecks irrefutable lazy patterns" testHaskell2010IrrefutablePatterns
+      , pureTest "forces irrefutable patterns only through demanded binders" testHaskell2010IrrefutablePatternDemand
       , pureTest "represents class constraints structurally" testHaskell2010ConstraintRepresentation
       , pureTest "rejects invalid class constraint arity" testHaskell2010ConstraintRejectsInvalidArity
       , pureTest "rejects unsupported class constraint contexts deliberately" testHaskell2010ClassConstraintPlaceholders
@@ -1342,6 +1344,22 @@ testHaskell2010RecordRejectsIncompleteConstruction =
         | "missing fields" `Text.isInfixOf` H2010Typecheck.renderTypecheckError err -> Right ()
       Left err -> Left ("expected incomplete record construction rejection, got: " <> show err)
       Right coreModule -> Left ("incomplete record construction typechecked unexpectedly: " <> show coreModule)
+
+testHaskell2010IrrefutablePatterns :: Either String ()
+testHaskell2010IrrefutablePatterns = do
+  coreModule <- typecheckHaskell2010 haskell2010IrrefutablePatternSource
+  expectEqual
+    "irrefutable pattern Core validates"
+    (Right ())
+    (H2010CoreValidate.validateModule (H2010CoreValidate.moduleValidationEnv coreModule) coreModule)
+  expectCoreEvalInt "irrefutable/lazy pattern Core oracle" 7 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010IrrefutablePatternDemand :: Either String ()
+testHaskell2010IrrefutablePatternDemand =
+  case evalHaskell2010BindingRaw "main" haskell2010IrrefutablePatternDemandSource of
+    Left H2010CoreEval.CoreEvalNoMatchingAlternative {} -> Right ()
+    Left err -> Left ("expected demanded lazy pattern mismatch, got: " <> show err)
+    Right value -> Left ("demanded lazy pattern mismatch evaluated unexpectedly: " <> show value)
 
 testHaskell2010ConstraintRepresentation :: Either String ()
 testHaskell2010ConstraintRepresentation =
@@ -5471,6 +5489,7 @@ haskell2010NativeSuccessExamples =
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
+  , ("irrefutable-patterns", haskell2010IrrefutablePatternSource, "7\n")
   , ("sections", haskell2010SectionsSource, "6\n")
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-record-fields", haskell2010RecordFieldSource, "43\n")
@@ -5491,6 +5510,7 @@ haskell2010NativeExecutableExamples =
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
+  , ("irrefutable-patterns", haskell2010IrrefutablePatternSource, "7\n")
   , ("sections", haskell2010SectionsSource, "6\n")
   ]
 
@@ -5767,6 +5787,23 @@ haskell2010GuardFallthroughSource :: Text
 haskell2010GuardFallthroughSource =
   "module Main where\n\
   \main | False = 1\n"
+
+haskell2010IrrefutablePatternSource :: Text
+haskell2010IrrefutablePatternSource =
+  "module Main where\n\
+  \ignore :: Maybe Int -> Int\n\
+  \ignore ~(Just x) = 5\n\
+  \pick :: (Int, Int) -> Int\n\
+  \pick ~(x, _) = x\n\
+  \main = case (1 / 0) of\n\
+  \  z@(~x) -> ignore Nothing + pick (2, 1 / 0)\n"
+
+haskell2010IrrefutablePatternDemandSource :: Text
+haskell2010IrrefutablePatternDemandSource =
+  "module Main where\n\
+  \force :: Maybe Int -> Int\n\
+  \force ~(Just x) = x\n\
+  \main = force Nothing\n"
 
 haskell2010ADTBoxSource :: Text
 haskell2010ADTBoxSource =

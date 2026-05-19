@@ -221,5 +221,5 @@ Current tests include:
   unsupported-documented cases fail explicitly rather than silently passing
 
 Future Haskell 2010 conformance work should extend this direct executable
-coverage as irrefutable/lazy patterns, richer pattern diagnostics, broader
-`Show`/`String` interop, and broader IO are implemented.
+coverage as richer pattern diagnostics, broader `Show`/`String` interop, and
+broader IO are implemented.

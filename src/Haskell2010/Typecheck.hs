@@ -2089,20 +2089,14 @@ inferExpr env expr =
         typedScrutinee <- inferExpr env scrutinee
         scrutineeTy <- applyCurrent (typedExprType typedScrutinee)
         resultTy <- freshMeta
-        caseBinder <- caseBinderFor scrutineeTy alternatives
-        typedAlternatives <- traverse (inferCaseAlt env scrutineeTy caseBinder resultTy) alternatives
-        case typedAlternatives of
-          [(plan, body)]
-            | not (patternNeedsRuntimeCase plan) ->
-                pure body
-          _ ->
-            pure
-              ( TCase
-                  typedScrutinee
-                  caseBinder
-                  [TypedAlt (patternAltCon plan) (patternAltBinders plan) body | (plan, body) <- typedAlternatives]
-                  resultTy
-              )
+        case alternatives of
+          firstAlt : _ -> do
+            firstIrrefutable <- caseAltCanElideRuntimeCase firstAlt
+            if firstIrrefutable
+              then snd <$> inferCaseAlt env scrutineeTy typedScrutinee resultTy firstAlt
+              else inferRuntimeCase env typedScrutinee scrutineeTy resultTy alternatives
+          [] ->
+            throwTypecheck (UnsupportedCore0 "empty case expression")
       RDo statements ->
         inferDo env statements
       RList expressions -> do
@@ -2409,14 +2403,58 @@ classMethodSingleVariable methodOccurrence method =
             )
         )
 
-inferCaseAlt :: TypeEnv -> MonoType -> TypedBinder -> MonoType -> RAlt -> InferM (PatternPlan, TypedExpr)
-inferCaseAlt env scrutineeTy caseBinder resultTy alt@(RAlt pat rhs whereDecls) =
+inferCaseAlt :: TypeEnv -> MonoType -> TypedExpr -> MonoType -> RAlt -> InferM (PatternPlan, TypedExpr)
+inferCaseAlt env scrutineeTy scrutinee resultTy alt@(RAlt pat rhs whereDecls) =
   withTypecheckSpan (rAltSpan alt) $ do
-    let scrutinee = TVar (typedBinderName caseBinder) (Scheme [] [] scrutineeTy) [] scrutineeTy
     plan <- inferPatternPlan env scrutineeTy scrutinee pat
     typedBody <- patternWrapBody plan <$> inferRhs (patternEnv plan) rhs whereDecls
     unify resultTy (typedExprType typedBody)
     pure (plan, typedBody)
+
+inferRuntimeCase :: TypeEnv -> TypedExpr -> MonoType -> MonoType -> [RAlt] -> InferM TypedExpr
+inferRuntimeCase env typedScrutinee scrutineeTy resultTy alternatives = do
+  caseBinder <- caseBinderFor scrutineeTy alternatives
+  let caseScrutinee = TVar (typedBinderName caseBinder) (Scheme [] [] scrutineeTy) [] scrutineeTy
+  typedAlternatives <- traverse (inferCaseAlt env scrutineeTy caseScrutinee resultTy) alternatives
+  pure
+    ( TCase
+        typedScrutinee
+        caseBinder
+        [TypedAlt (patternAltCon plan) (patternAltBinders plan) body | (plan, body) <- typedAlternatives]
+        resultTy
+    )
+
+caseAltCanElideRuntimeCase :: RAlt -> InferM Bool
+caseAltCanElideRuntimeCase (RAlt pat _ _) =
+  patternCanElideRuntimeCase pat
+
+patternCanElideRuntimeCase :: RPat -> InferM Bool
+patternCanElideRuntimeCase = \case
+  RPIrrefutable {} ->
+    pure True
+  RPParen inner ->
+    patternCanElideRuntimeCase inner
+  RPAs _ inner ->
+    patternCanElideRuntimeCase inner
+  RPCon name _ ->
+    constructorCanElideRuntimeCase name
+  RPRecordCon name _ ->
+    constructorCanElideRuntimeCase name
+  _ ->
+    pure False
+
+constructorCanElideRuntimeCase :: RName -> InferM Bool
+constructorCanElideRuntimeCase name = do
+  constructors <- dataConstructors <$> get
+  case Map.lookup name constructors of
+    Just info ->
+      pure (dataConstructorRepresentation info == CoreNewtypeConstructor)
+    Nothing ->
+      case preludeConstructorInfo name of
+        Just (_, info) ->
+          pure (dataConstructorRepresentation info == CoreNewtypeConstructor)
+        Nothing ->
+          pure False
 
 caseForPatternPlan :: TypedExpr -> TypedBinder -> PatternPlan -> TypedExpr -> TypedExpr
 caseForPatternPlan scrutinee caseBinder plan body
@@ -2482,8 +2520,183 @@ inferPatternPlan env expectedTy scrutinee pat =
             { patternEnv = Map.insert name (Scheme [] [] expectedTy) (patternEnv plan)
             , patternWrapBody = aliasPatternBinder name expectedTy scrutinee . patternWrapBody plan
             }
-      RPIrrefutable {} ->
-        throwTypecheck (UnsupportedCore0 "irrefutable pattern semantics")
+      RPIrrefutable inner ->
+        inferIrrefutablePatternPlan env expectedTy scrutinee inner
+
+inferIrrefutablePatternPlan :: TypeEnv -> MonoType -> TypedExpr -> RPat -> InferM PatternPlan
+inferIrrefutablePatternPlan env expectedTy scrutinee pat = do
+  (bindings, patternBindings) <- inferIrrefutablePatternBindings expectedTy scrutinee pat
+  pure
+    PatternPlan
+      { patternAltCon = DefaultAlt
+      , patternAltBinders = []
+      , patternEnv = Map.union patternBindings env
+      , patternWrapBody = \body -> lazyLet bindings body
+      , patternNeedsRuntimeCase = False
+      }
+
+lazyLet :: [TypedBinding] -> TypedExpr -> TypedExpr
+lazyLet [] body =
+  body
+lazyLet bindings body =
+  TLet bindings body (typedExprType body)
+
+inferIrrefutablePatternBindings :: MonoType -> TypedExpr -> RPat -> InferM ([TypedBinding], TypeEnv)
+inferIrrefutablePatternBindings expectedTy scrutinee pat =
+  withTypecheckSpan (rPatSpan pat) $
+    case pat of
+      RPVar name ->
+        pure (singleLazyBinding name expectedTy scrutinee)
+      RPWildcard ->
+        pure ([], Map.empty)
+      RPLit literal -> do
+        unify expectedTy (literalMonoType literal)
+        pure ([], Map.empty)
+      RPCon name args ->
+        inferIrrefutableConstructorBindings expectedTy scrutinee name args
+      RPRecordCon name fields ->
+        inferIrrefutableRecordBindings expectedTy scrutinee name fields
+      RPTuple patterns ->
+        inferIrrefutableTupleBindings expectedTy scrutinee patterns
+      RPList patterns ->
+        inferIrrefutableListBindings expectedTy scrutinee patterns
+      RPParen inner ->
+        inferIrrefutablePatternBindings expectedTy scrutinee inner
+      RPAs name inner -> do
+        (bindings, patternBindings) <- inferIrrefutablePatternBindings expectedTy scrutinee inner
+        let (aliasBinding, aliasEnv) = singleLazyBinding name expectedTy scrutinee
+        pure (aliasBinding <> bindings, Map.union aliasEnv patternBindings)
+      RPIrrefutable inner ->
+        inferIrrefutablePatternBindings expectedTy scrutinee inner
+
+singleLazyBinding :: RName -> MonoType -> TypedExpr -> ([TypedBinding], TypeEnv)
+singleLazyBinding name ty scrutinee =
+  ( [ TypedBinding
+        { typedBindingName = name
+        , typedBindingScheme = Scheme [] [] ty
+        , typedBindingGeneralizedMetas = Map.empty
+        , typedBindingRhs = scrutinee
+        }
+    ]
+  , Map.singleton name (Scheme [] [] ty)
+  )
+
+inferIrrefutableConstructorBindings :: MonoType -> TypedExpr -> RName -> [RPat] -> InferM ([TypedBinding], TypeEnv)
+inferIrrefutableConstructorBindings expectedTy scrutinee name args
+  | nameOcc name == "True" && null args = do
+      unify expectedTy boolMonoType
+      pure ([], Map.empty)
+  | nameOcc name == "False" && null args = do
+      unify expectedTy boolMonoType
+      pure ([], Map.empty)
+  | otherwise = do
+      constructors <- dataConstructors <$> get
+      case Map.lookup name constructors of
+        Nothing ->
+          case preludeConstructorInfo name of
+            Nothing ->
+              throwTypecheck (UnsupportedCore0 ("constructor pattern `" <> renderRName name <> "`"))
+            Just (coreName, info) ->
+              inferIrrefutableKnownConstructorBindings expectedTy scrutinee coreName args info
+        Just info ->
+          inferIrrefutableKnownConstructorBindings expectedTy scrutinee name args info
+
+inferIrrefutableRecordBindings :: MonoType -> TypedExpr -> RName -> [(RName, RPat)] -> InferM ([TypedBinding], TypeEnv)
+inferIrrefutableRecordBindings expectedTy scrutinee name fields = do
+  constructors <- dataConstructors <$> get
+  case Map.lookup name constructors of
+    Nothing ->
+      throwTypecheck (UnsupportedCore0 ("record constructor pattern `" <> renderRName name <> "`"))
+    Just info -> do
+      orderedFields <- orderRecordPatternFields name info fields
+      inferIrrefutableKnownConstructorBindings expectedTy scrutinee name orderedFields info
+
+inferIrrefutableTupleBindings :: MonoType -> TypedExpr -> [RPat] -> InferM ([TypedBinding], TypeEnv)
+inferIrrefutableTupleBindings expectedTy scrutinee patterns = do
+  fieldTypes <- traverse (const freshMeta) patterns
+  unify expectedTy (TyTuple fieldTypes)
+  inferIrrefutableFieldBindings
+    (ConstructorAlt (tupleDataConName (length patterns)))
+    CoreDataConstructor
+    fieldTypes
+    scrutinee
+    patterns
+
+inferIrrefutableListBindings :: MonoType -> TypedExpr -> [RPat] -> InferM ([TypedBinding], TypeEnv)
+inferIrrefutableListBindings expectedTy scrutinee patterns = do
+  elementTy <- freshMeta
+  unify expectedTy (TyList elementTy)
+  case patterns of
+    [] ->
+      pure ([], Map.empty)
+    headPat : tailPats ->
+      inferIrrefutableKnownConstructorBindings expectedTy scrutinee listConsDataConName [headPat, RPList tailPats] (builtinDataConstructors Map.! listConsDataConName)
+
+inferIrrefutableKnownConstructorBindings ::
+  MonoType ->
+  TypedExpr ->
+  RName ->
+  [RPat] ->
+  DataConstructorInfo ->
+  InferM ([TypedBinding], TypeEnv)
+inferIrrefutableKnownConstructorBindings expectedTy scrutinee name args info = do
+  (fieldTypes, resultTy) <- instantiateConstructorPattern info
+  unless (length fieldTypes == length args) $
+    throwTypecheck
+      ( UnsupportedCore0
+          ( "constructor pattern `"
+              <> renderRName name
+              <> "` expects "
+              <> Text.pack (show (length fieldTypes))
+              <> " fields, got "
+              <> Text.pack (show (length args))
+          )
+      )
+  unify expectedTy resultTy
+  inferIrrefutableFieldBindings (ConstructorAlt name) (dataConstructorRepresentation info) fieldTypes scrutinee args
+
+inferIrrefutableFieldBindings ::
+  CoreAltCon ->
+  CoreConstructorRepresentation ->
+  [MonoType] ->
+  TypedExpr ->
+  [RPat] ->
+  InferM ([TypedBinding], TypeEnv)
+inferIrrefutableFieldBindings altCon representation fieldTypes scrutinee patterns =
+  case (representation, fieldTypes, patterns) of
+    (CoreNewtypeConstructor, [fieldTy], [fieldPat]) -> do
+      fieldTy' <- applyCurrent fieldTy
+      inferIrrefutablePatternBindings fieldTy' (TCoerce scrutinee fieldTy') fieldPat
+    _ -> do
+      fieldScrutinees <- traverse fieldProjection (zip [0 ..] fieldTypes)
+      results <-
+        traverse
+          (\(fieldTy, fieldScrutinee, fieldPat) -> inferIrrefutablePatternBindings fieldTy fieldScrutinee fieldPat)
+          (zip3 fieldTypes fieldScrutinees patterns)
+      let bindings = concatMap fst results
+          env = Map.unions (map snd results)
+      pure (bindings, env)
+ where
+  fieldProjection (index, fieldTy) = do
+    fieldBinders <- traverse (uncurry fieldBinder) (zip [0 ..] fieldTypes)
+    caseBinder <- freshTermBinder "$lazy_case" (typedExprType scrutinee)
+    let selectedBinder = fieldBinders !! index
+        selected =
+          TVar
+            (typedBinderName selectedBinder)
+            (Scheme [] [] (typedBinderType selectedBinder))
+            []
+            (typedBinderType selectedBinder)
+    pure
+      ( TCase
+          scrutinee
+          caseBinder
+          [TypedAlt altCon fieldBinders selected]
+          fieldTy
+      )
+
+  fieldBinder index fieldTy =
+    freshTermBinder ("$lazy_field" <> renderInt index) fieldTy
 
 inferConstructorPattern :: TypeEnv -> MonoType -> TypedExpr -> RName -> [RPat] -> InferM PatternPlan
 inferConstructorPattern env expectedTy scrutinee name args
