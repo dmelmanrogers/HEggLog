@@ -91,6 +91,7 @@ data TypecheckError
   | TypeSynonymArityMismatch RName Int Int
   | InvalidNewtypeConstructorArity RName Int
   | InvalidClassConstraintArity RName Int
+  | UnsupportedClassConstraintContext ClassConstraintContext [ClassConstraint]
   | AmbiguousTypeVariable Int
   | CoreValidationFailed [CoreValidate.CoreValidationError]
   deriving stock (Show, Eq)
@@ -109,6 +110,13 @@ data ClassConstraint = ClassConstraint
   { classConstraintClass :: RName
   , classConstraintArguments :: [MonoType]
   }
+  deriving stock (Show, Eq, Ord)
+
+data ClassConstraintContext
+  = SuperclassConstraintContext RName
+  | MethodConstraintContext RName
+  | InstanceConstraintContext RHsType
+  | ExpressionSignatureConstraintContext
   deriving stock (Show, Eq, Ord)
 
 singleClassConstraint :: RName -> MonoType -> ClassConstraint
@@ -317,6 +325,12 @@ renderTypecheckError = \case
       <> renderRName name
       <> "` must have exactly one argument, got "
       <> renderInt actual
+  UnsupportedClassConstraintContext context constraints ->
+    "unsupported class-constraint context: "
+      <> renderClassConstraintContext context
+      <> case constraints of
+        [] -> ""
+        _ -> " with " <> Text.intercalate ", " (map renderClassConstraint constraints)
   AmbiguousTypeVariable meta ->
     "ambiguous Core-0 type variable ?" <> renderInt meta
   CoreValidationFailed errors ->
@@ -532,8 +546,8 @@ collectClassInfos =
               , classInfoMethods = methods
               }
       pure (Map.insert className info acc)
-    RClassDecl _ className _ _ ->
-      throwTypecheck (UnsupportedCore0 ("superclass constraints for class `" <> renderRName className <> "`"))
+    RClassDecl constraints className _ _ ->
+      unsupportedSourceClassConstraintContext (SuperclassConstraintContext className) constraints
     _ ->
       pure acc
 
@@ -558,7 +572,7 @@ collectClassMethods className classVariable decls = do
         normalizedBody = replaceMonoTypeClassVariable classVariable body
         variables = List.nub (concatMap constraintTypeVars normalizedConstraints <> typeVars normalizedBody)
     unless (null constraints) $
-      throwTypecheck (UnsupportedCore0 ("method-specific constraints for `" <> renderRName methodName <> "`"))
+      throwUnsupportedClassConstraintContext (MethodConstraintContext methodName) normalizedConstraints
     unless (all (== classVariable) variables) $
       throwTypecheck (UnsupportedCore0 ("method-specific type variables for `" <> renderRName methodName <> "`"))
     let classTy = TyVar classVariable
@@ -1577,8 +1591,8 @@ inferInstanceDictionaries env =
       when (any (constraintMatches instanceKey . instanceKeyFor) acc) $
         throwTypecheck (UnsupportedCore0 ("duplicate instance for `" <> renderClassConstraint instanceKey <> "`"))
       pure (acc <> [dictionary])
-    RInstanceDecl _ instanceHead _ ->
-      throwTypecheck (UnsupportedCore0 ("instance context for `" <> Text.pack (show instanceHead) <> "`"))
+    RInstanceDecl constraints instanceHead _ ->
+      unsupportedSourceClassConstraintContext (InstanceConstraintContext instanceHead) constraints
     _ ->
       pure acc
 
@@ -1877,7 +1891,7 @@ inferExpr env = \case
   RExprTypeSig inner sourceType -> do
     scheme <- sourceScheme sourceType
     unless (null (schemeConstraints scheme)) $
-      throwTypecheck (UnsupportedCore0 "expression type-class constraints")
+      throwUnsupportedClassConstraintContext ExpressionSignatureConstraintContext (schemeConstraints scheme)
     typedInner <- inferExpr env inner
     unify (typedExprType typedInner) (schemeBody scheme)
     pure typedInner
@@ -2348,6 +2362,15 @@ requireSingleConstraintArgument className = \case
     pure argument
   arguments ->
     throwTypecheck (InvalidClassConstraintArity className (length arguments))
+
+unsupportedSourceClassConstraintContext :: ClassConstraintContext -> [RHsType] -> InferM a
+unsupportedSourceClassConstraintContext context sourceConstraints = do
+  constraints <- traverse sourceClassConstraint sourceConstraints
+  throwUnsupportedClassConstraintContext context constraints
+
+throwUnsupportedClassConstraintContext :: ClassConstraintContext -> [ClassConstraint] -> InferM a
+throwUnsupportedClassConstraintContext context constraints =
+  throwTypecheck (UnsupportedClassConstraintContext context constraints)
 
 sourceMonoType :: RHsType -> InferM MonoType
 sourceMonoType sourceType = do
@@ -4083,6 +4106,17 @@ renderMonoType =
 renderClassConstraint :: ClassConstraint -> Text
 renderClassConstraint constraint =
   Text.unwords (renderRName (classConstraintClass constraint) : map (renderMonoTypePrec 2) (classConstraintArguments constraint))
+
+renderClassConstraintContext :: ClassConstraintContext -> Text
+renderClassConstraintContext = \case
+  SuperclassConstraintContext className ->
+    "superclass constraints for class `" <> renderRName className <> "`"
+  MethodConstraintContext methodName ->
+    "method-specific constraints for `" <> renderRName methodName <> "`"
+  InstanceConstraintContext instanceHead ->
+    "instance context for `" <> Text.pack (show instanceHead) <> "`"
+  ExpressionSignatureConstraintContext ->
+    "expression type signature constraints"
 
 renderMonoTypePrec :: Int -> MonoType -> Text
 renderMonoTypePrec contextPrec = \case

@@ -72,7 +72,8 @@ Core Prelude bindings for basic list/Bool functions, plus recursive top-level
 and local functions, plus the initial type class dictionary slice for
 user-defined single-parameter classes, concrete instances, explicit source
 constraints with normalized argument representation, dictionary-passed method
-calls, and built-in `Eq Int`, `Eq Bool`,
+calls, structured placeholder diagnostics for unsupported constraint contexts,
+and built-in `Eq Int`, `Eq Bool`,
 `Ord Int`, `Ord Bool`, and executable `Num Int` class methods, plus guarded
 RHSs, guarded case alternatives, as-pattern aliases, and guard-fallthrough
 no-match behavior, plus the first IO printing slice for `IO`, `main :: IO ()`,
@@ -121,7 +122,8 @@ Current status:
   dictionary-backed `Eq`/`Ord`/`Num` methods, guarded RHSs, guarded case
   alternatives, and as-pattern aliases, including singleton self-recursive bindings and
   mutually recursive top-level groups, user-defined single-parameter classes,
-  concrete instances, structured explicit constraints, dictionary constructors/selectors,
+  concrete instances, structured explicit constraints, placeholder diagnostics
+  for unsupported constraint contexts, dictionary constructors/selectors,
   dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Ord Int`,
   `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool` dictionaries, plus
   `putStrLn`, `print`, `return`, `(>>)`, and expression-only `do` sequencing

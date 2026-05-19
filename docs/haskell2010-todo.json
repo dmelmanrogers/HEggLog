@@ -3172,7 +3172,7 @@
     {
       "id": "TYPE-017",
       "title": "class constraints placeholder",
-      "status": "in progress",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "CORE-002",
@@ -3181,7 +3181,8 @@
       "blocks": [],
       "milestone": "M4",
       "acceptance_criteria": [
-        "class constraints placeholder is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Unsupported class-constraint contexts are represented by a structured typechecker diagnostic rather than ad hoc placeholder strings.",
+        "Superclass contexts, method-specific constraints, instance contexts, and expression type-signature constraints report the structured placeholder while preserving parsed/renamed constraint details.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

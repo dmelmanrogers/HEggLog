@@ -127,7 +127,10 @@ constraints, instance heads, and default declarations before Core conversion.
 Class constraints use an explicit class-head-plus-argument-list representation;
 the supported executable slice accepts one argument per class constraint, rejects
 malformed arity directly, and carries normalized constraint arguments through
-defaulting and dictionary elaboration. Broader class features remain planned.
+defaulting and dictionary elaboration. Unsupported class-constraint positions
+now use a structured placeholder diagnostic for superclass contexts,
+method-specific constraints, instance contexts, and expression type-signature
+constraints, so broader class features remain planned without silent fallback.
 `/` remains checked concrete `Int` division; broader `Show` remains planned.
 
 ## What Core Evaluates Today

@@ -110,11 +110,15 @@ checked for recursive cycles, and expanded structurally before Core conversion.
 Class constraints now use an explicit class-head-plus-arguments representation;
 the current executable slice validates single-argument constraint arity before
 kind checking and dictionary elaboration, and constraint arguments participate in
-type synonym expansion and substitution like other source types. Newtype
-declarations are typechecked with the required single-field invariant and
-currently share the boxed constructor representation used by data declarations.
-Remaining class, deriving, representation optimization, and broader surface work
-is tracked separately.
+type synonym expansion and substitution like other source types. Unsupported
+constraint positions have a structured placeholder diagnostic: superclass
+contexts, method-specific constraints, instance contexts, and expression
+type-signature constraints are parsed and then rejected deliberately until their
+dedicated class-system tasks are implemented. Newtype declarations are
+typechecked with the required single-field invariant and currently share the
+boxed constructor representation used by data declarations. Remaining class,
+deriving, representation optimization, and broader surface work is tracked
+separately.
 
 The existing optional monomorphic lambda parameter inference is carry-forward
 infrastructure and a useful implementation reference, but it is not Haskell

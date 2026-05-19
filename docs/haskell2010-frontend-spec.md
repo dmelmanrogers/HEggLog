@@ -115,6 +115,8 @@ Current initial Haskell 2010 class capabilities:
 
 - class constraints represented as a class head plus ordered argument list, with
   the current executable slice validating single-argument arity
+- structured placeholder diagnostics for superclass contexts, method-specific
+  constraints, instance contexts, and expression type-signature constraints
 - instance lookup
 - dictionary-passing elaboration
 - generated built-in dictionaries for `Eq Int`, `Eq Bool`, `Ord Int`,

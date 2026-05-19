@@ -119,6 +119,7 @@ is built alongside them.
     execution, and wet-tested default/no-egglog CLI runs.
 14. Type classes/dictionaries. Completed for user-defined single-parameter
     classes, concrete context-free instances, structured explicit constraints,
+    structured placeholder diagnostics for unsupported constraint contexts,
     generated dictionary constructors/selectors, built-in `Eq Int`, `Eq Bool`,
     `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and `Show Bool`
     dictionaries,

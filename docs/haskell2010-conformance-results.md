@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-19 04:01:57 UTC
+Date/time: 2026-05-19 04:14:26 UTC
 
-Commit hash tested: TYPE-016 working tree before final task commit. The final
+Commit hash tested: TYPE-017 working tree before final task commit. The final
 commit for the task records the same source tree plus this results document.
 
 Primary conformance command run:
@@ -34,13 +34,13 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 50 |
-| Haskell source files in corpus | 51 |
-| HUnit test cases executed | 52 |
+| Manifest conformance fixtures | 51 |
+| Haskell source files in corpus | 52 |
+| HUnit test cases executed | 53 |
 | Native-success fixtures | 36 |
 | Native-runtime-error fixtures | 1 |
 | Compile-error fixtures | 6 |
-| Unsupported-documented fixtures | 7 |
+| Unsupported-documented fixtures | 8 |
 | Native subprocess compile/run checks | 39 |
 | Failures | 0 |
 | Errors | 0 |
@@ -69,4 +69,4 @@ explicit conformance cases rather than omitted.
 | `recursion` | 1 | top-level recursion representative native test exists |
 | `typeclasses` | 2 | user dictionary and synonym-normalized constraint tests exist |
 | `types` | 3 | polymorphism/defaulting/synonym representative native tests exist |
-| `unsupported` | 7 | unsupported features documented by failing cases |
+| `unsupported` | 8 | unsupported features documented by failing cases |

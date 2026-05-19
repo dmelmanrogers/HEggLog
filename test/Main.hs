@@ -148,6 +148,7 @@ testGroups =
       , pureTest "rejects invalid newtype constructor arity" testHaskell2010NewtypeRejectsInvalidArity
       , pureTest "represents class constraints structurally" testHaskell2010ConstraintRepresentation
       , pureTest "rejects invalid class constraint arity" testHaskell2010ConstraintRejectsInvalidArity
+      , pureTest "rejects unsupported class constraint contexts deliberately" testHaskell2010ClassConstraintPlaceholders
       , pureTest "typechecks explicit polymorphic identity" testHaskell2010Core0Identity
       , pureTest "typechecks explicit polymorphic const" testHaskell2010Core0Const
       , pureTest "generalizes local let polymorphism" testHaskell2010Core0PolymorphicLet
@@ -1296,6 +1297,45 @@ testHaskell2010ConstraintRejectsInvalidArity =
       Left H2010Typecheck.InvalidClassConstraintArity {} -> Right ()
       Left err -> Left ("expected invalid class constraint arity, got: " <> show err)
       Right coreModule -> Left ("invalid class constraint arity typechecked unexpectedly: " <> show coreModule)
+
+testHaskell2010ClassConstraintPlaceholders :: Either String ()
+testHaskell2010ClassConstraintPlaceholders =
+  expectPlaceholder "superclass constraint context" superclassSource
+    *> expectPlaceholder "method-specific constraint context" methodConstraintSource
+    *> expectPlaceholder "instance constraint context" instanceContextSource
+    *> expectPlaceholder "expression signature constraint context" expressionSignatureSource
+ where
+  expectPlaceholder label source =
+    case typecheckHaskell2010Raw source of
+      Left (H2010Typecheck.UnsupportedClassConstraintContext _ constraints)
+        | not (null constraints) -> Right ()
+      Left err -> Left (label <> ": expected unsupported class-constraint context, got " <> show err)
+      Right coreModule -> Left (label <> ": typechecked unexpectedly: " <> show coreModule)
+
+  superclassSource =
+    "module Core0 where\n\
+    \class Eq a => Ordered a where\n\
+    \  ordered :: a -> a -> Bool\n\
+    \main = 0\n"
+
+  methodConstraintSource =
+    "module Core0 where\n\
+    \class Sized a where\n\
+    \  same :: Eq a => a -> a -> Bool\n\
+    \main = 0\n"
+
+  instanceContextSource =
+    "module Core0 where\n\
+    \class Sized a where\n\
+    \  size :: a -> Int\n\
+    \data Box a = Box a\n\
+    \instance Eq a => Sized (Box a) where\n\
+    \  size _ = 1\n\
+    \main = 0\n"
+
+  expressionSignatureSource =
+    "module Core0 where\n\
+    \main = (1 :: Eq Int => Int)\n"
 
 testHaskell2010Core0If :: Either String ()
 testHaskell2010Core0If = do

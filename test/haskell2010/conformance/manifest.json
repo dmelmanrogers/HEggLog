@@ -411,6 +411,15 @@
       "notes": "Instance contexts are intentionally outside the current concrete-instance dictionary slice."
     },
     {
+      "name": "unsupported.method-specific-constraint",
+      "sourceFile": "test/haskell2010/conformance/unsupported/method-specific-constraint.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "unsupported",
+      "requiredStage": "typecheck",
+      "notes": "Method-specific class constraints are rejected by the explicit class-constraint placeholder."
+    },
+    {
       "name": "unsupported.kind-checking",
       "sourceFile": "test/haskell2010/conformance/unsupported/kind-checking.hs",
       "category": "negative",

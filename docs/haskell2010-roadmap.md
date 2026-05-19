@@ -325,7 +325,10 @@ default Egglog and `--no-egglog` execution.
 Class constraints are now represented explicitly as a class head plus ordered
 argument list; the current executable slice checks the single-argument arity,
 normalizes constraint arguments through type synonym expansion, and then feeds
-the normalized constraints to defaulting and dictionary elaboration.
+the normalized constraints to defaulting and dictionary elaboration. Constraint
+positions outside that executable slice now fail through a structured
+placeholder diagnostic, covering superclass contexts, method-specific
+constraints, instance contexts, and expression type-signature constraints.
 
 The built-in executable Prelude class slice now supports `Eq Int`, `Eq Bool`,
 `Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool`: `(==)`, `(/=)`,
