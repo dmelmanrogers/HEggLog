@@ -2018,6 +2018,8 @@ testHaskell2010CoreToSTGRejectsInvalidCore =
 testHaskell2010NativeLLVMShape :: Either String ()
 testHaskell2010NativeLLVMShape = do
   llvmText <- compileHaskell2010NativeText haskell2010PartialApplicationSource
+  assertBool "native LLVM defines process-lifetime allocator" ("define ptr @hegglog_hs_alloc_process_lifetime(i64 %size)" `Text.isInfixOf` llvmText)
+  assertBool "native LLVM object allocation uses process-lifetime allocator" ("call ptr @hegglog_hs_alloc_process_lifetime(i64 48)" `Text.isInfixOf` llvmText)
   assertBool "native LLVM defines lazy force runtime" ("define ptr @hegglog_hs_force" `Text.isInfixOf` llvmText)
   assertBool "native LLVM allocates thunks" ("@hegglog_hs_make_thunk" `Text.isInfixOf` llvmText)
   assertBool "native LLVM boxes Int results" ("@hegglog_hs_make_int" `Text.isInfixOf` llvmText)
@@ -4060,8 +4062,11 @@ testLLVMCompileCapturingLambda = do
     "capturing lambda gets closure code function"
     ("define i64 @hegglog_fun__uclosure_uf_u0(ptr %arg__uenv0, i64 %arg_y)" `Text.isInfixOf` llvmText)
   assertBool
-    "closure allocation uses malloc"
-    ("call ptr @malloc(i64 16)" `Text.isInfixOf` llvmText)
+    "closure allocation uses process-lifetime allocator"
+    ("call ptr @hegglog_alloc_process_lifetime(i64 16)" `Text.isInfixOf` llvmText)
+  assertBool
+    "strict LLVM defines process-lifetime allocator"
+    ("define ptr @hegglog_alloc_process_lifetime(i64 %size)" `Text.isInfixOf` llvmText)
   assertBool
     "closure stores code pointer"
     ("store ptr @hegglog_fun__uclosure_uf_u0" `Text.isInfixOf` llvmText)

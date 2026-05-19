@@ -91,9 +91,10 @@ into validating STG while preserving lazy semantics. The Haskell 2010 native
 path now emits LLVM for the current executable subset using boxed values,
 updateable and single-entry thunks, function closures, enter/apply, Bool,
 user-constructor, list, tuple, `Maybe`/`Either`/`Ordering` case dispatch,
-boxed constructor field arrays, and checked primitive aborts, then uses the
-existing clang toolchain path to produce native executables. The Haskell 2010
-native path also executes `main :: IO ()` actions for `putStrLn` and `print`
+boxed constructor field arrays, process-lifetime heap allocation through
+`hegglog_hs_alloc_process_lifetime`, and checked primitive aborts, then uses
+the existing clang toolchain path to produce native executables. The Haskell
+2010 native path also executes `main :: IO ()` actions for `putStrLn` and `print`
 output using native string literal objects, list-of-`Char` traversal, and
 built-in `Show Int`/`Show Bool`.
 The Haskell 2010
@@ -156,7 +157,8 @@ Current status:
   division-by-zero failure, curried partial application, user-defined type
   class dictionary calls, built-in `Eq`/`Ord`/`Num` class dictionary calls,
   guarded RHS/as-pattern programs, `main :: IO ()` printing through `putStrLn`
-  and `print`, and guard-fallthrough runtime failure
+  and `print`, process-lifetime runtime allocation, and guard-fallthrough
+  runtime failure
 - Haskell 2010 Egglog Core optimizer: implemented and unit/wet-tested for
   safe Core-0 arithmetic identities, checked constant folding, known Bool case
   selection, known literal and saturated known-constructor case/projection
@@ -165,8 +167,8 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 46 manifest-tracked fixtures with
-  32 native-success cases, 1 native-runtime-error case, 5 compile-error cases,
+  `haskell2010-conformance-test`; it contains 52 manifest-tracked fixtures with
+  37 native-success cases, 1 native-runtime-error case, 6 compile-error cases,
   and 8 unsupported-documented cases
 
 Progress is tracked in

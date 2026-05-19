@@ -90,8 +90,9 @@ Lowering uses SSA:
 - `if` lowers to then/else/join blocks with a `phi` in the join block
 - top-level functions lower to LLVM functions with typed parameters
 - direct calls lower to ordinary LLVM `call` instructions
-- closure allocation calls `malloc`, stores a code pointer plus captured fields,
-  and aborts on null allocation
+- closure allocation calls the generated `hegglog_alloc_process_lifetime`
+  helper, stores a code pointer plus captured fields, and aborts on allocation
+  failure inside that helper
 - closure calls load the code pointer and lower to indirect LLVM calls
 
 Nested `if` expressions work because each branch returns the current predecessor
@@ -126,7 +127,9 @@ define i32 @main() { ... }
 
 Programs that contain checked `+`, `-`, or `*` declare the corresponding LLVM
 overflow intrinsics and `abort`. Programs that contain checked `/` declare
-`abort`. Programs that allocate closures declare `malloc` and `abort`.
+`abort`. Programs that allocate closures declare `malloc` and `abort`, define
+`hegglog_alloc_process_lifetime`, and route closure allocation through that
+process-lifetime ownership boundary.
 
 Top-level source functions emit deterministic LLVM functions named with a
 collision-free escaped form of the source name, prefixed by `hegglog_fun_`.

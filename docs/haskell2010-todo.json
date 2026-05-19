@@ -4174,7 +4174,7 @@
     {
       "id": "RTS-009",
       "title": "process-lifetime arena or GC decision",
-      "status": "in progress",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "STG-001"
@@ -4182,7 +4182,9 @@
       "blocks": [],
       "milestone": "M6",
       "acceptance_criteria": [
-        "process-lifetime arena or GC decision is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Process-lifetime allocation is the implemented native runtime policy for the current strict `.hg` and Haskell 2010 executable subsets.",
+        "Strict `.hg` closure allocation routes through `hegglog_alloc_process_lifetime`; Haskell 2010 STG heap allocation routes through `hegglog_hs_alloc_process_lifetime`.",
+        "Allocation failure is checked inside the runtime allocation helper and aborts; generated programs do not free or collect heap objects before process exit.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

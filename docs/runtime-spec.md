@@ -11,7 +11,12 @@ The current runtime belongs to the strict `.hg` compiler-supported subset. It
 supports checked signed `Int64`, `Bool`, closures where currently supported by
 the interpreter and LLVM closure-conversion path, native executable printing,
 checked arithmetic/division, and runtime-error behavior for overflow and
-division failures.
+division failures. Native heap allocation is now deliberately routed through
+process-lifetime allocation helpers in both LLVM backends:
+`hegglog_alloc_process_lifetime` for the strict `.hg` path and
+`hegglog_hs_alloc_process_lifetime` for the Haskell 2010 STG path. These
+helpers abort on allocation failure and never free objects during program
+execution.
 
 Native executable runtime errors currently call `abort`, exit nonzero, and do
 not print a rich runtime diagnostic. The wet tests record that current
@@ -29,7 +34,8 @@ The Haskell 2010 runtime target requires:
 - case as demand
 - IO
 - heap management through a GC, arena, reference counting, or another explicit
-  allocation model
+  allocation model; the current executable subset uses process-lifetime
+  allocation rather than GC
 
 The current strict runtime is not sufficient for Haskell 2010 laziness. The
 planned STG/runtime path is documented in
@@ -210,6 +216,17 @@ declare void @abort()
 declare noalias ptr @malloc(i64)
 ```
 
+The generated runtime keeps `malloc` behind a backend-owned allocation helper:
+
+```llvm
+define ptr @hegglog_alloc_process_lifetime(i64 %size) { ... }
+define ptr @hegglog_hs_alloc_process_lifetime(i64 %size) { ... }
+```
+
+The helper is the current ownership boundary: allocation failure branches to
+`abort`, returned memory is process-lifetime, and generated programs do not
+emit object destructors or a collection phase.
+
 Checked arithmetic intrinsics are declared only when needed:
 
 ```llvm
@@ -221,8 +238,10 @@ declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)
 Division does not use an LLVM overflow intrinsic. It emits comparisons and
 branches before `sdiv`, and declares `abort` when division checks are present.
 
-`malloc` is declared only for programs that allocate closures. There is no
-custom HeggLog runtime library yet.
+In the strict `.hg` backend, `malloc` is declared only for programs that
+allocate closures because only those programs need the process-lifetime helper.
+The Haskell 2010 STG backend emits its boxed runtime helpers for the native
+path, so `malloc` remains part of that generated runtime surface.
 
 ## Function Runtime
 
@@ -249,7 +268,8 @@ captured values in deterministic name order.
 Current policy:
 
 - Environment layout: one LLVM struct shape per closure capture list.
-- Allocation: heap allocation with `malloc`.
+- Allocation: process-lifetime heap allocation through the generated runtime
+  allocation helper.
 - Allocation failure: null-check and `abort`.
 - Lifetime management: process-lifetime allocation; closures are not freed in
   the first runtime pass.
@@ -265,19 +285,33 @@ Future refinements:
 
 ## Future Allocation And Memory Management
 
-Closure conversion introduces heap allocation for closure objects.
+Closure conversion and the Haskell 2010 boxed STG runtime introduce heap
+allocation for closure, thunk, constructor-field-array, and short-lived runtime
+string-buffer objects.
+
+Decision for RTS-009:
+
+- The current supported native executable subset uses process-lifetime
+  allocation.
+- There is no tracing GC, reference counting, or per-object free in this
+  version.
+- All generated heap allocations go through a named runtime allocation helper
+  before reaching `malloc`, making the ownership policy testable and leaving one
+  IR/API boundary for a future arena block allocator or collector.
 
 Possible policies:
 
-- Arena allocation for short-lived compiled programs.
+- Arena allocation for short-lived compiled programs. The current helper is the
+  API boundary for this future optimization.
 - Reference counting for deterministic cleanup.
 - Tracing garbage collection for richer functional workloads.
 - Borrow/escape analysis to stack-allocate non-escaping environments.
 
-Decision needed:
+Future decision needed:
 
-- Choose the long-term ownership policy for closures and future aggregate
-  values.
+- Choose whether the helper remains process-lifetime allocation for v1 or grows
+  a block arena or collector when larger aggregate-heavy programs become a
+  supported workload.
 
 ## Runtime Acceptance Criteria
 

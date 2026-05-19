@@ -177,7 +177,10 @@ re-entry, black-hole detection, Bool and user-constructor dispatch, and checked
 The boxed LLVM/native runtime path is implemented for the current executable
 subset, including ADT constructor objects, list/tuple/Prelude data constructor
 objects, lazy field projection, and type class dictionary values as ordinary
-constructor closures. The first IO action layer is implemented for
+constructor closures. Native STG heap allocations now pass through the
+`hegglog_hs_alloc_process_lifetime` runtime helper, making the current no-GC,
+no-free ownership policy explicit and tested. The first IO action layer is
+implemented for
 output-oriented programs: STG can represent and evaluate IO output actions, and
 native `main :: IO ()` forces the compiled action instead of auto-printing a
 scalar root.
@@ -311,8 +314,9 @@ Core-native equality saturation remain later Phase 15 expansion work.
 Native executable output exists for the current `.hg` supported subset and for
 the current Haskell 2010 executable subset. The Haskell 2010 path lowers typed
 Core to STG-like lazy IR, emits a boxed lazy LLVM runtime with closure
-allocation, enter/apply, thunk forcing/update, Bool and user-constructor case
-dispatch, list/tuple/Prelude constructor dispatch, boxed constructor fields,
+allocation through a process-lifetime runtime helper, enter/apply, thunk
+forcing/update, Bool and user-constructor case dispatch, list/tuple/Prelude
+constructor dispatch, boxed constructor fields,
 recursive closure/thunk groups, user and built-in type class dictionary
 constructor/selector execution, guarded RHS/as-pattern programs, empty-case
 guard-fallthrough aborts, `putStrLn`/`print` output for `IO ()` programs with
