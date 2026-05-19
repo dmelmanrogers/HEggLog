@@ -14,14 +14,14 @@ Egglog optimization for supported ANF fragments, closure conversion, LLVM IR
 generation, native executable output, CI checks, and mandatory end-to-end wet
 tests.
 
-## What Currently Compiles
+## Current `.hg` Compilation
 
 The current compiler compiles supported `.hg` programs with `Int`, `Bool`,
 `let`, `if`, arithmetic/comparison, ordered top-level first-order calls,
 lambda-lifted non-capturing lambdas, and closure-converted local function
 values when the root is printable.
 
-## What Does Not Yet Compile
+## Current Haskell 2010 Compilation
 
 HeggLog now compiles the current Haskell 2010 executable subset from `.hs`
 source to native executables. The subset includes `Int`, `Bool`, functions,

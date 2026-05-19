@@ -2,6 +2,7 @@
 
 ## Haskell 2010 Target
 
+- [Architecture](architecture.md)
 - [Haskell 2010 roadmap](haskell2010-roadmap.md)
 - [Haskell 2010 engineering backlog](haskell2010-todo.md)
 - [Haskell 2010 engineering backlog JSON](haskell2010-todo.json)

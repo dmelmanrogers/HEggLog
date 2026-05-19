@@ -31,7 +31,6 @@ import Optimize.EGraph
   , optimizeANF
   , renderEGraphError
   )
-import Optimize.Placeholder (optimize)
 import Optimize.Simplify
   ( AppliedRewrite
   , SimplifyError
@@ -106,7 +105,7 @@ compileReport path source = do
       , reportAppliedRewrites = appliedRewrites simplified
       , reportEGraph = optimizeANF mainANF
       , reportEgglog = tryOptimizeWithEgglog defaultRunConfig mainANF
-      , reportCore = optimize (lower (programMain stripped))
+      , reportCore = lower (programMain stripped)
       }
 
 programMainANF :: AProgram -> AExpr

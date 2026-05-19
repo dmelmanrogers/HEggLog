@@ -107,7 +107,6 @@ executable hegglog
       Optimize.EgglogBackend.Rules
       Optimize.EgglogBackend.Schema
       Optimize.EGraph
-      Optimize.Placeholder
       Optimize.Rewrite
       Optimize.Simplify
       Runtime.Int
@@ -206,7 +205,6 @@ test-suite hegglog-test
       Optimize.EgglogBackend.Rules
       Optimize.EgglogBackend.Schema
       Optimize.EGraph
-      Optimize.Placeholder
       Optimize.Rewrite
       Optimize.Simplify
       Runtime.Int
