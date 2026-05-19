@@ -3259,7 +3259,7 @@
     {
       "id": "TYPE-020",
       "title": "type error diagnostics with spans",
-      "status": "in progress",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "CORE-002",
@@ -3285,7 +3285,10 @@
       ],
       "milestone": "M4",
       "acceptance_criteria": [
-        "type error diagnostics with spans is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Parsed and renamed Haskell 2010 declarations, expressions, patterns, statements, alternatives, constructor declarations, RHSs, and source types preserve source spans.",
+        "Typechecker failures thrown while a source node is active render with `file:line:column` source spans through the shared diagnostic formatter.",
+        "Delayed class-constraint dictionary failures retain the originating expression/type span rather than losing attribution during Core elaboration.",
+        "The CLI conformance manifest checks a negative type-error fixture for a concrete source-span prefix.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

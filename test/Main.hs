@@ -168,6 +168,7 @@ testGroups =
       , pureTest "desugars operator sections to Core lambdas" testHaskell2010Core0Sections
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
+      , pureTest "renders Haskell 2010 type errors with source spans" testHaskell2010TypeErrorDiagnosticsWithSpans
       , pureTest "rejects unsupported Core-0 equality" testHaskell2010Core0UnsupportedEquality
       ]
   , TestGroup
@@ -1189,7 +1190,8 @@ testHaskell2010KindRejectsMismatch =
       \bad _ = 0\n\
       \main = 0\n"
     of
-      Left H2010Typecheck.KindMismatch {} -> Right ()
+      Left err
+        | H2010Typecheck.KindMismatch {} <- haskell2010TypecheckErrorDetail err -> Right ()
       Left err -> Left ("expected kind mismatch, got: " <> show err)
       Right coreModule -> Left ("kind-mismatched source typechecked unexpectedly: " <> show coreModule)
 
@@ -1269,7 +1271,8 @@ testHaskell2010NewtypeRejectsInvalidArity =
       \newtype Bad = Bad Int Bool\n\
       \main = 0\n"
     of
-      Left H2010Typecheck.InvalidNewtypeConstructorArity {} -> Right ()
+      Left err
+        | H2010Typecheck.InvalidNewtypeConstructorArity {} <- haskell2010TypecheckErrorDetail err -> Right ()
       Left err -> Left ("expected invalid newtype constructor arity, got: " <> show err)
       Right coreModule -> Left ("invalid newtype constructor typechecked unexpectedly: " <> show coreModule)
 
@@ -1295,7 +1298,8 @@ testHaskell2010ConstraintRejectsInvalidArity =
       \bad = 0\n\
       \main = bad\n"
     of
-      Left H2010Typecheck.InvalidClassConstraintArity {} -> Right ()
+      Left err
+        | H2010Typecheck.InvalidClassConstraintArity {} <- haskell2010TypecheckErrorDetail err -> Right ()
       Left err -> Left ("expected invalid class constraint arity, got: " <> show err)
       Right coreModule -> Left ("invalid class constraint arity typechecked unexpectedly: " <> show coreModule)
 
@@ -1308,8 +1312,9 @@ testHaskell2010ClassConstraintPlaceholders =
  where
   expectPlaceholder label source =
     case typecheckHaskell2010Raw source of
-      Left (H2010Typecheck.UnsupportedClassConstraintContext _ constraints)
-        | not (null constraints) -> Right ()
+      Left err
+        | H2010Typecheck.UnsupportedClassConstraintContext _ constraints <- haskell2010TypecheckErrorDetail err
+        , not (null constraints) -> Right ()
       Left err -> Left (label <> ": expected unsupported class-constraint context, got " <> show err)
       Right coreModule -> Left (label <> ": typechecked unexpectedly: " <> show coreModule)
 
@@ -1499,15 +1504,15 @@ testHaskell2010Core0Sections = do
 
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries :: Either String ()
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
-  expectUnsupported "rejects duplicate concrete instances" "duplicate instance" duplicateInstanceSource
-    *> expectUnsupported "rejects missing instance methods" "missing instance method" missingInstanceMethodSource
-    *> expectUnsupported "rejects unsolved Prelude class dictionaries" "unsolved type-class constraint" unsolvedPreludeConstraintSource
+  expectTypecheckMessage "rejects duplicate concrete instances" "duplicate instance" duplicateInstanceSource
+    *> expectTypecheckMessage "rejects missing instance methods" "missing instance method" missingInstanceMethodSource
+    *> expectTypecheckMessage "rejects unsolved Prelude class dictionaries" "unsolved type-class constraint" unsolvedPreludeConstraintSource
  where
-  expectUnsupported label needle source =
+  expectTypecheckMessage label needle source =
     case typecheckHaskell2010Raw source of
-      Left (H2010Typecheck.UnsupportedCore0 message)
-        | needle `Text.isInfixOf` message -> Right ()
-      Left err -> Left (label <> ": expected unsupported type class dictionary form, got " <> show err)
+      Left err
+        | needle `Text.isInfixOf` H2010Typecheck.renderTypecheckError err -> Right ()
+      Left err -> Left (label <> ": expected type class dictionary diagnostic, got " <> show err)
       Right coreModule -> Left (label <> ": typechecked unexpectedly: " <> show coreModule)
 
   duplicateInstanceSource =
@@ -1542,9 +1547,30 @@ testHaskell2010Core0TypeError =
       \bad :: Int\n\
       \bad = True\n"
     of
-      Left H2010Typecheck.TypeMismatch {} -> Right ()
+      Left err
+        | H2010Typecheck.TypeMismatch {} <- haskell2010TypecheckErrorDetail err -> Right ()
       Left err -> Left ("expected Core-0 type mismatch, got: " <> show err)
       Right coreModule -> Left ("ill-typed Core-0 source typechecked unexpectedly: " <> show coreModule)
+
+testHaskell2010TypeErrorDiagnosticsWithSpans :: Either String ()
+testHaskell2010TypeErrorDiagnosticsWithSpans =
+  case
+    typecheckHaskell2010Raw
+      "module Core0 where\n\
+      \main = 1 + True\n"
+    of
+      Left err@(H2010Typecheck.TypecheckErrorAt sourceRange _) -> do
+        expectEqual "type error span file" "<haskell2010-renamer-test>" (spanFile sourceRange)
+        expectEqual "type error span start line" 2 (spanStartLine sourceRange)
+        expectEqual "type error span start column" 8 (spanStartColumn sourceRange)
+        assertBool
+          "rendered diagnostic includes source span and type-error severity"
+          ("<haskell2010-renamer-test>:2:8-" `Text.isPrefixOf` H2010Typecheck.renderTypecheckError err)
+        assertBool
+          "rendered diagnostic identifies unsolved class constraint"
+          ("unsolved type-class constraint" `Text.isInfixOf` H2010Typecheck.renderTypecheckError err)
+      Left err -> Left ("expected source-spanned type error, got: " <> show err)
+      Right coreModule -> Left ("ill-typed source typechecked unexpectedly: " <> show coreModule)
 
 testHaskell2010Core0UnsupportedEquality :: Either String ()
 testHaskell2010Core0UnsupportedEquality =
@@ -1554,8 +1580,8 @@ testHaskell2010Core0UnsupportedEquality =
       \bad :: (Int -> Int) -> (Int -> Int) -> Bool\n\
       \bad f g = f == g\n"
     of
-      Left (H2010Typecheck.UnsupportedCore0 message)
-        | "unsolved type-class constraint" `Text.isInfixOf` message -> Right ()
+      Left err
+        | "unsolved type-class constraint" `Text.isInfixOf` H2010Typecheck.renderTypecheckError err -> Right ()
       Left err -> Left ("expected unsupported Core-0 equality, got: " <> show err)
       Right coreModule -> Left ("unsupported Core-0 equality typechecked unexpectedly: " <> show coreModule)
 
@@ -4900,6 +4926,13 @@ typecheckHaskell2010Raw :: Text -> Either H2010Typecheck.TypecheckError H2010Cor
 typecheckHaskell2010Raw source = do
   renamed <- mapLeft (error . Text.unpack . H2010Renamer.renderRenameError) (renameHaskell2010Raw source)
   H2010Typecheck.typecheckModuleToCore renamed
+
+haskell2010TypecheckErrorDetail :: H2010Typecheck.TypecheckError -> H2010Typecheck.TypecheckError
+haskell2010TypecheckErrorDetail = \case
+  H2010Typecheck.TypecheckErrorAt _ err ->
+    haskell2010TypecheckErrorDetail err
+  err ->
+    err
 
 typecheckHaskell2010Modules :: [(FilePath, Text)] -> Either String H2010Core.CoreModule
 typecheckHaskell2010Modules sources = do

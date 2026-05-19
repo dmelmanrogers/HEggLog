@@ -492,7 +492,12 @@ lookupNameInScope namespace occ scope =
     Nothing -> throwRename (UnboundName namespace occ)
 
 renameDecl :: S.Decl -> RenameM RDecl
-renameDecl = \case
+renameDecl decl = do
+  renamed <- renameDeclRaw decl
+  pure (maybe renamed (`setRDeclSpan` renamed) (S.declSpan decl))
+
+renameDeclRaw :: S.Decl -> RenameM RDecl
+renameDeclRaw = \case
   S.TypeSignature names sourceType -> do
     renamedNames <- traverse (lookupName TermNamespace) names
     renamedType <- renameImplicitForallType sourceType
@@ -549,22 +554,27 @@ renameDecl = \case
     pure (RForeignDecl text)
 
 renameConDecl :: S.ConDecl -> RenameM RConDecl
-renameConDecl (S.ConDecl constructorName fields) =
-  RConDecl <$> lookupName ConstructorNamespace constructorName <*> traverse renameType fields
+renameConDecl sourceConDecl@(S.ConDecl constructorName fields) = do
+  renamed <- RConDecl <$> lookupName ConstructorNamespace constructorName <*> traverse renameType fields
+  pure (maybe renamed (`setRConDeclSpan` renamed) (S.conDeclSpan sourceConDecl))
 
 renameRhs :: S.Rhs -> RenameM RRhs
-renameRhs = \case
-  S.Unguarded expr ->
-    RUnguarded <$> renameExpr expr
-  S.Guarded branches ->
-    RGuarded <$> traverse renameGuardedBranch branches
+renameRhs rhs = do
+  renamed <-
+    case rhs of
+      S.Unguarded expr ->
+        RUnguarded <$> renameExpr expr
+      S.Guarded branches ->
+        RGuarded <$> traverse renameGuardedBranch branches
+  pure (maybe renamed (`setRRhsSpan` renamed) (S.rhsSpan rhs))
  where
   renameGuardedBranch (guardExpr, bodyExpr) =
     (,) <$> renameExpr guardExpr <*> renameExpr bodyExpr
 
 renameExpr :: S.Expr -> RenameM RExpr
-renameExpr expr =
-  renameExprRaw expr >>= resolveExprFixities
+renameExpr expr = do
+  renamed <- renameExprRaw expr >>= resolveExprFixities
+  pure (maybe renamed (`setRExprSpan` renamed) (S.exprSpan expr))
 
 renameExprRaw :: S.Expr -> RenameM RExpr
 renameExprRaw = \case
@@ -615,50 +625,61 @@ renameStmtList [] =
 renameStmtList (statement : rest) =
   case statement of
     S.ExprStmt expr ->
-      (:) <$> (RExprStmt <$> renameExpr expr) <*> renameStmtList rest
+      (:) <$> renameExprStmt statement expr <*> renameStmtList rest
     S.BindStmt pat expr -> do
       renamedExpr <- renameExpr expr
       patternScope <- patternScopeFor [pat]
       withScope patternScope $ do
         renamedPat <- renamePat pat
         renamedRest <- renameStmtList rest
-        pure (RBindStmt renamedPat renamedExpr : renamedRest)
+        let renamed = RBindStmt renamedPat renamedExpr
+        pure (maybe renamed (`setRStmtSpan` renamed) (S.stmtSpan statement) : renamedRest)
     S.LetStmt decls -> do
       groupScope <- collectDeclBinders TopLevelContext decls
       withScope groupScope $ do
         renamedDecls <- traverse renameDecl decls
         renamedRest <- renameStmtList rest
-        pure (RLetStmt renamedDecls : renamedRest)
+        let renamed = RLetStmt renamedDecls
+        pure (maybe renamed (`setRStmtSpan` renamed) (S.stmtSpan statement) : renamedRest)
+ where
+  renameExprStmt exprStmt expr = do
+    renamedExpr <- renameExpr expr
+    let renamed = RExprStmt renamedExpr
+    pure (maybe renamed (`setRStmtSpan` renamed) (S.stmtSpan exprStmt))
 
 renameAlt :: S.Alt -> RenameM RAlt
-renameAlt (S.Alt pat rhs whereDecls) = do
+renameAlt sourceAlt@(S.Alt pat rhs whereDecls) = do
   patternScope <- patternScopeFor [pat]
   withScope patternScope $ do
     renamedPat <- renamePat pat
     withDeclGroupScope TopLevelContext whereDecls $ \renamedWhereDecls -> do
       renamedRhs <- renameRhs rhs
-      pure (RAlt renamedPat renamedRhs renamedWhereDecls)
+      let renamed = RAlt renamedPat renamedRhs renamedWhereDecls
+      pure (maybe renamed (`setRAltSpan` renamed) (S.altSpan sourceAlt))
 
 renamePat :: S.Pat -> RenameM RPat
-renamePat = \case
-  S.PVar occ ->
-    RPVar <$> lookupName TermNamespace occ
-  S.PCon occ args ->
-    RPCon <$> lookupName ConstructorNamespace occ <*> traverse renamePat args
-  S.PLit literal ->
-    pure (RPLit literal)
-  S.PWildcard ->
-    pure RPWildcard
-  S.PTuple patterns ->
-    RPTuple <$> traverse renamePat patterns
-  S.PList patterns ->
-    RPList <$> traverse renamePat patterns
-  S.PAs occ pat ->
-    RPAs <$> lookupName TermNamespace occ <*> renamePat pat
-  S.PIrrefutable pat ->
-    RPIrrefutable <$> renamePat pat
-  S.PParen pat ->
-    RPParen <$> renamePat pat
+renamePat pat = do
+  renamed <-
+    case pat of
+      S.PVar occ ->
+        RPVar <$> lookupName TermNamespace occ
+      S.PCon occ args ->
+        RPCon <$> lookupName ConstructorNamespace occ <*> traverse renamePat args
+      S.PLit literal ->
+        pure (RPLit literal)
+      S.PWildcard ->
+        pure RPWildcard
+      S.PTuple patterns ->
+        RPTuple <$> traverse renamePat patterns
+      S.PList patterns ->
+        RPList <$> traverse renamePat patterns
+      S.PAs occ inner ->
+        RPAs <$> lookupName TermNamespace occ <*> renamePat inner
+      S.PIrrefutable inner ->
+        RPIrrefutable <$> renamePat inner
+      S.PParen inner ->
+        RPParen <$> renamePat inner
+  pure (maybe renamed (`setRPatSpan` renamed) (S.patSpan pat))
 
 renameImplicitForallType :: S.HsType -> RenameM RHsType
 renameImplicitForallType sourceType =
@@ -666,23 +687,26 @@ renameImplicitForallType sourceType =
     renameType sourceType
 
 renameType :: S.HsType -> RenameM RHsType
-renameType = \case
-  S.TyVar occ ->
-    RTyVar <$> lookupName TypeVariableNamespace occ
-  S.TyCon occ ->
-    RTyCon <$> lookupTypeConstructor occ
-  S.TyApp lhs rhs ->
-    RTyApp <$> renameType lhs <*> renameType rhs
-  S.TyFun fromType toType ->
-    RTyFun <$> renameType fromType <*> renameType toType
-  S.TyContext context body ->
-    RTyContext <$> traverse renameType context <*> renameType body
-  S.TyTuple types ->
-    RTyTuple <$> traverse renameType types
-  S.TyList elementType ->
-    RTyList <$> renameType elementType
-  S.TyParen inner ->
-    RTyParen <$> renameType inner
+renameType sourceType = do
+  renamed <-
+    case sourceType of
+      S.TyVar occ ->
+        RTyVar <$> lookupName TypeVariableNamespace occ
+      S.TyCon occ ->
+        RTyCon <$> lookupTypeConstructor occ
+      S.TyApp lhs rhs ->
+        RTyApp <$> renameType lhs <*> renameType rhs
+      S.TyFun fromType toType ->
+        RTyFun <$> renameType fromType <*> renameType toType
+      S.TyContext context body ->
+        RTyContext <$> traverse renameType context <*> renameType body
+      S.TyTuple types ->
+        RTyTuple <$> traverse renameType types
+      S.TyList elementType ->
+        RTyList <$> renameType elementType
+      S.TyParen inner ->
+        RTyParen <$> renameType inner
+  pure (maybe renamed (`setRTypeSpan` renamed) (S.hsTypeSpan sourceType))
 
 patternScopeFor :: [S.Pat] -> RenameM Scope
 patternScopeFor patterns = do

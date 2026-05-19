@@ -329,6 +329,9 @@ the normalized constraints to defaulting and dictionary elaboration. Constraint
 positions outside that executable slice now fail through a structured
 placeholder diagnostic, covering superclass contexts, method-specific
 constraints, instance contexts, and expression type-signature constraints.
+Typecheck diagnostics now preserve source spans through the parsed and renamed
+Haskell 2010 AST, and class constraints carry their source attribution so
+delayed dictionary failures still render with a concrete source span.
 
 The built-in executable Prelude class slice now supports `Eq Int`, `Eq Bool`,
 `Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool`: `(==)`, `(/=)`,

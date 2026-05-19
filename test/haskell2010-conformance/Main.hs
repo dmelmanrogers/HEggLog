@@ -44,6 +44,7 @@ data ConformanceCase = ConformanceCase
   , caseExpectedStatus :: ExpectedStatus
   , caseExpectedStdout :: Maybe Text
   , caseExpectedDiagnosticCategory :: Maybe Text
+  , caseExpectedDiagnosticSpanPrefix :: Maybe Text
   , caseRequiredStage :: Text
   , caseNotes :: Text
   , caseCompilerModes :: [CompilerMode]
@@ -60,6 +61,7 @@ instance FromJSON ConformanceCase where
         <*> object .: "expectedStatus"
         <*> object .:? "expectedStdout"
         <*> object .:? "expectedDiagnosticCategory"
+        <*> object .:? "expectedDiagnosticSpanPrefix"
         <*> object .: "requiredStage"
         <*> object .: "notes"
         <*> ((object .:? "compilerModes") .!= [DefaultCompilerMode])
@@ -208,6 +210,9 @@ runExpectedFailingCompile label hegglog conformanceCase =
     case caseExpectedDiagnosticCategory conformanceCase of
       Nothing -> pure ()
       Just category -> assertDiagnosticCategory category combinedOutput
+    case caseExpectedDiagnosticSpanPrefix conformanceCase of
+      Nothing -> pure ()
+      Just prefix -> assertDiagnosticSpanPrefix prefix combinedOutput
 
 runCompileToLLVMPassCase :: FilePath -> ConformanceCase -> Assertion
 runCompileToLLVMPassCase hegglog conformanceCase =
@@ -280,6 +285,12 @@ assertDiagnosticCategory category output =
     (Text.unpack (Text.toLower category) `isSubstringOf` lowerOutput)
  where
   lowerOutput = toLower <$> output
+
+assertDiagnosticSpanPrefix :: Text -> String -> Assertion
+assertDiagnosticSpanPrefix prefix output =
+  assertBool
+    ("diagnostic should contain source span prefix " <> show prefix <> "\noutput:\n" <> output)
+    (Text.unpack prefix `isSubstringOf` output)
 
 isSubstringOf :: String -> String -> Bool
 isSubstringOf needle haystack =

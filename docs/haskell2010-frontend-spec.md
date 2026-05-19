@@ -117,6 +117,8 @@ Current initial Haskell 2010 class capabilities:
   the current executable slice validating single-argument arity
 - structured placeholder diagnostics for superclass contexts, method-specific
   constraints, instance contexts, and expression type-signature constraints
+- source spans preserved through parsed and renamed Haskell 2010 AST nodes for
+  typechecker diagnostics, including delayed class-constraint dictionary errors
 - instance lookup
 - dictionary-passing elaboration
 - generated built-in dictionaries for `Eq Int`, `Eq Bool`, `Ord Int`,

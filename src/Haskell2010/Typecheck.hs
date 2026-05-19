@@ -18,7 +18,7 @@ import Data.Foldable (traverse_)
 import qualified Data.Graph as Graph
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -27,6 +27,7 @@ import qualified Haskell2010.Core.Validate as CoreValidate
 import Haskell2010.Names
 import Haskell2010.Renamed
 import Haskell2010.Syntax (Literal (..))
+import Syntax.Span (SourceSpan, renderSourceDiagnostic)
 
 data Kind
   = StarKind
@@ -79,7 +80,8 @@ renderKind =
     KindMeta meta -> "?k" <> renderInt meta
 
 data TypecheckError
-  = UnsupportedCore0 Text
+  = TypecheckErrorAt SourceSpan TypecheckError
+  | UnsupportedCore0 Text
   | DuplicateTypeSignature RName
   | SignatureWithoutBinding RName
   | UnknownCore0Variable RName
@@ -92,6 +94,7 @@ data TypecheckError
   | InvalidNewtypeConstructorArity RName Int
   | InvalidClassConstraintArity RName Int
   | UnsupportedClassConstraintContext ClassConstraintContext [ClassConstraint]
+  | UnsolvedClassConstraint ClassConstraint
   | AmbiguousTypeVariable Int
   | CoreValidationFailed [CoreValidate.CoreValidationError]
   deriving stock (Show, Eq)
@@ -109,8 +112,20 @@ data MonoType
 data ClassConstraint = ClassConstraint
   { classConstraintClass :: RName
   , classConstraintArguments :: [MonoType]
+  , classConstraintSpan :: Maybe SourceSpan
   }
-  deriving stock (Show, Eq, Ord)
+  deriving stock (Show)
+
+instance Eq ClassConstraint where
+  lhs == rhs =
+    classConstraintClass lhs == classConstraintClass rhs
+      && classConstraintArguments lhs == classConstraintArguments rhs
+
+instance Ord ClassConstraint where
+  compare lhs rhs =
+    compare
+      (classConstraintClass lhs, classConstraintArguments lhs)
+      (classConstraintClass rhs, classConstraintArguments rhs)
 
 data ClassConstraintContext
   = SuperclassConstraintContext RName
@@ -121,14 +136,29 @@ data ClassConstraintContext
 
 singleClassConstraint :: RName -> MonoType -> ClassConstraint
 singleClassConstraint className ty =
+  singleClassConstraintAt Nothing className ty
+
+singleClassConstraintAt :: Maybe SourceSpan -> RName -> MonoType -> ClassConstraint
+singleClassConstraintAt sourceRange className ty =
   ClassConstraint
     { classConstraintClass = className
     , classConstraintArguments = [ty]
+    , classConstraintSpan = sourceRange
     }
 
 mapClassConstraintArguments :: (MonoType -> MonoType) -> ClassConstraint -> ClassConstraint
 mapClassConstraintArguments f constraint =
   constraint {classConstraintArguments = map f (classConstraintArguments constraint)}
+
+withClassConstraintSpan :: Maybe SourceSpan -> ClassConstraint -> ClassConstraint
+withClassConstraintSpan Nothing constraint =
+  constraint
+withClassConstraintSpan sourceRange constraint =
+  constraint {classConstraintSpan = sourceRange}
+
+withSchemeConstraintSpan :: Maybe SourceSpan -> Scheme -> Scheme
+withSchemeConstraintSpan sourceRange (Scheme variables constraints body) =
+  Scheme variables (map (withClassConstraintSpan sourceRange) constraints) body
 
 classConstraintSingleArgument :: ClassConstraint -> Either TypecheckError MonoType
 classConstraintSingleArgument constraint =
@@ -222,6 +252,7 @@ data InferState = InferState
   , dataConstructors :: Map.Map RName DataConstructorInfo
   , classInfos :: Map.Map RName ClassInfo
   , defaultTypes :: [MonoType]
+  , typecheckSpanStack :: [SourceSpan]
   }
   deriving stock (Show, Eq)
 
@@ -290,6 +321,15 @@ typecheckModuleToCore sourceModule = do
 
 renderTypecheckError :: TypecheckError -> Text
 renderTypecheckError = \case
+  TypecheckErrorAt sourceRange err ->
+    renderSourceDiagnostic sourceRange "type error" (renderTypecheckErrorDetail err)
+  err ->
+    renderTypecheckErrorDetail err
+
+renderTypecheckErrorDetail :: TypecheckError -> Text
+renderTypecheckErrorDetail = \case
+  TypecheckErrorAt _ err ->
+    renderTypecheckErrorDetail err
   UnsupportedCore0 message ->
     "unsupported Core-0 Haskell 2010 form: " <> message
   DuplicateTypeSignature name ->
@@ -331,6 +371,8 @@ renderTypecheckError = \case
       <> case constraints of
         [] -> ""
         _ -> " with " <> Text.intercalate ", " (map renderClassConstraint constraints)
+  UnsolvedClassConstraint constraint ->
+    "unsolved type-class constraint " <> renderClassConstraint constraint
   AmbiguousTypeVariable meta ->
     "ambiguous Core-0 type variable ?" <> renderInt meta
   CoreValidationFailed errors ->
@@ -352,6 +394,7 @@ runInfer initialTypeConstructors action =
           , dataConstructors = Map.empty
           , classInfos = Map.empty
           , defaultTypes = [intMonoType]
+          , typecheckSpanStack = []
           }
    in swapState <$> runStateT action initialState
  where
@@ -393,9 +436,10 @@ validateNewtypeDecl = \case
     pure ()
 
 validateNewtypeConstructor :: RConDecl -> InferM ()
-validateNewtypeConstructor (RConDecl constructorName fields) =
-  unless (length fields == 1) $
-    throwTypecheck (InvalidNewtypeConstructorArity constructorName (length fields))
+validateNewtypeConstructor conDecl@(RConDecl constructorName fields) =
+  withTypecheckSpan (rConDeclSpan conDecl) $
+    unless (length fields == 1) $
+      throwTypecheck (InvalidNewtypeConstructorArity constructorName (length fields))
 
 collectTypeSynonyms :: [RDecl] -> Map.Map RName TypeSynonymInfo
 collectTypeSynonyms =
@@ -1442,13 +1486,15 @@ collectSignatures :: [RDecl] -> InferM (Map.Map RName Scheme)
 collectSignatures =
   foldM collect Map.empty
  where
-  collect acc = \case
-    RTypeSignature names sourceType -> do
-      scheme <- sourceScheme sourceType
-      validateSchemeConstraints scheme
-      foldM (insertSignature scheme) acc names
-    _ ->
-      pure acc
+  collect acc decl =
+    withTypecheckSpan (rDeclSpan decl) $
+      case decl of
+        RTypeSignature names sourceType -> do
+          scheme <- sourceScheme sourceType
+          validateSchemeConstraints scheme
+          foldM (insertSignature scheme) acc names
+        _ ->
+          pure acc
 
   insertSignature scheme acc name =
     case Map.lookup name acc of
@@ -1491,31 +1537,34 @@ collectValueBindings :: [RDecl] -> InferM [SourceBinding]
 collectValueBindings =
   foldM collect []
  where
-  collect acc = \case
-    RTypeSignature {} ->
-      pure acc
-    RFixityDecl {} ->
-      pure acc
-    RDataDecl {} ->
-      pure acc
-    RNewtypeDecl {} ->
-      pure acc
-    RTypeSynonym {} ->
-      pure acc
-    RClassDecl {} ->
-      pure acc
-    RInstanceDecl {} ->
-      pure acc
-    RDefaultDecl {} ->
-      pure acc
-    RForeignDecl {} ->
-      pure acc
-    RFunctionBinding name patterns rhs whereDecls ->
-      pure (acc <> [SourceBinding name patterns rhs whereDecls])
-    RPatternBinding (RPVar name) rhs whereDecls ->
-      pure (acc <> [SourceBinding name [] rhs whereDecls])
-    RPatternBinding pat _ _ ->
-      throwTypecheck (UnsupportedCore0 ("top-level pattern binding " <> renderPatternShape pat))
+  collect acc decl =
+    withTypecheckSpan (rDeclSpan decl) $
+      case decl of
+        RTypeSignature {} ->
+          pure acc
+        RFixityDecl {} ->
+          pure acc
+        RDataDecl {} ->
+          pure acc
+        RNewtypeDecl {} ->
+          pure acc
+        RTypeSynonym {} ->
+          pure acc
+        RClassDecl {} ->
+          pure acc
+        RInstanceDecl {} ->
+          pure acc
+        RDefaultDecl {} ->
+          pure acc
+        RForeignDecl {} ->
+          pure acc
+        RFunctionBinding name patterns rhs whereDecls ->
+          pure (acc <> [SourceBinding name patterns rhs whereDecls])
+        RPatternBinding (RPVar name) rhs whereDecls ->
+          pure (acc <> [SourceBinding name [] rhs whereDecls])
+        RPatternBinding pat _ _ ->
+          withTypecheckSpan (rPatSpan pat) $
+            throwTypecheck (UnsupportedCore0 ("top-level pattern binding " <> renderPatternShape pat))
 
 sourceBindingName :: SourceBinding -> RName
 sourceBindingName (SourceBinding name _ _ _) =
@@ -1764,21 +1813,22 @@ inferLambdaPatterns initialEnv =
           go (binders <> [binder]) (patternEnv plan) (wrap . wrapOne) rest
 
 inferRhs :: TypeEnv -> RRhs -> [RDecl] -> InferM TypedExpr
-inferRhs env rhs whereDecls = do
-  (whereBindings, rhsEnv) <-
-    if null whereDecls
-      then pure ([], env)
-      else inferBindingGroup env whereDecls
-  body <-
-    case rhs of
-      RUnguarded expr ->
-        inferExpr rhsEnv expr
-      RGuarded branches ->
-        inferGuardedBranches rhsEnv branches
-  pure $
-    case whereBindings of
-      [] -> body
-      bindings -> TLet bindings body (typedExprType body)
+inferRhs env rhs whereDecls =
+  withTypecheckSpan (rRhsSpan rhs) $ do
+    (whereBindings, rhsEnv) <-
+      if null whereDecls
+        then pure ([], env)
+        else inferBindingGroup env whereDecls
+    body <-
+      case rhs of
+        RUnguarded expr ->
+          inferExpr rhsEnv expr
+        RGuarded branches ->
+          inferGuardedBranches rhsEnv branches
+    pure $
+      case whereBindings of
+        [] -> body
+        bindings -> TLet bindings body (typedExprType body)
 
 inferGuardedBranches :: TypeEnv -> [(RExpr, RExpr)] -> InferM TypedExpr
 inferGuardedBranches env branches = do
@@ -1820,86 +1870,88 @@ patternMatchFailureExpr resultTy = do
     )
 
 inferExpr :: TypeEnv -> RExpr -> InferM TypedExpr
-inferExpr env = \case
-  RVar name ->
-    case Map.lookup name env of
-      Nothing ->
-        inferPreludeValue name
-      Just scheme -> do
-        (instantiatedTy, typeArguments) <- instantiate scheme
-        pure (TVar name scheme typeArguments instantiatedTy)
-  RCon name ->
-    inferConstructor name
-  RLit (LInt value) ->
-    inferIntegerLiteral value
-  RLit literal ->
-    pure (TLit literal (literalMonoType literal))
-  RApp fn arg -> do
-    typedFn <- inferExpr env fn
-    typedArg <- inferExpr env arg
-    resultTy <- freshMeta
-    unify (typedExprType typedFn) (TyFun (typedExprType typedArg) resultTy)
-    pure (TApp typedFn typedArg resultTy)
-  RInfixApp lhs op rhs ->
-    inferPrimitive env lhs op rhs
-  RLambda patterns body ->
-    inferLambda env patterns body
-  RLet decls body -> do
-    (bindings, env') <- inferBindingGroup env decls
-    typedBody <- inferExpr env' body
-    pure (TLet bindings typedBody (typedExprType typedBody))
-  RIf condition thenBranch elseBranch -> do
-    typedCondition <- inferExpr env condition
-    unify (typedExprType typedCondition) boolMonoType
-    typedThen <- inferExpr env thenBranch
-    typedElse <- inferExpr env elseBranch
-    unify (typedExprType typedThen) (typedExprType typedElse)
-    caseBinder <- freshTermBinder "$if" boolMonoType
-    let resultTy = typedExprType typedThen
-    pure
-      ( TCase
-          typedCondition
-          caseBinder
-          [ TypedAlt (ConstructorAlt trueDataConName) [] typedThen
-          , TypedAlt (ConstructorAlt falseDataConName) [] typedElse
-          ]
-          resultTy
-      )
-  RCase scrutinee alternatives -> do
-    typedScrutinee <- inferExpr env scrutinee
-    scrutineeTy <- applyCurrent (typedExprType typedScrutinee)
-    resultTy <- freshMeta
-    caseBinder <- caseBinderFor scrutineeTy alternatives
-    typedAlternatives <- traverse (inferCaseAlt env scrutineeTy caseBinder resultTy) alternatives
-    pure (TCase typedScrutinee caseBinder typedAlternatives resultTy)
-  RDo statements ->
-    inferDo env statements
-  RList expressions -> do
-    elementTy <- freshMeta
-    typedElements <- traverse (inferExpr env) expressions
-    mapM_ (unify elementTy . typedExprType) typedElements
-    elementTy' <- applyCurrent elementTy
-    pure (TList typedElements (TyList elementTy'))
-  RTuple expressions -> do
-    typedFields <- traverse (inferExpr env) expressions
-    pure (TTuple typedFields (TyTuple (map typedExprType typedFields)))
-  RUnit ->
-    pure (TTuple [] unitMonoType)
-  RParen inner ->
-    inferExpr env inner
-  RLeftSection sectionExpr op ->
-    inferSection env "$section_rhs" (\hole -> RInfixApp sectionExpr op hole)
-  RRightSection op sectionExpr ->
-    inferSection env "$section_lhs" (\hole -> RInfixApp hole op sectionExpr)
-  RExprTypeSig inner sourceType -> do
-    scheme <- sourceScheme sourceType
-    unless (null (schemeConstraints scheme)) $
-      throwUnsupportedClassConstraintContext ExpressionSignatureConstraintContext (schemeConstraints scheme)
-    typedInner <- inferExpr env inner
-    unify (typedExprType typedInner) (schemeBody scheme)
-    pure typedInner
-  unsupported ->
-    throwTypecheck (UnsupportedCore0 ("expression " <> Text.pack (show unsupported)))
+inferExpr env expr =
+  withTypecheckSpan (rExprSpan expr) $
+    case expr of
+      RVar name ->
+        case Map.lookup name env of
+          Nothing ->
+            inferPreludeValue name
+          Just scheme -> do
+            (instantiatedTy, typeArguments) <- instantiate scheme
+            pure (TVar name scheme typeArguments instantiatedTy)
+      RCon name ->
+        inferConstructor name
+      RLit (LInt value) ->
+        inferIntegerLiteral value
+      RLit literal ->
+        pure (TLit literal (literalMonoType literal))
+      RApp fn arg -> do
+        typedFn <- inferExpr env fn
+        typedArg <- inferExpr env arg
+        resultTy <- freshMeta
+        unify (typedExprType typedFn) (TyFun (typedExprType typedArg) resultTy)
+        pure (TApp typedFn typedArg resultTy)
+      RInfixApp lhs op rhs ->
+        inferPrimitive env lhs op rhs
+      RLambda patterns body ->
+        inferLambda env patterns body
+      RLet decls body -> do
+        (bindings, env') <- inferBindingGroup env decls
+        typedBody <- inferExpr env' body
+        pure (TLet bindings typedBody (typedExprType typedBody))
+      RIf condition thenBranch elseBranch -> do
+        typedCondition <- inferExpr env condition
+        unify (typedExprType typedCondition) boolMonoType
+        typedThen <- inferExpr env thenBranch
+        typedElse <- inferExpr env elseBranch
+        unify (typedExprType typedThen) (typedExprType typedElse)
+        caseBinder <- freshTermBinder "$if" boolMonoType
+        let resultTy = typedExprType typedThen
+        pure
+          ( TCase
+              typedCondition
+              caseBinder
+              [ TypedAlt (ConstructorAlt trueDataConName) [] typedThen
+              , TypedAlt (ConstructorAlt falseDataConName) [] typedElse
+              ]
+              resultTy
+          )
+      RCase scrutinee alternatives -> do
+        typedScrutinee <- inferExpr env scrutinee
+        scrutineeTy <- applyCurrent (typedExprType typedScrutinee)
+        resultTy <- freshMeta
+        caseBinder <- caseBinderFor scrutineeTy alternatives
+        typedAlternatives <- traverse (inferCaseAlt env scrutineeTy caseBinder resultTy) alternatives
+        pure (TCase typedScrutinee caseBinder typedAlternatives resultTy)
+      RDo statements ->
+        inferDo env statements
+      RList expressions -> do
+        elementTy <- freshMeta
+        typedElements <- traverse (inferExpr env) expressions
+        mapM_ (unify elementTy . typedExprType) typedElements
+        elementTy' <- applyCurrent elementTy
+        pure (TList typedElements (TyList elementTy'))
+      RTuple expressions -> do
+        typedFields <- traverse (inferExpr env) expressions
+        pure (TTuple typedFields (TyTuple (map typedExprType typedFields)))
+      RUnit ->
+        pure (TTuple [] unitMonoType)
+      RParen inner ->
+        inferExpr env inner
+      RLeftSection sectionExpr op ->
+        inferSection env "$section_rhs" (\hole -> RInfixApp sectionExpr op hole)
+      RRightSection op sectionExpr ->
+        inferSection env "$section_lhs" (\hole -> RInfixApp hole op sectionExpr)
+      RExprTypeSig inner sourceType -> do
+        scheme <- sourceScheme sourceType
+        unless (null (schemeConstraints scheme)) $
+          throwUnsupportedClassConstraintContext ExpressionSignatureConstraintContext (schemeConstraints scheme)
+        typedInner <- inferExpr env inner
+        unify (typedExprType typedInner) (schemeBody scheme)
+        pure typedInner
+      unsupported ->
+        throwTypecheck (UnsupportedCore0 ("expression " <> Text.pack (show unsupported)))
 
 inferSection :: TypeEnv -> Text -> (RExpr -> RExpr) -> InferM TypedExpr
 inferSection env argumentOccurrence buildBody = do
@@ -1916,22 +1968,26 @@ inferSection env argumentOccurrence buildBody = do
 inferDo :: TypeEnv -> [RStmt] -> InferM TypedExpr
 inferDo _ [] =
   throwTypecheck (UnsupportedCore0 "empty do expression")
-inferDo env [RExprStmt expr] =
-  inferExpr env expr
-inferDo env (RExprStmt expr : rest) = do
-  first <- inferExpr env expr
-  restExpr <- inferDo env rest
-  firstResult <- freshMeta
-  restResult <- freshMeta
-  unify (typedExprType first) (ioMonoType firstResult)
-  unify (typedExprType restExpr) (ioMonoType restResult)
-  pure (TPrim PrimIOThen [first, restExpr] (typedExprType restExpr))
-inferDo env (RLetStmt decls : rest) = do
-  (bindings, env') <- inferBindingGroup env decls
-  body <- inferDo env' rest
-  pure (TLet bindings body (typedExprType body))
-inferDo _ (RBindStmt {} : _) =
-  throwTypecheck (UnsupportedCore0 "do bind statements")
+inferDo env [statement@(RExprStmt expr)] =
+  withTypecheckSpan (rStmtSpan statement) $
+    inferExpr env expr
+inferDo env (statement@(RExprStmt expr) : rest) =
+  withTypecheckSpan (rStmtSpan statement) $ do
+    first <- inferExpr env expr
+    restExpr <- inferDo env rest
+    firstResult <- freshMeta
+    restResult <- freshMeta
+    unify (typedExprType first) (ioMonoType firstResult)
+    unify (typedExprType restExpr) (ioMonoType restResult)
+    pure (TPrim PrimIOThen [first, restExpr] (typedExprType restExpr))
+inferDo env (statement@(RLetStmt decls) : rest) =
+  withTypecheckSpan (rStmtSpan statement) $ do
+    (bindings, env') <- inferBindingGroup env decls
+    body <- inferDo env' rest
+    pure (TLet bindings body (typedExprType body))
+inferDo _ (statement@(RBindStmt {}) : _) =
+  withTypecheckSpan (rStmtSpan statement) $
+    throwTypecheck (UnsupportedCore0 "do bind statements")
 
 inferConstructor :: RName -> InferM TypedExpr
 inferConstructor name
@@ -1959,19 +2015,23 @@ inferPreludeValue name =
     Nothing ->
       throwTypecheck (UnknownCore0Variable name)
     Just scheme -> do
-      (instantiatedTy, typeArguments) <- instantiate scheme
-      pure (TVar (preludeValueCoreName name) scheme typeArguments instantiatedTy)
+      sourceRange <- currentTypecheckSpan
+      let spannedScheme = withSchemeConstraintSpan sourceRange scheme
+      (instantiatedTy, typeArguments) <- instantiate spannedScheme
+      pure (TVar (preludeValueCoreName name) spannedScheme typeArguments instantiatedTy)
 
 inferIntegerLiteral :: Integer -> InferM TypedExpr
 inferIntegerLiteral value = do
   resultTy <- freshMeta
   method <- builtinClassMethod "Num" "fromInteger"
   classVariable <- classMethodSingleVariable "fromInteger" method
+  sourceRange <- currentTypecheckSpan
+  let methodScheme = withSchemeConstraintSpan sourceRange (classMethodScheme method)
   let methodTy =
         replaceTypeVars
           (Map.singleton classVariable resultTy)
-          (schemeBody (classMethodScheme method))
-      methodExpr = TVar (classMethodName method) (classMethodScheme method) [resultTy] methodTy
+          (schemeBody methodScheme)
+      methodExpr = TVar (classMethodName method) methodScheme [resultTy] methodTy
       literalExpr = TLit (LInt value) intMonoType
   case methodTy of
     TyFun _ result ->
@@ -2096,12 +2156,14 @@ inferPrimitive env lhs op rhs =
     argumentTy <- applyCurrent (typedExprType typedLhs)
     method <- builtinClassMethod classOccurrence methodOccurrence
     classVariable <- classMethodSingleVariable methodOccurrence method
-    let methodBodyTy = replaceTypeVars (Map.singleton classVariable argumentTy) (schemeBody (classMethodScheme method))
+    sourceRange <- currentTypecheckSpan
+    let methodScheme = withSchemeConstraintSpan sourceRange (classMethodScheme method)
+        methodBodyTy = replaceTypeVars (Map.singleton classVariable argumentTy) (schemeBody methodScheme)
         resultTy =
           case methodBodyTy of
             TyFun _ (TyFun _ result) -> result
             other -> other
-        methodExpr = TVar (classMethodName method) (classMethodScheme method) [argumentTy] methodBodyTy
+        methodExpr = TVar (classMethodName method) methodScheme [argumentTy] methodBodyTy
     pure (TApp (TApp methodExpr typedLhs (TyFun argumentTy resultTy)) typedRhs resultTy)
 
 builtinClassMethod :: Text -> Text -> InferM ClassMethodInfo
@@ -2135,57 +2197,60 @@ classMethodSingleVariable methodOccurrence method =
         )
 
 inferCaseAlt :: TypeEnv -> MonoType -> TypedBinder -> MonoType -> RAlt -> InferM TypedAlt
-inferCaseAlt env scrutineeTy caseBinder resultTy (RAlt pat rhs whereDecls) = do
-  let scrutinee = TVar (typedBinderName caseBinder) (Scheme [] [] scrutineeTy) [] scrutineeTy
-  plan <- inferPatternPlan env scrutineeTy scrutinee pat
-  typedBody <- patternWrapBody plan <$> inferRhs (patternEnv plan) rhs whereDecls
-  unify resultTy (typedExprType typedBody)
-  pure (TypedAlt (patternAltCon plan) (patternAltBinders plan) typedBody)
+inferCaseAlt env scrutineeTy caseBinder resultTy alt@(RAlt pat rhs whereDecls) =
+  withTypecheckSpan (rAltSpan alt) $ do
+    let scrutinee = TVar (typedBinderName caseBinder) (Scheme [] [] scrutineeTy) [] scrutineeTy
+    plan <- inferPatternPlan env scrutineeTy scrutinee pat
+    typedBody <- patternWrapBody plan <$> inferRhs (patternEnv plan) rhs whereDecls
+    unify resultTy (typedExprType typedBody)
+    pure (TypedAlt (patternAltCon plan) (patternAltBinders plan) typedBody)
 
 inferPatternPlan :: TypeEnv -> MonoType -> TypedExpr -> RPat -> InferM PatternPlan
-inferPatternPlan env expectedTy scrutinee = \case
-  RPVar name ->
-    pure
-      PatternPlan
-        { patternAltCon = DefaultAlt
-        , patternAltBinders = []
-        , patternEnv = Map.insert name (Scheme [] [] expectedTy) env
-        , patternWrapBody = aliasPatternBinder name expectedTy scrutinee
-        }
-  RPWildcard ->
-    pure
-      PatternPlan
-        { patternAltCon = DefaultAlt
-        , patternAltBinders = []
-        , patternEnv = env
-        , patternWrapBody = id
-        }
-  RPLit literal -> do
-    unify expectedTy (literalMonoType literal)
-    pure
-      PatternPlan
-        { patternAltCon = LiteralAlt literal
-        , patternAltBinders = []
-        , patternEnv = env
-        , patternWrapBody = id
-        }
-  RPCon name args ->
-    inferConstructorPattern env expectedTy name args
-  RPTuple patterns ->
-    inferTuplePattern env expectedTy patterns
-  RPList patterns ->
-    inferListPattern env expectedTy patterns
-  RPParen pat ->
-    inferPatternPlan env expectedTy scrutinee pat
-  RPAs name pat -> do
-    plan <- inferPatternPlan env expectedTy scrutinee pat
-    pure
-      plan
-        { patternEnv = Map.insert name (Scheme [] [] expectedTy) (patternEnv plan)
-        , patternWrapBody = aliasPatternBinder name expectedTy scrutinee . patternWrapBody plan
-        }
-  RPIrrefutable {} ->
-    throwTypecheck (UnsupportedCore0 "irrefutable pattern semantics")
+inferPatternPlan env expectedTy scrutinee pat =
+  withTypecheckSpan (rPatSpan pat) $
+    case pat of
+      RPVar name ->
+        pure
+          PatternPlan
+            { patternAltCon = DefaultAlt
+            , patternAltBinders = []
+            , patternEnv = Map.insert name (Scheme [] [] expectedTy) env
+            , patternWrapBody = aliasPatternBinder name expectedTy scrutinee
+            }
+      RPWildcard ->
+        pure
+          PatternPlan
+            { patternAltCon = DefaultAlt
+            , patternAltBinders = []
+            , patternEnv = env
+            , patternWrapBody = id
+            }
+      RPLit literal -> do
+        unify expectedTy (literalMonoType literal)
+        pure
+          PatternPlan
+            { patternAltCon = LiteralAlt literal
+            , patternAltBinders = []
+            , patternEnv = env
+            , patternWrapBody = id
+            }
+      RPCon name args ->
+        inferConstructorPattern env expectedTy name args
+      RPTuple patterns ->
+        inferTuplePattern env expectedTy patterns
+      RPList patterns ->
+        inferListPattern env expectedTy patterns
+      RPParen inner ->
+        inferPatternPlan env expectedTy scrutinee inner
+      RPAs name inner -> do
+        plan <- inferPatternPlan env expectedTy scrutinee inner
+        pure
+          plan
+            { patternEnv = Map.insert name (Scheme [] [] expectedTy) (patternEnv plan)
+            , patternWrapBody = aliasPatternBinder name expectedTy scrutinee . patternWrapBody plan
+            }
+      RPIrrefutable {} ->
+        throwTypecheck (UnsupportedCore0 "irrefutable pattern semantics")
 
 inferConstructorPattern :: TypeEnv -> MonoType -> RName -> [RPat] -> InferM PatternPlan
 inferConstructorPattern env expectedTy name args
@@ -2336,28 +2401,33 @@ caseBinderFor scrutineeTy alternatives =
       freshTermBinder "$case" scrutineeTy
 
 sourceScheme :: RHsType -> InferM Scheme
-sourceScheme sourceType = do
-  (constraints, mono) <- sourceQualifiedMonoType sourceType
-  pure (Scheme (List.nub (concatMap constraintTypeVars constraints <> typeVars mono)) constraints mono)
+sourceScheme sourceType =
+  withTypecheckSpan (rTypeSpan sourceType) $ do
+    (constraints, mono) <- sourceQualifiedMonoType sourceType
+    pure (Scheme (List.nub (concatMap constraintTypeVars constraints <> typeVars mono)) constraints mono)
 
 sourceQualifiedMonoType :: RHsType -> InferM ([ClassConstraint], MonoType)
-sourceQualifiedMonoType = \case
-  RTyContext constraints body -> do
-    typedConstraints <- traverse sourceClassConstraint constraints
-    mono <- sourceMonoType body
-    pure (typedConstraints, mono)
-  ty ->
-    ([],) <$> sourceMonoType ty
+sourceQualifiedMonoType sourceType =
+  withTypecheckSpan (rTypeSpan sourceType) $
+    case sourceType of
+      RTyContext constraints body -> do
+        typedConstraints <- traverse sourceClassConstraint constraints
+        mono <- sourceMonoType body
+        pure (typedConstraints, mono)
+      ty ->
+        ([],) <$> sourceMonoType ty
 
 sourceClassConstraint :: RHsType -> InferM ClassConstraint
 sourceClassConstraint sourceConstraint =
-  case typeApplicationSpine sourceConstraint of
-    Just (className, arguments) -> do
-      argument <- requireSingleConstraintArgument className arguments
-      checkSourceTypeKind argument
-      singleClassConstraint (canonicalClassName className) <$> sourceMonoType argument
-    Nothing ->
-      throwTypecheck (UnsupportedCore0 ("type-class constraint " <> Text.pack (show sourceConstraint)))
+  withTypecheckSpan (rTypeSpan sourceConstraint) $
+    case typeApplicationSpine sourceConstraint of
+      Just (className, arguments) -> do
+        argument <- requireSingleConstraintArgument className arguments
+        checkSourceTypeKind argument
+        sourceRange <- currentTypecheckSpan
+        singleClassConstraintAt sourceRange (canonicalClassName className) <$> sourceMonoType argument
+      Nothing ->
+        throwTypecheck (UnsupportedCore0 ("type-class constraint " <> Text.pack (show sourceConstraint)))
 
 requireSingleConstraintArgument :: RName -> [a] -> InferM a
 requireSingleConstraintArgument className = \case
@@ -2376,31 +2446,34 @@ throwUnsupportedClassConstraintContext context constraints =
   throwTypecheck (UnsupportedClassConstraintContext context constraints)
 
 sourceMonoType :: RHsType -> InferM MonoType
-sourceMonoType sourceType = do
-  checkSourceTypeKind sourceType
-  expanded <- expandSourceTypeSynonyms sourceType
-  sourceMonoTypeUnchecked expanded
+sourceMonoType sourceType =
+  withTypecheckSpan (rTypeSpan sourceType) $ do
+    checkSourceTypeKind sourceType
+    expanded <- expandSourceTypeSynonyms sourceType
+    sourceMonoTypeUnchecked expanded
 
 sourceMonoTypeUnchecked :: RHsType -> InferM MonoType
-sourceMonoTypeUnchecked = \case
-  RTyVar name ->
-    pure (TyVar name)
-  RTyCon name ->
-    typeConstructorMonoType name
-  RTyApp fn arg ->
-    TyApp <$> sourceMonoTypeUnchecked fn <*> sourceMonoTypeUnchecked arg
-  RTyFun arg result ->
-    TyFun <$> sourceMonoTypeUnchecked arg <*> sourceMonoTypeUnchecked result
-  RTyContext [] body ->
-    sourceMonoTypeUnchecked body
-  RTyContext _ _ ->
-    throwTypecheck (UnsupportedCore0 "nested type-class constraints")
-  RTyTuple types ->
-    TyTuple <$> traverse sourceMonoTypeUnchecked types
-  RTyList elementType ->
-    TyList <$> sourceMonoTypeUnchecked elementType
-  RTyParen inner ->
-    sourceMonoTypeUnchecked inner
+sourceMonoTypeUnchecked sourceType =
+  withTypecheckSpan (rTypeSpan sourceType) $
+    case sourceType of
+      RTyVar name ->
+        pure (TyVar name)
+      RTyCon name ->
+        typeConstructorMonoType name
+      RTyApp fn arg ->
+        TyApp <$> sourceMonoTypeUnchecked fn <*> sourceMonoTypeUnchecked arg
+      RTyFun arg result ->
+        TyFun <$> sourceMonoTypeUnchecked arg <*> sourceMonoTypeUnchecked result
+      RTyContext [] body ->
+        sourceMonoTypeUnchecked body
+      RTyContext _ _ ->
+        throwTypecheck (UnsupportedCore0 "nested type-class constraints")
+      RTyTuple types ->
+        TyTuple <$> traverse sourceMonoTypeUnchecked types
+      RTyList elementType ->
+        TyList <$> sourceMonoTypeUnchecked elementType
+      RTyParen inner ->
+        sourceMonoTypeUnchecked inner
 
 expandSourceTypeSynonyms :: RHsType -> InferM RHsType
 expandSourceTypeSynonyms =
@@ -2408,16 +2481,17 @@ expandSourceTypeSynonyms =
 
 expandTypeSynonyms :: [RName] -> RHsType -> InferM RHsType
 expandTypeSynonyms stack sourceType =
-  case typeApplicationSpine sourceType of
-    Just (name, args) -> do
-      synonyms <- typeSynonyms <$> get
-      case Map.lookup name synonyms of
-        Just info ->
-          expandSynonymApplication stack name info args
-        Nothing ->
-          expandStructurally
-    Nothing ->
-      expandStructurally
+  withTypecheckSpan (rTypeSpan sourceType) $
+    case typeApplicationSpine sourceType of
+      Just (name, args) -> do
+        synonyms <- typeSynonyms <$> get
+        case Map.lookup name synonyms of
+          Just info ->
+            expandSynonymApplication stack name info args
+          Nothing ->
+            expandStructurally
+      Nothing ->
+        expandStructurally
  where
   expandStructurally =
     case sourceType of
@@ -2490,46 +2564,50 @@ sourceTypeWithoutParens = \case
   other -> other
 
 checkSourceTypeKind :: RHsType -> InferM ()
-checkSourceTypeKind sourceType = do
-  actual <- inferSourceTypeKind sourceType
-  unifyKind StarKind actual
+checkSourceTypeKind sourceType =
+  withTypecheckSpan (rTypeSpan sourceType) $ do
+    actual <- inferSourceTypeKind sourceType
+    unifyKind StarKind actual
 
 inferSourceTypeKind :: RHsType -> InferM Kind
-inferSourceTypeKind = \case
-  RTyVar name ->
-    typeVariableKind name
-  RTyCon name ->
-    typeConstructorKindOf name
-  RTyApp fn arg -> do
-    fnKind <- inferSourceTypeKind fn
-    argKind <- inferSourceTypeKind arg
-    resultKind <- freshKindMeta
-    unifyKind (KindArrow argKind resultKind) fnKind
-    applyKindCurrent resultKind
-  RTyFun arg result -> do
-    checkSourceTypeKind arg
-    checkSourceTypeKind result
-    pure StarKind
-  RTyContext constraints body -> do
-    traverse_ checkConstraintKind constraints
-    checkSourceTypeKind body
-    pure StarKind
-  RTyTuple types -> do
-    traverse_ checkSourceTypeKind types
-    pure StarKind
-  RTyList elementType -> do
-    checkSourceTypeKind elementType
-    pure StarKind
-  RTyParen inner ->
-    inferSourceTypeKind inner
+inferSourceTypeKind sourceType =
+  withTypecheckSpan (rTypeSpan sourceType) $
+    case sourceType of
+      RTyVar name ->
+        typeVariableKind name
+      RTyCon name ->
+        typeConstructorKindOf name
+      RTyApp fn arg -> do
+        fnKind <- inferSourceTypeKind fn
+        argKind <- inferSourceTypeKind arg
+        resultKind <- freshKindMeta
+        unifyKind (KindArrow argKind resultKind) fnKind
+        applyKindCurrent resultKind
+      RTyFun arg result -> do
+        checkSourceTypeKind arg
+        checkSourceTypeKind result
+        pure StarKind
+      RTyContext constraints body -> do
+        traverse_ checkConstraintKind constraints
+        checkSourceTypeKind body
+        pure StarKind
+      RTyTuple types -> do
+        traverse_ checkSourceTypeKind types
+        pure StarKind
+      RTyList elementType -> do
+        checkSourceTypeKind elementType
+        pure StarKind
+      RTyParen inner ->
+        inferSourceTypeKind inner
 
 checkConstraintKind :: RHsType -> InferM ()
 checkConstraintKind sourceConstraint =
-  case typeApplicationSpine sourceConstraint of
-    Just (className, arguments) ->
-      checkSourceTypeKind =<< requireSingleConstraintArgument className arguments
-    Nothing ->
-      throwTypecheck (UnsupportedCore0 ("type-class constraint " <> Text.pack (show sourceConstraint)))
+  withTypecheckSpan (rTypeSpan sourceConstraint) $
+    case typeApplicationSpine sourceConstraint of
+      Just (className, arguments) ->
+        checkSourceTypeKind =<< requireSingleConstraintArgument className arguments
+      Nothing ->
+        throwTypecheck (UnsupportedCore0 ("type-class constraint " <> Text.pack (show sourceConstraint)))
 
 typeVariableKind :: RName -> InferM Kind
 typeVariableKind name = do
@@ -3381,10 +3459,11 @@ resolveDictionary env wanted = do
           pure (CVar (instanceRefName ref) dictTy)
         Nothing ->
           Left
-            ( UnsupportedCore0
-                ( "unsolved type-class constraint "
-                    <> renderClassConstraint normalized
-                )
+            ( maybe
+                id
+                TypecheckErrorAt
+                (classConstraintSpan wanted)
+                (UnsolvedClassConstraint normalized)
             )
 
 normalizeConstraint :: Subst -> Map.Map Int RName -> ClassConstraint -> Either TypecheckError ClassConstraint
@@ -4099,8 +4178,27 @@ zipWithM_ f lhs rhs =
   sequence_ (zipWith f lhs rhs)
 
 throwTypecheck :: TypecheckError -> InferM a
-throwTypecheck =
-  lift . Left
+throwTypecheck err = do
+  spans <- typecheckSpanStack <$> get
+  lift . Left $
+    case err of
+      TypecheckErrorAt {} ->
+        err
+      _ ->
+        maybe err (`TypecheckErrorAt` err) (listToMaybe spans)
+
+withTypecheckSpan :: Maybe SourceSpan -> InferM a -> InferM a
+withTypecheckSpan Nothing action =
+  action
+withTypecheckSpan (Just sourceRange) action = do
+  modify (\state -> state {typecheckSpanStack = sourceRange : typecheckSpanStack state})
+  result <- action
+  modify (\state -> state {typecheckSpanStack = drop 1 (typecheckSpanStack state)})
+  pure result
+
+currentTypecheckSpan :: InferM (Maybe SourceSpan)
+currentTypecheckSpan =
+  listToMaybe . typecheckSpanStack <$> get
 
 renderMonoType :: MonoType -> Text
 renderMonoType =

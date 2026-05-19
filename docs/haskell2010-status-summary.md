@@ -160,9 +160,10 @@ It now models IO output for `putStrLn`, `print`, `return`, `(>>)`, and
 expression-only `do` sequencing so Core remains the oracle for native
 `main :: IO ()` execution.
 
-This is a reference oracle for the native path. Source-spanned Haskell 2010
-type diagnostics remain later work because the renamed AST is currently
-spanless.
+This is a reference oracle for the native path. Haskell 2010 type diagnostics
+now preserve spans from the parsed AST through renaming and typechecking, and
+delayed dictionary-resolution failures retain the expression or source type that
+created the class constraint.
 
 ## What STG Runtime Exists Today
 

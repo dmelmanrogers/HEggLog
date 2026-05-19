@@ -73,6 +73,7 @@ and local functions, plus the initial type class dictionary slice for
 user-defined single-parameter classes, concrete instances, explicit source
 constraints with normalized argument representation, dictionary-passed method
 calls, structured placeholder diagnostics for unsupported constraint contexts,
+source-spanned typecheck diagnostics including delayed dictionary failures,
 documented nullary-binding monomorphism/defaulting behavior, and built-in `Eq Int`, `Eq Bool`,
 `Ord Int`, `Ord Bool`, and executable `Num Int` class methods, plus guarded
 RHSs, guarded case alternatives, as-pattern aliases, and guard-fallthrough
@@ -126,6 +127,7 @@ Current status:
   for unsupported constraint contexts, dictionary constructors/selectors,
   dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Ord Int`,
   `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool` dictionaries, plus
+  source-spanned Haskell 2010 typecheck diagnostics, plus
   `putStrLn`, `print`, `return`, `(>>)`, and expression-only `do` sequencing
 - Haskell 2010 Core reference evaluator: implemented and unit-tested for
   arithmetic, polymorphic instantiation, Bool and user ADT cases, lazy

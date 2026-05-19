@@ -353,6 +353,7 @@
       "category": "negative",
       "expectedStatus": "compile-error",
       "expectedDiagnosticCategory": "type",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/type-error.hs:3:8-",
       "requiredStage": "typecheck",
       "notes": "Ill-typed arithmetic must fail with a type diagnostic."
     },

@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-19 04:22:41 UTC
+Date/time: 2026-05-19 04:48:47 UTC
 
-Commit hash tested: TYPE-019 working tree before final task commit. The final
+Commit hash tested: TYPE-020 working tree before final task commit. The final
 commit for the task records the same source tree plus this results document.
 
 Primary conformance command run:
@@ -63,7 +63,7 @@ explicit conformance cases rather than omitted.
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
 | `modules` | 2 | single-module and same-directory import tests exist |
-| `negative` | 6 | compile-error diagnostics covered |
+| `negative` | 6 | compile-error diagnostics covered, including a source-spanned type error |
 | `patterns` | 1 | guards/as-patterns representative native test exists |
 | `prelude` | 2 | list functions and class dictionaries covered |
 | `recursion` | 1 | top-level recursion representative native test exists |

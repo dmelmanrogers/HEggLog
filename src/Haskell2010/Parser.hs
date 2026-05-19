@@ -30,11 +30,13 @@ import Haskell2010.Lexer
   )
 import qualified Haskell2010.Lexer as Lex
 import Haskell2010.Syntax
+import Syntax.Span (SourceSpan, sourceSpan)
 import Text.Megaparsec
   ( MonadParsec (lookAhead, try)
   , ParseErrorBundle
   , anySingle
   , choice
+  , getSourcePos
   , manyTill
   , option
   , parse
@@ -160,7 +162,8 @@ importSpec =
 
 declParser :: Parser Decl
 declParser =
-  choice
+  withSpan setDeclSpan $
+    choice
     [ try typeSignatureDecl
     , try fixityDecl
     , try dataDecl
@@ -266,7 +269,8 @@ patternBinding = do
 
 rhsParser :: Parser Rhs
 rhsParser =
-  scn *> (try guardedRhs <|> unguardedRhs)
+  withSpan setRhsSpan $
+    scn *> (try guardedRhs <|> unguardedRhs)
  where
   guardedRhs = Guarded <$> some (try guardedBranch)
   guardedBranch = do
@@ -281,12 +285,12 @@ rhsParser =
     Unguarded <$> (symbol "=" *> scn *> exprParser)
 
 exprParser :: Parser Expr
-exprParser = do
+exprParser = withSpan setExprSpan $ do
   expr <- choice [lambdaExpr, letExpr, ifExpr, caseExpr, doExpr, infixExpr]
   option expr (ExprTypeSig expr <$> (symbol "::" *> typeParser))
 
 lambdaExpr :: Parser Expr
-lambdaExpr = do
+lambdaExpr = withSpan setExprSpan $ do
   void (symbol "\\")
   patterns <- some patParser
   void (symbol "->")
@@ -294,7 +298,7 @@ lambdaExpr = do
   Lambda patterns <$> exprParser
 
 letExpr :: Parser Expr
-letExpr = do
+letExpr = withSpan setExprSpan $ do
   reserved "let"
   decls <- layoutBlock declParser
   scn
@@ -302,7 +306,7 @@ letExpr = do
   Let decls <$> exprParser
 
 ifExpr :: Parser Expr
-ifExpr = do
+ifExpr = withSpan setExprSpan $ do
   reserved "if"
   condition <- exprParser
   reserved "then"
@@ -311,19 +315,19 @@ ifExpr = do
   If condition thenExpr <$> exprParser
 
 caseExpr :: Parser Expr
-caseExpr = do
+caseExpr = withSpan setExprSpan $ do
   reserved "case"
   scrutinee <- exprParser
   reserved "of"
   Case scrutinee <$> layoutBlock altParser
 
 doExpr :: Parser Expr
-doExpr = do
+doExpr = withSpan setExprSpan $ do
   reserved "do"
   Do <$> layoutBlock stmtParser
 
 infixExpr :: Parser Expr
-infixExpr = do
+infixExpr = withSpan setExprSpan $ do
   firstExpr <- appExpr
   rest <- many (try ((,) <$> qop <*> appExpr))
   pure (foldl applyInfix firstExpr rest)
@@ -332,13 +336,14 @@ infixExpr = do
     InfixApp lhs op rhs
 
 appExpr :: Parser Expr
-appExpr = do
+appExpr = withSpan setExprSpan $ do
   atoms <- some atomExpr
   pure (foldl1 App atoms)
 
 atomExpr :: Parser Expr
 atomExpr =
-  choice
+  withSpan setExprSpan $
+    choice
     [ try parenExpr
     , try listExpr
     , literalExpr
@@ -356,7 +361,7 @@ literalExpr =
       ]
 
 parenExpr :: Parser Expr
-parenExpr = do
+parenExpr = withSpan setExprSpan $ do
   void (symbol "(")
   choice
     [ Unit <$ symbol ")"
@@ -387,7 +392,7 @@ parenExpr = do
     pure (LeftSection firstExpr op)
 
 listExpr :: Parser Expr
-listExpr = do
+listExpr = withSpan setExprSpan $ do
   void (symbol "[")
   choice
     [ List [] <$ symbol "]"
@@ -425,7 +430,8 @@ listExpr = do
 
 stmtParser :: Parser Stmt
 stmtParser =
-  choice
+  withSpan setStmtSpan $
+    choice
     [ try bindStmt
     , letStmt
     , ExprStmt <$> exprParser
@@ -440,14 +446,15 @@ stmtParser =
     LetStmt <$> layoutBlock declParser
 
 altParser :: Parser Alt
-altParser = do
+altParser = withSpan setAltSpan $ do
   pat <- patParser
   rhs <- altRhsParser
   Alt pat rhs <$> optionalWhereDecls
 
 altRhsParser :: Parser Rhs
 altRhsParser =
-  scn *> (try guardedAltRhs <|> unguardedAltRhs)
+  withSpan setRhsSpan $
+    scn *> (try guardedAltRhs <|> unguardedAltRhs)
  where
   guardedAltRhs = Guarded <$> some (try guardedBranch)
   guardedBranch = do
@@ -462,7 +469,7 @@ altRhsParser =
     Unguarded <$> (symbol "->" *> scn *> exprParser)
 
 patParser :: Parser Pat
-patParser = do
+patParser = withSpan setPatSpan $ do
   lhs <-
     choice
       [ try asPat
@@ -489,7 +496,8 @@ patParser = do
 
 patAtom :: Parser Pat
 patAtom =
-  choice
+  withSpan setPatSpan $
+    choice
     [ PWildcard <$ symbol "_"
     , try parenPat
     , listPat
@@ -499,7 +507,7 @@ patAtom =
     ]
 
 parenPat :: Parser Pat
-parenPat = do
+parenPat = withSpan setPatSpan $ do
   void (symbol "(")
   choice
     [ PTuple [] <$ symbol ")"
@@ -519,7 +527,8 @@ parenPat = do
 
 listPat :: Parser Pat
 listPat =
-  PList <$> bracketsComma patParser
+  withSpan setPatSpan $
+    PList <$> bracketsComma patParser
 
 literalParser :: Parser Literal
 literalParser =
@@ -530,7 +539,7 @@ literalParser =
     ]
 
 typeParser :: Parser HsType
-typeParser = do
+typeParser = withSpan setHsTypeSpan $ do
   context <- optional (try (contextParser <* symbol "=>"))
   body <- functionType
   pure (maybe body (`TyContext` body) context)
@@ -540,24 +549,25 @@ contextParser =
   try (parensComma classConstraint) <|> ((: []) <$> classConstraint)
 
 classConstraint :: Parser HsType
-classConstraint = do
+classConstraint = withSpan setHsTypeSpan $ do
   className <- qconid
   args <- many typeAtom
   pure (foldl TyApp (TyCon className) args)
 
 functionType :: Parser HsType
-functionType = do
+functionType = withSpan setHsTypeSpan $ do
   lhs <- appType
   option lhs (TyFun lhs <$> (symbol "->" *> functionType))
 
 appType :: Parser HsType
-appType = do
+appType = withSpan setHsTypeSpan $ do
   parts <- some typeAtom
   pure (foldl1 TyApp parts)
 
 typeAtom :: Parser HsType
 typeAtom =
-  choice
+  withSpan setHsTypeSpan $
+    choice
     [ try parenType
     , TyList <$> (symbol "[" *> typeParser <* symbol "]")
     , TyCon <$> qconid
@@ -565,7 +575,7 @@ typeAtom =
     ]
 
 parenType :: Parser HsType
-parenType = do
+parenType = withSpan setHsTypeSpan $ do
   void (symbol "(")
   choice
     [ TyCon "()" <$ symbol ")"
@@ -585,7 +595,8 @@ parenType = do
 
 constructorDecl :: Parser ConDecl
 constructorDecl =
-  ConDecl <$> qconid <*> many typeAtom
+  withSpan setConDeclSpan $
+    ConDecl <$> qconid <*> many typeAtom
 
 derivingDecl :: Parser [Text]
 derivingDecl =
@@ -665,3 +676,10 @@ allChildren =
 bracketsComma :: Parser a -> Parser [a]
 bracketsComma parser =
   symbol "[" *> parser `sepBy` comma <* symbol "]"
+
+withSpan :: (SourceSpan -> a -> a) -> Parser a -> Parser a
+withSpan setSpan parser = do
+  start <- getSourcePos
+  value <- parser
+  end <- getSourcePos
+  pure (setSpan (sourceSpan start end) value)

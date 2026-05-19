@@ -127,6 +127,15 @@ binding and class-library form. Full MR conformance should be revisited when
 broader pattern bindings, superclass solving, and Prelude class coverage are in
 place.
 
+TYPE-020 preserves source attribution for Haskell 2010 typecheck failures.
+Parsed declarations, expressions, patterns, statements, alternatives,
+constructor declarations, RHSs, and source types carry source spans into the
+renamed AST. The typechecker records the active source node while checking and
+renders failures through the shared `file:line:column` diagnostic formatter.
+Class constraints also retain their originating expression/type span so delayed
+dictionary-resolution failures, such as an unsolved `Num Bool` constraint, still
+point back to the source expression that produced the constraint.
+
 Newtype declarations are typechecked with the required single-field invariant
 and currently share the boxed constructor representation used by data
 declarations. Remaining class, deriving, representation optimization, and
