@@ -113,7 +113,8 @@ Required Core-0 capabilities:
 
 Current initial Haskell 2010 class capabilities:
 
-- class constraints
+- class constraints represented as a class head plus ordered argument list, with
+  the current executable slice validating single-argument arity
 - instance lookup
 - dictionary-passing elaboration
 - generated built-in dictionaries for `Eq Int`, `Eq Bool`, `Ord Int`,

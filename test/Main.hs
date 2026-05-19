@@ -146,6 +146,8 @@ testGroups =
       , pureTest "typechecks newtype constructors and patterns" testHaskell2010NewtypeTyping
       , pureTest "infers higher-kinded newtype parameters" testHaskell2010NewtypeKindInference
       , pureTest "rejects invalid newtype constructor arity" testHaskell2010NewtypeRejectsInvalidArity
+      , pureTest "represents class constraints structurally" testHaskell2010ConstraintRepresentation
+      , pureTest "rejects invalid class constraint arity" testHaskell2010ConstraintRejectsInvalidArity
       , pureTest "typechecks explicit polymorphic identity" testHaskell2010Core0Identity
       , pureTest "typechecks explicit polymorphic const" testHaskell2010Core0Const
       , pureTest "generalizes local let polymorphism" testHaskell2010Core0PolymorphicLet
@@ -1268,6 +1270,32 @@ testHaskell2010NewtypeRejectsInvalidArity =
       Left H2010Typecheck.InvalidNewtypeConstructorArity {} -> Right ()
       Left err -> Left ("expected invalid newtype constructor arity, got: " <> show err)
       Right coreModule -> Left ("invalid newtype constructor typechecked unexpectedly: " <> show coreModule)
+
+testHaskell2010ConstraintRepresentation :: Either String ()
+testHaskell2010ConstraintRepresentation =
+  expectCoreEvalInt
+    "constraint representation with synonym argument"
+    1
+    =<< evalHaskell2010Binding
+      "main"
+      "module Core0 where\n\
+      \type Id a = a\n\
+      \same :: Eq (Id a) => Id a -> Id a -> Int\n\
+      \same x y = if x == y then 1 else 0\n\
+      \main = same 7 7\n"
+
+testHaskell2010ConstraintRejectsInvalidArity :: Either String ()
+testHaskell2010ConstraintRejectsInvalidArity =
+  case
+    typecheckHaskell2010Raw
+      "module Core0 where\n\
+      \bad :: Eq Int Bool => Int\n\
+      \bad = 0\n\
+      \main = bad\n"
+    of
+      Left H2010Typecheck.InvalidClassConstraintArity {} -> Right ()
+      Left err -> Left ("expected invalid class constraint arity, got: " <> show err)
+      Right coreModule -> Left ("invalid class constraint arity typechecked unexpectedly: " <> show coreModule)
 
 testHaskell2010Core0If :: Either String ()
 testHaskell2010Core0If = do

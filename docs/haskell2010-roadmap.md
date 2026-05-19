@@ -322,6 +322,10 @@ functions, instance declarations emit dictionary values, constrained source
 functions receive explicit Core dictionary arguments, dictionary values lower
 through STG as ordinary constructor/function values, and native wet tests cover
 default Egglog and `--no-egglog` execution.
+Class constraints are now represented explicitly as a class head plus ordered
+argument list; the current executable slice checks the single-argument arity,
+normalizes constraint arguments through type synonym expansion, and then feeds
+the normalized constraints to defaulting and dictionary elaboration.
 
 The built-in executable Prelude class slice now supports `Eq Int`, `Eq Bool`,
 `Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool`: `(==)`, `(/=)`,
@@ -622,7 +626,7 @@ Completed immediate tasks:
   top-level fibonacci recursion, mutually recursive functions, cons-pattern
   recursive list functions, and default/no-egglog native wet tests.
 - Haskell 2010 type class dictionary representation, including user-defined
-  single-parameter classes, concrete instances, explicit source constraints,
+  single-parameter classes, concrete instances, structured explicit source constraints,
   generated dictionary constructors/selectors, Core dictionary arguments,
   Core/STG preservation tests, native LLVM execution, and default/no-egglog
   native wet tests.

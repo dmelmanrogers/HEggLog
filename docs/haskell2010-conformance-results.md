@@ -1,10 +1,9 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-18 13:45:49 UTC
+Date/time: 2026-05-19 04:01:57 UTC
 
-Commit hash tested: `4d4a715` plus the Haskell 2010 conformance baseline
-working tree added by this task. The final commit for the task records the same
-source tree plus this results document.
+Commit hash tested: TYPE-016 working tree before final task commit. The final
+commit for the task records the same source tree plus this results document.
 
 Primary conformance command run:
 
@@ -16,10 +15,11 @@ Required task validation also passed:
 
 ```bash
 cabal build all
-cabal test all --test-options='--hide-successes'
-cabal check
+cabal test hegglog-test --test-options='--hide-successes'
+cabal test haskell2010-conformance-test --test-options='--hide-successes'
+python3 scripts/validate-haskell2010-todo.py
 git diff --check
-scripts/e2e-wet-test.sh
+./scripts/smoke-test.sh
 ```
 
 Toolchain:
@@ -34,14 +34,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 46 |
-| Haskell source files in corpus | 47 |
-| HUnit test cases executed | 47 |
-| Native-success fixtures | 32 |
+| Manifest conformance fixtures | 50 |
+| Haskell source files in corpus | 51 |
+| HUnit test cases executed | 52 |
+| Native-success fixtures | 36 |
 | Native-runtime-error fixtures | 1 |
-| Compile-error fixtures | 5 |
-| Unsupported-documented fixtures | 8 |
-| Native subprocess compile/run checks | 34 |
+| Compile-error fixtures | 6 |
+| Unsupported-documented fixtures | 7 |
+| Native subprocess compile/run checks | 39 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -55,18 +55,18 @@ explicit conformance cases rather than omitted.
 | Category | Manifest fixtures | Status |
 | --- | ---: | --- |
 | `adts` | 2 | representative native tests exist |
-| `declarations` | 3 | representative native tests exist |
+| `declarations` | 4 | representative native tests exist |
 | `egglog` | 1 | optimized/unoptimized native agreement covered |
-| `expressions` | 9 | representative native tests exist |
+| `expressions` | 10 | representative native tests exist |
 | `io` | 1 | current output-only IO slice covered |
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
 | `modules` | 2 | single-module and same-directory import tests exist |
-| `negative` | 5 | compile-error diagnostics covered |
+| `negative` | 6 | compile-error diagnostics covered |
 | `patterns` | 1 | guards/as-patterns representative native test exists |
 | `prelude` | 2 | list functions and class dictionaries covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
-| `typeclasses` | 1 | user dictionary representative native test exists |
-| `types` | 2 | polymorphism/defaulting representative native tests exist |
-| `unsupported` | 8 | unsupported features documented by failing cases |
+| `typeclasses` | 2 | user dictionary and synonym-normalized constraint tests exist |
+| `types` | 3 | polymorphism/defaulting/synonym representative native tests exist |
+| `unsupported` | 7 | unsupported features documented by failing cases |

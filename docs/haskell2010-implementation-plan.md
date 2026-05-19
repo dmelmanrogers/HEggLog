@@ -118,8 +118,8 @@ is built alongside them.
     programs, recursive list functions with cons patterns, Core/STG/native
     execution, and wet-tested default/no-egglog CLI runs.
 14. Type classes/dictionaries. Completed for user-defined single-parameter
-    classes, concrete context-free instances, explicit constraints, generated
-    dictionary constructors/selectors, built-in `Eq Int`, `Eq Bool`,
+    classes, concrete context-free instances, structured explicit constraints,
+    generated dictionary constructors/selectors, built-in `Eq Int`, `Eq Bool`,
     `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and `Show Bool`
     dictionaries,
     Core/STG/native execution, and wet-tested default/no-egglog CLI runs.

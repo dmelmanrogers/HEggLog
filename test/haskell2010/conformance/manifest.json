@@ -293,6 +293,15 @@
       "notes": "User single-parameter class, concrete instance, and dictionary-passed method call."
     },
     {
+      "name": "typeclasses.constraint-synonym",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/constraint-synonym.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-success",
+      "expectedStdout": "1\n",
+      "requiredStage": "native",
+      "notes": "Explicit class constraint whose argument is normalized through a type synonym before dictionary elaboration."
+    },
+    {
       "name": "prelude.prelude-lists",
       "sourceFile": "test/haskell2010/conformance/prelude/prelude-lists.hs",
       "category": "prelude",

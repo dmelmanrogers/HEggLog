@@ -90,6 +90,7 @@ data TypecheckError
   | RecursiveTypeSynonym [RName]
   | TypeSynonymArityMismatch RName Int Int
   | InvalidNewtypeConstructorArity RName Int
+  | InvalidClassConstraintArity RName Int
   | AmbiguousTypeVariable Int
   | CoreValidationFailed [CoreValidate.CoreValidationError]
   deriving stock (Show, Eq)
@@ -104,8 +105,28 @@ data MonoType
   | TyList MonoType
   deriving stock (Show, Eq, Ord)
 
-data ClassConstraint = ClassConstraint RName MonoType
+data ClassConstraint = ClassConstraint
+  { classConstraintClass :: RName
+  , classConstraintArguments :: [MonoType]
+  }
   deriving stock (Show, Eq, Ord)
+
+singleClassConstraint :: RName -> MonoType -> ClassConstraint
+singleClassConstraint className ty =
+  ClassConstraint
+    { classConstraintClass = className
+    , classConstraintArguments = [ty]
+    }
+
+mapClassConstraintArguments :: (MonoType -> MonoType) -> ClassConstraint -> ClassConstraint
+mapClassConstraintArguments f constraint =
+  constraint {classConstraintArguments = map f (classConstraintArguments constraint)}
+
+classConstraintSingleArgument :: ClassConstraint -> Either TypecheckError MonoType
+classConstraintSingleArgument constraint =
+  case classConstraintArguments constraint of
+    [ty] -> Right ty
+    arguments -> Left (InvalidClassConstraintArity (classConstraintClass constraint) (length arguments))
 
 data Scheme = Scheme [RName] [ClassConstraint] MonoType
   deriving stock (Show, Eq, Ord)
@@ -290,6 +311,11 @@ renderTypecheckError = \case
     "newtype constructor `"
       <> renderRName name
       <> "` must have exactly one field, got "
+      <> renderInt actual
+  InvalidClassConstraintArity name actual ->
+    "class constraint `"
+      <> renderRName name
+      <> "` must have exactly one argument, got "
       <> renderInt actual
   AmbiguousTypeVariable meta ->
     "ambiguous Core-0 type variable ?" <> renderInt meta
@@ -537,7 +563,7 @@ collectClassMethods className classVariable decls = do
       throwTypecheck (UnsupportedCore0 ("method-specific type variables for `" <> renderRName methodName <> "`"))
     let classTy = TyVar classVariable
         allVariables = List.nub (classVariable : variables)
-        scheme = Scheme allVariables [ClassConstraint className classTy] normalizedBody
+        scheme = Scheme allVariables [singleClassConstraint className classTy] normalizedBody
     pure
       ClassMethodInfo
         { classMethodName = methodName
@@ -547,8 +573,8 @@ collectClassMethods className classVariable decls = do
         }
 
 replaceConstraintClassVariable :: RName -> ClassConstraint -> ClassConstraint
-replaceConstraintClassVariable classVariable (ClassConstraint className ty) =
-  ClassConstraint className (replaceMonoTypeClassVariable classVariable ty)
+replaceConstraintClassVariable classVariable =
+  mapClassConstraintArguments (replaceMonoTypeClassVariable classVariable)
 
 replaceMonoTypeClassVariable :: RName -> MonoType -> MonoType
 replaceMonoTypeClassVariable classVariable = \case
@@ -664,7 +690,7 @@ builtinClassInfo className classVariable methodSpecs =
     , classInfoMethods =
         [ ClassMethodInfo
             { classMethodName = preludeTermName occurrence unique
-            , classMethodScheme = Scheme [classVariable] [ClassConstraint className (TyVar classVariable)] fieldType
+            , classMethodScheme = Scheme [classVariable] [singleClassConstraint className (TyVar classVariable)] fieldType
             , classMethodFieldType = fieldType
             , classMethodFieldIndex = index
             }
@@ -789,12 +815,13 @@ usedClassInfos classes subst bindings instances =
   bindingConstraints =
     concatMap typedBindingClassConstraints bindings
   instanceConstraints =
-    [ClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary) | dictionary <- instances]
+    [singleClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary) | dictionary <- instances]
       <> concatMap (concatMap typedExprClassConstraints . typedInstanceMethods) instances
   usedNames =
     Set.fromList
       [ className
-      | ClassConstraint className _ <- map (applyConstraintSubst subst) (bindingConstraints <> instanceConstraints)
+      | constraint <- map (applyConstraintSubst subst) (bindingConstraints <> instanceConstraints)
+      , let className = classConstraintClass constraint
       ]
 
 typedBindingClassConstraints :: TypedBinding -> [ClassConstraint]
@@ -829,8 +856,8 @@ typedAltClassConstraints (TypedAlt _ _ body) =
   typedExprClassConstraints body
 
 applyConstraintSubst :: Subst -> ClassConstraint -> ClassConstraint
-applyConstraintSubst subst (ClassConstraint className ty) =
-  ClassConstraint className (applySubst subst ty)
+applyConstraintSubst subst =
+  mapClassConstraintArguments (applySubst subst)
 
 filterClassDictionaryConstructors ::
   Map.Map RName ClassInfo ->
@@ -1264,14 +1291,14 @@ defaultableConstraintMetas protectedMetas constraints =
       ]
 
 isDirectMetaConstraint :: Int -> ClassConstraint -> Bool
-isDirectMetaConstraint expectedMeta (ClassConstraint _ ty) =
-  case ty of
-    TyMeta meta -> meta == expectedMeta
+isDirectMetaConstraint expectedMeta constraint =
+  case classConstraintArguments constraint of
+    [TyMeta meta] -> meta == expectedMeta
     _ -> False
 
 constraintClassName :: ClassConstraint -> RName
-constraintClassName (ClassConstraint className _) =
-  className
+constraintClassName =
+  classConstraintClass
 
 isStandardDefaultingClass :: RName -> Bool
 isStandardDefaultingClass className =
@@ -1416,8 +1443,11 @@ validateSchemeConstraints scheme = do
   classes <- classInfos <$> get
   traverse_ (validateConstraint classes) (schemeConstraints scheme)
  where
-  validateConstraint classes constraint@(ClassConstraint className _) =
-    unless (Map.member className classes) $
+  validateConstraint classes constraint = do
+    let actualArity = length (classConstraintArguments constraint)
+    unless (actualArity == 1) $
+      throwTypecheck (InvalidClassConstraintArity (classConstraintClass constraint) actualArity)
+    unless (Map.member (classConstraintClass constraint) classes) $
       throwTypecheck (UnsupportedCore0 ("unknown type-class constraint `" <> renderClassConstraint constraint <> "`"))
 
 collectDefaultTypes :: [RDecl] -> InferM [MonoType]
@@ -1541,7 +1571,7 @@ inferInstanceDictionaries env =
   collect acc = \case
     RInstanceDecl [] instanceHead decls -> do
       dictionary <- inferInstanceDictionary env instanceHead decls
-      let instanceKey = ClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary)
+      let instanceKey = singleClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary)
       when (isBuiltinInstanceConstraint instanceKey) $
         throwTypecheck (UnsupportedCore0 ("duplicate built-in instance for `" <> renderClassConstraint instanceKey <> "`"))
       when (any (constraintMatches instanceKey . instanceKeyFor) acc) $
@@ -1553,7 +1583,7 @@ inferInstanceDictionaries env =
       pure acc
 
   instanceKeyFor dictionary =
-    ClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary)
+    singleClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary)
 
 inferInstanceDictionary :: TypeEnv -> RHsType -> [RDecl] -> InferM TypedInstanceDictionary
 inferInstanceDictionary env instanceHead decls = do
@@ -1986,7 +2016,7 @@ preludeValueScheme name
             "filter" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun listA listA)))
             "reverse" -> Just (Scheme [a] [] (TyFun listA listA))
             "putStrLn" -> Just (Scheme [] [] (TyFun stringMonoType ioUnit))
-            "print" -> Just (Scheme [a] [ClassConstraint builtinShowClassName aTy] (TyFun aTy ioUnit))
+            "print" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun aTy ioUnit))
             "return" -> Just (Scheme [a] [] (TyFun aTy (ioMonoType aTy)))
             ">>" -> Just (Scheme [a, b] [] (TyFun (ioMonoType aTy) (TyFun (ioMonoType bTy) (ioMonoType bTy))))
             _ -> Nothing
@@ -2303,12 +2333,21 @@ sourceQualifiedMonoType = \case
     ([],) <$> sourceMonoType ty
 
 sourceClassConstraint :: RHsType -> InferM ClassConstraint
-sourceClassConstraint = \case
-  RTyApp (RTyCon className) argument -> do
-    checkSourceTypeKind argument
-    ClassConstraint (canonicalClassName className) <$> sourceMonoType argument
-  other ->
-    throwTypecheck (UnsupportedCore0 ("type-class constraint " <> Text.pack (show other)))
+sourceClassConstraint sourceConstraint =
+  case typeApplicationSpine sourceConstraint of
+    Just (className, arguments) -> do
+      argument <- requireSingleConstraintArgument className arguments
+      checkSourceTypeKind argument
+      singleClassConstraint (canonicalClassName className) <$> sourceMonoType argument
+    Nothing ->
+      throwTypecheck (UnsupportedCore0 ("type-class constraint " <> Text.pack (show sourceConstraint)))
+
+requireSingleConstraintArgument :: RName -> [a] -> InferM a
+requireSingleConstraintArgument className = \case
+  [argument] ->
+    pure argument
+  arguments ->
+    throwTypecheck (InvalidClassConstraintArity className (length arguments))
 
 sourceMonoType :: RHsType -> InferM MonoType
 sourceMonoType sourceType = do
@@ -2459,11 +2498,12 @@ inferSourceTypeKind = \case
     inferSourceTypeKind inner
 
 checkConstraintKind :: RHsType -> InferM ()
-checkConstraintKind = \case
-  RTyApp (RTyCon _) argument ->
-    checkSourceTypeKind argument
-  other ->
-    throwTypecheck (UnsupportedCore0 ("type-class constraint " <> Text.pack (show other)))
+checkConstraintKind sourceConstraint =
+  case typeApplicationSpine sourceConstraint of
+    Just (className, arguments) ->
+      checkSourceTypeKind =<< requireSingleConstraintArgument className arguments
+    Nothing ->
+      throwTypecheck (UnsupportedCore0 ("type-class constraint " <> Text.pack (show sourceConstraint)))
 
 typeVariableKind :: RName -> InferM Kind
 typeVariableKind name = do
@@ -2688,8 +2728,8 @@ freeMetaVarsScheme (Scheme _ constraints ty) =
   Set.unions (map freeMetaVarsConstraint constraints) <> freeMetaVars ty
 
 freeMetaVarsConstraint :: ClassConstraint -> Set.Set Int
-freeMetaVarsConstraint (ClassConstraint _ ty) =
-  freeMetaVars ty
+freeMetaVarsConstraint =
+  Set.unions . map freeMetaVars . classConstraintArguments
 
 freeMetaVars :: MonoType -> Set.Set Int
 freeMetaVars = \case
@@ -2715,8 +2755,8 @@ typeVars =
     TyList elementType -> collect elementType
 
 constraintTypeVars :: ClassConstraint -> [RName]
-constraintTypeVars (ClassConstraint _ ty) =
-  typeVars ty
+constraintTypeVars =
+  List.nub . concatMap typeVars . classConstraintArguments
 
 replaceTypeVars :: Map.Map RName MonoType -> MonoType -> MonoType
 replaceTypeVars replacements = \case
@@ -2746,8 +2786,8 @@ replaceMetasWithVars replacements = \case
     TyList (replaceMetasWithVars replacements elementType)
 
 replaceConstraintMetasWithVars :: Map.Map Int RName -> ClassConstraint -> ClassConstraint
-replaceConstraintMetasWithVars replacements (ClassConstraint className ty) =
-  ClassConstraint className (replaceMetasWithVars replacements ty)
+replaceConstraintMetasWithVars replacements =
+  mapClassConstraintArguments (replaceMetasWithVars replacements)
 
 preludeCoreBindings :: [RName] -> Either TypecheckError [CoreBind]
 preludeCoreBindings names =
@@ -3300,8 +3340,8 @@ instantiateSchemeConstraints scheme typeArguments =
    in map (replaceConstraintTypeVars replacements) (schemeConstraints scheme)
 
 replaceConstraintTypeVars :: Map.Map RName MonoType -> ClassConstraint -> ClassConstraint
-replaceConstraintTypeVars replacements (ClassConstraint className ty) =
-  ClassConstraint className (replaceTypeVars replacements ty)
+replaceConstraintTypeVars replacements =
+  mapClassConstraintArguments (replaceTypeVars replacements)
 
 resolveDictionary :: CoreElabEnv -> ClassConstraint -> Either TypecheckError CoreExpr
 resolveDictionary env wanted = do
@@ -3322,21 +3362,23 @@ resolveDictionary env wanted = do
             )
 
 normalizeConstraint :: Subst -> Map.Map Int RName -> ClassConstraint -> Either TypecheckError ClassConstraint
-normalizeConstraint subst metas (ClassConstraint className ty) =
-  pure (ClassConstraint className (replaceMetasWithVars metas (applySubst subst ty)))
+normalizeConstraint subst metas =
+  pure . mapClassConstraintArguments (replaceMetasWithVars metas . applySubst subst)
 
 constraintMatches :: ClassConstraint -> ClassConstraint -> Bool
-constraintMatches (ClassConstraint lhsClass lhsTy) (ClassConstraint rhsClass rhsTy) =
-  lhsClass == rhsClass && lhsTy == rhsTy
+constraintMatches lhs rhs =
+  classConstraintClass lhs == classConstraintClass rhs
+    && classConstraintArguments lhs == classConstraintArguments rhs
 
 classConstraintCoreType :: Subst -> Map.Map Int RName -> ClassConstraint -> Either TypecheckError CoreType
-classConstraintCoreType subst metas (ClassConstraint className ty) = do
-  dictTy <- classConstraintMonoType className ty
+classConstraintCoreType subst metas constraint = do
+  dictTy <- classConstraintMonoType constraint
   monoToCoreType subst metas dictTy
 
-classConstraintMonoType :: RName -> MonoType -> Either TypecheckError MonoType
-classConstraintMonoType className ty =
-  pure (TyApp (TyCon (classDictionaryTypeName className)) ty)
+classConstraintMonoType :: ClassConstraint -> Either TypecheckError MonoType
+classConstraintMonoType constraint = do
+  ty <- classConstraintSingleArgument constraint
+  pure (TyApp (TyCon (classDictionaryTypeName (classConstraintClass constraint))) ty)
 
 instanceDictionaryRefs ::
   Subst ->
@@ -3348,7 +3390,7 @@ instanceDictionaryRefs subst _classes =
     ( \dictionary ->
         InstanceDictionaryRef
           { instanceRefConstraint =
-              ClassConstraint
+              singleClassConstraint
                 (typedInstanceClass dictionary)
                 (applySubst subst (typedInstanceType dictionary))
           , instanceRefName = typedInstanceDictName dictionary
@@ -3437,7 +3479,7 @@ builtinInstanceDictionaryRefs =
   map
     ( \dictionary ->
         InstanceDictionaryRef
-          { instanceRefConstraint = ClassConstraint (builtinInstanceClass dictionary) (builtinInstanceType dictionary)
+          { instanceRefConstraint = singleClassConstraint (builtinInstanceClass dictionary) (builtinInstanceType dictionary)
           , instanceRefName = builtinInstanceName dictionary
           }
     )
@@ -4039,8 +4081,8 @@ renderMonoType =
   renderMonoTypePrec 0
 
 renderClassConstraint :: ClassConstraint -> Text
-renderClassConstraint (ClassConstraint className ty) =
-  renderRName className <> " " <> renderMonoTypePrec 2 ty
+renderClassConstraint constraint =
+  Text.unwords (renderRName (classConstraintClass constraint) : map (renderMonoTypePrec 2) (classConstraintArguments constraint))
 
 renderMonoTypePrec :: Int -> MonoType -> Text
 renderMonoTypePrec contextPrec = \case

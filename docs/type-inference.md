@@ -107,10 +107,14 @@ checks signatures, constructor fields, constraints, lists, tuples, functions,
 and supported built-in/user constructors; and rejects partial or over-applied
 type constructors before Core generation. Type synonyms are kind-inferred,
 checked for recursive cycles, and expanded structurally before Core conversion.
-Newtype declarations are typechecked with the required single-field invariant
-and currently share the boxed constructor representation used by data
-declarations. Remaining class, deriving, representation optimization, and
-broader surface work is tracked separately.
+Class constraints now use an explicit class-head-plus-arguments representation;
+the current executable slice validates single-argument constraint arity before
+kind checking and dictionary elaboration, and constraint arguments participate in
+type synonym expansion and substitution like other source types. Newtype
+declarations are typechecked with the required single-field invariant and
+currently share the boxed constructor representation used by data declarations.
+Remaining class, deriving, representation optimization, and broader surface work
+is tracked separately.
 
 The existing optional monomorphic lambda parameter inference is carry-forward
 infrastructure and a useful implementation reference, but it is not Haskell

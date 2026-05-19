@@ -124,7 +124,10 @@ constraints, and supported built-in/user constructors; partial type-constructor
 use is rejected before Core generation. Type synonyms are kind-inferred,
 cycle-checked, and expanded through signatures, constructor fields,
 constraints, instance heads, and default declarations before Core conversion.
-Broader class features remain planned.
+Class constraints use an explicit class-head-plus-argument-list representation;
+the supported executable slice accepts one argument per class constraint, rejects
+malformed arity directly, and carries normalized constraint arguments through
+defaulting and dictionary elaboration. Broader class features remain planned.
 `/` remains checked concrete `Int` division; broader `Show` remains planned.
 
 ## What Core Evaluates Today

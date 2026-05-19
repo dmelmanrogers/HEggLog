@@ -3113,7 +3113,7 @@
     {
       "id": "TYPE-016",
       "title": "constraint representation",
-      "status": "in progress",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "CORE-002",
@@ -3151,7 +3151,9 @@
       ],
       "milestone": "M4",
       "acceptance_criteria": [
-        "constraint representation is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Class constraints use an explicit internal representation with a class head and ordered argument list.",
+        "The current executable slice validates the supported single-argument class constraint arity before kind checking, scheme construction, defaulting, and dictionary elaboration.",
+        "Constraint arguments are normalized through kind checking, type synonym expansion, substitution, generalization, and Core dictionary type construction.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
