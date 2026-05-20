@@ -279,6 +279,8 @@ validatePrimitive op arguments resultTy =
     PrimDiv -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
     PrimLt -> validateFixedPrimitive op [intTy, intTy] boolTy arguments resultTy
     PrimNegate -> validateFixedPrimitive op [intTy] intTy arguments resultTy
+    PrimCharToInt -> validateFixedPrimitive op [charTy] intTy arguments resultTy
+    PrimIntToChar -> validateFixedPrimitive op [intTy] charTy arguments resultTy
     PrimShowInt -> validateFixedPrimitive op [intTy] stringTy arguments resultTy
     PrimShowBool -> validateFixedPrimitive op [boolTy] stringTy arguments resultTy
     PrimPutStrLn -> validateFixedPrimitive op [stringTy] (ioTy unitTy) arguments resultTy

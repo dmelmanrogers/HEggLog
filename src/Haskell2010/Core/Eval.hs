@@ -9,6 +9,7 @@ module Haskell2010.Core.Eval
   )
 where
 
+import Data.Char (chr, ord)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -292,6 +293,13 @@ evalPrimitive coreEnv op values =
       Right (CoreBool (ltHInt lhs rhs))
     (PrimNegate, [CoreInt value]) ->
       checkedIntValue (subHInt zero value)
+    (PrimCharToInt, [CoreChar value]) ->
+      checkedIntValue (mkHIntLiteral (fromIntegral (ord value)))
+    (PrimIntToChar, [CoreInt value]) ->
+      case hintToInteger value of
+        code
+          | 0 <= code && code <= 0x10FFFF -> Right (CoreChar (chr (fromIntegral code)))
+          | otherwise -> Left (CoreEvalTypeError ("invalid Char code point " <> Text.pack (show code)))
     (PrimShowInt, [CoreInt value]) ->
       Right (coreStringList (renderHInt value))
     (PrimShowBool, [CoreBool True]) ->
@@ -428,6 +436,8 @@ renderCorePrimOpName = \case
   PrimEq -> "=="
   PrimLt -> "<"
   PrimNegate -> "negate#"
+  PrimCharToInt -> "charToInt#"
+  PrimIntToChar -> "intToChar#"
   PrimShowInt -> "showInt#"
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"

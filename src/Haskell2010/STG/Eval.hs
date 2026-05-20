@@ -16,6 +16,7 @@ where
 
 import Control.Monad (foldM, zipWithM_)
 import Control.Monad.State.Strict (StateT, get, lift, modify, runStateT)
+import Data.Char (chr, ord)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -410,6 +411,13 @@ evalPrimitive env op arguments = do
       pure (STGBool (ltHInt lhs rhs))
     (PrimNegate, [STGInt value]) ->
       liftEither (checkedIntValue (subHInt zero value))
+    (PrimCharToInt, [STGChar value]) ->
+      liftEither (checkedIntValue (mkHIntLiteral (fromIntegral (ord value))))
+    (PrimIntToChar, [STGInt value]) ->
+      case hintToInteger value of
+        code
+          | 0 <= code && code <= 0x10FFFF -> pure (STGChar (chr (fromIntegral code)))
+          | otherwise -> typeError ("invalid Char code point " <> Text.pack (show code))
     (PrimShowInt, [STGInt value]) ->
       stringListValue (renderHInt value)
     (PrimShowBool, [STGBool True]) ->
@@ -621,6 +629,8 @@ renderCorePrimOpName = \case
   PrimEq -> "=="
   PrimLt -> "<"
   PrimNegate -> "negate#"
+  PrimCharToInt -> "charToInt#"
+  PrimIntToChar -> "intToChar#"
   PrimShowInt -> "showInt#"
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"

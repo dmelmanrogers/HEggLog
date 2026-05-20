@@ -373,6 +373,15 @@ emitPrim env op arguments =
     (PrimNegate, [value]) -> do
       valueOperand <- emitExpectAtomInt env value
       emitCheckedSub (OConstInt LI64 0) valueOperand >>= emitMakeIntOperand
+    (PrimCharToInt, [value]) -> do
+      valueOperand <- emitExpectAtomChar env value
+      extendedReg <- freshRegister "char_i64"
+      emit (IZext extendedReg valueOperand LI64)
+      emitMakeIntOperand (OLocal LI64 extendedReg)
+    (PrimIntToChar, [value]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      emitCheckCharCode valueOperand
+      emitMakeCharOperand valueOperand
     (PrimShowInt, [value]) -> do
       valueOperand <- emitExpectAtomInt env value
       resultReg <- freshRegister "show_int"
@@ -481,6 +490,29 @@ emitCheckedIntPrim intrinsic lhs rhs = do
 emitCheckedSub :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
 emitCheckedSub =
   emitCheckedIntPrim "llvm.ssub.with.overflow.i64"
+
+emitCheckCharCode :: LLVMOperand -> FunctionM ()
+emitCheckCharCode value = do
+  belowZeroReg <- freshRegister "char_below_zero"
+  emit (IIcmp belowZeroReg ICmpSlt LI64 value (OConstInt LI64 0))
+  belowZeroAbortLabel <- freshBlockLabel "char_below_zero_abort"
+  upperCheckLabel <- freshBlockLabel "char_upper_check"
+  terminateCurrent (TCondBr (OLocal LI1 belowZeroReg) belowZeroAbortLabel upperCheckLabel)
+
+  startBlock belowZeroAbortLabel
+  emitAbort
+
+  startBlock upperCheckLabel
+  aboveUnicodeReg <- freshRegister "char_above_unicode"
+  emit (IIcmp aboveUnicodeReg ICmpSlt LI64 (OConstInt LI64 0x10FFFF) value)
+  aboveUnicodeAbortLabel <- freshBlockLabel "char_above_unicode_abort"
+  okLabel <- freshBlockLabel "char_ok"
+  terminateCurrent (TCondBr (OLocal LI1 aboveUnicodeReg) aboveUnicodeAbortLabel okLabel)
+
+  startBlock aboveUnicodeAbortLabel
+  emitAbort
+
+  startBlock okLabel
 
 emitCheckedDiv :: ValueEnv -> STGAtom -> STGAtom -> FunctionM LLVMOperand
 emitCheckedDiv env lhs rhs = do
@@ -696,9 +728,13 @@ emitMakeBool value = do
   pure (OLocal LPtr reg)
 
 emitMakeChar :: Integer -> FunctionM LLVMOperand
-emitMakeChar value = do
+emitMakeChar value =
+  emitMakeCharOperand (OConstInt LI64 value)
+
+emitMakeCharOperand :: LLVMOperand -> FunctionM LLVMOperand
+emitMakeCharOperand value = do
   reg <- freshRegister "boxed_char"
-  emit (ICall (Just reg) LPtr (DirectCall makeCharFunctionName) False [(LI64, OConstInt LI64 value)])
+  emit (ICall (Just reg) LPtr (DirectCall makeCharFunctionName) False [(LI64, value)])
   pure (OLocal LPtr reg)
 
 emitMakeStringLiteral :: Text -> FunctionM LLVMOperand

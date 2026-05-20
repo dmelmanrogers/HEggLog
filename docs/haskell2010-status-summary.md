@@ -370,10 +370,11 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Implement PRELUDE-DATA-008 arithmetic sequences while preserving the `.hg`
+Implement PRELUDE-DATA-009 list comprehensions while preserving the `.hg`
 compiler, Core evaluator, STG runtime, Core-to-STG lowering, native executable
 path, Egglog Core optimizer, ADT/list/tuple/Prelude/recursion/typeclass-dictionary
 support, built-in `Eq`/`Ord`/`Num`/`Show` dictionary support, boxed native
 `Char` support, source `String = [Char]` behavior, numeric defaulting,
-guard/as-pattern support, IO printing support, module graph support,
-known-constructor optimizer support, and wet-test baseline.
+guard/as-pattern support, IO printing support, arithmetic sequence support,
+module graph support, known-constructor optimizer support, and wet-test
+baseline.

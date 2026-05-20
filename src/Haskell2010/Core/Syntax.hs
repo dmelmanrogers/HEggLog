@@ -116,6 +116,8 @@ data CorePrimOp
   | PrimEq
   | PrimLt
   | PrimNegate
+  | PrimCharToInt
+  | PrimIntToChar
   | PrimShowInt
   | PrimShowBool
   | PrimPutStrLn

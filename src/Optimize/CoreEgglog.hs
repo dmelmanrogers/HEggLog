@@ -673,6 +673,8 @@ corePrimToANF = \case
   PrimEq -> Just Eq
   PrimLt -> Just Lt
   PrimNegate -> Nothing
+  PrimCharToInt -> Nothing
+  PrimIntToChar -> Nothing
   PrimShowInt -> Nothing
   PrimShowBool -> Nothing
   PrimPutStrLn -> Nothing

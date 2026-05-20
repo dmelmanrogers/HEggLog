@@ -45,9 +45,9 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. PRELUDE-DATA-008 arithmetic sequences.
-2. PRELUDE-DATA-009 list comprehensions.
-3. TC-003 superclass representation.
+1. PRELUDE-DATA-009 list comprehensions.
+2. TC-003 superclass representation.
+3. TC-005 default class methods.
 
 Completed Haskell 2010 roadmap work:
 
@@ -150,6 +150,9 @@ Completed Haskell 2010 roadmap work:
   `Show` dictionaries, Core/STG IO output/result reference values, source strings and
   built-in show results as list-of-`Char` values, and default/no-egglog wet
   tests.
+- Haskell 2010 arithmetic sequences: implemented executable `Int` and `Char`
+  sequence forms, including bounded ascending/descending ranges and lazily
+  consumed open ranges, through Core, STG, LLVM, conformance, and wet tests.
 
 ## Non-Negotiable Project Direction
 

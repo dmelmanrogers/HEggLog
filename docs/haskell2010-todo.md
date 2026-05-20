@@ -211,26 +211,26 @@ Rules:
 
 # Next 20 Implementation Tasks
 
-1. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
-2. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
-3. TC-003 — superclass representation: Model superclass relationships before broader class solving.
-4. TC-005 — default methods: Implement default class method typing and dictionary filling.
-5. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
-6. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
-7. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
-8. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
-9. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
-10. TC-023 — derived Eq: Synthesize or explicitly defer derived `Eq` instances.
-11. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
-12. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
-13. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
-14. PRELUDE-009 — foldl: Add the strictness-aware left fold surface or document the initial deviation.
-15. PRELUDE-013 — append: Implement `(++)` for supported list and string programs.
-16. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
-17. IO-006 — getLine: Add stdin line input or document the initial IO deviation.
-18. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
-19. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
-20. MOD-009 — instance import/export behavior: Define how class instances move across module boundaries.
+1. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
+2. TC-003 — superclass representation: Model superclass relationships before broader class solving.
+3. TC-005 — default methods: Implement default class method typing and dictionary filling.
+4. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
+5. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
+6. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
+7. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
+8. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
+9. TC-023 — derived Eq: Synthesize or explicitly defer derived `Eq` instances.
+10. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
+11. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
+12. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
+13. PRELUDE-009 — foldl: Add the strictness-aware left fold surface or document the initial deviation.
+14. PRELUDE-013 — append: Implement `(++)` for supported list and string programs.
+15. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
+16. IO-006 — getLine: Add stdin line input or document the initial IO deviation.
+17. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
+18. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
+19. MOD-009 — instance import/export behavior: Define how class instances move across module boundaries.
+20. MOD-010 — Prelude implicit import: Align module import behavior with the standard Prelude surface.
 
 # Task Backlog
 
@@ -11218,7 +11218,7 @@ Notes:
 ## PRELUDE-DATA-008 — arithmetic sequences
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -11231,7 +11231,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver arithmetic sequences for Lists, tuples, Char, String while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver the executable arithmetic sequence surface for supported `Int` and `Char` ranges while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the public generalized `Enum` class surface tracked under TC-018 rather than claiming broader support.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -11247,7 +11247,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- arithmetic sequences is implemented, completed, or explicitly documented according to status `not started`.
+- arithmetic sequences is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -11262,7 +11262,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M10 (Lists, tuples, Char, String). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M10 (Lists, tuples, Char, String). Completed for the executable subset with `[a..]`, `[a,b..]`, `[a..z]`, and `[a,b..z]` over `Int` and `Char`; sequence helpers preserve ascending/descending bounded behavior and lazy open-range consumption through Core, STG, and native LLVM. Full Haskell 2010 `Enum` dictionaries and non-`Int`/`Char` instances remain tracked by TC-018.
 
 ## PRELUDE-DATA-009 — list comprehensions
 

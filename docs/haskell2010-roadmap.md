@@ -581,11 +581,11 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. PRELUDE-DATA-008 arithmetic sequences.
-2. PRELUDE-DATA-009 list comprehensions.
-3. TC-003 superclass representation.
-4. TC-005 default class methods.
-5. TC-008 overlapping instance rejection.
+1. PRELUDE-DATA-009 list comprehensions.
+2. TC-003 superclass representation.
+3. TC-005 default class methods.
+4. TC-008 overlapping instance rejection.
+5. TC-016 Read decision/documented deviation.
 
 Completed immediate tasks:
 
@@ -686,6 +686,11 @@ Completed immediate tasks:
 - Haskell 2010 broader `Show`, including exact `Show Char`, exact
   `Show String`, generated structural `Show a => Show [a]`, nested `[String]`
   output, `print` through the broadened dictionaries, numeric-list defaulting,
+  Core/STG/native oracles, conformance fixtures, and default/no-egglog wet
+  tests.
+- Haskell 2010 arithmetic sequences for the executable subset, including
+  `[a..]`, `[a,b..]`, `[a..z]`, and `[a,b..z]` over `Int` and `Char`,
+  ascending/descending bounded behavior, lazily consumed open ranges,
   Core/STG/native oracles, conformance fixtures, and default/no-egglog wet
   tests.
 

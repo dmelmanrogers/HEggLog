@@ -113,6 +113,8 @@ renderCorePrimOp = \case
   PrimEq -> "=="
   PrimLt -> "<"
   PrimNegate -> "negate#"
+  PrimCharToInt -> "charToInt#"
+  PrimIntToChar -> "intToChar#"
   PrimShowInt -> "showInt#"
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"

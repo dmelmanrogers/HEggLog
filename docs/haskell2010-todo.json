@@ -6259,7 +6259,7 @@
     {
       "id": "PRELUDE-DATA-008",
       "title": "arithmetic sequences",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "ADT-001",
@@ -6268,7 +6268,7 @@
       "blocks": [],
       "milestone": "M10",
       "acceptance_criteria": [
-        "arithmetic sequences is implemented, completed, or explicitly documented according to status `not started`.",
+        "arithmetic sequences is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

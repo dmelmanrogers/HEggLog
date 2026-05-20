@@ -350,6 +350,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-io-normal-examples" "test/e2e/programs/haskell2010/io-normal-examples.hs" "hello\nbound\n\"quoted\"\n'X'\n\"plain\"\n[1,2,3]\n[True,False]" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-guards-as-patterns" "test/e2e/programs/haskell2010/guards-as-patterns.hs" "15" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-sections" "test/e2e/programs/haskell2010/sections.hs" "6" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-arithmetic-sequences" "test/e2e/programs/haskell2010/arithmetic-sequences.hs" "[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-adt-box" "test/e2e/programs/haskell2010/adt-box.hs" "7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-adt-maybe" "test/e2e/programs/haskell2010/adt-maybe.hs" "4" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-adt-nested" "test/e2e/programs/haskell2010/adt-nested.hs" "3" [DefaultEgglog, NoEgglog] False

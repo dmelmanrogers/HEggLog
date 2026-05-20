@@ -1330,7 +1330,7 @@ exprPreludeValueNames = \case
   RLeftSection expr op -> [op | isSupportedPreludeValue op] <> exprPreludeValueNames expr
   RRightSection op expr -> [op | isSupportedPreludeValue op] <> exprPreludeValueNames expr
   RArithmeticSeq start step end ->
-    exprPreludeValueNames start <> foldMap exprPreludeValueNames step <> foldMap exprPreludeValueNames end
+    arithmeticSequencePreludeNames <> exprPreludeValueNames start <> foldMap exprPreludeValueNames step <> foldMap exprPreludeValueNames end
   RListComp body statements -> exprPreludeValueNames body <> concatMap stmtPreludeValueNames statements
   RExprTypeSig expr _ -> exprPreludeValueNames expr
   RRecordCon _ fields -> concatMap (exprPreludeValueNames . snd) fields
@@ -2299,6 +2299,8 @@ inferExpr env expr =
         inferSection env "$section_rhs" (\hole -> RInfixApp sectionExpr op hole)
       RRightSection op sectionExpr ->
         inferSection env "$section_lhs" (\hole -> RInfixApp hole op sectionExpr)
+      RArithmeticSeq start step end ->
+        inferArithmeticSeq env start step end
       RExprTypeSig inner sourceType -> do
         scheme <- sourceScheme sourceType
         unless (null (schemeConstraints scheme)) $
@@ -2320,6 +2322,66 @@ inferSection env argumentOccurrence buildBody = do
   resultTy <- applyCurrent (typedExprType body)
   let binder' = TypedBinder binderName argumentTy'
   pure (TLam binder' body (TyFun argumentTy' resultTy))
+
+inferArithmeticSeq :: TypeEnv -> RExpr -> Maybe RExpr -> Maybe RExpr -> InferM TypedExpr
+inferArithmeticSeq env start maybeStep maybeEnd = do
+  typedStart <- inferExpr env start
+  typedStep <- traverse (inferExpr env) maybeStep
+  typedEnd <- traverse (inferExpr env) maybeEnd
+  traverse_ (unify (typedExprType typedStart) . typedExprType) typedStep
+  traverse_ (unify (typedExprType typedStart) . typedExprType) typedEnd
+  inferredElementTy <- applyCurrent (typedExprType typedStart)
+  elementTy <- arithmeticSequenceElementType inferredElementTy
+  unify (typedExprType typedStart) elementTy
+  traverse_ (unify elementTy . typedExprType) typedStep
+  traverse_ (unify elementTy . typedExprType) typedEnd
+  let (helperName, helperScheme) =
+        arithmeticSequenceHelper elementTy (maybe False (const True) typedStep) (maybe False (const True) typedEnd)
+      helperExpr = TVar helperName helperScheme [] (schemeBody helperScheme)
+      arguments = typedStart : maybe [] (: []) typedStep <> maybe [] (: []) typedEnd
+  pure (applyArithmeticSequenceHelper helperExpr arguments)
+
+arithmeticSequenceElementType :: MonoType -> InferM MonoType
+arithmeticSequenceElementType ty
+  | ty == intMonoType = pure intMonoType
+  | ty == charMonoType = pure charMonoType
+arithmeticSequenceElementType (TyMeta _) =
+  pure intMonoType
+arithmeticSequenceElementType ty =
+  throwTypecheck (UnsupportedCore0 ("arithmetic sequences currently support Int and Char elements, got `" <> renderMonoType ty <> "`"))
+
+arithmeticSequenceHelper :: MonoType -> Bool -> Bool -> (RName, Scheme)
+arithmeticSequenceHelper elementTy hasStep hasEnd =
+  (helperName, Scheme [] [] helperTy)
+ where
+  listTy = TyList elementTy
+  helperTy = foldr TyFun listTy (replicate argumentCount elementTy)
+  argumentCount =
+    1 + (if hasStep then 1 else 0) + (if hasEnd then 1 else 0)
+  helperName
+    | elementTy == intMonoType =
+        case (hasStep, hasEnd) of
+          (False, False) -> enumFromIntName
+          (True, False) -> enumFromThenIntName
+          (False, True) -> enumFromToIntName
+          (True, True) -> enumFromThenToIntName
+    | elementTy == charMonoType =
+        case (hasStep, hasEnd) of
+          (False, False) -> enumFromCharName
+          (True, False) -> enumFromThenCharName
+          (False, True) -> enumFromToCharName
+          (True, True) -> enumFromThenToCharName
+    | otherwise =
+        error "arithmeticSequenceHelper called with unsupported element type"
+
+applyArithmeticSequenceHelper :: TypedExpr -> [TypedExpr] -> TypedExpr
+applyArithmeticSequenceHelper =
+  List.foldl' apply
+ where
+  apply fn arg =
+    case typedExprType fn of
+      TyFun _ resultTy -> TApp fn arg resultTy
+      _ -> error "arithmetic sequence helper applied past its arity"
 
 inferDo :: TypeEnv -> [RStmt] -> InferM TypedExpr
 inferDo _ [] =
@@ -3962,7 +4024,7 @@ preludeCorePair name =
       Just (binderFor name bindTy, bindRhs)
     ">>" ->
       Just (binderFor name thenTy, thenRhs)
-    _ -> Nothing
+    _ -> arithmeticSequenceCorePair name
  where
   a = preludeTypeVariable "a" (-1201)
   b = preludeTypeVariable "b" (-1202)
@@ -4264,6 +4326,317 @@ reverseGoTy =
 preludeTermName :: Text -> Int -> RName
 preludeTermName occurrence unique =
   RName TermNamespace occurrence unique True
+
+arithmeticSequencePreludeNames :: [RName]
+arithmeticSequencePreludeNames =
+  [ enumFromIntName
+  , enumFromThenIntName
+  , enumFromToIntName
+  , enumFromThenToIntName
+  , enumFromCharName
+  , enumFromThenCharName
+  , enumFromToCharName
+  , enumFromThenToCharName
+  , enumFromCharGoName
+  , enumFromThenCharGoName
+  , enumFromThenToCharGoName
+  ]
+
+enumFromIntName, enumFromThenIntName, enumFromToIntName, enumFromThenToIntName :: RName
+enumFromIntName = preludeTermName "$enumFromInt" (-7001)
+enumFromThenIntName = preludeTermName "$enumFromThenInt" (-7002)
+enumFromToIntName = preludeTermName "$enumFromToInt" (-7003)
+enumFromThenToIntName = preludeTermName "$enumFromThenToInt" (-7004)
+
+enumFromCharName, enumFromThenCharName, enumFromToCharName, enumFromThenToCharName :: RName
+enumFromCharName = preludeTermName "$enumFromChar" (-7011)
+enumFromThenCharName = preludeTermName "$enumFromThenChar" (-7012)
+enumFromToCharName = preludeTermName "$enumFromToChar" (-7013)
+enumFromThenToCharName = preludeTermName "$enumFromThenToChar" (-7014)
+
+enumFromCharGoName, enumFromThenCharGoName, enumFromThenToCharGoName :: RName
+enumFromCharGoName = preludeTermName "$enumFromCharGo" (-7021)
+enumFromThenCharGoName = preludeTermName "$enumFromThenCharGo" (-7022)
+enumFromThenToCharGoName = preludeTermName "$enumFromThenToCharGo" (-7023)
+
+arithmeticSequenceCorePair :: RName -> Maybe (CoreBinder, CoreExpr)
+arithmeticSequenceCorePair name
+  | name == enumFromIntName = Just (CoreBinder enumFromIntName enumFromIntCoreType, enumFromIntCore)
+  | name == enumFromThenIntName = Just (CoreBinder enumFromThenIntName enumFromThenIntCoreType, enumFromThenIntCore)
+  | name == enumFromToIntName = Just (CoreBinder enumFromToIntName enumFromToIntCoreType, enumFromToIntCore)
+  | name == enumFromThenToIntName = Just (CoreBinder enumFromThenToIntName enumFromThenToIntCoreType, enumFromThenToIntCore)
+  | name == enumFromCharName = Just (CoreBinder enumFromCharName enumFromCharCoreType, enumFromCharCore)
+  | name == enumFromThenCharName = Just (CoreBinder enumFromThenCharName enumFromThenCharCoreType, enumFromThenCharCore)
+  | name == enumFromToCharName = Just (CoreBinder enumFromToCharName enumFromToCharCoreType, enumFromToCharCore)
+  | name == enumFromThenToCharName = Just (CoreBinder enumFromThenToCharName enumFromThenToCharCoreType, enumFromThenToCharCore)
+  | name == enumFromCharGoName = Just (CoreBinder enumFromCharGoName enumFromCharGoCoreType, enumFromCharGoCore)
+  | name == enumFromThenCharGoName = Just (CoreBinder enumFromThenCharGoName enumFromThenCharGoCoreType, enumFromThenCharGoCore)
+  | name == enumFromThenToCharGoName = Just (CoreBinder enumFromThenToCharGoName enumFromThenToCharGoCoreType, enumFromThenToCharGoCore)
+  | otherwise = Nothing
+
+enumFromIntCoreType, enumFromThenIntCoreType, enumFromToIntCoreType, enumFromThenToIntCoreType :: CoreType
+enumFromIntCoreType = CTyFun intTy intListCoreType
+enumFromThenIntCoreType = CTyFun intTy (CTyFun intTy intListCoreType)
+enumFromToIntCoreType = CTyFun intTy (CTyFun intTy intListCoreType)
+enumFromThenToIntCoreType = CTyFun intTy (CTyFun intTy (CTyFun intTy intListCoreType))
+
+enumFromCharCoreType, enumFromThenCharCoreType, enumFromToCharCoreType, enumFromThenToCharCoreType :: CoreType
+enumFromCharCoreType = CTyFun charTy charListCoreType
+enumFromThenCharCoreType = CTyFun charTy (CTyFun charTy charListCoreType)
+enumFromToCharCoreType = CTyFun charTy (CTyFun charTy charListCoreType)
+enumFromThenToCharCoreType = CTyFun charTy (CTyFun charTy (CTyFun charTy charListCoreType))
+
+enumFromCharGoCoreType, enumFromThenCharGoCoreType, enumFromThenToCharGoCoreType :: CoreType
+enumFromCharGoCoreType = CTyFun intTy charListCoreType
+enumFromThenCharGoCoreType = CTyFun intTy (CTyFun intTy charListCoreType)
+enumFromThenToCharGoCoreType = CTyFun intTy (CTyFun intTy (CTyFun intTy charListCoreType))
+
+intListCoreType, charListCoreType :: CoreType
+intListCoreType = CTyList intTy
+charListCoreType = CTyList charTy
+
+enumFromIntCore :: CoreExpr
+enumFromIntCore =
+  enumLam currentName intTy $
+    applyCore (applyCore (CVar enumFromThenIntName enumFromThenIntCoreType) current intTyToIntList) (intAdd current oneInt) intListCoreType
+ where
+  currentName = builtinLocalTermName "$enum_from_int_current" (-7101)
+  current = CVar currentName intTy
+  intTyToIntList = CTyFun intTy intListCoreType
+
+enumFromThenIntCore :: CoreExpr
+enumFromThenIntCore =
+  enumLam currentName intTy (enumLam nextName intTy body)
+ where
+  currentName = builtinLocalTermName "$enum_from_then_int_current" (-7102)
+  nextName = builtinLocalTermName "$enum_from_then_int_next" (-7103)
+  current = CVar currentName intTy
+  next = CVar nextName intTy
+  step = intSub next current
+  advanced = intAdd next step
+  tailExpr =
+    applyCore
+      (applyCore (CVar enumFromThenIntName enumFromThenIntCoreType) next (CTyFun intTy intListCoreType))
+      advanced
+      intListCoreType
+  body = consCore intTy current tailExpr
+
+enumFromToIntCore :: CoreExpr
+enumFromToIntCore =
+  enumLam currentName intTy (enumLam endName intTy body)
+ where
+  currentName = builtinLocalTermName "$enum_from_to_int_current" (-7104)
+  endName = builtinLocalTermName "$enum_from_to_int_end" (-7105)
+  current = CVar currentName intTy
+  end = CVar endName intTy
+  next = intAdd current oneInt
+  body =
+    applyCore
+      ( applyCore
+          (applyCore (CVar enumFromThenToIntName enumFromThenToIntCoreType) current (CTyFun intTy (CTyFun intTy intListCoreType)))
+          next
+          (CTyFun intTy intListCoreType)
+      )
+      end
+      intListCoreType
+
+enumFromThenToIntCore :: CoreExpr
+enumFromThenToIntCore =
+  enumLam currentName intTy (enumLam nextName intTy (enumLam endName intTy body))
+ where
+  currentName = builtinLocalTermName "$enum_from_then_to_int_current" (-7106)
+  nextName = builtinLocalTermName "$enum_from_then_to_int_next" (-7107)
+  endName = builtinLocalTermName "$enum_from_then_to_int_end" (-7108)
+  current = CVar currentName intTy
+  next = CVar nextName intTy
+  end = CVar endName intTy
+  body = enumThenToIntList "$enum_int" (-7110) enumFromThenToIntName enumFromThenToIntCoreType current next end
+
+enumFromCharCore :: CoreExpr
+enumFromCharCore =
+  enumLam currentName charTy $
+    applyCore (CVar enumFromCharGoName enumFromCharGoCoreType) (charToIntCore current) charListCoreType
+ where
+  currentName = builtinLocalTermName "$enum_from_char_current" (-7121)
+  current = CVar currentName charTy
+
+enumFromThenCharCore :: CoreExpr
+enumFromThenCharCore =
+  enumLam currentName charTy (enumLam nextName charTy body)
+ where
+  currentName = builtinLocalTermName "$enum_from_then_char_current" (-7122)
+  nextName = builtinLocalTermName "$enum_from_then_char_next" (-7123)
+  current = CVar currentName charTy
+  next = CVar nextName charTy
+  currentInt = charToIntCore current
+  nextInt = charToIntCore next
+  step = intSub nextInt currentInt
+  body =
+    applyCore
+      (applyCore (CVar enumFromThenCharGoName enumFromThenCharGoCoreType) currentInt (CTyFun intTy charListCoreType))
+      step
+      charListCoreType
+
+enumFromToCharCore :: CoreExpr
+enumFromToCharCore =
+  enumLam currentName charTy (enumLam endName charTy body)
+ where
+  currentName = builtinLocalTermName "$enum_from_to_char_current" (-7124)
+  endName = builtinLocalTermName "$enum_from_to_char_end" (-7125)
+  current = CVar currentName charTy
+  end = CVar endName charTy
+  body =
+    applyCore
+      ( applyCore
+          (applyCore (CVar enumFromThenToCharGoName enumFromThenToCharGoCoreType) (charToIntCore current) (CTyFun intTy (CTyFun intTy charListCoreType)))
+          oneInt
+          (CTyFun intTy charListCoreType)
+      )
+      (charToIntCore end)
+      charListCoreType
+
+enumFromThenToCharCore :: CoreExpr
+enumFromThenToCharCore =
+  enumLam currentName charTy (enumLam nextName charTy (enumLam endName charTy body))
+ where
+  currentName = builtinLocalTermName "$enum_from_then_to_char_current" (-7126)
+  nextName = builtinLocalTermName "$enum_from_then_to_char_next" (-7127)
+  endName = builtinLocalTermName "$enum_from_then_to_char_end" (-7128)
+  current = CVar currentName charTy
+  next = CVar nextName charTy
+  end = CVar endName charTy
+  currentInt = charToIntCore current
+  nextInt = charToIntCore next
+  step = intSub nextInt currentInt
+  body =
+    applyCore
+      ( applyCore
+          (applyCore (CVar enumFromThenToCharGoName enumFromThenToCharGoCoreType) currentInt (CTyFun intTy (CTyFun intTy charListCoreType)))
+          step
+          (CTyFun intTy charListCoreType)
+      )
+      (charToIntCore end)
+      charListCoreType
+
+enumFromCharGoCore :: CoreExpr
+enumFromCharGoCore =
+  enumLam currentName intTy body
+ where
+  currentName = builtinLocalTermName "$enum_from_char_go_current" (-7131)
+  current = CVar currentName intTy
+  tailExpr = applyCore (CVar enumFromCharGoName enumFromCharGoCoreType) (intAdd current oneInt) charListCoreType
+  body = consCore charTy (intToCharCore current) tailExpr
+
+enumFromThenCharGoCore :: CoreExpr
+enumFromThenCharGoCore =
+  enumLam currentName intTy (enumLam stepName intTy body)
+ where
+  currentName = builtinLocalTermName "$enum_from_then_char_go_current" (-7132)
+  stepName = builtinLocalTermName "$enum_from_then_char_go_step" (-7133)
+  current = CVar currentName intTy
+  step = CVar stepName intTy
+  advanced = intAdd current step
+  tailExpr =
+    applyCore
+      (applyCore (CVar enumFromThenCharGoName enumFromThenCharGoCoreType) advanced (CTyFun intTy charListCoreType))
+      step
+      charListCoreType
+  body = consCore charTy (intToCharCore current) tailExpr
+
+enumFromThenToCharGoCore :: CoreExpr
+enumFromThenToCharGoCore =
+  enumLam currentName intTy (enumLam stepName intTy (enumLam endName intTy body))
+ where
+  currentName = builtinLocalTermName "$enum_from_then_to_char_go_current" (-7134)
+  stepName = builtinLocalTermName "$enum_from_then_to_char_go_step" (-7135)
+  endName = builtinLocalTermName "$enum_from_then_to_char_go_end" (-7136)
+  current = CVar currentName intTy
+  step = CVar stepName intTy
+  end = CVar endName intTy
+  body = enumStepToCharList "$enum_char" (-7140) enumFromThenToCharGoName enumFromThenToCharGoCoreType current step end
+
+enumThenToIntList :: Text -> Int -> RName -> CoreType -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+enumThenToIntList occurrence unique functionName functionTy current next end =
+  boolCaseCore
+    (occurrence <> "_step_negative")
+    unique
+    (intLt step zeroInt)
+    intListCoreType
+    descending
+    ascending
+ where
+  step = intSub next current
+  advanced = intAdd next step
+  tailExpr =
+    applyCore
+      ( applyCore
+          (applyCore (CVar functionName functionTy) next (CTyFun intTy (CTyFun intTy intListCoreType)))
+          advanced
+          (CTyFun intTy intListCoreType)
+      )
+      end
+      intListCoreType
+  item = consCore intTy current tailExpr
+  descending = boolCaseCore (occurrence <> "_descending_stop") (unique - 1) (intLt current end) intListCoreType (nilCore intTy) item
+  ascending = boolCaseCore (occurrence <> "_ascending_stop") (unique - 2) (intLt end current) intListCoreType (nilCore intTy) item
+
+enumStepToCharList :: Text -> Int -> RName -> CoreType -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+enumStepToCharList occurrence unique functionName functionTy current step end =
+  boolCaseCore
+    (occurrence <> "_step_negative")
+    unique
+    (intLt step zeroInt)
+    charListCoreType
+    descending
+    ascending
+ where
+  advanced = intAdd current step
+  tailExpr =
+    applyCore
+      ( applyCore
+          (applyCore (CVar functionName functionTy) advanced (CTyFun intTy (CTyFun intTy charListCoreType)))
+          step
+          (CTyFun intTy charListCoreType)
+      )
+      end
+      charListCoreType
+  item = consCore charTy (intToCharCore current) tailExpr
+  descending = boolCaseCore (occurrence <> "_descending_stop") (unique - 1) (intLt current end) charListCoreType (nilCore charTy) item
+  ascending = boolCaseCore (occurrence <> "_ascending_stop") (unique - 2) (intLt end current) charListCoreType (nilCore charTy) item
+
+enumLam :: RName -> CoreType -> CoreExpr -> CoreExpr
+enumLam binderName ty body =
+  CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
+
+applyCore :: CoreExpr -> CoreExpr -> CoreType -> CoreExpr
+applyCore fn arg resultTy =
+  CApp fn arg resultTy
+
+intAdd, intSub, intLt :: CoreExpr -> CoreExpr -> CoreExpr
+intAdd lhs rhs =
+  CPrimOp PrimAdd [lhs, rhs] intTy
+intSub lhs rhs =
+  CPrimOp PrimSub [lhs, rhs] intTy
+intLt lhs rhs =
+  CPrimOp PrimLt [lhs, rhs] boolTy
+
+charToIntCore, intToCharCore :: CoreExpr -> CoreExpr
+charToIntCore value =
+  CPrimOp PrimCharToInt [value] intTy
+intToCharCore value =
+  CPrimOp PrimIntToChar [value] charTy
+
+zeroInt, oneInt :: CoreExpr
+zeroInt = CLit (LInt 0) intTy
+oneInt = CLit (LInt 1) intTy
+
+nilCore :: CoreType -> CoreExpr
+nilCore elementTy =
+  constructorApp listNilDataConName [elementTy] [] (CTyList elementTy)
+
+consCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr
+consCore elementTy headExpr tailExpr =
+  constructorApp listConsDataConName [elementTy] [headExpr, tailExpr] (CTyList elementTy)
 
 data CoreElabEnv = CoreElabEnv
   { coreElabSubst :: Subst
