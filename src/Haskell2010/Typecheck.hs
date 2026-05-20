@@ -273,6 +273,8 @@ data ClassMethodInfo = ClassMethodInfo
 data TypedInstanceDictionary = TypedInstanceDictionary
   { typedInstanceClass :: RName
   , typedInstanceType :: MonoType
+  , typedInstanceVariables :: [RName]
+  , typedInstanceContext :: [ClassConstraint]
   , typedInstanceDictName :: RName
   , typedInstanceSuperclasses :: [ClassConstraint]
   , typedInstanceMethods :: [TypedExpr]
@@ -361,7 +363,9 @@ typecheckModuleToCoreWithWarnings sourceModule = do
         )
       let classEnv = classMethodTypeEnv classes `Map.union` recordSelectorTypeEnv selectors
       (bindings, env) <- inferBindingGroup classEnv sourceDecls
-      instances <- inferInstanceDictionaries env sourceDecls
+      explicitInstances <- inferInstanceDictionaries env sourceDecls
+      derivedInstances <- inferDerivedInstanceDictionaries env sourceDecls explicitInstances
+      let instances = explicitInstances <> derivedInstances
       pure (bindings, env, instances)
   let classes = classInfos finalState
       classesForCore = usedClassInfos classes (substitution finalState) typedBindings typedInstances
@@ -379,6 +383,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
   coreBinds <- traverse (bindingToCore elaborationEnv) typedBindings
   classCoreBinds <- classSelectorCoreBinds (substitution finalState) classesForCore
   recordCoreBinds <- recordSelectorCoreBinds (substitution finalState) (recordSelectors finalState)
+  builtinEqSupportBinds <- builtinEqSupportCoreBinds classesForCore
   builtinShowSupportBinds <- builtinShowSupportCoreBinds classesForCore
   builtinInstanceCoreBinds <- traverse (builtinInstanceDictionaryToCore classesForCore) builtinInstances
   instanceCoreBinds <- traverse (instanceDictionaryToCore (substitution finalState) classesForCore instances) typedInstances
@@ -394,7 +399,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
           { coreModuleName = rModuleName sourceModule
           , coreModuleConstructors = coreConstructors
           , coreModuleBinds =
-              case preludeCoreBinds <> classCoreBinds <> recordCoreBinds <> builtinShowSupportBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> sourceCoreBinds of
+              case preludeCoreBinds <> classCoreBinds <> recordCoreBinds <> builtinEqSupportBinds <> builtinShowSupportBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> sourceCoreBinds of
                 [] -> []
                 [one] -> [one]
                 many -> [CoreRec (concatMap bindPairs many)]
@@ -1232,6 +1237,7 @@ usedClassInfos classes subst bindings instances =
     concatMap typedBindingClassConstraints bindings
   instanceConstraints =
     [singleClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary) | dictionary <- instances]
+      <> concatMap typedInstanceContext instances
       <> concatMap typedInstanceSuperclasses instances
       <> concatMap (concatMap typedExprClassConstraints . typedInstanceMethods) instances
   initialUsedNames =
@@ -2126,23 +2132,225 @@ inferInstanceDictionaries env =
   collect acc = \case
     RInstanceDecl [] instanceHead decls -> do
       dictionary <- inferInstanceDictionary env instanceHead decls
-      let instanceKey = singleClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary)
-      when (isBuiltinInstanceConstraint instanceKey) $
-        throwTypecheck (UnsupportedCore0 ("duplicate built-in instance for `" <> renderClassConstraint instanceKey <> "`"))
-      when (overlapsBuiltinInstanceConstraint instanceKey) $
-        throwTypecheck (UnsupportedCore0 ("overlapping built-in instance for `" <> renderClassConstraint instanceKey <> "`"))
-      when (any (constraintMatches instanceKey . instanceKeyFor) acc) $
-        throwTypecheck (UnsupportedCore0 ("duplicate instance for `" <> renderClassConstraint instanceKey <> "`"))
-      when (any (constraintsOverlap instanceKey . instanceKeyFor) acc) $
-        throwTypecheck (UnsupportedCore0 ("overlapping instance for `" <> renderClassConstraint instanceKey <> "`"))
+      validateInstanceDictionary acc dictionary
       pure (acc <> [dictionary])
     RInstanceDecl constraints instanceHead _ ->
       unsupportedSourceClassConstraintContext (InstanceConstraintContext instanceHead) constraints
     _ ->
       pure acc
 
-  instanceKeyFor dictionary =
-    singleClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary)
+inferDerivedInstanceDictionaries :: TypeEnv -> [RDecl] -> [TypedInstanceDictionary] -> InferM [TypedInstanceDictionary]
+inferDerivedInstanceDictionaries env decls existing =
+  snd <$> foldM collect (existing, []) decls
+ where
+  collect (known, derived) decl =
+    withTypecheckSpan (rDeclSpan decl) $
+      case decl of
+        RDataDecl typeName params constructors derivingNames ->
+          collectDerived known derived typeName params constructors derivingNames
+        RNewtypeDecl typeName params constructor derivingNames ->
+          collectDerived known derived typeName params [constructor] derivingNames
+        _ ->
+          pure (known, derived)
+
+  collectDerived known derived typeName params constructors derivingNames = do
+    classNames <- validateDerivedClasses derivingNames
+    foldM (addDerived typeName params constructors) (known, derived) classNames
+
+  addDerived typeName params constructors (known, derived) className
+    | className == builtinEqClassName = do
+        dictionary <- inferDerivedEqInstanceDictionary env typeName params constructors
+        validateInstanceDictionary known dictionary
+        pure (known <> [dictionary], derived <> [dictionary])
+    | otherwise =
+        throwTypecheck (UnsupportedCore0 ("derived class `" <> renderRName className <> "`"))
+
+validateDerivedClasses :: [RName] -> InferM [RName]
+validateDerivedClasses derivingNames = do
+  let classNames = map canonicalClassName derivingNames
+  case classNames List.\\ List.nub classNames of
+    duplicate : _ ->
+      throwTypecheck (UnsupportedCore0 ("duplicate derived class `" <> renderRName duplicate <> "`"))
+    [] ->
+      pure ()
+  traverse_
+    ( \className ->
+        unless (className == builtinEqClassName) $
+          throwTypecheck (UnsupportedCore0 ("derived class `" <> renderRName className <> "`"))
+    )
+    classNames
+  pure classNames
+
+validateInstanceDictionary :: [TypedInstanceDictionary] -> TypedInstanceDictionary -> InferM ()
+validateInstanceDictionary existing dictionary = do
+  let instanceKey = instanceKeyFor dictionary
+  when (isBuiltinInstanceConstraint instanceKey) $
+    throwTypecheck (UnsupportedCore0 ("duplicate built-in instance for `" <> renderClassConstraint instanceKey <> "`"))
+  when (overlapsBuiltinInstanceConstraint instanceKey) $
+    throwTypecheck (UnsupportedCore0 ("overlapping built-in instance for `" <> renderClassConstraint instanceKey <> "`"))
+  when (any (constraintMatches instanceKey . instanceKeyFor) existing) $
+    throwTypecheck (UnsupportedCore0 ("duplicate instance for `" <> renderClassConstraint instanceKey <> "`"))
+  when (any (constraintsOverlap instanceKey . instanceKeyFor) existing) $
+    throwTypecheck (UnsupportedCore0 ("overlapping instance for `" <> renderClassConstraint instanceKey <> "`"))
+
+instanceKeyFor :: TypedInstanceDictionary -> ClassConstraint
+instanceKeyFor dictionary =
+  singleClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary)
+
+inferDerivedEqInstanceDictionary :: TypeEnv -> RName -> [RName] -> [RConDecl] -> InferM TypedInstanceDictionary
+inferDerivedEqInstanceDictionary env typeName params constructors = do
+  classes <- classInfos <$> get
+  info <-
+    case Map.lookup builtinEqClassName classes of
+      Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Eq class")
+      Just classInfo -> pure classInfo
+  fieldTypes <- concat <$> traverse (traverse sourceMonoType . conDeclFieldTypes) constructors
+  context <- List.nub . concat <$> traverse (derivedEqFieldConstraints typeName) fieldTypes
+  methodMap <- derivedEqMethodBindings constructors info
+  let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
+      replacements = Map.singleton (classInfoVariable info) instanceType
+      superclassConstraints = map (replaceConstraintTypeVars replacements) (classInfoSuperclasses info)
+  typedMethods <- traverse (inferInstanceMethod env info instanceType methodMap) (classInfoMethods info)
+  dictName <- instanceDictionaryName builtinEqClassName instanceType
+  pure
+    TypedInstanceDictionary
+      { typedInstanceClass = builtinEqClassName
+      , typedInstanceType = instanceType
+      , typedInstanceVariables = params
+      , typedInstanceContext = context
+      , typedInstanceDictName = dictName
+      , typedInstanceSuperclasses = superclassConstraints
+      , typedInstanceMethods = typedMethods
+      }
+
+derivedEqFieldConstraints :: RName -> MonoType -> InferM [ClassConstraint]
+derivedEqFieldConstraints selfTypeName fieldType =
+  go fieldType
+ where
+  go ty = do
+    normalized <- applyCurrent ty
+    case normalized of
+      TyVar {} ->
+        pure [singleClassConstraint builtinEqClassName normalized]
+      TyCon {} ->
+        pure []
+      TyApp {} ->
+        case monoTypeHead normalized of
+          Just headName
+            | headName == selfTypeName -> pure []
+          _ | monoTypeHeadIsVariable normalized ->
+              pure [singleClassConstraint builtinEqClassName normalized]
+          _ ->
+              pure []
+      TyList element ->
+        go element
+      TyTuple {} ->
+        throwTypecheck (UnsupportedCore0 "derived Eq for tuple fields")
+      TyFun {} ->
+        throwTypecheck (UnsupportedCore0 "derived Eq for function fields")
+      TyMeta {} ->
+        pure [singleClassConstraint builtinEqClassName normalized]
+
+monoTypeHeadIsVariable :: MonoType -> Bool
+monoTypeHeadIsVariable = \case
+  TyVar {} -> True
+  TyApp fn _ -> monoTypeHeadIsVariable fn
+  _ -> False
+
+derivedEqMethodBindings :: [RConDecl] -> ClassInfo -> InferM (Map.Map RName SourceBinding)
+derivedEqMethodBindings constructors info = do
+  eqMethod <- requireEqMethod "=="
+  notEqMethod <- requireEqMethod "/="
+  eqBinding <- derivedEqEqualityBinding (classMethodName eqMethod) constructors
+  notEqBinding <- derivedEqInequalityBinding (classMethodName notEqMethod) (classMethodName eqMethod)
+  pure (Map.fromList [(classMethodName eqMethod, eqBinding), (classMethodName notEqMethod, notEqBinding)])
+ where
+  requireEqMethod occurrence =
+    case List.find ((== occurrence) . nameOcc . classMethodName) (classInfoMethods info) of
+      Just method -> pure method
+      Nothing -> throwTypecheck (UnsupportedCore0 ("missing Eq method `" <> occurrence <> "`"))
+
+derivedEqEqualityBinding :: RName -> [RConDecl] -> InferM SourceBinding
+derivedEqEqualityBinding methodName constructors = do
+  lhsName <- freshGeneratedName TermNamespace "$derived_eq_lhs"
+  rhsName <- freshGeneratedName TermNamespace "$derived_eq_rhs"
+  alternatives <- traverse (outerAlt rhsName) constructors
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar lhsName, RPVar rhsName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs = RUnguarded (RCase (RVar lhsName) alternatives)
+      , sourceBindingWhereDecls = []
+      }
+ where
+  outerAlt rhsName constructor = do
+    let constructorName = conDeclName constructor
+    lhsFields <- freshConstructorFields "$derived_eq_lhs_field" constructor
+    rhsFields <- freshConstructorFields "$derived_eq_rhs_field" constructor
+    let sameConstructorAlt =
+          RAlt
+            (RPCon constructorName (map RPVar rhsFields))
+            (RUnguarded (derivedEqFields (zip lhsFields rhsFields)))
+            []
+        defaultAlt =
+          RAlt RPWildcard (RUnguarded derivedFalse) []
+    pure
+      ( RAlt
+          (RPCon constructorName (map RPVar lhsFields))
+          (RUnguarded (RCase (RVar rhsName) [sameConstructorAlt, defaultAlt]))
+          []
+      )
+
+derivedEqInequalityBinding :: RName -> RName -> InferM SourceBinding
+derivedEqInequalityBinding methodName eqName = do
+  lhsName <- freshGeneratedName TermNamespace "$derived_neq_lhs"
+  rhsName <- freshGeneratedName TermNamespace "$derived_neq_rhs"
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar lhsName, RPVar rhsName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs =
+          RUnguarded
+            ( RCase
+                (RInfixApp (RVar lhsName) eqName (RVar rhsName))
+                [ RAlt (RPCon trueDataConName []) (RUnguarded derivedFalse) []
+                , RAlt (RPCon falseDataConName []) (RUnguarded derivedTrue) []
+                ]
+            )
+      , sourceBindingWhereDecls = []
+      }
+
+freshConstructorFields :: Text -> RConDecl -> InferM [RName]
+freshConstructorFields prefix constructor =
+  traverse
+    (\index -> freshGeneratedName TermNamespace (prefix <> renderInt index))
+    [0 .. length (conDeclFieldTypes constructor) - 1]
+
+derivedEqFields :: [(RName, RName)] -> RExpr
+derivedEqFields =
+  foldr
+    (\(lhs, rhs) rest -> RInfixApp (RInfixApp (RVar lhs) derivedEqOperatorName (RVar rhs)) derivedAndOperatorName rest)
+    derivedTrue
+
+derivedEqOperatorName :: RName
+derivedEqOperatorName =
+  preludeTermName "==" (-1401)
+
+derivedAndOperatorName :: RName
+derivedAndOperatorName =
+  preludeTermName "&&" (-3201)
+
+derivedTrue :: RExpr
+derivedTrue =
+  RCon trueDataConName
+
+derivedFalse :: RExpr
+derivedFalse =
+  RCon falseDataConName
 
 constraintsOverlap :: ClassConstraint -> ClassConstraint -> Bool
 constraintsOverlap lhs rhs =
@@ -2192,6 +2400,8 @@ inferInstanceDictionary env instanceHead decls = do
     TypedInstanceDictionary
       { typedInstanceClass = className
       , typedInstanceType = instanceType
+      , typedInstanceVariables = typeVars instanceType
+      , typedInstanceContext = []
       , typedInstanceDictName = dictName
       , typedInstanceSuperclasses = superclassConstraints
       , typedInstanceMethods = typedMethods
@@ -5165,6 +5375,8 @@ data CoreElabEnv = CoreElabEnv
 
 data InstanceDictionaryRef = InstanceDictionaryRef
   { instanceRefConstraint :: ClassConstraint
+  , instanceRefVariables :: [RName]
+  , instanceRefContext :: [ClassConstraint]
   , instanceRefName :: RName
   }
   deriving stock (Show, Eq, Ord)
@@ -5419,10 +5631,9 @@ resolveDictionary env wanted = do
   case List.find (constraintMatches normalized . fst) (coreElabDictionaries env) of
     Just (_, dictionary) -> pure dictionary
     Nothing ->
-      case List.find (constraintMatches normalized . instanceRefConstraint) (coreElabInstances env) of
-        Just ref -> do
-          dictTy <- classConstraintCoreType (coreElabSubst env) (coreElabMetas env) normalized
-          pure (CVar (instanceRefName ref) dictTy)
+      case firstJust (map (matchInstanceDictionaryRef normalized) (coreElabInstances env)) of
+        Just (ref, replacements) ->
+          instantiateInstanceDictionaryRef env normalized ref replacements
         Nothing ->
           case superclassDictionary env normalized of
             Just dictionary -> dictionary
@@ -5438,6 +5649,60 @@ resolveDictionary env wanted = do
                         (UnsolvedClassConstraint normalized)
                     )
 
+firstJust :: [Maybe a] -> Maybe a
+firstJust = \case
+  [] -> Nothing
+  Nothing : rest -> firstJust rest
+  Just value : _ -> Just value
+
+matchInstanceDictionaryRef :: ClassConstraint -> InstanceDictionaryRef -> Maybe (InstanceDictionaryRef, Map.Map RName MonoType)
+matchInstanceDictionaryRef wanted ref =
+  (ref,) <$> matchClassConstraint (Set.fromList (instanceRefVariables ref)) (instanceRefConstraint ref) wanted
+
+matchClassConstraint :: Set.Set RName -> ClassConstraint -> ClassConstraint -> Maybe (Map.Map RName MonoType)
+matchClassConstraint variables patternConstraint actualConstraint
+  | classConstraintClass patternConstraint /= classConstraintClass actualConstraint = Nothing
+  | length (classConstraintArguments patternConstraint) /= length (classConstraintArguments actualConstraint) = Nothing
+  | otherwise =
+      foldM
+        (\acc (patternArg, actualArg) -> matchMonoTypes variables patternArg actualArg acc)
+        Map.empty
+        (zip (classConstraintArguments patternConstraint) (classConstraintArguments actualConstraint))
+
+instantiateInstanceDictionaryRef ::
+  CoreElabEnv ->
+  ClassConstraint ->
+  InstanceDictionaryRef ->
+  Map.Map RName MonoType ->
+  Either TypecheckError CoreExpr
+instantiateInstanceDictionaryRef env wanted ref replacements = do
+  let subst = coreElabSubst env
+      metas = coreElabMetas env
+      instantiatedContext = map (replaceConstraintTypeVars replacements) (instanceRefContext ref)
+  wantedDictTy <- classConstraintCoreType subst metas wanted
+  dictionaryArguments <- traverse (resolveDictionary env) instantiatedContext
+  refDictMono <- classConstraintMonoType (instanceRefConstraint ref)
+  refTy <- schemeToCoreTypeWith subst metas (Scheme (instanceRefVariables ref) (instanceRefContext ref) refDictMono)
+  typeArguments <-
+    traverse
+      ( \variable ->
+          monoToCoreType subst metas (Map.findWithDefault (TyVar variable) variable replacements)
+      )
+      (instanceRefVariables ref)
+  let dictionaryResultTy = foldr CTyFun wantedDictTy (map exprType dictionaryArguments)
+      typedDictionary =
+        case instanceRefVariables ref of
+          [] -> CVar (instanceRefName ref) dictionaryResultTy
+          _ -> CTypeApp (CVar (instanceRefName ref) refTy) typeArguments dictionaryResultTy
+  pure (foldl applyValue typedDictionary dictionaryArguments)
+ where
+  applyValue callee argument =
+    let remainingResult =
+          case exprType callee of
+            CTyFun _ result -> result
+            _ -> exprType callee
+     in CApp callee argument remainingResult
+
 superclassDictionary :: CoreElabEnv -> ClassConstraint -> Maybe (Either TypecheckError CoreExpr)
 superclassDictionary env wanted =
   firstJustEither (map localProjection localCandidates <> map instanceProjection instanceCandidates)
@@ -5450,6 +5715,8 @@ superclassDictionary env wanted =
   instanceCandidates =
     [ (instanceRefConstraint ref, instanceRefName ref)
     | ref <- coreElabInstances env
+    , null (instanceRefVariables ref)
+    , null (instanceRefContext ref)
     , not (constraintMatches wanted (instanceRefConstraint ref))
     ]
 
@@ -5560,9 +5827,31 @@ builtinStructuralDictionary :: CoreElabEnv -> ClassConstraint -> Maybe (Either T
 builtinStructuralDictionary env wanted =
   case (classConstraintClass wanted, classConstraintArguments wanted) of
     (className, [TyList elementTy])
+      | className == builtinEqClassName ->
+          Just (eqListDictionaryValue env elementTy)
+    (className, [TyList elementTy])
       | className == builtinShowClassName ->
           Just (showListDictionaryValue env elementTy)
     _ -> Nothing
+
+eqListDictionaryValue :: CoreElabEnv -> MonoType -> Either TypecheckError CoreExpr
+eqListDictionaryValue env elementTy = do
+  let subst = coreElabSubst env
+      metas = coreElabMetas env
+      normalizedElementTy = replaceMetasWithVars metas (applySubst subst elementTy)
+      elementConstraint = singleClassConstraint builtinEqClassName normalizedElementTy
+      listConstraint = singleClassConstraint builtinEqClassName (TyList normalizedElementTy)
+  elementDictionary <- resolveDictionary env elementConstraint
+  elementCoreTy <- monoToCoreType subst metas normalizedElementTy
+  elementDictionaryTy <- classConstraintCoreType subst metas elementConstraint
+  listDictionaryTy <- classConstraintCoreType subst metas listConstraint
+  let listDictionaryFunctionTy = eqListDictionaryCoreType
+      specializedFunction =
+        CTypeApp
+          (CVar eqListDictionaryName listDictionaryFunctionTy)
+          [elementCoreTy]
+          (CTyFun elementDictionaryTy listDictionaryTy)
+  pure (CApp specializedFunction elementDictionary listDictionaryTy)
 
 showListDictionaryValue :: CoreElabEnv -> MonoType -> Either TypecheckError CoreExpr
 showListDictionaryValue env elementTy = do
@@ -5615,6 +5904,8 @@ instanceDictionaryRefs subst _classes =
               singleClassConstraint
                 (typedInstanceClass dictionary)
                 (applySubst subst (typedInstanceType dictionary))
+          , instanceRefVariables = typedInstanceVariables dictionary
+          , instanceRefContext = map (applyConstraintSubst subst) (typedInstanceContext dictionary)
           , instanceRefName = typedInstanceDictName dictionary
           }
     )
@@ -5778,6 +6069,8 @@ builtinInstanceDictionaryRefs =
     ( \dictionary ->
         InstanceDictionaryRef
           { instanceRefConstraint = singleClassConstraint (builtinInstanceClass dictionary) (builtinInstanceType dictionary)
+          , instanceRefVariables = []
+          , instanceRefContext = []
           , instanceRefName = builtinInstanceName dictionary
           }
     )
@@ -5796,12 +6089,17 @@ isBuiltinStructuralInstanceConstraint :: ClassConstraint -> Bool
 isBuiltinStructuralInstanceConstraint wanted =
   case (classConstraintClass wanted, classConstraintArguments wanted) of
     (className, [TyList _])
+      | className == builtinEqClassName -> True
+    (className, [TyList _])
       | className == builtinShowClassName -> True
     _ -> False
 
 overlapsBuiltinStructuralInstanceConstraint :: ClassConstraint -> Bool
 overlapsBuiltinStructuralInstanceConstraint wanted =
   case (classConstraintClass wanted, classConstraintArguments wanted) of
+    (className, [argument])
+      | className == builtinEqClassName ->
+          typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$eq_list_overlap" (-1598))))
     (className, [argument])
       | className == builtinShowClassName ->
           typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$show_list_overlap" (-1599))))
@@ -6213,6 +6511,187 @@ boolCaseCore binderOccurrence binderUnique scrutinee resultTy trueBody falseBody
     , CoreAlt (ConstructorAlt falseDataConName) [] falseBody
     ]
     resultTy
+
+builtinEqSupportCoreBinds :: Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
+builtinEqSupportCoreBinds classes =
+  case Map.lookup builtinEqClassName classes of
+    Nothing -> Right []
+    Just info -> do
+      listDictionaryPair <- eqListDictionaryCorePair info
+      pure
+        [ CoreRec
+            [ eqListMethodCorePair
+            , listDictionaryPair
+            ]
+        ]
+
+eqListTypeVariable :: RName
+eqListTypeVariable =
+  preludeTypeVariable "a" (-8061)
+
+eqListDictionaryName :: RName
+eqListDictionaryName =
+  preludeTermName "$fEqList" (-1504)
+
+eqListMethodName :: RName
+eqListMethodName =
+  preludeTermName "$eq_list" (-8062)
+
+eqDictCoreType :: CoreType -> CoreType
+eqDictCoreType ty =
+  CTyApp (CTyCon (classDictionaryTypeName builtinEqClassName)) ty
+
+eqListDictionaryCoreType :: CoreType
+eqListDictionaryCoreType =
+  CTyForall [a] (CTyFun eqDictA eqDictListA)
+ where
+  a = eqListTypeVariable
+  aTy = CTyVar a
+  eqDictA = eqDictCoreType aTy
+  eqDictListA = eqDictCoreType (CTyList aTy)
+
+eqListMethodCoreType :: CoreType
+eqListMethodCoreType =
+  CTyForall [a] (CTyFun eqDictA (CTyFun listA (CTyFun listA boolTy)))
+ where
+  a = eqListTypeVariable
+  aTy = CTyVar a
+  eqDictA = eqDictCoreType aTy
+  listA = CTyList aTy
+
+eqSelectorCoreType :: CoreType
+eqSelectorCoreType =
+  CTyForall [a] (CTyFun eqDictA (CTyFun aTy (CTyFun aTy boolTy)))
+ where
+  a = preludeTypeVariable "a" (-1301)
+  aTy = CTyVar a
+  eqDictA = eqDictCoreType aTy
+
+eqListMethodCorePair :: (CoreBinder, CoreExpr)
+eqListMethodCorePair =
+  (CoreBinder eqListMethodName eqListMethodCoreType, CTypeLam [a] (lam dictName eqDictA (lam xsName listA (lam ysName listA body))) eqListMethodCoreType)
+ where
+  a = eqListTypeVariable
+  aTy = CTyVar a
+  listA = CTyList aTy
+  eqDictA = eqDictCoreType aTy
+  dictName = builtinLocalTermName "$eq_list_dict" (-8063)
+  xsName = builtinLocalTermName "$eq_list_xs" (-8064)
+  ysName = builtinLocalTermName "$eq_list_ys" (-8065)
+  xName = builtinLocalTermName "$eq_list_x" (-8066)
+  xsTailName = builtinLocalTermName "$eq_list_xs_tail" (-8067)
+  yNilName = builtinLocalTermName "$eq_list_y_nil" (-8068)
+  ysNilTailName = builtinLocalTermName "$eq_list_ys_nil_tail" (-8069)
+  yConsName = builtinLocalTermName "$eq_list_y_cons" (-8070)
+  ysConsTailName = builtinLocalTermName "$eq_list_ys_cons_tail" (-8071)
+  xsCaseName = builtinLocalTermName "$eq_list_xs_case" (-8072)
+  ysNilCaseName = builtinLocalTermName "$eq_list_ys_nil_case" (-8073)
+  ysConsCaseName = builtinLocalTermName "$eq_list_ys_cons_case" (-8074)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  falseExpr = CCon falseDataConName boolTy
+  trueExpr = CCon trueDataConName boolTy
+  dictExpr = CVar dictName eqDictA
+  xsTail = CVar xsTailName listA
+  ysConsTail = CVar ysConsTailName listA
+  headEqual =
+    eqElementCore aTy dictExpr (CVar xName aTy) (CVar yConsName aTy)
+  recursiveTailEqual =
+    eqListCallCore aTy dictExpr xsTail ysConsTail
+  consBody =
+    listCaseCore
+      (CVar ysName listA)
+      ysConsCaseName
+      aTy
+      boolTy
+      falseExpr
+      yConsName
+      ysConsTailName
+      (boolCaseCore "$eq_list_head" (-8075) headEqual boolTy recursiveTailEqual falseExpr)
+  body =
+    listCaseCore
+      (CVar xsName listA)
+      xsCaseName
+      aTy
+      boolTy
+      ( listCaseCore
+          (CVar ysName listA)
+          ysNilCaseName
+          aTy
+          boolTy
+          trueExpr
+          yNilName
+          ysNilTailName
+          falseExpr
+      )
+      xName
+      xsTailName
+      consBody
+
+eqListDictionaryCorePair :: ClassInfo -> Either TypecheckError (CoreBinder, CoreExpr)
+eqListDictionaryCorePair info = do
+  constructorTy <- classDictionaryConstructorCoreType info
+  let a = eqListTypeVariable
+      aTy = CTyVar a
+      listA = CTyList aTy
+      eqDictA = eqDictCoreType aTy
+      eqDictListA = eqDictCoreType listA
+      dictName = builtinLocalTermName "$eq_list_instance_dict" (-8076)
+      xsName = builtinLocalTermName "$neq_list_xs" (-8077)
+      ysName = builtinLocalTermName "$neq_list_ys" (-8078)
+      eqMethod =
+        CApp
+          ( CTypeApp
+              (CVar eqListMethodName eqListMethodCoreType)
+              [aTy]
+              (CTyFun eqDictA (CTyFun listA (CTyFun listA boolTy)))
+          )
+          (CVar dictName eqDictA)
+          (CTyFun listA (CTyFun listA boolTy))
+      neqBody =
+        boolNotCore
+          "$neq_list_not"
+          (-8079)
+          ( CApp
+              (CApp eqMethod (CVar xsName listA) (CTyFun listA boolTy))
+              (CVar ysName listA)
+              boolTy
+          )
+      neqMethod =
+        CLam
+          (CoreBinder xsName listA)
+          (CLam (CoreBinder ysName listA) neqBody (CTyFun listA boolTy))
+          (CTyFun listA (CTyFun listA boolTy))
+      typedConstructor =
+        CTypeApp
+          (CCon (classInfoDictConstructorName info) constructorTy)
+          [listA]
+          (CTyFun (exprType eqMethod) (CTyFun (exprType neqMethod) eqDictListA))
+      body = CApp (CApp typedConstructor eqMethod (CTyFun (exprType neqMethod) eqDictListA)) neqMethod eqDictListA
+      rhs = CTypeLam [a] (CLam (CoreBinder dictName eqDictA) body (CTyFun eqDictA eqDictListA)) eqListDictionaryCoreType
+  pure (CoreBinder eqListDictionaryName eqListDictionaryCoreType, rhs)
+
+eqElementCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+eqElementCore elementTy dictionary lhs rhs =
+  CApp (CApp eqFunction lhs (CTyFun elementTy boolTy)) rhs boolTy
+ where
+  dictionaryTy = eqDictCoreType elementTy
+  eqFunction =
+    CApp
+      (CTypeApp (CVar (preludeTermName "==" (-1401)) eqSelectorCoreType) [elementTy] (CTyFun dictionaryTy (CTyFun elementTy (CTyFun elementTy boolTy))))
+      dictionary
+      (CTyFun elementTy (CTyFun elementTy boolTy))
+
+eqListCallCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+eqListCallCore elementTy dictionary lhs rhs =
+  CApp (CApp eqFunction lhs (CTyFun listTy boolTy)) rhs boolTy
+ where
+  listTy = CTyList elementTy
+  dictionaryTy = eqDictCoreType elementTy
+  eqFunction =
+    CApp
+      (CTypeApp (CVar eqListMethodName eqListMethodCoreType) [elementTy] (CTyFun dictionaryTy (CTyFun listTy (CTyFun listTy boolTy))))
+      dictionary
+      (CTyFun listTy (CTyFun listTy boolTy))
 
 builtinShowSupportCoreBinds :: Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
 builtinShowSupportCoreBinds classes =
@@ -6679,9 +7158,17 @@ instanceDictionaryToCore subst classes instances dictionary = do
     case Map.lookup (typedInstanceClass dictionary) classes of
       Nothing -> Left (UnsupportedCore0 ("missing class info for instance `" <> renderRName (typedInstanceClass dictionary) <> "`"))
       Just classInfo -> pure classInfo
-  dictTy <- monoToCoreType subst Map.empty (classDictionaryType info (typedInstanceType dictionary))
+  let dictMono = classDictionaryType info (typedInstanceType dictionary)
+      dictScheme = Scheme (typedInstanceVariables dictionary) (typedInstanceContext dictionary) dictMono
+  binderTy <- schemeToCoreTypeWith subst Map.empty dictScheme
+  dictTy <- monoToCoreType subst Map.empty dictMono
   instanceTypeArg <- monoToCoreType subst Map.empty (typedInstanceType dictionary)
-  let env = CoreElabEnv subst Map.empty classes instances []
+  dictBinders <- dictionaryBindersFor subst Map.empty (typedInstanceDictName dictionary) dictScheme
+  let localDictionaries =
+        [ (constraint, CVar (coreBinderName binder) (coreBinderType binder))
+        | (constraint, binder) <- dictBinders
+        ]
+      env = CoreElabEnv subst Map.empty classes instances localDictionaries
   superclassExprs <- traverse (resolveDictionary env) (typedInstanceSuperclasses dictionary)
   methodExprs <- traverse (exprToCore env) (typedInstanceMethods dictionary)
   constructorTy <- schemeToCoreType (Scheme [classInfoVariable info] [] (foldr TyFun (classDictionaryType info (TyVar (classInfoVariable info))) (classDictionaryFieldTypes info)))
@@ -6692,8 +7179,17 @@ instanceDictionaryToCore subst classes instances dictionary = do
           (CCon (classInfoDictConstructorName info) constructorTy)
           [instanceTypeArg]
           constructorResultTy
-      rhs = foldl applyValue typedConstructor fieldExprs
-  pure (CoreNonRec (CoreBinder (typedInstanceDictName dictionary) dictTy) rhs)
+      dictBody = foldl applyValue typedConstructor fieldExprs
+      rhsWithDictionaryLambdas =
+        foldr
+          (\(_, binder) body -> CLam binder body (CTyFun (coreBinderType binder) (exprType body)))
+          dictBody
+          dictBinders
+      rhsWithTypeLambdas =
+        case typedInstanceVariables dictionary of
+          [] -> rhsWithDictionaryLambdas
+          variables -> CTypeLam variables rhsWithDictionaryLambdas binderTy
+  pure (CoreNonRec (CoreBinder (typedInstanceDictName dictionary) binderTy) rhsWithTypeLambdas)
  where
   applyValue callee argument =
     let remainingResult =

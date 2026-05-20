@@ -525,13 +525,22 @@
       "notes": "Superclass dictionaries, default class methods, and superclass projection from local dictionaries compile and run."
     },
     {
-      "name": "unsupported.deriving-eq",
-      "sourceFile": "test/haskell2010/conformance/unsupported/deriving-eq.hs",
+      "name": "typeclasses.derived-eq",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/derived-eq.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-success",
+      "expectedStdout": "10\n",
+      "requiredStage": "native",
+      "notes": "Derived Eq synthesizes structural equality and inequality for nullary/product constructors, parameterized data, recursive data, newtype, String fields, and list-backed instance contexts."
+    },
+    {
+      "name": "unsupported.deriving-show",
+      "sourceFile": "test/haskell2010/conformance/unsupported/deriving-show.hs",
       "category": "unsupported",
       "expectedStatus": "unsupported-documented",
       "expectedDiagnosticCategory": "unsupported",
       "requiredStage": "typecheck",
-      "notes": "Deriving syntax parses, but deriving does not synthesize class instances yet."
+      "notes": "TC-023 implements derived Eq only; derived Show remains a later task."
     },
     {
       "name": "unsupported.instance-context",

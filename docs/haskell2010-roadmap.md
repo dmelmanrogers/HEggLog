@@ -352,9 +352,9 @@ unsigned nullary value bindings without signatures can default direct standard
 constraints before generalization; signed bindings and functions with value
 parameters are protected. `/` remains the existing checked `Int` division
 primitive rather than a `Fractional` method.
-Remaining Phase 12 work includes superclasses, default methods, instance
-contexts, method-specific constraints/type variables, coherence diagnostics,
-deriving, user ADT-shaped `Show`, and additional numeric classes.
+Remaining Phase 12 work includes instance contexts, method-specific
+constraints/type variables, coherence diagnostics, derived `Ord`/`Show`/`Read`,
+user ADT-shaped `Show`, and additional numeric classes.
 
 Deliverables:
 
@@ -582,14 +582,15 @@ Acceptance criteria:
 ## Immediate Next Five Tasks
 
 1. TC-020 Monad class surface decision/implementation.
-2. TC-023 derived Eq.
-3. TC-024 derived Ord.
-4. TC-025 derived Show.
-5. PRELUDE-002 implicit Prelude import behavior.
+2. TC-024 derived Ord.
+3. TC-025 derived Show.
+4. PRELUDE-002 implicit Prelude import behavior.
+5. MODULE-001 import/export declarations.
 
 Completed immediate tasks:
 
 - Commit roadmap pivot.
+- TC-023 derived Eq, including generated `Eq` dictionaries for supported data/newtype declarations and structural list `Eq`.
 - Haskell 2010 parser/layout MVP.
 - Haskell 2010 renamer MVP.
 - Haskell 2010 typed Core MVP, including Core syntax, Core types, validator,

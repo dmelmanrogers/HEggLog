@@ -212,17 +212,16 @@ Rules:
 # Next Implementation Tasks
 
 1. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
-2. TC-023 — derived Eq: Synthesize or explicitly defer derived `Eq` instances.
-3. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
-4. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
-5. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
-6. MODULE-001 — import/export declarations: Broaden module graph behavior beyond the current executable subset.
-7. PRELUDE-009 — foldl: Add the strictness-aware left fold surface or document the initial deviation.
-8. PRELUDE-013 — append: Implement `(++)` for supported list and string programs.
-9. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
-10. IO-006 — getLine: Add stdin line input or document the initial IO deviation.
-11. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
-12. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
+2. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
+3. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
+4. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
+5. MODULE-001 — import/export declarations: Broaden module graph behavior beyond the current executable subset.
+6. PRELUDE-009 — foldl: Add the strictness-aware left fold surface or document the initial deviation.
+7. PRELUDE-013 — append: Implement `(++)` for supported list and string programs.
+8. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
+9. IO-006 — getLine: Add stdin line input or document the initial IO deviation.
+10. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
+11. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
 13. MOD-009 — instance import/export behavior: Define how class instances move across module boundaries.
 14. MOD-010 — Prelude implicit import: Align module import behavior with the standard Prelude surface.
 
@@ -12581,7 +12580,7 @@ Notes:
 ## TC-023 — derived Eq
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -12594,7 +12593,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver derived Eq for Type classes and dictionaries while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Derived `Eq` now synthesizes dictionary bindings for supported `data` and `newtype` declarations. The implementation covers nullary and product constructors, parameterized instances with context dictionaries, recursive data, `String` fields through structural list `Eq`, and generated `(==)`/`(/=)` methods while preserving the current .hg substrate and documented Haskell 2010 executable-subset behavior.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -12610,7 +12609,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- derived Eq is implemented, completed, or explicitly documented according to status `not started`.
+- derived Eq is implemented for the supported executable subset and represented in unit, native, and conformance coverage.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 

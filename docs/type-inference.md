@@ -164,6 +164,14 @@ Core coercions, and Core-to-STG lowering erases the wrapper to the single field
 representation before native code generation. Remaining class, deriving, and
 broader surface work is tracked separately.
 
+TC-023 adds derived `Eq` for the supported Haskell 2010 executable subset.
+Derived instances are represented as ordinary dictionary bindings, including
+polymorphic type lambdas and context dictionary arguments when constructor
+fields require them. The generated methods compare constructors structurally,
+short-circuit field equality with `&&`, define `(/=)` in terms of `(==)`, and
+support recursive data, `newtype`, `String` fields, and list-backed contexts
+through a generated structural `Eq [a]` dictionary.
+
 ADT-005 adds the supported record-label subset. Record declarations introduce
 field selector names in the term namespace, record construction is typechecked
 against the constructor's labelled fields and currently requires every field

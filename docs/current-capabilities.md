@@ -73,6 +73,8 @@ and local functions, plus the initial type class dictionary slice for
 user-defined single-parameter classes, concrete instances, explicit source
 constraints with normalized argument representation, dictionary-passed method
 calls, superclass dictionary fields/projection, default class methods,
+derived `Eq` dictionaries for supported data/newtype declarations including
+parameterized, recursive, `String`-field, and list-backed cases,
 overlapping-instance rejection, structured placeholder diagnostics for remaining unsupported constraint contexts,
 source-spanned typecheck diagnostics including delayed dictionary failures,
 documented nullary-binding monomorphism/defaulting behavior, boxed `Char`

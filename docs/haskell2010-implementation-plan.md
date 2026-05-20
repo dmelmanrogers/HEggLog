@@ -123,13 +123,14 @@ is built alongside them.
     generated dictionary constructors/selectors, built-in `Eq Int`, `Eq Bool`,
     `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`,
     `Show Bool`, `Show Char`, exact `Show String`, and generated structural
-    list `Show` dictionaries,
+    list `Show` dictionaries, derived `Eq` dictionaries for supported
+    data/newtype declarations, and structural list `Eq`,
     source-spanned typecheck diagnostics including delayed class-constraint
     dictionary failures,
     documented executable-subset monomorphism/defaulting behavior,
     Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
-    Superclasses, defaults, deriving, user ADT-shaped `Show`, and additional numeric
-    classes remain planned.
+    Instance contexts, derived `Ord`/`Show`/`Read`, user ADT-shaped `Show`, and
+    additional numeric classes remain planned.
 15. Guarded RHS/case alternatives and as-pattern aliases. Completed for
     multi-branch guards, guarded case alternatives, as-pattern alias binding,
     Core/STG/native no-match behavior for guard fallthrough, and wet-tested

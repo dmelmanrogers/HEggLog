@@ -179,6 +179,7 @@ testGroups =
       , pureTest "desugars operator sections to Core lambdas" testHaskell2010Core0Sections
       , pureTest "typechecks arithmetic sequences" testHaskell2010Core0ArithmeticSequences
       , pureTest "typechecks Enum Bounded and superclass defaulting" testHaskell2010Core0EnumBounded
+      , pureTest "typechecks derived Eq instances" testHaskell2010Core0DerivedEq
       , pureTest "typechecks list comprehensions" testHaskell2010Core0ListComprehensions
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
@@ -215,6 +216,7 @@ testGroups =
       , pureTest "evaluates operator sections" testHaskell2010Core0EvalSections
       , pureTest "evaluates arithmetic sequences" testHaskell2010Core0EvalArithmeticSequences
       , pureTest "evaluates Enum Bounded and superclass defaulting" testHaskell2010Core0EvalEnumBounded
+      , pureTest "evaluates derived Eq instances" testHaskell2010Core0EvalDerivedEq
       , pureTest "evaluates list comprehensions" testHaskell2010Core0EvalListComprehensions
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
@@ -258,6 +260,7 @@ testGroups =
       , pureTest "preserves operator section semantics" testHaskell2010CoreToSTGSections
       , pureTest "preserves arithmetic sequence semantics" testHaskell2010CoreToSTGArithmeticSequences
       , pureTest "preserves Enum Bounded semantics" testHaskell2010CoreToSTGEnumBounded
+      , pureTest "preserves derived Eq semantics" testHaskell2010CoreToSTGDerivedEq
       , pureTest "preserves list comprehension semantics" testHaskell2010CoreToSTGListComprehensions
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves guard fallthrough errors" testHaskell2010CoreToSTGGuardFallthrough
@@ -272,6 +275,7 @@ testGroups =
       , pureTest "emits String as Char lists in native LLVM" testHaskell2010NativeStringCharList
       , pureTest "emits arithmetic sequence LLVM" testHaskell2010NativeArithmeticSequences
       , pureTest "emits Enum Bounded LLVM" testHaskell2010NativeEnumBounded
+      , pureTest "emits derived Eq LLVM" testHaskell2010NativeDerivedEq
       , pureTest "emits list comprehension LLVM" testHaskell2010NativeListComprehensions
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
       , ioTest "native executable preserves lazy Core-0 semantics" testHaskell2010NativeExecutableExecution
@@ -1718,6 +1722,17 @@ testHaskell2010Core0EnumBounded = do
   assertBool "Enum helper support is emitted" (containsBindingOccurrence "$enumFromToChar" coreModule)
   expectCoreEvalIO "Enum/Bounded Core oracle" haskell2010EnumBoundedOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0DerivedEq :: Either String ()
+testHaskell2010Core0DerivedEq = do
+  coreModule <- typecheckHaskell2010 haskell2010DerivedEqSource
+  assertBool "Prelude Eq dictionary constructor is recorded" (containsConstructorOccurrence "$MkEqDict" coreModule)
+  assertBool "derived Eq Flag dictionary is emitted" (containsBindingPrefix "$fEqFlag" coreModule)
+  assertBool "derived Eq Box dictionary is emitted" (containsBindingPrefix "$fEqBox" coreModule)
+  assertBool "derived Eq Tree dictionary is emitted" (containsBindingPrefix "$fEqTree" coreModule)
+  assertBool "generic Eq list dictionary is emitted" (containsBindingOccurrence "$fEqList" coreModule)
+  assertBool "generic Eq list method helper is emitted" (containsBindingOccurrence "$eq_list" coreModule)
+  expectCoreEvalInt "derived Eq Core oracle" 10 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0ListComprehensions :: Either String ()
 testHaskell2010Core0ListComprehensions = do
   coreModule <- typecheckHaskell2010 haskell2010ListComprehensionsSource
@@ -1730,6 +1745,7 @@ testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
     *> expectTypecheckMessage "rejects overlapping instances" "overlapping instance" overlappingInstanceSource
     *> expectTypecheckMessage "rejects missing instance methods" "missing instance method" missingInstanceMethodSource
     *> expectTypecheckMessage "rejects unsolved Prelude class dictionaries" "unsolved type-class constraint" unsolvedPreludeConstraintSource
+    *> expectTypecheckMessage "rejects unsupported derived Show" "derived class" unsupportedDerivedShowSource
  where
   expectTypecheckMessage label needle source =
     case typecheckHaskell2010Raw source of
@@ -1772,6 +1788,11 @@ testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
     "module Main where\n\
     \data Box = Box Int\n\
     \main = if Box 1 == Box 1 then 1 else 0\n"
+
+  unsupportedDerivedShowSource =
+    "module Main where\n\
+    \data Flag = Off | On deriving (Show)\n\
+    \main = 1\n"
 
 testHaskell2010Core0TypeError :: Either String ()
 testHaskell2010Core0TypeError =
@@ -2033,6 +2054,13 @@ testHaskell2010Core0EvalEnumBounded =
     "Core-0 Enum/Bounded evaluation"
     haskell2010EnumBoundedOutput
     =<< evalHaskell2010Binding "main" haskell2010EnumBoundedSource
+
+testHaskell2010Core0EvalDerivedEq :: Either String ()
+testHaskell2010Core0EvalDerivedEq =
+  expectCoreEvalInt
+    "Core-0 derived Eq evaluation"
+    10
+    =<< evalHaskell2010Binding "main" haskell2010DerivedEqSource
 
 testHaskell2010Core0EvalListComprehensions :: Either String ()
 testHaskell2010Core0EvalListComprehensions =
@@ -2331,6 +2359,10 @@ testHaskell2010CoreToSTGEnumBounded :: Either String ()
 testHaskell2010CoreToSTGEnumBounded =
   checkCoreToSTGIO "Core-to-STG Enum/Bounded" haskell2010EnumBoundedOutput haskell2010EnumBoundedSource
 
+testHaskell2010CoreToSTGDerivedEq :: Either String ()
+testHaskell2010CoreToSTGDerivedEq =
+  checkCoreToSTGInt "Core-to-STG derived Eq" 10 haskell2010DerivedEqSource
+
 testHaskell2010CoreToSTGListComprehensions :: Either String ()
 testHaskell2010CoreToSTGListComprehensions =
   checkCoreToSTGIO "Core-to-STG list comprehensions" haskell2010ListComprehensionsOutput haskell2010ListComprehensionsSource
@@ -2428,6 +2460,12 @@ testHaskell2010NativeEnumBounded = do
   llvmText <- compileHaskell2010NativeText haskell2010EnumBoundedSource
   assertBool "native Enum emits checked Int arithmetic" ("@llvm.sadd.with.overflow.i64" `Text.isInfixOf` llvmText)
   assertBool "native Enum/Bounded emits Char boxing" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeDerivedEq :: Either String ()
+testHaskell2010NativeDerivedEq = do
+  llvmText <- compileHaskell2010NativeText haskell2010DerivedEqSource
+  assertBool "native derived Eq emits Bool branch comparisons" ("br i1" `Text.isInfixOf` llvmText)
+  assertBool "native derived Eq keeps String fields as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeListComprehensions :: Either String ()
 testHaskell2010NativeListComprehensions = do
@@ -5817,6 +5855,7 @@ haskell2010NativeSuccessExamples =
   , ("sections", haskell2010SectionsSource, "6\n")
   , ("arithmetic-sequences", haskell2010ArithmeticSequencesSource, Text.unpack haskell2010ArithmeticSequencesOutput)
   , ("enum-bounded", haskell2010EnumBoundedSource, Text.unpack haskell2010EnumBoundedOutput)
+  , ("derived-eq", haskell2010DerivedEqSource, "10\n")
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-record-fields", haskell2010RecordFieldSource, "43\n")
@@ -5850,6 +5889,7 @@ haskell2010NativeExecutableExamples =
   , ("sections", haskell2010SectionsSource, "6\n")
   , ("arithmetic-sequences", haskell2010ArithmeticSequencesSource, Text.unpack haskell2010ArithmeticSequencesOutput)
   , ("enum-bounded", haskell2010EnumBoundedSource, Text.unpack haskell2010EnumBoundedOutput)
+  , ("derived-eq", haskell2010DerivedEqSource, "10\n")
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   ]
 
@@ -6077,6 +6117,21 @@ haskell2010EnumBoundedSource =
 haskell2010EnumBoundedOutput :: Text
 haskell2010EnumBoundedOutput =
   "42\n42\nxyz\naceg\n65\nA\n[False,True]\n[4,5,6]\n"
+
+haskell2010DerivedEqSource :: Text
+haskell2010DerivedEqSource =
+  "module Main where\n\
+  \data Flag = Off | On deriving (Eq)\n\
+  \data Box a = Box a deriving (Eq)\n\
+  \data Name = Name String deriving (Eq)\n\
+  \data Tree a = Leaf a | Node (Tree a) (Tree a) deriving (Eq)\n\
+  \newtype Age = Age Int deriving (Eq)\n\
+  \score :: Bool -> Int\n\
+  \score flag = case flag of\n\
+  \  True -> 1\n\
+  \  False -> 0\n\
+  \main :: Int\n\
+  \main = score (On == On) + score (Off /= On) + score (Box 'x' == Box 'x') + score (Box 'x' /= Box 'y') + score (Name \"aa\" == Name \"aa\") + score (Name \"aa\" /= Name \"ab\") + score (Node (Leaf 'a') (Leaf 'b') == Node (Leaf 'a') (Leaf 'b')) + score (Node (Leaf 'a') (Leaf 'b') /= Node (Leaf 'a') (Leaf 'c')) + score (Age 7 == Age 7) + score (Box \"hi\" == Box \"hi\")\n"
 
 haskell2010ListComprehensionsSource :: Text
 haskell2010ListComprehensionsSource =

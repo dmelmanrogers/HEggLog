@@ -51,8 +51,7 @@ The following Haskell 2010 requirements are planned but not
 implemented:
 
 - a full pattern coverage checker and richer pattern-match diagnostics
-- superclasses, default methods, instance contexts, deriving, and user
-  ADT-shaped `Show`
+- instance contexts, derived `Ord`/`Show`/`Read`, and user ADT-shaped `Show`
 - broader Prelude/library subset
 - Haskell source desugaring beyond the current executable subset
 - broader IO, including `getLine`, handles, rich IO errors, `fail`, and effects beyond stdout
