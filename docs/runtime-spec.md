@@ -252,8 +252,8 @@ memory leak in an otherwise collecting runtime.
 Owned by generated process-lifetime allocation helpers:
 
 - Strict `.hg` closure-converted local closures.
-- Haskell 2010 boxed `Int`, `Bool`, `Char`, `String`, function, thunk, and data
-  objects.
+- Haskell 2010 boxed `Int`, `Bool`, `Char`, list-of-`Char` `String`, function,
+  thunk, and data objects.
 - Haskell 2010 closure/thunk environment arrays.
 - Haskell 2010 boxed constructor field arrays.
 - Haskell 2010 runtime string buffers produced while implementing `Show Int`.

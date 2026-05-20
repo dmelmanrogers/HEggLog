@@ -45,11 +45,9 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. `String = [Char]` source/runtime alignment.
-2. Haskell 2010 conformance matrix expansion for the broader executable
-   surface.
-3. Broader `Show`/`String` interoperability, including `Show Char`,
-   `Show String`, escapes, and additional string/list library behavior.
+1. PRELUDE-DATA-008 arithmetic sequences.
+2. PRELUDE-DATA-009 list comprehensions.
+3. PRELUDE-DATA-012 String literal native wet tests.
 
 Completed Haskell 2010 roadmap work:
 
@@ -124,6 +122,11 @@ Completed Haskell 2010 roadmap work:
   `Char` values, literal `Char` case dispatch, built-in `Eq Char`, scalar
   `main :: Char` printing, Core/STG/native oracles, conformance fixtures, and
   default/no-egglog wet tests.
+- Haskell 2010 `String = [Char]` source/runtime alignment: implemented for
+  source string expressions and string literal patterns as ordinary list
+  constructors, Core/STG evaluator list values, built-in `show` results as
+  lists, native LLVM without per-literal string globals, conformance fixtures,
+  and default/no-egglog wet tests.
 - Haskell 2010 modules/whole-program compilation: implemented for import-driven
   dependency-file loading, module graph cycle/name diagnostics, actual
   exported-name import resolution, export/import filtering, hiding, qualified
@@ -139,8 +142,9 @@ Completed Haskell 2010 roadmap work:
 - Haskell 2010 IO printing slice: implemented `IO` typechecking and native
   `main :: IO ()` entrypoint execution, `putStrLn`, `print`, `return`, `(>>)`,
   expression-only `do` sequencing with local `let`, built-in `Show Int` and
-  `Show Bool` dictionaries, Core/STG IO reference values, native string
-  literal objects for output, and default/no-egglog wet tests.
+  `Show Bool` dictionaries, Core/STG IO reference values, source strings and
+  built-in show results as list-of-`Char` values, and default/no-egglog wet
+  tests.
 
 ## Non-Negotiable Project Direction
 

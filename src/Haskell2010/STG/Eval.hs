@@ -182,6 +182,8 @@ evalAtom :: RuntimeEnv -> STGAtom -> EvalM STGValue
 evalAtom env = \case
   STGVar name _ ->
     lookupEnv name env >>= forceAddress
+  STGLit (LString value) _ ->
+    stringListValue value
   STGLit literal _ ->
     liftEither (evalLiteral literal)
   STGCon name _ ->
@@ -236,6 +238,8 @@ atomAddress :: RuntimeEnv -> STGAtom -> EvalM STGHeapAddress
 atomAddress env = \case
   STGVar name _ ->
     lookupEnv name env
+  STGLit (LString value) _ ->
+    stringListValue value >>= allocateClosure . ValueClosure
   STGLit literal _ -> do
     value <- liftEither (evalLiteral literal)
     allocateClosure (ValueClosure value)
@@ -378,11 +382,11 @@ evalPrimitive op values =
     (PrimNegate, [STGInt value]) ->
       liftEither (checkedIntValue (subHInt zero value))
     (PrimShowInt, [STGInt value]) ->
-      pure (STGString (renderHInt value))
+      stringListValue (renderHInt value)
     (PrimShowBool, [STGBool True]) ->
-      pure (STGString "True")
+      stringListValue "True"
     (PrimShowBool, [STGBool False]) ->
-      pure (STGString "False")
+      stringListValue "False"
     (PrimPutStrLn, [value]) ->
       STGIO . (: []) . (<> "\n") <$> stgStringText value
     (PrimIOThen, [STGIO first, STGIO second]) ->
@@ -417,6 +421,17 @@ stgStringText = \case
           other -> typeError ("expected Char in String list, got " <> renderSTGValue other)
   other ->
     typeError ("expected String, got " <> renderSTGValue other)
+
+stringListValue :: Text -> EvalM STGValue
+stringListValue value =
+  case Text.uncons value of
+    Nothing ->
+      pure (constructorValue listNilDataConName [])
+    Just (char, rest) -> do
+      headAddress <- allocateClosure (ValueClosure (STGChar char))
+      tailValue <- stringListValue rest
+      tailAddress <- allocateClosure (ValueClosure tailValue)
+      pure (constructorValue listConsDataConName [headAddress, tailAddress])
 
 valueEquals :: STGValue -> STGValue -> Either STGEvalError Bool
 valueEquals lhs rhs =

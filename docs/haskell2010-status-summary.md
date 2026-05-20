@@ -291,8 +291,8 @@ and compiled to native executables through the existing clang toolchain.
 16. IO printing and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
     `putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing with
     local `let`, built-in `Show Int`/`Show Bool`, Core/STG output oracles,
-    native string literal and list-of-`Char` output, and wet-tested
-    default/no-egglog CLI runs.
+    source strings and built-in show results as list-of-`Char` output, and
+    wet-tested default/no-egglog CLI runs.
 17. Numeric literals and defaulting. Completed for dictionary-backed
     `fromInteger`, overloaded integer literals, default declarations that map
     the supported default set to executable `Int`, ambiguous numeric defaulting
@@ -316,6 +316,11 @@ and compiled to native executables through the existing clang toolchain.
     literal `Char` case dispatch, built-in `Eq Char` dictionaries,
     Core/STG/native oracles, scalar `main :: Char` printing, conformance
     fixtures, and default/no-egglog wet tests.
+21. `String = [Char]` source/runtime alignment. Completed for source string
+    literals, string literal patterns, Core/STG list-of-`Char` evaluator
+    values, built-in `show` results as lists, native LLVM list construction
+    without per-literal string globals, conformance fixtures, and
+    default/no-egglog wet tests.
 
 ## Where Egglog Fits
 
@@ -340,10 +345,10 @@ constructor dispatch, boxed constructor fields,
 recursive closure/thunk groups, user and built-in type class dictionary
 constructor/selector execution, guarded RHS/as-pattern programs, empty-case
 guard-fallthrough aborts, `putStrLn`/`print` output for `IO ()` programs with
-native string literal objects, list-of-`Char` traversal, boxed `Char` values,
-`Eq Char` primitive lowering, scalar `Char` root printing, and built-in
-`Show Int`/`Show Bool`, and checked primitives, and invokes clang to produce
-native machine-code executables.
+source string literals as list-of-`Char` values, boxed `Char` values, `Eq Char`
+primitive lowering, scalar `Char` root printing, built-in `Show Int`/`Show Bool`
+results as lists, checked primitives, and invokes clang to produce native
+machine-code executables.
 
 ## GHC Compatibility
 
@@ -353,10 +358,10 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Implement `String = [Char]` source/runtime alignment while preserving the `.hg`
+Implement PRELUDE-DATA-008 arithmetic sequences while preserving the `.hg`
 compiler, Core evaluator, STG runtime, Core-to-STG lowering, native executable
 path, Egglog Core optimizer, ADT/list/tuple/Prelude/recursion/typeclass-dictionary
 support, built-in `Eq`/`Ord`/`Num`/`Show` dictionary support, boxed native
-`Char` support, numeric defaulting, guard/as-pattern support, IO printing
-support, module graph support, known-constructor optimizer support, and wet-test
-baseline.
+`Char` support, source `String = [Char]` behavior, numeric defaulting,
+guard/as-pattern support, IO printing support, module graph support,
+known-constructor optimizer support, and wet-test baseline.

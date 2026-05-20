@@ -96,11 +96,12 @@ user-constructor, list, tuple, `Maybe`/`Either`/`Ordering` case dispatch,
 boxed constructor field arrays, process-lifetime heap allocation through
 `hegglog_hs_alloc_process_lifetime` under the documented no-free/no-GC
 ownership policy, boxed `Char` values, `Eq Char` primitive lowering, scalar
-`Char` root printing, and checked primitive aborts, then uses the existing
-clang toolchain path to produce native executables. The Haskell 2010 native
-path also executes `main :: IO ()` actions for `putStrLn` and `print` output
-using native string literal objects, list-of-`Char` traversal, and built-in
-`Show Int`/`Show Bool`.
+`Char` root printing, source `String` literals as ordinary list-of-`Char`
+constructor values, and checked primitive aborts, then uses the existing clang
+toolchain path to produce native executables. The Haskell 2010 native path also
+executes `main :: IO ()` actions for `putStrLn` and `print` output using
+list-of-`Char` traversal, built-in `Show Int`/`Show Bool` results represented as
+lists, and a compatibility path for legacy internal string payloads.
 The Haskell 2010
 native path now runs an Egglog Core optimizer by
 default for safe typed Core fragments before STG lowering; `--no-egglog`
@@ -228,6 +229,7 @@ Current tests include:
 
 Future Haskell 2010 conformance work should extend this direct executable
 coverage as the full pattern coverage checker, richer pattern diagnostics,
-broader `Show`/`String` interop, and broader IO are implemented. Structured
-exhaustiveness warning placeholders are already exposed through the Haskell
-2010 typechecker and native compilation result APIs.
+`Show Char`/`Show String`, Unicode/string escape fidelity, additional string
+library behavior, and broader IO are implemented. Structured exhaustiveness
+warning placeholders are already exposed through the Haskell 2010 typechecker
+and native compilation result APIs.

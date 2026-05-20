@@ -211,26 +211,26 @@ Rules:
 
 # Next 20 Implementation Tasks
 
-1. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
-2. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
-3. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
-4. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
-5. TC-003 — superclass representation: Model superclass relationships before broader class solving.
-6. TC-005 — default methods: Implement default class method typing and dictionary filling.
-7. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
-8. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
-9. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
-10. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
-11. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
-12. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
-13. TC-021 — numeric literal overloading: Finish the Haskell 2010 numeric literal overloading surface.
-14. TC-022 — defaulting: Finish the Haskell 2010 defaulting behavior for the supported numeric/class surface.
-15. TC-023 — derived Eq: Synthesize or explicitly defer derived `Eq` instances.
-16. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
-17. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
-18. TC-026 — class negative tests: Broaden negative tests for unsupported and invalid class forms.
-19. TC-027 — dictionary Core validation tests: Keep generated dictionary Core validated by focused regressions.
-20. TC-028 — typeclass native wet tests: Broaden native typeclass execution coverage.
+1. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
+2. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
+3. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
+4. TC-003 — superclass representation: Model superclass relationships before broader class solving.
+5. TC-005 — default methods: Implement default class method typing and dictionary filling.
+6. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
+7. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
+8. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
+9. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
+10. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
+11. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
+12. TC-021 — numeric literal overloading: Finish the Haskell 2010 numeric literal overloading surface.
+13. TC-022 — defaulting: Finish the Haskell 2010 defaulting behavior for the supported numeric/class surface.
+14. TC-023 — derived Eq: Synthesize or explicitly defer derived `Eq` instances.
+15. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
+16. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
+17. TC-026 — class negative tests: Broaden negative tests for unsupported and invalid class forms.
+18. TC-027 — dictionary Core validation tests: Keep generated dictionary Core validated by focused regressions.
+19. TC-028 — typeclass native wet tests: Broaden native typeclass execution coverage.
+20. IO-001 — IO type representation: Keep broadening IO after the current output-only slice.
 
 # Task Backlog
 
@@ -11152,7 +11152,7 @@ Notes:
 ## PRELUDE-DATA-007 — String = [Char]
 
 Status:
-- in progress
+- complete
 
 Category:
 - libraries
@@ -11178,7 +11178,7 @@ Blocks:
 - IO-014
 
 Scope:
-- Deliver String = [Char] for Lists, tuples, Char, String while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Source string literals and string literal patterns desugar to ordinary `[]`/`(:)` lists of boxed `Char` before Core. Core and STG evaluators produce list-of-`Char` values for source strings and built-in `show` results, and native LLVM emits list constructors rather than generated per-literal string payload globals. `putStrLn` continues to consume list-of-`Char` values while retaining the legacy internal string payload path for compatibility with older direct STG forms.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -11190,13 +11190,17 @@ Non-goals:
 Files likely touched:
 - `src/Haskell2010/Typecheck.hs`
 - `src/Haskell2010/Core/Eval.hs`
+- `src/Haskell2010/STG/Eval.hs`
 - `src/Haskell2010/STG/LLVM.hs`
+- `test/Main.hs`
+- `test/e2e/programs/haskell2010/string-char-list.hs`
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- String = [Char] is implemented, completed, or explicitly documented according to status `in progress`.
-- All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- Source string expressions elaborate to list constructors, not Core/STG string payload literals.
+- String literal patterns elaborate through ordinary list-pattern matching.
+- `length "..."`, `length (show 42)`, and native execution of the same program pass through Core, STG, and LLVM.
+- Native LLVM no longer emits generated `@haskell2010_str_` globals or calls the special string payload allocator for source string literals.
 
 Required tests:
 - library unit tests
@@ -11209,7 +11213,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M10 (Lists, tuples, Char, String). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M10 (Lists, tuples, Char, String). Completed with source `String` literals and string literal patterns represented as ordinary `[Char]` values across typechecking, Core evaluation, STG evaluation, native LLVM, conformance, and wet tests. Broader `Show Char`, `Show String`, Unicode text IO, escape fidelity beyond the current parser/runtime subset, and additional string/list library behavior remain tracked by later Prelude/IO tasks.
 
 ## PRELUDE-DATA-008 — arithmetic sequences
 

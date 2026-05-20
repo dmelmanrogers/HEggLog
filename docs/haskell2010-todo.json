@@ -6216,7 +6216,7 @@
     {
       "id": "PRELUDE-DATA-007",
       "title": "String = [Char]",
-      "status": "in progress",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "ADT-001",
@@ -6240,9 +6240,10 @@
       ],
       "milestone": "M10",
       "acceptance_criteria": [
-        "String = [Char] is implemented, completed, or explicitly documented according to status `in progress`.",
-        "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "Source string expressions elaborate to list constructors, not Core/STG string payload literals.",
+        "String literal patterns elaborate through ordinary list-pattern matching.",
+        "`length \"...\"`, `length (show 42)`, and native execution of the same program pass through Core, STG, and LLVM.",
+        "Native LLVM no longer emits generated `@haskell2010_str_` globals or calls the special string payload allocator for source string literals."
       ],
       "required_tests": [
         "library unit tests",

@@ -358,6 +358,16 @@
       "notes": "Executable scalar Char main unboxes through the native runtime and prints as a character."
     },
     {
+      "name": "prelude.string-char-list",
+      "sourceFile": "test/haskell2010/conformance/prelude/string-char-list.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "5\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Source string literals and string literal patterns lower to ordinary [Char] lists; length and show output consume them as lists."
+    },
+    {
       "name": "io.printing",
       "sourceFile": "test/haskell2010/conformance/io/printing.hs",
       "category": "io",

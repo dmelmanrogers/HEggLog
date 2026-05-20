@@ -168,6 +168,7 @@ testGroups =
       , pureTest "typechecks type class dictionaries" testHaskell2010Core0TypeClassDictionaries
       , pureTest "typechecks Prelude class dictionaries" testHaskell2010Core0PreludeClassDictionaries
       , pureTest "typechecks Char runtime representation" testHaskell2010Core0CharRuntime
+      , pureTest "typechecks String as Char lists" testHaskell2010Core0StringCharList
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
       , pureTest "documents monomorphism restriction defaulting policy" testHaskell2010MonomorphismRestrictionDefaulting
       , pureTest "typechecks multi-module imports" testHaskell2010Core0MultiModuleImports
@@ -199,6 +200,7 @@ testGroups =
       , pureTest "evaluates type class dictionary calls" testHaskell2010Core0EvalTypeClassDictionaries
       , pureTest "evaluates Prelude class dictionary calls" testHaskell2010Core0EvalPreludeClassDictionaries
       , pureTest "evaluates Char equality and literal cases" testHaskell2010Core0EvalCharRuntime
+      , pureTest "evaluates String as Char lists" testHaskell2010Core0EvalStringCharList
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
@@ -236,6 +238,7 @@ testGroups =
       , pureTest "preserves type class dictionary semantics" testHaskell2010CoreToSTGTypeClassDictionaries
       , pureTest "preserves Prelude class dictionary semantics" testHaskell2010CoreToSTGPreludeClassDictionaries
       , pureTest "preserves Char runtime semantics" testHaskell2010CoreToSTGCharRuntime
+      , pureTest "preserves String as Char lists" testHaskell2010CoreToSTGStringCharList
       , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
       , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
@@ -251,6 +254,7 @@ testGroups =
       [ pureTest "emits boxed lazy STG runtime LLVM" testHaskell2010NativeLLVMShape
       , pureTest "erases newtype constructor allocation in native LLVM" testHaskell2010NativeNewtypeErasure
       , pureTest "emits Char runtime LLVM" testHaskell2010NativeCharRuntime
+      , pureTest "emits String as Char lists in native LLVM" testHaskell2010NativeStringCharList
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
       , ioTest "native executable preserves lazy Core-0 semantics" testHaskell2010NativeExecutableExecution
       , ioTest "native runtime errors fail when forced" testHaskell2010NativeRuntimeError
@@ -1555,6 +1559,17 @@ testHaskell2010Core0CharRuntime = do
   assertBool "Prelude Eq Char instance dictionary is emitted" (containsBindingOccurrence "$fEqChar" coreModule)
   expectCoreEvalInt "Char runtime Core oracle" 1 =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0StringCharList :: Either String ()
+testHaskell2010Core0StringCharList = do
+  coreModule <- typecheckHaskell2010 haskell2010StringCharListSource
+  (binder, rhs) <- lookupCoreBindingOccurrence "main" coreModule
+  expectEqual "String Char-list result type" H2010Core.intTy (H2010Core.coreBinderType binder)
+  assertBool "source String literals desugar before Core" (not (coreModuleContainsStringLiteral coreModule))
+  assertBool "String literal pattern emits cons alternatives" (containsConstructorAlt ":" rhs)
+  assertBool "String literal pattern emits nil alternatives" (containsConstructorAlt "[]" rhs)
+  assertBool "String literal expressions emit cons constructors" (containsConstructorExpr ":" rhs)
+  expectCoreEvalInt "String Char-list Core oracle" 5 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0NumericDefaulting :: Either String ()
 testHaskell2010Core0NumericDefaulting = do
   coreModule <- typecheckHaskell2010 haskell2010NumericDefaultingSource
@@ -1844,6 +1859,13 @@ testHaskell2010Core0EvalCharRuntime =
     1
     =<< evalHaskell2010Binding "main" haskell2010CharRuntimeSource
 
+testHaskell2010Core0EvalStringCharList :: Either String ()
+testHaskell2010Core0EvalStringCharList =
+  expectCoreEvalInt
+    "Core-0 String Char-list evaluation"
+    5
+    =<< evalHaskell2010Binding "main" haskell2010StringCharListSource
+
 testHaskell2010Core0EvalNumericDefaulting :: Either String ()
 testHaskell2010Core0EvalNumericDefaulting =
   expectCoreEvalIO
@@ -2127,6 +2149,10 @@ testHaskell2010CoreToSTGCharRuntime :: Either String ()
 testHaskell2010CoreToSTGCharRuntime =
   checkCoreToSTGInt "Core-to-STG Char runtime" 1 haskell2010CharRuntimeSource
 
+testHaskell2010CoreToSTGStringCharList :: Either String ()
+testHaskell2010CoreToSTGStringCharList =
+  checkCoreToSTGInt "Core-to-STG String Char-list" 5 haskell2010StringCharListSource
+
 testHaskell2010CoreToSTGNumericDefaulting :: Either String ()
 testHaskell2010CoreToSTGNumericDefaulting =
   checkCoreToSTGIO "Core-to-STG numeric defaulting" "7\n47\n" haskell2010NumericDefaultingSource
@@ -2220,6 +2246,14 @@ testHaskell2010NativeCharRuntime = do
   assertBool "native LLVM compares unboxed Char values" ("icmp eq i32" `Text.isInfixOf` charRuntimeText)
   charMainText <- compileHaskell2010NativeText haskell2010CharMainSource
   assertBool "native LLVM has a Char main format" ("@haskell2010_fmt_char" `Text.isInfixOf` charMainText)
+
+testHaskell2010NativeStringCharList :: Either String ()
+testHaskell2010NativeStringCharList = do
+  llvmText <- compileHaskell2010NativeText haskell2010StringCharListSource
+  assertBool "native LLVM boxes String literal chars" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+  assertBool "native LLVM converts show buffers to Char lists" ("@hegglog_hs_make_char_list_from_cstring" `Text.isInfixOf` llvmText)
+  assertBool "native LLVM does not emit per-literal string globals" (not ("@haskell2010_str_" `Text.isInfixOf` llvmText))
+  assertBool "native LLVM does not call special string payload allocator" (not ("call ptr @hegglog_hs_make_string" `Text.isInfixOf` llvmText))
 
 testHaskell2010NativeLLVMExecution :: IO (Either String ())
 testHaskell2010NativeLLVMExecution = do
@@ -5591,6 +5625,7 @@ haskell2010NativeSuccessExamples =
   , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
   , ("char-runtime", haskell2010CharRuntimeSource, "1\n")
   , ("char-main", haskell2010CharMainSource, "Z\n")
+  , ("string-char-list", haskell2010StringCharListSource, "5\n")
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
@@ -5615,6 +5650,7 @@ haskell2010NativeExecutableExamples =
   , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
   , ("char-runtime", haskell2010CharRuntimeSource, "1\n")
   , ("char-main", haskell2010CharMainSource, "Z\n")
+  , ("string-char-list", haskell2010StringCharListSource, "5\n")
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
@@ -5870,6 +5906,17 @@ haskell2010CharMainSource :: Text
 haskell2010CharMainSource =
   "module Main where\n\
   \main = 'Z'\n"
+
+haskell2010StringCharListSource :: Text
+haskell2010StringCharListSource =
+  "module Main where\n\
+  \stringLength :: String -> Int\n\
+  \stringLength xs = length xs\n\
+  \shownLength :: Int\n\
+  \shownLength = length (show 42)\n\
+  \main = case \"hi\" of\n\
+  \  \"hi\" -> stringLength \"abc\" + shownLength\n\
+  \  _ -> 0\n"
 
 haskell2010NumericDefaultingSource :: Text
 haskell2010NumericDefaultingSource =
@@ -6309,6 +6356,42 @@ bindContainsConstructorExpr occurrence = \case
 altContainsConstructorExpr :: Text -> H2010Core.CoreAlt -> Bool
 altContainsConstructorExpr occurrence (H2010Core.CoreAlt _ _ body) =
   containsConstructorExpr occurrence body
+
+coreModuleContainsStringLiteral :: H2010Core.CoreModule -> Bool
+coreModuleContainsStringLiteral =
+  any bindContainsStringLiteral . H2010Core.coreModuleBinds
+
+bindContainsStringLiteral :: H2010Core.CoreBind -> Bool
+bindContainsStringLiteral = \case
+  H2010Core.CoreNonRec _ rhs -> containsStringLiteral rhs
+  H2010Core.CoreRec pairs -> any (containsStringLiteral . snd) pairs
+
+containsStringLiteral :: H2010Core.CoreExpr -> Bool
+containsStringLiteral = \case
+  H2010Core.CLit (H2010.LString {}) _ ->
+    True
+  H2010Core.CLam _ body _ ->
+    containsStringLiteral body
+  H2010Core.CApp callee arg _ ->
+    containsStringLiteral callee || containsStringLiteral arg
+  H2010Core.CTypeLam _ body _ ->
+    containsStringLiteral body
+  H2010Core.CTypeApp callee _ _ ->
+    containsStringLiteral callee
+  H2010Core.CLet bind body _ ->
+    bindContainsStringLiteral bind || containsStringLiteral body
+  H2010Core.CCase scrutinee _ alternatives _ ->
+    containsStringLiteral scrutinee || any altContainsStringLiteral alternatives
+  H2010Core.CCoerce expression _ ->
+    containsStringLiteral expression
+  H2010Core.CPrimOp _ arguments _ ->
+    any containsStringLiteral arguments
+  _ ->
+    False
+
+altContainsStringLiteral :: H2010Core.CoreAlt -> Bool
+altContainsStringLiteral (H2010Core.CoreAlt _ _ body) =
+  containsStringLiteral body
 
 containsCoerce :: H2010Core.CoreExpr -> Bool
 containsCoerce = \case

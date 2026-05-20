@@ -185,7 +185,7 @@ evalLiteral = \case
   LChar value ->
     Right (CoreChar value)
   LString value ->
-    Right (CoreString value)
+    Right (coreStringList value)
 
 force :: CoreValidate.CoreValidationEnv -> CoreThunk -> Either CoreEvalError CoreValue
 force coreEnv = \case
@@ -293,11 +293,11 @@ evalPrimitive coreEnv op values =
     (PrimNegate, [CoreInt value]) ->
       checkedIntValue (subHInt zero value)
     (PrimShowInt, [CoreInt value]) ->
-      Right (CoreString (renderHInt value))
+      Right (coreStringList (renderHInt value))
     (PrimShowBool, [CoreBool True]) ->
-      Right (CoreString "True")
+      Right (coreStringList "True")
     (PrimShowBool, [CoreBool False]) ->
-      Right (CoreString "False")
+      Right (coreStringList "False")
     (PrimPutStrLn, [value]) ->
       CoreIO . (: []) . (<> "\n") <$> coreStringText coreEnv value
     (PrimIOThen, [CoreIO first, CoreIO second]) ->
@@ -332,6 +332,15 @@ coreStringText coreEnv = \case
           other -> Left (CoreEvalTypeError ("expected Char in String list, got " <> renderCoreValue other))
   other ->
     Left (CoreEvalTypeError ("expected String, got " <> renderCoreValue other))
+
+coreStringList :: Text -> CoreValue
+coreStringList =
+  Text.foldr cons nil
+ where
+  nil =
+    CoreData listNilDataConName []
+  cons char tailValue =
+    CoreData listConsDataConName [Evaluated (CoreChar char), Evaluated tailValue]
 
 valueEquals :: CoreValue -> CoreValue -> Either CoreEvalError Bool
 valueEquals lhs rhs =

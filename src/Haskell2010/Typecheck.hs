@@ -2214,6 +2214,8 @@ inferExpr env expr =
         inferConstructor name
       RRecordCon name fields ->
         inferRecordConstruction env name fields
+      RLit (LString value) ->
+        pure (stringLiteralTypedExpr value)
       RLit (LInt value) ->
         inferIntegerLiteral value
       RLit literal ->
@@ -2861,6 +2863,8 @@ inferPatternPlan env expectedTy scrutinee pat =
             , patternWrapBody = id
             , patternNeedsRuntimeCase = True
             }
+      RPLit (LString value) ->
+        inferListPattern env expectedTy scrutinee (stringLiteralPattern value)
       RPLit literal -> do
         unify expectedTy (literalMonoType literal)
         pure
@@ -2917,6 +2921,8 @@ inferIrrefutablePatternBindings expectedTy scrutinee pat =
         pure (singleLazyBinding name expectedTy scrutinee)
       RPWildcard ->
         pure ([], Map.empty)
+      RPLit (LString value) ->
+        inferIrrefutableListBindings expectedTy scrutinee (stringLiteralPattern value)
       RPLit literal -> do
         unify expectedTy (literalMonoType literal)
         pure ([], Map.empty)
@@ -5238,6 +5244,14 @@ literalMonoType = \case
   LInt {} -> intMonoType
   LChar {} -> charMonoType
   LString {} -> stringMonoType
+
+stringLiteralTypedExpr :: Text -> TypedExpr
+stringLiteralTypedExpr value =
+  TList [TLit (LChar char) charMonoType | char <- Text.unpack value] stringMonoType
+
+stringLiteralPattern :: Text -> [RPat]
+stringLiteralPattern value =
+  [RPLit (LChar char) | char <- Text.unpack value]
 
 intMonoType :: MonoType
 intMonoType =

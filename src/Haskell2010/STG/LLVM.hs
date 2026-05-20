@@ -54,9 +54,7 @@ data AllocatedBinding = AllocatedBinding
 
 data ModuleState = ModuleState
   { nextClosureFunction :: Int
-  , nextStringGlobal :: Int
   , generatedFunctions :: [LLVMFunction]
-  , generatedStringGlobals :: [LLVMGlobal]
   }
   deriving stock (Show, Eq)
 
@@ -101,7 +99,6 @@ lowerValidatedSTGProgram mainBinder program = do
               , "heap objects use process-lifetime allocation; generated programs do not free or collect them"
               ]
           , moduleGlobals = formatGlobals
-              <> generatedStringGlobals moduleState
           , moduleDeclarations = runtimeDeclarations
           , moduleFunctions = runtimeFunctions <> generatedFunctions moduleState <> [mainFunction]
           }
@@ -112,9 +109,7 @@ initialModuleState :: ModuleState
 initialModuleState =
   ModuleState
     { nextClosureFunction = 0
-    , nextStringGlobal = 0
     , generatedFunctions = []
-    , generatedStringGlobals = []
     }
 
 findMain :: Text -> STGProgram -> Either STGLLVMError STGBinder
@@ -172,35 +167,6 @@ formatPointer ty = do
     ( IGetElementPtr
         reg
         arrayType
-        (OGlobal LPtr globalName)
-        [(LI64, OConstInt LI64 0), (LI64, OConstInt LI64 0)]
-    )
-  pure (OLocal LPtr reg)
-
-stringLiteralPointer :: Text -> FunctionM LLVMOperand
-stringLiteralPointer value = do
-  let bytes = value <> "\0"
-  name <- lift $ do
-    state <- get
-    let index = nextStringGlobal state
-        globalName = "haskell2010_str_" <> Text.pack (show index)
-    modify' $
-      \current ->
-        current
-          { nextStringGlobal = index + 1
-          , generatedStringGlobals =
-              generatedStringGlobals current <> [LLVMStringGlobal globalName bytes]
-          }
-    pure globalName
-  globalStringPointer name bytes
-
-globalStringPointer :: Text -> Text -> FunctionM LLVMOperand
-globalStringPointer globalName bytes = do
-  reg <- freshRegister "str_ptr"
-  emit
-    ( IGetElementPtr
-        reg
-        (LArray (Text.length bytes) LI8)
         (OGlobal LPtr globalName)
         [(LI64, OConstInt LI64 0), (LI64, OConstInt LI64 0)]
     )
@@ -729,15 +695,15 @@ emitMakeChar value = do
   pure (OLocal LPtr reg)
 
 emitMakeStringLiteral :: Text -> FunctionM LLVMOperand
-emitMakeStringLiteral value = do
-  pointer <- stringLiteralPointer value
-  emitMakeString pointer
-
-emitMakeString :: LLVMOperand -> FunctionM LLVMOperand
-emitMakeString pointer = do
-  reg <- freshRegister "boxed_string"
-  emit (ICall (Just reg) LPtr (DirectCall makeStringFunctionName) False [(LPtr, pointer)])
-  pure (OLocal LPtr reg)
+emitMakeStringLiteral value =
+  Text.foldr cons nil value
+ where
+  nil =
+    emitConstructorObject listNilDataConName stringTy []
+  cons char tailAction = do
+    headObject <- emitMakeChar (fromIntegral (ord char))
+    tailObject <- tailAction
+    emitConstructorObject listConsDataConName stringTy [headObject, tailObject]
 
 emitMakeData :: RName -> [LLVMOperand] -> FunctionM LLVMOperand
 emitMakeData name fields = do
@@ -1005,6 +971,7 @@ runtimeFunctions =
   , expectCharFunction
   , expectStringFunction
   , expectFunctionFunction
+  , makeCharListFromCStringFunction
   , showIntFunction
   , putStrLnFunction
   , printCharListFunction
@@ -1273,11 +1240,81 @@ showIntFunction =
             , ICall
                 (Just (Register "string"))
                 LPtr
-                (DirectCall makeStringFunctionName)
+                (DirectCall makeCharListFromCStringFunctionName)
                 False
                 [(LPtr, OLocal LPtr (Register "buffer"))]
             ]
             (TRet LPtr (OLocal LPtr (Register "string")))
+        ]
+    }
+
+makeCharListFromCStringFunction :: LLVMFunction
+makeCharListFromCStringFunction =
+  LLVMFunction
+    { functionName = makeCharListFromCStringFunctionName
+    , functionReturnType = LPtr
+    , functionParams = [(LPtr, Register "value")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ILoad (Register "byte") LI8 (OLocal LPtr (Register "value"))
+            , IIcmp (Register "is_end") ICmpEq LI8 (OLocal LI8 (Register "byte")) (OConstInt LI8 0)
+            ]
+            (TCondBr (OLocal LI1 (Register "is_end")) "nil" "cons")
+        , LLVMBlock
+            "nil"
+            [ ICall
+                (Just (Register "nil_list"))
+                LPtr
+                (DirectCall makeDataFunctionName)
+                False
+                [ (LI64, OConstInt LI64 (constructorRuntimeTag listNilDataConName))
+                , (LI64, OConstInt LI64 0)
+                , (LPtr, OConstNull)
+                ]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "nil_list")))
+        , LLVMBlock
+            "cons"
+            [ IZext (Register "char_i64") (OLocal LI8 (Register "byte")) LI64
+            , ICall
+                (Just (Register "head"))
+                LPtr
+                (DirectCall makeCharFunctionName)
+                False
+                [(LI64, OLocal LI64 (Register "char_i64"))]
+            , IGetElementPtr
+                (Register "next")
+                LI8
+                (OLocal LPtr (Register "value"))
+                [(LI64, OConstInt LI64 1)]
+            , ICall
+                (Just (Register "tail"))
+                LPtr
+                (DirectCall makeCharListFromCStringFunctionName)
+                False
+                [(LPtr, OLocal LPtr (Register "next"))]
+            , ICall
+                (Just (Register "fields"))
+                LPtr
+                (DirectCall processLifetimeAllocFunctionName)
+                False
+                [(LI64, OConstInt LI64 16)]
+            , IGetElementPtr (Register "head_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 0)]
+            , IStore LPtr (OLocal LPtr (Register "head")) (OLocal LPtr (Register "head_slot"))
+            , IGetElementPtr (Register "tail_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 1)]
+            , IStore LPtr (OLocal LPtr (Register "tail")) (OLocal LPtr (Register "tail_slot"))
+            , ICall
+                (Just (Register "cons_list"))
+                LPtr
+                (DirectCall makeDataFunctionName)
+                False
+                [ (LI64, OConstInt LI64 (constructorRuntimeTag listConsDataConName))
+                , (LI64, OConstInt LI64 2)
+                , (LPtr, OLocal LPtr (Register "fields"))
+                ]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "cons_list")))
         ]
     }
 
@@ -1500,12 +1537,13 @@ makeFunctionFunctionName = "hegglog_hs_make_function"
 makeThunkFunctionName = "hegglog_hs_make_thunk"
 forceFunctionName = "hegglog_hs_force"
 
-expectIntFunctionName, expectBoolFunctionName, expectCharFunctionName, expectStringFunctionName, expectFunctionName, showIntFunctionName, putStrLnFunctionName, printCharListFunctionName :: Text
+expectIntFunctionName, expectBoolFunctionName, expectCharFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, putStrLnFunctionName, printCharListFunctionName :: Text
 expectIntFunctionName = "hegglog_hs_expect_int"
 expectBoolFunctionName = "hegglog_hs_expect_bool"
 expectCharFunctionName = "hegglog_hs_expect_char"
 expectStringFunctionName = "hegglog_hs_expect_string"
 expectFunctionName = "hegglog_hs_expect_function"
+makeCharListFromCStringFunctionName = "hegglog_hs_make_char_list_from_cstring"
 showIntFunctionName = "hegglog_hs_show_int"
 putStrLnFunctionName = "hegglog_hs_putstrln"
 printCharListFunctionName = "hegglog_hs_print_char_list"

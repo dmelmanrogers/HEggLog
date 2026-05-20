@@ -375,10 +375,11 @@ Status: the first IO printing slice is implemented for the executable subset.
 The typechecker recognizes `IO`, `main :: IO ()`, `putStrLn`, `print`,
 `return`, `(>>)`, and expression-only `do` sequencing with local `let`.
 Core/STG reference evaluators model IO output for oracle tests, and the native
-entrypoint executes `IO ()` actions instead of scalar root printing. Native
-string literal objects, list-of-`Char` traversal, boxed `Char` values,
-`Eq Char`, scalar `main :: Char`, `Show Int`, and `Show Bool` support the
-current output subset through default/no-egglog wet tests. `<-`
+entrypoint executes `IO ()` actions instead of scalar root printing. Source
+string literals and built-in `show` results are represented as list-of-`Char`
+values, and boxed `Char` values, `Eq Char`, scalar `main :: Char`, `Show Int`,
+and `Show Bool` support the current output subset through default/no-egglog wet
+tests. `<-`
 binding, `(>>=)`, real-world IO handles, and broader Prelude IO remain planned.
 
 Deliverables:
@@ -577,13 +578,11 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. `String = [Char]` source/runtime alignment.
-2. Haskell 2010 conformance matrix expansion for the broader executable
-   surface.
-3. Broader `Show`/`String` interoperability, including `Show Char`,
-   `Show String`, escapes, and additional string/list library behavior.
-4. Superclass, default method, and instance-context support for type classes.
-5. Broader IO and Monad support, including `<-`, `(>>=)`, `fail`, and handles.
+1. PRELUDE-DATA-008 arithmetic sequences.
+2. PRELUDE-DATA-009 list comprehensions.
+3. PRELUDE-DATA-012 String literal native wet tests.
+4. TC-003 superclass representation.
+5. TC-005 default class methods.
 
 Completed immediate tasks:
 
@@ -660,8 +659,8 @@ Completed immediate tasks:
 - Haskell 2010 IO printing slice, including `IO` typechecking, `main :: IO ()`
   native entrypoint execution, `putStrLn`, `print`, `return`, `(>>)`,
   expression-only `do` sequencing with local `let`, built-in `Show Int` and
-  `Show Bool` dictionaries, Core/STG IO output oracles, native string literal
-  and list-of-`Char` output, and default/no-egglog native wet tests.
+  `Show Bool` dictionaries, Core/STG IO output oracles, list-of-`Char` output,
+  and default/no-egglog native wet tests.
 - Haskell 2010 module graph and whole-program compilation for the executable
   subset, including dependency-file loading from imports, cycle/name-mismatch
   diagnostics, actual exported-name import resolution, explicit export/import
@@ -672,6 +671,11 @@ Completed immediate tasks:
   objects, literal `Char` case dispatch, built-in `Eq Char`, scalar
   `main :: Char` printing, Core/STG/native oracles, conformance fixtures, and
   default/no-egglog native wet tests.
+- Haskell 2010 `String = [Char]` source/runtime alignment, including source
+  string expressions and string literal patterns desugared to ordinary list
+  constructors, Core/STG evaluator list values, built-in `show` results as
+  lists, native LLVM without per-literal string globals, conformance fixtures,
+  and default/no-egglog wet tests.
 
 ## Non-Negotiable Rules
 
