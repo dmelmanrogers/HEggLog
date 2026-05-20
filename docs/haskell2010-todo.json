@@ -6286,7 +6286,7 @@
     {
       "id": "PRELUDE-DATA-009",
       "title": "list comprehensions",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "ADT-001",
@@ -6295,7 +6295,7 @@
       "blocks": [],
       "milestone": "M10",
       "acceptance_criteria": [
-        "list comprehensions is implemented, completed, or explicitly documented according to status `not started`.",
+        "list comprehensions is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

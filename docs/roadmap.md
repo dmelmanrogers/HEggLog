@@ -45,9 +45,9 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. PRELUDE-DATA-009 list comprehensions.
-2. TC-003 superclass representation.
-3. TC-005 default class methods.
+1. TC-003 superclass representation.
+2. TC-005 default class methods.
+3. TC-008 overlapping instance rejection.
 
 Completed Haskell 2010 roadmap work:
 
@@ -111,7 +111,7 @@ Completed Haskell 2010 roadmap work:
   constrained functions, generated dictionary constructors/selectors, Core
   dictionary arguments, STG/native lowering, and default/no-egglog wet tests.
 - Haskell 2010 built-in Prelude class dictionaries: implemented for `Eq Int`,
-  `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`,
+  `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, executable `Num Int`,
   `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and generated
   structural list `Show` methods, including overloaded comparison/arithmetic/show method
   desugaring, Core/STG/native lowering, and default/no-egglog wet tests.
@@ -153,6 +153,11 @@ Completed Haskell 2010 roadmap work:
 - Haskell 2010 arithmetic sequences: implemented executable `Int` and `Char`
   sequence forms, including bounded ascending/descending ranges and lazily
   consumed open ranges, through Core, STG, LLVM, conformance, and wet tests.
+- Haskell 2010 list comprehensions: implemented executable list
+  comprehensions with generator scoping, Bool guards, `let` qualifiers,
+  nested generators, tuple/list/constructor/literal/refutable pattern
+  filtering, and native wet tests over `Int`, `Char`, `String`, `Maybe`, and
+  tuple-shaped examples.
 
 ## Non-Negotiable Project Direction
 

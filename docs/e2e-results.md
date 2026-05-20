@@ -1,7 +1,7 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after PRELUDE-DATA-008 added
-executable `Int` and `Char` arithmetic sequences. The suite covers the
+Recorded for the mandatory wet-test suite after PRELUDE-DATA-009 added
+executable list comprehensions. The suite covers the
 existing `.hg` native compiler baseline and Haskell 2010 executable-subset
 `.hs` programs that compile to native executables, compare lazy runtime
 behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
@@ -9,7 +9,7 @@ optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-20 03:06:58 UTC`
+- Date/time: `2026-05-20 03:46:28 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -18,22 +18,23 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 141
-- Source files: 58
-- Successful source cases: 47
+- HUnit checks: 144
+- Source files: 59
+- Successful source cases: 48
 - Runtime-error source cases: 7
 - Compile-error source cases: 3
-- Native compile/run checks: 102
-- Default Egglog native checks: 57
-- `--no-egglog` native checks: 45
-- Emit-LLVM checks: 27
+- Native compile/run checks: 104
+- Default Egglog native checks: 58
+- `--no-egglog` native checks: 46
+- Emit-LLVM checks: 28
 - Report/interpreter comparisons: 12
 - Failures: 0
 
-This update adds a dedicated Haskell 2010 native case for arithmetic sequences:
-ascending, stepped, descending, character, and lazily consumed open ranges. The
-fixture runs in both default and `--no-egglog` modes and emits LLVM that is
-compiled through clang.
+This update adds a dedicated Haskell 2010 native case for list comprehensions:
+nested generators, Bool guards, `let` qualifiers, `Int` and `Char` range
+generators, `String` output, tuple patterns, and nested/refutable `Maybe`
+patterns. The fixture runs in both default and `--no-egglog` modes and emits
+LLVM that is compiled through clang.
 
 ## Case Table
 
@@ -133,6 +134,9 @@ compiled through clang.
 | haskell2010-arithmetic-sequences | `test/e2e/programs/haskell2010/arithmetic-sequences.hs` | success | native/default | `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]` | stdout `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]`, stderr empty, exit 0 | pass |
 | haskell2010-arithmetic-sequences | `test/e2e/programs/haskell2010/arithmetic-sequences.hs` | success | native/no-egglog | `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]` | stdout `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]`, stderr empty, exit 0 | pass |
 | haskell2010-arithmetic-sequences | `test/e2e/programs/haskell2010/arithmetic-sequences.hs` | success | emit-llvm/default | `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]` | LLVM compiled through clang, stdout `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]`, stderr empty, exit 0 | pass |
+| haskell2010-list-comprehensions | `test/e2e/programs/haskell2010/list-comprehensions.hs` | success | native/default | `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]` | stdout `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]`, stderr empty, exit 0 | pass |
+| haskell2010-list-comprehensions | `test/e2e/programs/haskell2010/list-comprehensions.hs` | success | native/no-egglog | `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]` | stdout `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]`, stderr empty, exit 0 | pass |
+| haskell2010-list-comprehensions | `test/e2e/programs/haskell2010/list-comprehensions.hs` | success | emit-llvm/default | `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]` | LLVM compiled through clang, stdout `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/no-egglog | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | emit-llvm/default | `7` | LLVM compiled through clang, stdout `7`, stderr empty, exit 0 | pass |

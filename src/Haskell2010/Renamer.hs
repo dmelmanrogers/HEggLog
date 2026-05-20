@@ -635,12 +635,43 @@ renameExprRaw = \case
   S.ArithmeticSeq start step end ->
     RArithmeticSeq <$> renameExpr start <*> traverse renameExpr step <*> traverse renameExpr end
   S.ListComp body statements ->
-    RListComp <$> renameExpr body <*> renameStmtList statements
+    uncurry RListComp <$> renameListComp body statements
   S.ExprTypeSig inner sourceType ->
     RExprTypeSig <$> renameExpr inner <*> renameImplicitForallType sourceType
  where
   renameRecordExprField (name, expr) =
     (,) <$> lookupName TermNamespace name <*> renameExpr expr
+
+renameListComp :: S.Expr -> [S.Stmt] -> RenameM (RExpr, [RStmt])
+renameListComp body statements =
+  go statements
+ where
+  go [] =
+    do
+      renamedBody <- renameExpr body
+      pure (renamedBody, [])
+  go (statement : rest) =
+    case statement of
+      S.ExprStmt expr -> do
+        renamedExpr <- renameExpr expr
+        (renamedBody, renamedRest) <- go rest
+        let renamed = RExprStmt renamedExpr
+        pure (renamedBody, maybe renamed (`setRStmtSpan` renamed) (S.stmtSpan statement) : renamedRest)
+      S.BindStmt pat expr -> do
+        renamedExpr <- renameExpr expr
+        patternScope <- patternScopeFor [pat]
+        withScope patternScope $ do
+          renamedPat <- renamePat pat
+          (renamedBody, renamedRest) <- go rest
+          let renamed = RBindStmt renamedPat renamedExpr
+          pure (renamedBody, maybe renamed (`setRStmtSpan` renamed) (S.stmtSpan statement) : renamedRest)
+      S.LetStmt decls -> do
+        groupScope <- collectDeclBinders TopLevelContext decls
+        withScope groupScope $ do
+          renamedDecls <- traverse renameDecl decls
+          (renamedBody, renamedRest) <- go rest
+          let renamed = RLetStmt renamedDecls
+          pure (renamedBody, maybe renamed (`setRStmtSpan` renamed) (S.stmtSpan statement) : renamedRest)
 
 renameStmtList :: [S.Stmt] -> RenameM [RStmt]
 renameStmtList [] =

@@ -2301,6 +2301,8 @@ inferExpr env expr =
         inferSection env "$section_lhs" (\hole -> RInfixApp hole op sectionExpr)
       RArithmeticSeq start step end ->
         inferArithmeticSeq env start step end
+      RListComp body statements ->
+        inferListComp env body statements
       RExprTypeSig inner sourceType -> do
         scheme <- sourceScheme sourceType
         unless (null (schemeConstraints scheme)) $
@@ -2308,8 +2310,6 @@ inferExpr env expr =
         typedInner <- inferExpr env inner
         unify (typedExprType typedInner) (schemeBody scheme)
         pure typedInner
-      unsupported ->
-        throwTypecheck (UnsupportedCore0 ("expression " <> Text.pack (show unsupported)))
 
 inferSection :: TypeEnv -> Text -> (RExpr -> RExpr) -> InferM TypedExpr
 inferSection env argumentOccurrence buildBody = do
@@ -2382,6 +2382,310 @@ applyArithmeticSequenceHelper =
     case typedExprType fn of
       TyFun _ resultTy -> TApp fn arg resultTy
       _ -> error "arithmetic sequence helper applied past its arity"
+
+inferListComp :: TypeEnv -> RExpr -> [RStmt] -> InferM TypedExpr
+inferListComp env body statements = do
+  elementTy <- freshMeta
+  inferListCompWithTail env elementTy body statements (typedListNil elementTy)
+
+inferListCompWithTail :: TypeEnv -> MonoType -> RExpr -> [RStmt] -> TypedExpr -> InferM TypedExpr
+inferListCompWithTail env elementTy body [] tailExpr = do
+  typedBody <- inferExpr env body
+  unify elementTy (typedExprType typedBody)
+  elementTy' <- applyCurrent elementTy
+  unify (typedExprType tailExpr) (TyList elementTy')
+  pure (typedListCons elementTy' typedBody tailExpr)
+inferListCompWithTail env elementTy body (statement : rest) tailExpr =
+  withTypecheckSpan (rStmtSpan statement) $
+    case statement of
+      RExprStmt guardExpr -> do
+        typedGuard <- inferExpr env guardExpr
+        unify (typedExprType typedGuard) boolMonoType
+        success <- inferListCompWithTail env elementTy body rest tailExpr
+        unify (typedExprType success) (typedExprType tailExpr)
+        caseBinder <- freshTermBinder "$list_comp_guard" boolMonoType
+        pure
+          ( TCase
+              typedGuard
+              caseBinder
+              [ TypedAlt (ConstructorAlt trueDataConName) [] success
+              , TypedAlt (ConstructorAlt falseDataConName) [] tailExpr
+              ]
+              (typedExprType tailExpr)
+          )
+      RLetStmt decls -> do
+        (bindings, env') <- inferBindingGroup env decls
+        restExpr <- inferListCompWithTail env' elementTy body rest tailExpr
+        pure (TLet bindings restExpr (typedExprType restExpr))
+      RBindStmt pat sourceExpr -> do
+        typedSource <- inferExpr env sourceExpr
+        sourceElementTy <- freshMeta
+        unify (typedExprType typedSource) (TyList sourceElementTy)
+        sourceElementTy' <- applyCurrent sourceElementTy
+        elementTy' <- applyCurrent elementTy
+        let sourceListTy = TyList sourceElementTy'
+            resultListTy = TyList elementTy'
+            goTy = TyFun sourceListTy (TyFun resultListTy resultListTy)
+        goBinder <- freshTermBinder "$list_comp_go" goTy
+        xsBinder <- freshTermBinder "$list_comp_xs" sourceListTy
+        accBinder <- freshTermBinder "$list_comp_acc" resultListTy
+        caseBinder <- freshTermBinder "$list_comp_list" sourceListTy
+        headBinder <- freshTermBinder "$list_comp_head" sourceElementTy'
+        tailBinder <- freshTermBinder "$list_comp_tail" sourceListTy
+        let goExpr = typedLocalVar goBinder
+            xsExpr = typedLocalVar xsBinder
+            accExpr = typedLocalVar accBinder
+            headExpr = typedLocalVar headBinder
+            tailListExpr = typedLocalVar tailBinder
+            recursiveTail =
+              TApp
+                (TApp goExpr tailListExpr (TyFun resultListTy resultListTy))
+                accExpr
+                resultListTy
+        consBody <-
+          inferListCompPattern
+            env
+            sourceElementTy'
+            headExpr
+            pat
+            (\env' -> inferListCompWithTail env' elementTy body rest recursiveTail)
+            recursiveTail
+        unify (typedExprType consBody) resultListTy
+        let goBody =
+              TCase
+                xsExpr
+                caseBinder
+                [ TypedAlt (ConstructorAlt listNilDataConName) [] accExpr
+                , TypedAlt (ConstructorAlt listConsDataConName) [headBinder, tailBinder] consBody
+                ]
+                resultListTy
+            goRhs =
+              TLam xsBinder (TLam accBinder goBody (TyFun resultListTy resultListTy)) goTy
+            goBinding =
+              TypedBinding
+                { typedBindingName = typedBinderName goBinder
+                , typedBindingScheme = Scheme [] [] goTy
+                , typedBindingGeneralizedMetas = Map.empty
+                , typedBindingRhs = goRhs
+                }
+            appliedGo =
+              TApp
+                (TApp goExpr typedSource (TyFun resultListTy resultListTy))
+                tailExpr
+                resultListTy
+        pure (TLet [goBinding] appliedGo resultListTy)
+
+inferListCompPattern ::
+  TypeEnv ->
+  MonoType ->
+  TypedExpr ->
+  RPat ->
+  (TypeEnv -> InferM TypedExpr) ->
+  TypedExpr ->
+  InferM TypedExpr
+inferListCompPattern env expectedTy scrutinee pat success failure =
+  withTypecheckSpan (rPatSpan pat) $
+    case pat of
+      RPVar name -> do
+        body <- success (Map.insert name (Scheme [] [] expectedTy) env)
+        pure (aliasPatternBinder name expectedTy scrutinee body)
+      RPWildcard ->
+        success env
+      RPLit (LString value) ->
+        inferListCompPattern env expectedTy scrutinee (RPList (stringLiteralPattern value)) success failure
+      RPLit literal -> do
+        unify expectedTy (literalMonoType literal)
+        matched <- success env
+        listCompMatchCase scrutinee [(LiteralAlt literal, [], matched)] failure
+      RPCon name args ->
+        inferListCompConstructorPattern env expectedTy scrutinee name args success failure
+      RPRecordCon name fields ->
+        inferListCompRecordPattern env expectedTy scrutinee name fields success failure
+      RPTuple patterns ->
+        inferListCompTuplePattern env expectedTy scrutinee patterns success failure
+      RPList patterns ->
+        inferListCompListPattern env expectedTy scrutinee patterns success failure
+      RPParen inner ->
+        inferListCompPattern env expectedTy scrutinee inner success failure
+      RPAs name inner ->
+        inferListCompPattern
+          env
+          expectedTy
+          scrutinee
+          inner
+          ( \innerEnv -> do
+              body <- success (Map.insert name (Scheme [] [] expectedTy) innerEnv)
+              pure (aliasPatternBinder name expectedTy scrutinee body)
+          )
+          failure
+      RPIrrefutable inner -> do
+        plan <- inferIrrefutablePatternPlan env expectedTy scrutinee inner
+        body <- success (patternEnv plan)
+        pure (patternWrapBody plan body)
+
+inferListCompConstructorPattern ::
+  TypeEnv ->
+  MonoType ->
+  TypedExpr ->
+  RName ->
+  [RPat] ->
+  (TypeEnv -> InferM TypedExpr) ->
+  TypedExpr ->
+  InferM TypedExpr
+inferListCompConstructorPattern env expectedTy scrutinee name args success failure = do
+  (coreName, info) <- lookupListCompConstructor name
+  (fieldTypes, resultTy) <- instantiateConstructorPattern info
+  unless (length fieldTypes == length args) $
+    throwTypecheck
+      ( UnsupportedCore0
+          ( "constructor pattern `"
+              <> renderRName name
+              <> "` expects "
+              <> Text.pack (show (length fieldTypes))
+              <> " fields, got "
+              <> Text.pack (show (length args))
+          )
+      )
+  unify expectedTy resultTy
+  case dataConstructorRepresentation info of
+    CoreNewtypeConstructor ->
+      case (fieldTypes, args) of
+        ([fieldTy], [fieldPat]) -> do
+          fieldTy' <- applyCurrent fieldTy
+          inferListCompPattern env fieldTy' (TCoerce scrutinee fieldTy') fieldPat success failure
+        _ ->
+          throwTypecheck (InvalidNewtypeConstructorArity name (length fieldTypes))
+    CoreDataConstructor -> do
+      fieldTypes' <- traverse applyCurrent fieldTypes
+      fieldBinders <- traverse (uncurry listCompFieldBinder) (zip [0 ..] fieldTypes')
+      matched <- inferListCompFieldPatterns env fieldBinders args success failure
+      listCompMatchCase
+        scrutinee
+        [(ConstructorAlt coreName, fieldBinders, matched)]
+        failure
+
+inferListCompRecordPattern ::
+  TypeEnv ->
+  MonoType ->
+  TypedExpr ->
+  RName ->
+  [(RName, RPat)] ->
+  (TypeEnv -> InferM TypedExpr) ->
+  TypedExpr ->
+  InferM TypedExpr
+inferListCompRecordPattern env expectedTy scrutinee name fields success failure = do
+  constructors <- dataConstructors <$> get
+  case Map.lookup name constructors of
+    Nothing ->
+      throwTypecheck (UnsupportedCore0 ("record constructor pattern `" <> renderRName name <> "`"))
+    Just info -> do
+      orderedFields <- orderRecordPatternFields name info fields
+      inferListCompConstructorPattern env expectedTy scrutinee name orderedFields success failure
+
+inferListCompTuplePattern ::
+  TypeEnv ->
+  MonoType ->
+  TypedExpr ->
+  [RPat] ->
+  (TypeEnv -> InferM TypedExpr) ->
+  TypedExpr ->
+  InferM TypedExpr
+inferListCompTuplePattern env expectedTy scrutinee patterns success failure = do
+  fieldTypes <- traverse (const freshMeta) patterns
+  unify expectedTy (TyTuple fieldTypes)
+  fieldTypes' <- traverse applyCurrent fieldTypes
+  fieldBinders <- traverse (uncurry listCompFieldBinder) (zip [0 ..] fieldTypes')
+  matched <- inferListCompFieldPatterns env fieldBinders patterns success failure
+  listCompMatchCase
+    scrutinee
+    [(ConstructorAlt (tupleDataConName (length patterns)), fieldBinders, matched)]
+    failure
+
+inferListCompListPattern ::
+  TypeEnv ->
+  MonoType ->
+  TypedExpr ->
+  [RPat] ->
+  (TypeEnv -> InferM TypedExpr) ->
+  TypedExpr ->
+  InferM TypedExpr
+inferListCompListPattern env expectedTy scrutinee patterns success failure = do
+  elementTy <- freshMeta
+  unify expectedTy (TyList elementTy)
+  case patterns of
+    [] -> do
+      matched <- success env
+      listCompMatchCase scrutinee [(ConstructorAlt listNilDataConName, [], matched)] failure
+    headPat : tailPats ->
+      inferListCompConstructorPattern env expectedTy scrutinee listConsDataConName [headPat, RPList tailPats] success failure
+
+inferListCompFieldPatterns ::
+  TypeEnv ->
+  [TypedBinder] ->
+  [RPat] ->
+  (TypeEnv -> InferM TypedExpr) ->
+  TypedExpr ->
+  InferM TypedExpr
+inferListCompFieldPatterns env fieldBinders patterns success failure =
+  go env (zip fieldBinders patterns)
+ where
+  go currentEnv [] =
+    success currentEnv
+  go currentEnv ((binder, pat) : rest) =
+    inferListCompPattern
+      currentEnv
+      (typedBinderType binder)
+      (typedLocalVar binder)
+      pat
+      (\env' -> go env' rest)
+      failure
+
+listCompMatchCase :: TypedExpr -> [(CoreAltCon, [TypedBinder], TypedExpr)] -> TypedExpr -> InferM TypedExpr
+listCompMatchCase scrutinee matchedAlternatives failure = do
+  mapM_ (\(_, _, body) -> unify (typedExprType body) (typedExprType failure)) matchedAlternatives
+  caseBinder <- freshTermBinder "$list_comp_match" (typedExprType scrutinee)
+  pure
+    ( TCase
+        scrutinee
+        caseBinder
+        ( [TypedAlt altCon binders body | (altCon, binders, body) <- matchedAlternatives]
+            <> [TypedAlt DefaultAlt [] failure]
+        )
+        (typedExprType failure)
+    )
+
+lookupListCompConstructor :: RName -> InferM (RName, DataConstructorInfo)
+lookupListCompConstructor name = do
+  constructors <- dataConstructors <$> get
+  case Map.lookup name constructors of
+    Just info ->
+      pure (name, info)
+    Nothing ->
+      case preludeConstructorInfo name of
+        Just (coreName, info) ->
+          pure (coreName, info)
+        Nothing ->
+          throwTypecheck (UnsupportedCore0 ("constructor pattern `" <> renderRName name <> "`"))
+
+listCompFieldBinder :: Int -> MonoType -> InferM TypedBinder
+listCompFieldBinder index =
+  freshTermBinder ("$list_comp_field" <> renderInt index)
+
+typedLocalVar :: TypedBinder -> TypedExpr
+typedLocalVar binder =
+  TVar (typedBinderName binder) (Scheme [] [] (typedBinderType binder)) [] (typedBinderType binder)
+
+typedListNil :: MonoType -> TypedExpr
+typedListNil elementTy =
+  TList [] (TyList elementTy)
+
+typedListCons :: MonoType -> TypedExpr -> TypedExpr -> TypedExpr
+typedListCons elementTy headExpr tailExpr =
+  TApp (TApp consExpr headExpr (TyFun listTy listTy)) tailExpr listTy
+ where
+  listTy = TyList elementTy
+  consScheme = dataConstructorScheme (builtinDataConstructors Map.! listConsDataConName)
+  consExpr = TCon listConsDataConName consScheme [elementTy] (TyFun elementTy (TyFun listTy listTy))
 
 inferDo :: TypeEnv -> [RStmt] -> InferM TypedExpr
 inferDo _ [] =
@@ -5032,6 +5336,18 @@ builtinInstanceDictionaries classes =
         , boolMaxMethod
         , boolMinMethod
         ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        charMonoType
+        (preludeTermName "$fOrdChar" (-1513))
+        [ charCompareMethod
+        , charLtMethod
+        , charLeMethod
+        , charGtMethod
+        , charGeMethod
+        , charMaxMethod
+        , charMinMethod
+        ]
     ]
 
   numInstances info =
@@ -5240,6 +5556,59 @@ boolMinMethod :: CoreExpr
 boolMinMethod =
   binaryMethod "$min_bool" (-1771) boolTy boolTy $ \lhs rhs ->
     boolCaseCore "$min_bool_case" (-1774) lhs boolTy rhs (CCon falseDataConName boolTy)
+
+charCompareMethod :: CoreExpr
+charCompareMethod =
+  binaryMethod "$compare_char" (-1901) charTy orderingTy $ \lhs rhs ->
+    boolCaseCore
+      "$compare_char_lt"
+      (-1904)
+      (charLtCore lhs rhs)
+      orderingTy
+      (CCon orderingLTDataConName orderingTy)
+      ( boolCaseCore
+          "$compare_char_gt"
+          (-1905)
+          (charLtCore rhs lhs)
+          orderingTy
+          (CCon orderingGTDataConName orderingTy)
+          (CCon orderingEQDataConName orderingTy)
+      )
+
+charLtMethod :: CoreExpr
+charLtMethod =
+  binaryBoolMethod "$lt_char" (-1911) charTy charLtCore
+
+charLeMethod :: CoreExpr
+charLeMethod =
+  binaryBoolMethod "$le_char" (-1921) charTy (\lhs rhs -> boolNotCore "$le_char_not" (-1924) (charLtCore rhs lhs))
+
+charGtMethod :: CoreExpr
+charGtMethod =
+  binaryBoolMethod "$gt_char" (-1931) charTy (\lhs rhs -> charLtCore rhs lhs)
+
+charGeMethod :: CoreExpr
+charGeMethod =
+  binaryBoolMethod "$ge_char" (-1941) charTy (\lhs rhs -> boolNotCore "$ge_char_not" (-1944) (charLtCore lhs rhs))
+
+charMaxMethod :: CoreExpr
+charMaxMethod =
+  binaryMethod "$max_char" (-1951) charTy charTy $ \lhs rhs ->
+    boolCaseCore "$max_char_case" (-1954) (charLtCore lhs rhs) charTy rhs lhs
+
+charMinMethod :: CoreExpr
+charMinMethod =
+  binaryMethod "$min_char" (-1961) charTy charTy $ \lhs rhs ->
+    boolCaseCore "$min_char_case" (-1964) (charLtCore lhs rhs) charTy lhs rhs
+
+charLtCore :: CoreExpr -> CoreExpr -> CoreExpr
+charLtCore lhs rhs =
+  CPrimOp
+    PrimLt
+    [ CPrimOp PrimCharToInt [lhs] intTy
+    , CPrimOp PrimCharToInt [rhs] intTy
+    ]
+    boolTy
 
 intAddMethod :: CoreExpr
 intAddMethod =

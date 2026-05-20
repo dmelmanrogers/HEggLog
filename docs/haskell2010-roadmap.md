@@ -581,11 +581,11 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. PRELUDE-DATA-009 list comprehensions.
-2. TC-003 superclass representation.
-3. TC-005 default class methods.
-4. TC-008 overlapping instance rejection.
-5. TC-016 Read decision/documented deviation.
+1. TC-003 superclass representation.
+2. TC-005 default class methods.
+3. TC-008 overlapping instance rejection.
+4. TC-016 Read decision/documented deviation.
+5. TC-018 Enum class surface decision/implementation.
 
 Completed immediate tasks:
 
@@ -650,7 +650,7 @@ Completed immediate tasks:
   Core/STG preservation tests, native LLVM execution, and default/no-egglog
   native wet tests.
 - Haskell 2010 built-in Prelude class dictionary coverage for `Eq Int`,
-  `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, and executable `Num Int` methods, including
+  `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, and executable `Num Int` methods, including
   generated built-in dictionaries/selectors, overloaded comparison/arithmetic
   operator desugaring, Core/STG preservation tests, native LLVM execution, and
   default/no-egglog native wet tests.
@@ -693,6 +693,11 @@ Completed immediate tasks:
   ascending/descending bounded behavior, lazily consumed open ranges,
   Core/STG/native oracles, conformance fixtures, and default/no-egglog wet
   tests.
+- Haskell 2010 list comprehensions for the executable subset, including
+  generator scoping, Bool guards, `let` qualifiers, nested generators,
+  tuple/list/constructor/literal/refutable pattern filtering, accumulator-tail
+  Core lowering, Core/STG/native oracles, conformance fixtures, and
+  default/no-egglog wet tests.
 
 ## Non-Negotiable Rules
 

@@ -178,6 +178,7 @@ testGroups =
       , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
       , pureTest "desugars operator sections to Core lambdas" testHaskell2010Core0Sections
       , pureTest "typechecks arithmetic sequences" testHaskell2010Core0ArithmeticSequences
+      , pureTest "typechecks list comprehensions" testHaskell2010Core0ListComprehensions
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       , pureTest "renders Haskell 2010 type errors with source spans" testHaskell2010TypeErrorDiagnosticsWithSpans
@@ -212,6 +213,7 @@ testGroups =
       , pureTest "evaluates guards and as-patterns" testHaskell2010Core0EvalGuardsAndAsPatterns
       , pureTest "evaluates operator sections" testHaskell2010Core0EvalSections
       , pureTest "evaluates arithmetic sequences" testHaskell2010Core0EvalArithmeticSequences
+      , pureTest "evaluates list comprehensions" testHaskell2010Core0EvalListComprehensions
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
       , pureTest "reports forced division by zero" testHaskell2010Core0EvalDivisionByZero
@@ -253,6 +255,7 @@ testGroups =
       , pureTest "preserves guard and as-pattern semantics" testHaskell2010CoreToSTGGuardsAndAsPatterns
       , pureTest "preserves operator section semantics" testHaskell2010CoreToSTGSections
       , pureTest "preserves arithmetic sequence semantics" testHaskell2010CoreToSTGArithmeticSequences
+      , pureTest "preserves list comprehension semantics" testHaskell2010CoreToSTGListComprehensions
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves guard fallthrough errors" testHaskell2010CoreToSTGGuardFallthrough
       , pureTest "preserves curried partial application" testHaskell2010CoreToSTGPartialApplication
@@ -265,6 +268,7 @@ testGroups =
       , pureTest "emits Char runtime LLVM" testHaskell2010NativeCharRuntime
       , pureTest "emits String as Char lists in native LLVM" testHaskell2010NativeStringCharList
       , pureTest "emits arithmetic sequence LLVM" testHaskell2010NativeArithmeticSequences
+      , pureTest "emits list comprehension LLVM" testHaskell2010NativeListComprehensions
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
       , ioTest "native executable preserves lazy Core-0 semantics" testHaskell2010NativeExecutableExecution
       , ioTest "native runtime errors fail when forced" testHaskell2010NativeRuntimeError
@@ -1669,6 +1673,12 @@ testHaskell2010Core0ArithmeticSequences = do
   assertBool "open Int enumFrom helper is emitted" (containsBindingOccurrence "$enumFromInt" coreModule)
   expectCoreEvalIO "arithmetic sequence Core oracle" haskell2010ArithmeticSequencesOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0ListComprehensions :: Either String ()
+testHaskell2010Core0ListComprehensions = do
+  coreModule <- typecheckHaskell2010 haskell2010ListComprehensionsSource
+  assertBool "list comprehension emits list cases" (countCasesInModule coreModule >= 6)
+  expectCoreEvalIO "list comprehension Core oracle" haskell2010ListComprehensionsOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries :: Either String ()
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
   expectTypecheckMessage "rejects duplicate concrete instances" "duplicate instance" duplicateInstanceSource
@@ -1960,6 +1970,13 @@ testHaskell2010Core0EvalArithmeticSequences =
     haskell2010ArithmeticSequencesOutput
     =<< evalHaskell2010Binding "main" haskell2010ArithmeticSequencesSource
 
+testHaskell2010Core0EvalListComprehensions :: Either String ()
+testHaskell2010Core0EvalListComprehensions =
+  expectCoreEvalIO
+    "Core-0 list comprehension evaluation"
+    haskell2010ListComprehensionsOutput
+    =<< evalHaskell2010Binding "main" haskell2010ListComprehensionsSource
+
 testHaskell2010Core0EvalLazyLet :: Either String ()
 testHaskell2010Core0EvalLazyLet =
   expectCoreEvalInt
@@ -2246,6 +2263,10 @@ testHaskell2010CoreToSTGArithmeticSequences :: Either String ()
 testHaskell2010CoreToSTGArithmeticSequences =
   checkCoreToSTGIO "Core-to-STG arithmetic sequences" haskell2010ArithmeticSequencesOutput haskell2010ArithmeticSequencesSource
 
+testHaskell2010CoreToSTGListComprehensions :: Either String ()
+testHaskell2010CoreToSTGListComprehensions =
+  checkCoreToSTGIO "Core-to-STG list comprehensions" haskell2010ListComprehensionsOutput haskell2010ListComprehensionsSource
+
 testHaskell2010CoreToSTGDivisionByZero :: Either String ()
 testHaskell2010CoreToSTGDivisionByZero =
   case
@@ -2333,6 +2354,11 @@ testHaskell2010NativeArithmeticSequences = do
   llvmText <- compileHaskell2010NativeText haskell2010ArithmeticSequencesSource
   assertBool "native arithmetic sequences lower Char ordinals" ("zext i32" `Text.isInfixOf` llvmText)
   assertBool "native arithmetic sequences rebox generated Chars" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeListComprehensions :: Either String ()
+testHaskell2010NativeListComprehensions = do
+  llvmText <- compileHaskell2010NativeText haskell2010ListComprehensionsSource
+  assertBool "native list comprehensions branch on guards and patterns" ("br i1" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeLLVMExecution :: IO (Either String ())
 testHaskell2010NativeLLVMExecution = do
@@ -5716,6 +5742,7 @@ haskell2010NativeSuccessExamples =
   , ("irrefutable-patterns", haskell2010IrrefutablePatternSource, "7\n")
   , ("sections", haskell2010SectionsSource, "6\n")
   , ("arithmetic-sequences", haskell2010ArithmeticSequencesSource, Text.unpack haskell2010ArithmeticSequencesOutput)
+  , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-record-fields", haskell2010RecordFieldSource, "43\n")
   , ("adt-maybe", haskell2010PolymorphicADTSource, "4\n")
@@ -5747,6 +5774,7 @@ haskell2010NativeExecutableExamples =
   , ("irrefutable-patterns", haskell2010IrrefutablePatternSource, "7\n")
   , ("sections", haskell2010SectionsSource, "6\n")
   , ("arithmetic-sequences", haskell2010ArithmeticSequencesSource, Text.unpack haskell2010ArithmeticSequencesOutput)
+  , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   ]
 
 haskell2010ArithmeticSource :: Text
@@ -5945,6 +5973,35 @@ haskell2010ArithmeticSequencesSource =
 haskell2010ArithmeticSequencesOutput :: Text
 haskell2010ArithmeticSequencesOutput =
   "[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]\n"
+
+haskell2010ListComprehensionsSource :: Text
+haskell2010ListComprehensionsSource =
+  "module Main where\n\
+  \pairs :: [Int]\n\
+  \pairs = [x * y | x <- [1..3], y <- [2..4], x < y]\n\
+  \chars :: String\n\
+  \chars = [c | c <- ['a'..'f'], c /= 'c', c < 'f']\n\
+  \justs :: [Int]\n\
+  \justs = [x | Just x <- [Nothing, Just 3, Just 4]]\n\
+  \tuples :: [Int]\n\
+  \tuples = [a + b | (a, b) <- [(1, 2), (3, 4)]]\n\
+  \nested :: [Int]\n\
+  \nested = [x | Just (Just x) <- [Just Nothing, Just (Just 9), Nothing]]\n\
+  \locals :: [Int]\n\
+  \locals = [y | x <- [1..3], let y = x + 10, y > 11]\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print pairs\n\
+  \  putStrLn chars\n\
+  \  print justs\n\
+  \  print tuples\n\
+  \  print nested\n\
+  \  print locals\n\
+  \  return ()\n"
+
+haskell2010ListComprehensionsOutput :: Text
+haskell2010ListComprehensionsOutput =
+  "[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]\n"
 
 haskell2010GuardedSelfRecursionSource :: Text
 haskell2010GuardedSelfRecursionSource =

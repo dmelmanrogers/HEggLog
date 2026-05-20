@@ -418,6 +418,16 @@
       "notes": "Executable arithmetic sequences for Int and Char, including ascending, descending, and lazily consumed open Int ranges."
     },
     {
+      "name": "prelude.list-comprehensions",
+      "sourceFile": "test/haskell2010/conformance/prelude/list-comprehensions.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Executable list comprehensions over Int and Char ranges, guards, nested generators, let qualifiers, tuple patterns, and refutable Maybe patterns."
+    },
+    {
       "name": "io.printing",
       "sourceFile": "test/haskell2010/conformance/io/printing.hs",
       "category": "io",

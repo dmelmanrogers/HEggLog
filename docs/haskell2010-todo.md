@@ -211,15 +211,15 @@ Rules:
 
 # Next 20 Implementation Tasks
 
-1. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
-2. TC-003 — superclass representation: Model superclass relationships before broader class solving.
-3. TC-005 — default methods: Implement default class method typing and dictionary filling.
-4. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
-5. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
-6. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
-7. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
-8. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
-9. TC-023 — derived Eq: Synthesize or explicitly defer derived `Eq` instances.
+1. TC-003 — superclass representation: Model superclass relationships before broader class solving.
+2. TC-005 — default methods: Implement default class method typing and dictionary filling.
+3. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
+4. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
+5. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
+6. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
+7. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
+8. TC-023 — derived Eq: Synthesize or explicitly defer derived `Eq` instances.
+9. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
 10. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
 11. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
 12. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
@@ -11267,7 +11267,7 @@ Notes:
 ## PRELUDE-DATA-009 — list comprehensions
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -11296,7 +11296,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- list comprehensions is implemented, completed, or explicitly documented according to status `not started`.
+- list comprehensions is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -11311,7 +11311,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M10 (Lists, tuples, Char, String). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M10 (Lists, tuples, Char, String). Completed for the executable subset with list comprehension parsing, generator-binder renamer scoping, Bool guards, `let` qualifiers, nested generators, tuple/list/constructor/literal/refutable pattern filtering, and Core/STG/native execution. The lowering uses local recursive list walkers with accumulator tails, so output order is preserved without requiring a separate append helper. Native wet tests cover `Int` and `Char` range generators, `String` results, `Maybe` pattern filters, tuple patterns, nested refutable patterns, and local let qualifiers.
 
 ## PRELUDE-DATA-010 — list native wet tests
 

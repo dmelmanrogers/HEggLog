@@ -35,7 +35,7 @@ recursive non-variable pattern bindings through the Core recursion model,
 user-defined single-parameter classes with concrete instances and explicit
 constrained functions, boxed native `Char` literals and literal cases, scalar
 `main :: Char` output, and built-in Prelude dictionaries for `Eq Int`,
-`Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, and executable `Num Int`
+`Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, and executable `Num Int`
 methods. Guarded RHSs, guarded case alternatives, as-pattern aliases, and
 guard-fallthrough no-match behavior are also implemented. The first IO printing
 slice is implemented for `IO`,
@@ -120,7 +120,7 @@ bindings now emit recursive Core groups in the supported subset. The initial
 type class slice typechecks user-defined single-parameter classes, concrete
 context-free instances, explicit source constraints, and method calls by
 emitting dictionary constructor values, selector functions, and explicit Core
-dictionary arguments. Built-in `Eq Int`, `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, and
+dictionary arguments. Built-in `Eq Int`, `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, and
 `Num Int` dictionaries cover `(==)`, `(/=)`, `compare`, `(<)`, `(<=)`, `(>)`,
 `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`, and `signum`.
 Built-in `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and
@@ -277,7 +277,7 @@ and compiled to native executables through the existing clang toolchain.
     dictionary arguments, STG lowering/evaluation, native LLVM execution, and
     wet-tested default/no-egglog CLI runs.
 14. Built-in Prelude class dictionary coverage. Completed for `Eq Int`,
-    `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`,
+    `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, executable `Num Int`,
     `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and generated
     structural list `Show` methods,
     including generated built-in dictionaries/selectors, overloaded
@@ -356,10 +356,10 @@ recursive closure/thunk groups, user and built-in type class dictionary
 constructor/selector execution, guarded RHS/as-pattern programs, empty-case
 guard-fallthrough aborts, `putStrLn`/`print` output for `IO ()` programs with
 source string literals as list-of-`Char` values, do-bind continuations, explicit
-`(>>=)`, boxed `Char` values, `Eq Char`
+`(>>=)`, boxed `Char` values, `Eq Char`/`Ord Char`
 primitive lowering, scalar `Char` root printing, built-in
 `Show Int`/`Show Bool`/`Show Char`/`Show String`/list results as lists,
-checked primitives, and invokes clang to produce native
+checked primitives, executable list comprehensions, and invokes clang to produce native
 machine-code executables.
 
 ## GHC Compatibility
@@ -370,11 +370,11 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Implement PRELUDE-DATA-009 list comprehensions while preserving the `.hg`
+Implement TC-003 superclass representation while preserving the `.hg`
 compiler, Core evaluator, STG runtime, Core-to-STG lowering, native executable
 path, Egglog Core optimizer, ADT/list/tuple/Prelude/recursion/typeclass-dictionary
 support, built-in `Eq`/`Ord`/`Num`/`Show` dictionary support, boxed native
 `Char` support, source `String = [Char]` behavior, numeric defaulting,
-guard/as-pattern support, IO printing support, arithmetic sequence support,
-module graph support, known-constructor optimizer support, and wet-test
-baseline.
+guard/as-pattern support, IO printing support, arithmetic sequence and list
+comprehension support, module graph support, known-constructor optimizer
+support, and wet-test baseline.

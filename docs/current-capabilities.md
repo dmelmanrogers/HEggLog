@@ -76,7 +76,7 @@ calls, structured placeholder diagnostics for unsupported constraint contexts,
 source-spanned typecheck diagnostics including delayed dictionary failures,
 documented nullary-binding monomorphism/defaulting behavior, boxed `Char`
 literals and literal cases, scalar `main :: Char` output, and built-in
-`Eq Int`, `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, and executable `Num Int`
+`Eq Int`, `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, and executable `Num Int`
 class methods, plus guarded RHSs, guarded case alternatives, as-pattern
 aliases, and guard-fallthrough no-match behavior, plus the first IO printing
 slice for `IO`, `main :: IO ()`,
@@ -84,7 +84,9 @@ slice for `IO`, `main :: IO ()`,
 `do` sequencing, and
 built-in `Show Int`/`Show Bool`/`Show Char`/`Show String` plus generated
 structural list `Show` dictionaries, plus executable arithmetic sequences over
-`Int` and `Char` ranges. A Core
+`Int` and `Char` ranges, plus executable list comprehensions with generator
+scoping, Bool guards, `let` qualifiers, nested generators, and refutable
+pattern filtering. A Core
 reference evaluator executes validating typed Core with erased type
 abstraction/application, checked `Int` primitives, and structured runtime
 errors. An isolated STG-like IR, validator, and pure heap evaluator now model
@@ -108,8 +110,8 @@ lists, generated list `Show` dictionaries, do-bind result values, explicit
 `(>>=)`, and a compatibility path for legacy internal string payloads. Dedicated
 native wet tests now cover direct string output, list operations over strings,
 show-produced strings, explicit `Char` cons patterns, and string literal
-patterns, plus `Int`/`Char` arithmetic sequences in both default and
-`--no-egglog` modes.
+patterns, plus `Int`/`Char` arithmetic sequences and list comprehensions in
+both default and `--no-egglog` modes.
 The Haskell 2010
 native path now runs an Egglog Core optimizer by
 default for safe typed Core fragments before STG lowering; `--no-egglog`
@@ -141,11 +143,12 @@ Current status:
   concrete instances, structured explicit constraints, placeholder diagnostics
   for unsupported constraint contexts, dictionary constructors/selectors,
   dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Eq Char`,
-  `Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, `Show Bool`, `Show Char`,
+  `Ord Int`, `Ord Bool`, `Ord Char`, `Num Int`, `Show Int`, `Show Bool`, `Show Char`,
   `Show String`, and structural list `Show` dictionaries, plus
   source-spanned Haskell 2010 typecheck diagnostics, plus
   `putStrLn`, `print`, `return`, `(>>)`, `(>>=)`, and expression/bind-statement
-  `do` sequencing, plus executable `Int`/`Char` arithmetic sequences
+  `do` sequencing, plus executable `Int`/`Char` arithmetic sequences and list
+  comprehensions
 - Haskell 2010 Core reference evaluator: implemented and unit-tested for
   arithmetic, polymorphic instantiation, Bool and user ADT cases, lazy
   lets/arguments, lazy constructor fields, Prelude list functions, tuple and
@@ -154,7 +157,7 @@ Current status:
   recursion, mutual recursion, recursive list functions, recursive pattern
   bindings, user class dictionary
   calls, built-in `Eq`/`Ord`/`Num` dictionary calls, `Char` literals and
-  literal cases, arithmetic sequences, guarded RHS/as-pattern programs, IO output actions, guard
+  literal cases, arithmetic sequences, list comprehensions, guarded RHS/as-pattern programs, IO output actions, guard
   fallthrough no-match reporting, and division-by-zero reporting
 - Haskell 2010 STG-like lazy IR/runtime MVP: implemented and unit-tested for
   validation, lazy lets/arguments, case demand, constructor dispatch, thunk
@@ -176,7 +179,7 @@ Current status:
   `Eq Char`, `Char` literal cases, scalar `main :: Char` printing, guarded
   RHS/as-pattern programs, `main :: IO ()` printing through `putStrLn`,
   `print`, do-bind statements, and explicit `(>>=)`, process-lifetime runtime allocation, and guard-fallthrough runtime
-  failure, plus executable `Int`/`Char` arithmetic sequences
+  failure, plus executable `Int`/`Char` arithmetic sequences and list comprehensions
 - Haskell 2010 Egglog Core optimizer: implemented and unit/wet-tested for
   safe Core-0 arithmetic identities, checked constant folding, known Bool case
   selection, known literal and saturated known-constructor case/projection
