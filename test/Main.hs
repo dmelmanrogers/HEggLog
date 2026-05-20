@@ -170,6 +170,7 @@ testGroups =
       , pureTest "typechecks Char runtime representation" testHaskell2010Core0CharRuntime
       , pureTest "typechecks String as Char lists" testHaskell2010Core0StringCharList
       , pureTest "typechecks broader Show dictionaries" testHaskell2010Core0BroadShow
+      , pureTest "typechecks Prelude append" testHaskell2010Core0Append
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
       , pureTest "documents monomorphism restriction defaulting policy" testHaskell2010MonomorphismRestrictionDefaulting
       , pureTest "typechecks multi-module imports" testHaskell2010Core0MultiModuleImports
@@ -210,6 +211,7 @@ testGroups =
       , pureTest "evaluates Char equality and literal cases" testHaskell2010Core0EvalCharRuntime
       , pureTest "evaluates String as Char lists" testHaskell2010Core0EvalStringCharList
       , pureTest "evaluates broader Show dictionaries" testHaskell2010Core0EvalBroadShow
+      , pureTest "evaluates Prelude append" testHaskell2010Core0EvalAppend
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
@@ -256,6 +258,7 @@ testGroups =
       , pureTest "preserves Char runtime semantics" testHaskell2010CoreToSTGCharRuntime
       , pureTest "preserves String as Char lists" testHaskell2010CoreToSTGStringCharList
       , pureTest "preserves broader Show semantics" testHaskell2010CoreToSTGBroadShow
+      , pureTest "preserves Prelude append semantics" testHaskell2010CoreToSTGAppend
       , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
       , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
@@ -284,6 +287,7 @@ testGroups =
       , pureTest "emits derived Eq LLVM" testHaskell2010NativeDerivedEq
       , pureTest "emits derived Ord LLVM" testHaskell2010NativeDerivedOrd
       , pureTest "emits derived Show LLVM" testHaskell2010NativeDerivedShow
+      , pureTest "emits Prelude append LLVM" testHaskell2010NativeAppend
       , pureTest "emits list comprehension LLVM" testHaskell2010NativeListComprehensions
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
       , ioTest "native executable preserves lazy Core-0 semantics" testHaskell2010NativeExecutableExecution
@@ -725,7 +729,7 @@ testHaskell2010ExpressionSurfaceParsing = do
       \literals = ('x', \"hello\")\n\
       \numbers = (0x10, 0o7)\n\
       \collections = ([1, 2, 3], [1, 3..9], [x | x <- xs])\n\
-      \sections = ((1 +), (+ 1))\n\
+      \sections = ((++), (1 +), (+ 1))\n\
       \typed = (pure 0 :: IO Int)\n\
       \branch = \\x -> if x then [] else [1]\n\
       \patterns (Just x) _ (a, b) [c] (h : t) name@value ~lazy 'x' = x\n"
@@ -1639,6 +1643,12 @@ testHaskell2010Core0BroadShow = do
   assertBool "Prelude Show list method helper is emitted" (containsBindingOccurrence "$show_list" coreModule)
   expectCoreEvalIO "broader Show Core oracle" haskell2010BroadShowOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0Append :: Either String ()
+testHaskell2010Core0Append = do
+  coreModule <- typecheckHaskell2010 haskell2010AppendSource
+  assertBool "Prelude append binding is emitted" (containsBindingOccurrence "++" coreModule)
+  expectCoreEvalIO "Prelude append Core oracle" haskell2010AppendOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0NumericDefaulting :: Either String ()
 testHaskell2010Core0NumericDefaulting = do
   coreModule <- typecheckHaskell2010 haskell2010NumericDefaultingSource
@@ -2021,6 +2031,13 @@ testHaskell2010Core0EvalBroadShow =
     haskell2010BroadShowOutput
     =<< evalHaskell2010Binding "main" haskell2010BroadShowSource
 
+testHaskell2010Core0EvalAppend :: Either String ()
+testHaskell2010Core0EvalAppend =
+  expectCoreEvalIO
+    "Core-0 Prelude append evaluation"
+    haskell2010AppendOutput
+    =<< evalHaskell2010Binding "main" haskell2010AppendSource
+
 testHaskell2010Core0EvalNumericDefaulting :: Either String ()
 testHaskell2010Core0EvalNumericDefaulting =
   expectCoreEvalIO
@@ -2361,6 +2378,10 @@ testHaskell2010CoreToSTGBroadShow :: Either String ()
 testHaskell2010CoreToSTGBroadShow =
   checkCoreToSTGIO "Core-to-STG broader Show" haskell2010BroadShowOutput haskell2010BroadShowSource
 
+testHaskell2010CoreToSTGAppend :: Either String ()
+testHaskell2010CoreToSTGAppend =
+  checkCoreToSTGIO "Core-to-STG Prelude append" haskell2010AppendOutput haskell2010AppendSource
+
 testHaskell2010CoreToSTGNumericDefaulting :: Either String ()
 testHaskell2010CoreToSTGNumericDefaulting =
   checkCoreToSTGIO "Core-to-STG numeric defaulting" "7\n47\n" haskell2010NumericDefaultingSource
@@ -2523,6 +2544,12 @@ testHaskell2010NativeDerivedShow = do
   llvmText <- compileHaskell2010NativeText haskell2010DerivedShowSource
   assertBool "native derived Show emits synthesized append helpers" ("derived_ushow_uappend" `Text.isInfixOf` llvmText)
   assertBool "native derived Show keeps String fields as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeAppend :: Either String ()
+testHaskell2010NativeAppend = do
+  llvmText <- compileHaskell2010NativeText haskell2010AppendSource
+  assertBool "native Prelude append emits list case dispatch" ("case_data_match" `Text.isInfixOf` llvmText)
+  assertBool "native Prelude append keeps String values as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeListComprehensions :: Either String ()
 testHaskell2010NativeListComprehensions = do
@@ -5904,6 +5931,7 @@ haskell2010NativeSuccessExamples =
   , ("string-show-output", haskell2010StringShowOutputSource, "42\nFalse\n")
   , ("string-char-patterns", haskell2010StringCharPatternsSource, "6\n")
   , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
+  , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("io-normal-examples", haskell2010IONormalExamplesSource, Text.unpack haskell2010IONormalExamplesOutput)
@@ -5940,6 +5968,7 @@ haskell2010NativeExecutableExamples =
   , ("string-show-output", haskell2010StringShowOutputSource, "42\nFalse\n")
   , ("string-char-patterns", haskell2010StringCharPatternsSource, "6\n")
   , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
+  , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("io-normal-examples", haskell2010IONormalExamplesSource, Text.unpack haskell2010IONormalExamplesOutput)
@@ -6416,6 +6445,36 @@ haskell2010BroadShowSource =
 haskell2010BroadShowOutput :: Text
 haskell2010BroadShowOutput =
   "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Q'\n\"ok\"\n"
+
+haskell2010AppendSource :: Text
+haskell2010AppendSource =
+  "module Main where\n\
+  \listAppend :: [Int]\n\
+  \listAppend = [1, 2] ++ [] ++ [3, 4]\n\
+  \stringAppend :: String\n\
+  \stringAppend = \"he\" ++ \"gg\" ++ \"log\"\n\
+  \leftSection :: String -> String\n\
+  \leftSection = (\"he\" ++)\n\
+  \rightSection :: String -> String\n\
+  \rightSection = (++ \"log\")\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print listAppend\n\
+  \  putStrLn stringAppend\n\
+  \  print ([1] ++ [2] ++ [3])\n\
+  \  print ((++) [True] [False])\n\
+  \  putStrLn (leftSection \"y\")\n\
+  \  putStrLn (rightSection \"heg\")\n\
+  \  return ()\n"
+
+haskell2010AppendOutput :: Text
+haskell2010AppendOutput =
+  "[1,2,3,4]\n\
+  \hegglog\n\
+  \[1,2,3]\n\
+  \[True,False]\n\
+  \hey\n\
+  \heglog\n"
 
 haskell2010NumericDefaultingSource :: Text
 haskell2010NumericDefaultingSource =

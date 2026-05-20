@@ -143,7 +143,7 @@ Current status:
 - Haskell source desugaring to typed Core: implemented and unit-tested for
   functions, lambdas, application, `let`, `if`, Bool/user-constructor `case`,
   nested/list/tuple constructor patterns, list/tuple expressions, short-circuit
-  Bool operators, generated Prelude list functions, primitive `/`, boxed
+  Bool operators, generated Prelude list functions including `(++)`, primitive `/`, boxed
   `Char` literals and literal cases, and dictionary-backed `Eq`/`Ord`/`Num`
   methods, guarded RHSs, guarded case
   alternatives, and as-pattern aliases, including singleton self-recursive bindings and
@@ -162,7 +162,7 @@ Current status:
   comprehensions
 - Haskell 2010 Core reference evaluator: implemented and unit-tested for
   arithmetic, polymorphic instantiation, Bool and user ADT cases, lazy
-  lets/arguments, lazy constructor fields, Prelude list functions, tuple and
+  lets/arguments, lazy constructor fields, Prelude list functions including `(++)`, tuple and
   built-in Prelude constructor cases, short-circuit Bool operators, and
   guarded self recursion, local factorial recursion, top-level fibonacci
   recursion, mutual recursion, recursive list functions, recursive pattern
@@ -176,14 +176,14 @@ Current status:
   checked primitive errors
 - Core-to-STG lowering: implemented and unit-tested for Core-0 arithmetic,
   polymorphic type erasure, Bool/user ADT case, nested constructor patterns,
-  list/tuple/Prelude constructor cases, generated Prelude list functions, lazy
+  list/tuple/Prelude constructor cases, generated Prelude list functions including `(++)`, lazy
   lets/arguments, recursive binding groups, `Char` literal cases and equality,
   forced runtime errors, and curried partial application, plus guarded
   RHS/as-pattern semantics and guard fallthrough errors
 - Haskell 2010 native executable path: implemented and wet-tested for
   arithmetic, polymorphic identity, lazy lets/arguments, Bool case, custom ADTs,
   `Maybe`, built-in `Maybe`/`Either`/`Ordering`, lists, tuples, Prelude list
-  functions, short-circuit Bool operators, nested constructor patterns, lazy
+  functions including `(++)`, short-circuit Bool operators, nested constructor patterns, lazy
   constructor fields, top-level/local/mutual/list recursion, forced
   division-by-zero failure, curried partial application, user-defined type
   class dictionary calls, built-in `Eq`/`Ord`/`Num` class dictionary calls,

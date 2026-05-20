@@ -7525,7 +7525,7 @@
     {
       "id": "PRELUDE-013",
       "title": "append",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "PRELUDE-DATA-003",
@@ -7534,7 +7534,7 @@
       "blocks": [],
       "milestone": "M12",
       "acceptance_criteria": [
-        "append is implemented, completed, or explicitly documented according to status `not started`.",
+        "append is implemented for supported list and string programs and represented in unit, native, conformance, and wet-test coverage.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

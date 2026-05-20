@@ -1,7 +1,7 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after PRELUDE-DATA-009 added
-executable list comprehensions. The suite covers the
+Recorded for the mandatory wet-test suite after PRELUDE-013 added executable
+Prelude append. The suite covers the
 existing `.hg` native compiler baseline and Haskell 2010 executable-subset
 `.hs` programs that compile to native executables, compare lazy runtime
 behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
@@ -9,7 +9,7 @@ optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-20 03:46:28 UTC`
+- Date/time: `2026-05-20 06:03:50 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -18,23 +18,22 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 144
-- Source files: 59
-- Successful source cases: 48
+- HUnit checks: 147
+- Source files: 60
+- Successful source cases: 49
 - Runtime-error source cases: 7
 - Compile-error source cases: 3
-- Native compile/run checks: 104
-- Default Egglog native checks: 58
-- `--no-egglog` native checks: 46
-- Emit-LLVM checks: 28
+- Native compile/run checks: 106
+- Default Egglog native checks: 59
+- `--no-egglog` native checks: 47
+- Emit-LLVM checks: 29
 - Report/interpreter comparisons: 12
 - Failures: 0
 
-This update adds a dedicated Haskell 2010 native case for list comprehensions:
-nested generators, Bool guards, `let` qualifiers, `Int` and `Char` range
-generators, `String` output, tuple patterns, and nested/refutable `Maybe`
-patterns. The fixture runs in both default and `--no-egglog` modes and emits
-LLVM that is compiled through clang.
+This update adds a dedicated Haskell 2010 native case for Prelude `(++)`:
+list append, string append through `String = [Char]`, right-associative infix
+use, prefix `(++)`, and left/right operator sections. The fixture runs in both
+default and `--no-egglog` modes and emits LLVM that is compiled through clang.
 
 ## Case Table
 
@@ -92,6 +91,9 @@ LLVM that is compiled through clang.
 | haskell2010-prelude-lists | `test/e2e/programs/haskell2010/prelude-lists.hs` | success | native/default | `321` | stdout `321`, stderr empty, exit 0 | pass |
 | haskell2010-prelude-lists | `test/e2e/programs/haskell2010/prelude-lists.hs` | success | native/no-egglog | `321` | stdout `321`, stderr empty, exit 0 | pass |
 | haskell2010-prelude-lists | `test/e2e/programs/haskell2010/prelude-lists.hs` | success | emit-llvm/default | `321` | LLVM compiled through clang, stdout `321`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-append | `test/e2e/programs/haskell2010/prelude-append.hs` | success | native/default | `[1,2,3,4]\nhegglog\n[1,2,3]\n[True,False]\nhey\nheglog` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-prelude-append | `test/e2e/programs/haskell2010/prelude-append.hs` | success | native/no-egglog | `[1,2,3,4]\nhegglog\n[1,2,3]\n[True,False]\nhey\nheglog` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-prelude-append | `test/e2e/programs/haskell2010/prelude-append.hs` | success | emit-llvm/default | `[1,2,3,4]\nhegglog\n[1,2,3]\n[True,False]\nhey\nheglog` | LLVM compiled through clang, stdout matched, stderr empty, exit 0 | pass |
 | haskell2010-prelude-maybe-ordering | `test/e2e/programs/haskell2010/prelude-maybe-ordering.hs` | success | native/default | `5` | stdout `5`, stderr empty, exit 0 | pass |
 | haskell2010-prelude-maybe-ordering | `test/e2e/programs/haskell2010/prelude-maybe-ordering.hs` | success | native/no-egglog | `5` | stdout `5`, stderr empty, exit 0 | pass |
 | haskell2010-short-circuit | `test/e2e/programs/haskell2010/short-circuit.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |

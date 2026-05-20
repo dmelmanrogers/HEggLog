@@ -277,7 +277,7 @@ Core validator/evaluator, STG lowering/evaluator, native LLVM path, and wet
 tests now cover built-in list, tuple, unit, `Maybe`, `Either`, and `Ordering`
 constructors; list and tuple expressions/patterns/types; short-circuiting
 `&&`/`||`; and generated Core bindings for `id`, `const`, `not`, `otherwise`,
-`map`, `foldr`, `length`, `filter`, and `reverse`.
+`map`, `foldr`, `length`, `filter`, `reverse`, and `(++)`.
 
 Deliverables:
 
@@ -289,7 +289,7 @@ Acceptance criteria:
 
 - list programs compile
 - tuple programs compile
-- `map`, `foldr`, `length`, `filter`, and `reverse` examples compile
+- `map`, `foldr`, `length`, `filter`, `reverse`, and `(++)` examples compile
 - wet tests cover list recursion and tuple destructuring
 
 ### Phase 11 - Recursion
@@ -585,7 +585,7 @@ Acceptance criteria:
 2. PRELUDE-002 implicit Prelude import behavior.
 3. MODULE-001 import/export declarations.
 4. PRELUDE-009 foldl.
-5. PRELUDE-013 append.
+5. PRELUDE-017 standard library module layout.
 
 Completed immediate tasks:
 
@@ -593,6 +593,7 @@ Completed immediate tasks:
 - TC-023 derived Eq, including generated `Eq` dictionaries for supported data/newtype declarations and structural list `Eq`.
 - TC-024 derived Ord, including generated `Ord` dictionaries, `Eq` superclass dictionaries, and structural list/string ordering.
 - TC-025 derived Show, including generated `Show` dictionaries for supported data/newtype declarations, records, recursive data, `String` fields, and list-backed contexts.
+- PRELUDE-013 append, including generated `(++)` over lists/strings, parenthesized operator variables, and operator sections.
 - Haskell 2010 parser/layout MVP.
 - Haskell 2010 renamer MVP.
 - Haskell 2010 typed Core MVP, including Core syntax, Core types, validator,
@@ -640,7 +641,7 @@ Completed immediate tasks:
   list, tuple, unit, `Maybe`, `Either`, and `Ordering` constructors/types,
   list and tuple expression/pattern lowering, short-circuiting `&&`/`||`, and
   generated Core Prelude bindings for `id`, `const`, `not`, `otherwise`, `map`,
-  `foldr`, `length`, `filter`, and `reverse`, with Core/STG/native and wet
+  `foldr`, `length`, `filter`, `reverse`, and `(++)`, with Core/STG/native and wet
   coverage.
 - Haskell 2010 recursion coverage for the executable subset, including
   singleton self-recursive Core emission, local recursive `let` bindings,

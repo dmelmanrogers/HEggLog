@@ -328,6 +328,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-egglog-known-constructor" "test/e2e/programs/haskell2010/egglog-known-constructor.hs" "7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-tuple-case" "test/e2e/programs/haskell2010/tuple-case.hs" "3" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-prelude-lists" "test/e2e/programs/haskell2010/prelude-lists.hs" "321" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-prelude-append" "test/e2e/programs/haskell2010/prelude-append.hs" "[1,2,3,4]\nhegglog\n[1,2,3]\n[True,False]\nhey\nheglog" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-prelude-maybe-ordering" "test/e2e/programs/haskell2010/prelude-maybe-ordering.hs" "5" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-short-circuit" "test/e2e/programs/haskell2010/short-circuit.hs" "7" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-guarded-self-recursion" "test/e2e/programs/haskell2010/guarded-self-recursion.hs" "1" [DefaultEgglog, NoEgglog] False

@@ -379,10 +379,15 @@ parenExpr = withSpan setExprSpan $ do
   void (symbol "(")
   choice
     [ Unit <$ symbol ")"
+    , try operatorVariable
     , try rightSection
     , parenOrTupleOrLeftSection
     ]
  where
+  operatorVariable = do
+    op <- qop
+    void (symbol ")")
+    pure (Var op)
   rightSection = do
     op <- qop
     expr <- exprParser

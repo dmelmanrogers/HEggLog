@@ -105,7 +105,7 @@ polymorphic constructors, constructor patterns, nested constructor patterns,
 list and tuple expressions/patterns/types, built-in Prelude data constructors,
 wildcard patterns, literal patterns, short-circuit `&&`/`||`, generated Prelude
 bindings for `id`, `const`, `not`, `otherwise`, `map`, `foldr`, `length`,
-`filter`, and `reverse`; dictionary-backed `Eq`, `Ord`, and `Num` methods for
+`filter`, `reverse`, and `(++)`; dictionary-backed `Eq`, `Ord`, and `Num` methods for
 the first built-in instances, including `Eq Char`; guarded RHSs and
 guarded case alternatives desugared to Bool `case`; as-pattern aliases lowered
 as local Core bindings; `IO` actions for `putStrLn`, `print`, `return`, `(>>)`,
@@ -265,8 +265,8 @@ and compiled to native executables through the existing clang toolchain.
 11. Prelude Bool/list/tuple runtime expansion. Completed for built-in list,
     tuple, unit, `Maybe`, `Either`, and `Ordering` constructors/types,
     short-circuit Bool operators, generated Core Prelude bindings for `id`,
-    `const`, `not`, `otherwise`, `map`, `foldr`, `length`, `filter`, and
-    `reverse`, STG lowering/evaluation, native LLVM execution, and wet-tested
+    `const`, `not`, `otherwise`, `map`, `foldr`, `length`, `filter`,
+    `reverse`, and `(++)`, STG lowering/evaluation, native LLVM execution, and wet-tested
     default/no-egglog CLI runs.
 12. Recursive top-level and local function/data-structure coverage. Completed
     for singleton self-recursive bindings, mutually recursive top-level groups,

@@ -1536,6 +1536,7 @@ supportedPreludeValueOccurrences =
   , "length"
   , "filter"
   , "reverse"
+  , "++"
   , "show"
   , "putStrLn"
   , "print"
@@ -3658,6 +3659,7 @@ preludeValueScheme name
             "length" -> Just (Scheme [a] [] (TyFun listA intMonoType))
             "filter" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun listA listA)))
             "reverse" -> Just (Scheme [a] [] (TyFun listA listA))
+            "++" -> Just (Scheme [a] [] (TyFun listA (TyFun listA listA)))
             "putStrLn" -> Just (Scheme [] [] (TyFun stringMonoType ioUnit))
             "print" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun aTy ioUnit))
             "return" -> Just (Scheme [a] [] (TyFun aTy (ioMonoType aTy)))
@@ -3687,6 +3689,7 @@ inferPrimitive env lhs op rhs =
     "-" -> overloadedBinary "Num" "-"
     "*" -> overloadedBinary "Num" "*"
     "/" -> fixedInt PrimDiv
+    "++" -> inferExpr env (RApp (RApp (RVar op) lhs) rhs)
     "<" -> overloadedBinary "Ord" "<"
     "<=" -> overloadedBinary "Ord" "<="
     ">" -> overloadedBinary "Ord" ">"
@@ -5111,6 +5114,8 @@ preludeCorePair name =
       Just (binderFor name filterTy, filterRhs name)
     "reverse" ->
       Just (binderFor name reverseTy, reverseRhs)
+    "++" ->
+      Just (binderFor name appendTy, appendRhs name)
     "putStrLn" ->
       Just
         ( binderFor name putStrLnTy
@@ -5148,6 +5153,7 @@ preludeCorePair name =
   lengthTy = CTyForall [a] (CTyFun listA intTy)
   filterTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun listA listA))
   reverseTy = CTyForall [a] (CTyFun listA listA)
+  appendTy = CTyForall [a] (CTyFun listA (CTyFun listA listA))
   putStrLnTy = CTyFun stringTy ioUnitTy
   showTy = CTyForall [showMethodA] (CTyFun showMethodDictA (CTyFun showMethodATy stringTy))
   printTy = CTyForall [a] (CTyFun showDictA (CTyFun aTy ioUnitTy))
@@ -5187,6 +5193,11 @@ preludeCorePair name =
   filterBoolCase = preludeTermName "$filter_bool_case" (-3045)
 
   reverseXs = preludeTermName "$reverse_xs" (-3050)
+  appendXs = preludeTermName "$append_xs" (-3070)
+  appendYs = preludeTermName "$append_ys" (-3071)
+  appendX = preludeTermName "$append_x" (-3072)
+  appendRest = preludeTermName "$append_rest" (-3073)
+  appendCase = preludeTermName "$append_case" (-3074)
   putStrLnS = preludeTermName "$putStrLn_s" (-3060)
   printDict = preludeTermName "$print_dict" (-3061)
   printX = preludeTermName "$print_x" (-3062)
@@ -5341,6 +5352,29 @@ preludeCorePair name =
         )
         (var reverseXs listA)
         listA
+
+  appendRhs functionName =
+    CTypeLam [a] (lam appendXs listA (lam appendYs listA appendBody)) appendTy
+   where
+    recursive =
+      apply
+        ( apply
+            (specialize functionName appendTy [aTy] (CTyFun listA (CTyFun listA listA)))
+            (var appendRest listA)
+            (CTyFun listA listA)
+        )
+        (var appendYs listA)
+        listA
+    appendBody =
+      listCase
+        (var appendXs listA)
+        appendCase
+        aTy
+        listA
+        (var appendYs listA)
+        appendX
+        appendRest
+        (cons aTy (var appendX aTy) recursive)
 
   printRhs =
     CTypeLam [a] (lam printDict showDictA (lam printX aTy printBody)) printTy

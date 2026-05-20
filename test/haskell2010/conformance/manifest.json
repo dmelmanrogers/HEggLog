@@ -329,6 +329,15 @@
       "notes": "Generated Prelude list functions over the supported executable subset."
     },
     {
+      "name": "prelude.append",
+      "sourceFile": "test/haskell2010/conformance/prelude/append.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "[1,2,3,4]\nhegglog\n[1,2,3]\n[True,False]\nhey\nheglog\n",
+      "requiredStage": "native",
+      "notes": "Prelude (++) appends lists and strings and works through infix use, prefix use, and operator sections."
+    },
+    {
       "name": "prelude.prelude-classes",
       "sourceFile": "test/haskell2010/conformance/prelude/prelude-classes.hs",
       "category": "prelude",

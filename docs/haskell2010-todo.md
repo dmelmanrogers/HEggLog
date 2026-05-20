@@ -215,20 +215,19 @@ Rules:
 2. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
 3. MODULE-001 — import/export declarations: Broaden module graph behavior beyond the current executable subset.
 4. PRELUDE-009 — foldl: Add the strictness-aware left fold surface or document the initial deviation.
-5. PRELUDE-013 — append: Implement `(++)` for supported list and string programs.
-6. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
-7. IO-006 — getLine: Add stdin line input or document the initial IO deviation.
-8. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
-9. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
-10. MOD-009 — instance import/export behavior: Define how class instances move across module boundaries.
-11. MOD-010 — Prelude implicit import: Align module import behavior with the standard Prelude surface.
+5. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
+6. IO-006 — getLine: Add stdin line input or document the initial IO deviation.
+7. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
+8. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
+9. MOD-009 — instance import/export behavior: Define how class instances move across module boundaries.
+10. MOD-010 — Prelude implicit import: Align module import behavior with the standard Prelude surface.
 
 # Task Backlog
 
 ## BOOT-001 — Preserve current `.hg` native compiler path
 
 Status:
-- complete
+- not started
 
 Category:
 - testing
@@ -11453,7 +11452,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M10 (Lists, tuples, Char, String). Completed with direct native executable coverage for string literals as `[Char]`, list functions over strings, show-produced strings, `putStrLn`, explicit char-list patterns, string literal patterns, default/no-egglog runs, and emit-LLVM wet checks. Broader Unicode text IO, exhaustive escape fidelity, and `(++)` remain tracked by later Prelude/IO tasks.
+- Milestone M10 (Lists, tuples, Char, String). Completed with direct native executable coverage for string literals as `[Char]`, list functions over strings, show-produced strings, `putStrLn`, explicit char-list patterns, string literal patterns, default/no-egglog runs, and emit-LLVM wet checks. Broader Unicode text IO and exhaustive escape fidelity remain tracked by later Prelude/IO tasks; `(++)` is now covered by PRELUDE-013.
 
 ## TC-001 — class declaration representation
 
@@ -12927,7 +12926,7 @@ Notes:
 ## PRELUDE-002 — implicit Prelude import
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -13479,7 +13478,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver append for Prelude and libraries while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver append for Prelude and libraries while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. `(++)` is available as a polymorphic list append function, as an infix operator with Prelude fixity, as a parenthesized symbolic variable, and in left/right operator sections; strings work through the existing `String = [Char]` representation.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -13495,7 +13494,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- append is implemented, completed, or explicitly documented according to status `not started`.
+- append is implemented for supported list and string programs and represented in unit, native, conformance, and wet-test coverage.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -13510,7 +13509,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M12 (Prelude and libraries). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M12 (Prelude and libraries). Complete for the current executable subset: generated Core implements `(++)` recursively over list constructors, and tests cover list append, string append, right-associativity, prefix `(++)`, and operator sections through Core/STG/native execution.
 
 ## PRELUDE-014 — function combinators: id, const, ., $
 

@@ -111,7 +111,7 @@ is built alongside them.
     `Maybe`, `Either`, and `Ordering` constructors/types, list and tuple
     expressions/patterns, short-circuit Bool operators, generated Core Prelude
     bindings for `id`, `const`, `not`, `otherwise`, `map`, `foldr`, `length`,
-    `filter`, and `reverse`, Core/STG/native execution, and wet-tested
+    `filter`, `reverse`, and `(++)`, Core/STG/native execution, and wet-tested
     default/no-egglog CLI runs.
 13. Recursion. Completed for singleton self-recursive bindings, mutually
     recursive top-level groups, local recursive `let`, fibonacci/factorial
