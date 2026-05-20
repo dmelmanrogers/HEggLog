@@ -120,6 +120,7 @@ data CorePrimOp
   | PrimShowBool
   | PrimPutStrLn
   | PrimIOThen
+  | PrimIOBind
   | PrimIOReturn
   deriving stock (Show, Eq, Ord)
 

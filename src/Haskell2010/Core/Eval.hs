@@ -36,7 +36,7 @@ data CoreValue
   | CoreBool Bool
   | CoreChar Char
   | CoreString Text
-  | CoreIO [Text]
+  | CoreIO [Text] CoreValue
   | CoreClosure Env CoreBinder CoreExpr
   | CoreTypeClosure Env [RName] CoreExpr
   | CoreConstructor RName [CoreThunk]
@@ -299,11 +299,18 @@ evalPrimitive coreEnv op values =
     (PrimShowBool, [CoreBool False]) ->
       Right (coreStringList "False")
     (PrimPutStrLn, [value]) ->
-      CoreIO . (: []) . (<> "\n") <$> coreStringText coreEnv value
-    (PrimIOThen, [CoreIO first, CoreIO second]) ->
-      Right (CoreIO (first <> second))
-    (PrimIOReturn, [_]) ->
-      Right (CoreIO [])
+      (\text -> CoreIO [text <> "\n"] (CoreData unitDataConName [])) <$> coreStringText coreEnv value
+    (PrimIOThen, [CoreIO first _, CoreIO second result]) ->
+      Right (CoreIO (first <> second) result)
+    (PrimIOBind, [CoreIO first value, CoreClosure closureEnv binder body]) -> do
+      second <- evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated value) closureEnv) body
+      case second of
+        CoreIO secondChunks result ->
+          Right (CoreIO (first <> secondChunks) result)
+        other ->
+          Left (CoreEvalTypeError ("expected Core IO action from bind continuation, got " <> renderCoreValue other))
+    (PrimIOReturn, [value]) ->
+      Right (CoreIO [] value)
     _ ->
       Left (CoreEvalTypeError ("invalid Core primitive operands for " <> renderCorePrimOpName op))
  where
@@ -371,7 +378,7 @@ renderCoreValue = \case
     Text.pack (show value)
   CoreString value ->
     Text.pack (show (Text.unpack value))
-  CoreIO chunks ->
+  CoreIO chunks _ ->
     "<Core IO " <> Text.pack (show (Text.unpack (Text.concat chunks))) <> ">"
   CoreClosure {} ->
     "<Core function>"
@@ -425,4 +432,5 @@ renderCorePrimOpName = \case
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"
   PrimIOThen -> "thenIO#"
+  PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"

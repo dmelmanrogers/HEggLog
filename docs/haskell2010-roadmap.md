@@ -375,14 +375,15 @@ Acceptance criteria:
 
 Status: the first IO printing slice is implemented for the executable subset.
 The typechecker recognizes `IO`, `main :: IO ()`, `putStrLn`, `print`,
-`return`, `(>>)`, and expression-only `do` sequencing with local `let`.
-Core/STG reference evaluators model IO output for oracle tests, and the native
-entrypoint executes `IO ()` actions instead of scalar root printing. Source
+`return`, `(>>)`, `(>>=)`, expression `do`, `<-` bind statements, and local
+`let`. Core/STG reference evaluators model IO output plus returned action
+values for oracle tests, and the native entrypoint executes `IO ()` actions
+instead of scalar root printing. Source
 string literals and built-in `show` results are represented as list-of-`Char`
 values, and boxed `Char` values, `Eq Char`, scalar `main :: Char`, broadened
 `Show` dictionaries for `Int`/`Bool`/`Char`/`String`/lists support the current
-output subset through default/no-egglog wet tests. `<-`
-binding, `(>>=)`, real-world IO handles, and broader Prelude IO remain planned.
+output subset through default/no-egglog wet tests. `getLine`, real-world IO
+handles, rich IO errors, `fail`, and broader Prelude IO remain planned.
 
 Deliverables:
 
@@ -659,9 +660,9 @@ Completed immediate tasks:
   alternatives, Core/STG guard-fallthrough no-matching-alternative behavior,
   native empty-case lowering, and default/no-egglog native wet tests.
 - Haskell 2010 IO printing slice, including `IO` typechecking, `main :: IO ()`
-  native entrypoint execution, `putStrLn`, `print`, `return`, `(>>)`,
-  expression-only `do` sequencing with local `let`, built-in `Show Int` and
-  `Show Bool` dictionaries, Core/STG IO output oracles, list-of-`Char` output,
+  native entrypoint execution, `putStrLn`, `print`, `return`, `(>>)`, `(>>=)`,
+  expression and bind-statement `do` sequencing with local `let`, built-in `Show Int` and
+  `Show Bool` dictionaries, Core/STG IO output/result oracles, list-of-`Char` output,
   and default/no-egglog native wet tests.
 - Haskell 2010 module graph and whole-program compilation for the executable
   subset, including dependency-file loading from imports, cycle/name-mismatch

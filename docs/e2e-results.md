@@ -1,7 +1,8 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after TC-015 broadened Show
-expansion. The suite covers the
+Recorded for the mandatory wet-test suite after the IO follow-up expanded
+normal `putStrLn`/`print` examples and implemented result-carrying `(>>=)`.
+The suite covers the
 existing `.hg` native compiler baseline and Haskell 2010 executable-subset
 `.hs` programs that compile to native executables, compare lazy runtime
 behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
@@ -9,7 +10,7 @@ optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-20 02:14:56 UTC`
+- Date/time: `2026-05-20 02:40:29 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -18,23 +19,22 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 135
-- Source files: 56
-- Successful source cases: 45
+- HUnit checks: 138
+- Source files: 57
+- Successful source cases: 46
 - Runtime-error source cases: 7
 - Compile-error source cases: 3
-- Native compile/run checks: 98
-- Default Egglog native checks: 55
-- `--no-egglog` native checks: 43
-- Emit-LLVM checks: 25
+- Native compile/run checks: 100
+- Default Egglog native checks: 56
+- `--no-egglog` native checks: 44
+- Emit-LLVM checks: 26
 - Report/interpreter comparisons: 12
 - Failures: 0
 
-TC-015 adds a dedicated Haskell 2010 native case for broadened `Show`: exact
-`Show Char`, exact `Show String`, generated list `Show`, nested `[String]`,
-`print`, and numeric-list defaulting through `show [1, 2, 3]`. The fixture runs
-in both default and `--no-egglog` modes and emits LLVM that is compiled through
-clang.
+This IO follow-up adds a dedicated Haskell 2010 native case for normal stdout
+examples: do-bind `<-`, explicit `(>>=)`, `putStrLn`, `print`, `String`,
+`Char`, and list `Show` output. The fixture runs in both default and
+`--no-egglog` modes and emits LLVM that is compiled through clang.
 
 ## Case Table
 
@@ -125,6 +125,9 @@ clang.
 | haskell2010-io-printing | `test/e2e/programs/haskell2010/io-printing.hs` | success | native/default | `ok\nanswer\n42\nTrue` | stdout `ok\nanswer\n42\nTrue`, stderr empty, exit 0 | pass |
 | haskell2010-io-printing | `test/e2e/programs/haskell2010/io-printing.hs` | success | native/no-egglog | `ok\nanswer\n42\nTrue` | stdout `ok\nanswer\n42\nTrue`, stderr empty, exit 0 | pass |
 | haskell2010-io-printing | `test/e2e/programs/haskell2010/io-printing.hs` | success | emit-llvm/default | `ok\nanswer\n42\nTrue` | LLVM compiled through clang, stdout `ok\nanswer\n42\nTrue`, stderr empty, exit 0 | pass |
+| haskell2010-io-normal-examples | `test/e2e/programs/haskell2010/io-normal-examples.hs` | success | native/default | `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]` | stdout `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]`, stderr empty, exit 0 | pass |
+| haskell2010-io-normal-examples | `test/e2e/programs/haskell2010/io-normal-examples.hs` | success | native/no-egglog | `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]` | stdout `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]`, stderr empty, exit 0 | pass |
+| haskell2010-io-normal-examples | `test/e2e/programs/haskell2010/io-normal-examples.hs` | success | emit-llvm/default | `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]` | LLVM compiled through clang, stdout `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]`, stderr empty, exit 0 | pass |
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | native/default | `15` | stdout `15`, stderr empty, exit 0 | pass |
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | native/no-egglog | `15` | stdout `15`, stderr empty, exit 0 | pass |
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | emit-llvm/default | `15` | LLVM compiled through clang, stdout `15`, stderr empty, exit 0 | pass |

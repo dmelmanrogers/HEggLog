@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-20 02:14:56 UTC
+Date/time: 2026-05-20 02:40:29 UTC
 
-Commit hash tested: TC-015 working tree before final task commit. The
+Commit hash tested: IO follow-up working tree before final task commit. The
 final commit for the task records the same source tree plus this results
 document.
 
@@ -35,14 +35,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 59 |
-| Haskell source files in corpus | 60 |
-| HUnit test cases executed | 68 |
-| Native-success fixtures | 46 |
+| Manifest conformance fixtures | 60 |
+| Haskell source files in corpus | 61 |
+| HUnit test cases executed | 70 |
+| Native-success fixtures | 47 |
 | Native-runtime-error fixtures | 1 |
 | Compile-error fixtures | 6 |
 | Unsupported-documented fixtures | 6 |
-| Native subprocess compile/run checks | 56 |
+| Native subprocess compile/run checks | 58 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -59,7 +59,7 @@ explicit conformance cases rather than omitted.
 | `declarations` | 4 | representative native tests exist |
 | `egglog` | 1 | optimized/unoptimized native agreement covered |
 | `expressions` | 10 | representative native tests exist |
-| `io` | 1 | current output-only IO slice covered |
+| `io` | 2 | current output-only IO slice covered, including do-bind and explicit `(>>=)` examples |
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |

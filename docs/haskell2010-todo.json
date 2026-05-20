@@ -7876,7 +7876,7 @@
     {
       "id": "IO-008",
       "title": "(>>=)",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "RTS-017",
@@ -7885,7 +7885,9 @@
       "blocks": [],
       "milestone": "M13",
       "acceptance_criteria": [
-        "(>>=) is implemented, completed, or explicitly documented according to status `not started`.",
+        "`(>>=)` typechecks, lowers, evaluates, and compiles natively for supported `IO` actions.",
+        "Do-notation `<-` bind statements typecheck, lower, evaluate, and compile natively for normal stdout examples.",
+        "Core and STG evaluator IO values preserve the returned action result while accumulating stdout output.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

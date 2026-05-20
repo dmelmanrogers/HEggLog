@@ -417,6 +417,19 @@
       "notes": "Current supported IO printing slice with exact stdout."
     },
     {
+      "name": "io.normal-examples",
+      "sourceFile": "test/haskell2010/conformance/io/normal-examples.hs",
+      "category": "io",
+      "expectedStatus": "native-success",
+      "expectedStdout": "hello\nbound\n\"quoted\"\n'X'\n\"plain\"\n[1,2,3]\n[True,False]\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Normal IO examples after real String and Show support: do-bind, explicit >>=, putStrLn, and print over Char, String, and lists."
+    },
+    {
       "name": "egglog.known-constructor",
       "sourceFile": "test/haskell2010/conformance/egglog/known-constructor.hs",
       "category": "egglog",

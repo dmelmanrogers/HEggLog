@@ -146,8 +146,8 @@ Completed Haskell 2010 roadmap work:
   diagnostics remain planned.
 - Haskell 2010 IO printing slice: implemented `IO` typechecking and native
   `main :: IO ()` entrypoint execution, `putStrLn`, `print`, `return`, `(>>)`,
-  expression-only `do` sequencing with local `let`, broadened built-in
-  `Show` dictionaries, Core/STG IO reference values, source strings and
+  `(>>=)`, expression and bind-statement `do` sequencing with local `let`, broadened built-in
+  `Show` dictionaries, Core/STG IO output/result reference values, source strings and
   built-in show results as list-of-`Char` values, and default/no-egglog wet
   tests.
 

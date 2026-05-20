@@ -390,6 +390,13 @@ emitPrim env op arguments =
       _ <- emitForce firstObject
       secondObject <- emitAtomAddress env secondAction
       emitForce secondObject
+    (PrimIOBind, [firstAction, continuation]) -> do
+      firstObject <- emitAtomAddress env firstAction
+      firstResult <- emitForce firstObject
+      continuationObject <- emitAtomAddress env continuation
+      functionObject <- emitExpectFunction continuationObject
+      secondAction <- enterFunction functionObject firstResult
+      emitForce secondAction
     (PrimIOReturn, [value]) ->
       emitAtomAddress env value
     _ ->

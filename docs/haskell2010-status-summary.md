@@ -39,8 +39,8 @@ constrained functions, boxed native `Char` literals and literal cases, scalar
 methods. Guarded RHSs, guarded case alternatives, as-pattern aliases, and
 guard-fallthrough no-match behavior are also implemented. The first IO printing
 slice is implemented for `IO`,
-`main :: IO ()`, `putStrLn`, `print`, `return`, `(>>)`, expression-only `do`
-sequencing with local `let`, and built-in `Show Int`/`Show Bool` dictionaries.
+`main :: IO ()`, `putStrLn`, `print`, `return`, `(>>)`, `(>>=)`, expression and
+bind-statement `do` sequencing with local `let`, and built-in `Show Int`/`Show Bool` dictionaries.
 The current `Show` slice also includes exact `Show Char`, exact `Show String`,
 and generated structural list dictionaries.
 The typechecker now also exposes structured exhaustiveness warning
@@ -55,7 +55,7 @@ implemented:
   ADT-shaped `Show`
 - broader Prelude/library subset
 - Haskell source desugaring beyond the current executable subset
-- broader IO, including `<-`, `(>>=)`, handles, and effects beyond stdout
+- broader IO, including `getLine`, handles, rich IO errors, `fail`, and effects beyond stdout
 - Haskell 2010 conformance suite
 
 ## What Is Parsed Today
@@ -110,7 +110,7 @@ bindings for `id`, `const`, `not`, `otherwise`, `map`, `foldr`, `length`,
 the first built-in instances, including `Eq Char`; guarded RHSs and
 guarded case alternatives desugared to Bool `case`; as-pattern aliases lowered
 as local Core bindings; `IO` actions for `putStrLn`, `print`, `return`, `(>>)`,
-expression-only `do` sequencing; left and right operator sections over the
+`(>>=)`, expression `do`, and `<-` bind-statement sequencing; left and right operator sections over the
 supported infix subset desugared to generated Core lambdas; built-in `Show Int`,
 `Show Bool`, `Show Char`, exact `Show String`, and generated list `Show`
 dictionaries; and primitive `/`.
@@ -169,8 +169,8 @@ sections, including lazy Boolean sections. It reports guard fallthrough as a
 no-matching-alternative runtime error.
 Core evaluation covers `Char` literals, literal `Char` cases, and `Eq Char`
 dictionary calls in the executable subset.
-It now models IO output for `putStrLn`, `print`, `return`, `(>>)`, and
-expression-only `do` sequencing so Core remains the oracle for native
+It now models IO output and result values for `putStrLn`, `print`, `return`,
+`(>>)`, `(>>=)`, and expression/bind-statement `do` sequencing so Core remains the oracle for native
 `main :: IO ()` execution.
 
 This is a reference oracle for the native path. Haskell 2010 type diagnostics
@@ -295,8 +295,8 @@ and compiled to native executables through the existing clang toolchain.
     subset; structured exhaustiveness warning placeholders are exposed by the
     typechecker and native API, while a full coverage checker remains planned.
 16. IO printing and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
-    `putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing with
-    local `let`, broadened built-in `Show`, Core/STG output oracles,
+    `putStrLn`, `print`, `return`, `(>>)`, `(>>=)`, expression and bind-statement
+    `do` sequencing with local `let`, broadened built-in `Show`, Core/STG output/result oracles,
     source strings and built-in show results as list-of-`Char` output, and
     wet-tested default/no-egglog CLI runs.
 17. Numeric literals and defaulting. Completed for dictionary-backed
@@ -355,7 +355,8 @@ constructor dispatch, boxed constructor fields,
 recursive closure/thunk groups, user and built-in type class dictionary
 constructor/selector execution, guarded RHS/as-pattern programs, empty-case
 guard-fallthrough aborts, `putStrLn`/`print` output for `IO ()` programs with
-source string literals as list-of-`Char` values, boxed `Char` values, `Eq Char`
+source string literals as list-of-`Char` values, do-bind continuations, explicit
+`(>>=)`, boxed `Char` values, `Eq Char`
 primitive lowering, scalar `Char` root printing, built-in
 `Show Int`/`Show Bool`/`Show Char`/`Show String`/list results as lists,
 checked primitives, and invokes clang to produce native

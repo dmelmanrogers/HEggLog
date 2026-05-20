@@ -80,7 +80,8 @@ literals and literal cases, scalar `main :: Char` output, and built-in
 class methods, plus guarded RHSs, guarded case alternatives, as-pattern
 aliases, and guard-fallthrough no-match behavior, plus the first IO printing
 slice for `IO`, `main :: IO ()`,
-`putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing, and
+`putStrLn`, `print`, `return`, `(>>)`, `(>>=)`, expression and bind-statement
+`do` sequencing, and
 built-in `Show Int`/`Show Bool`/`Show Char`/`Show String` plus generated
 structural list `Show` dictionaries. A Core
 reference evaluator executes validating typed Core with erased type
@@ -102,7 +103,8 @@ constructor values, and checked primitive aborts, then uses the existing clang
 toolchain path to produce native executables. The Haskell 2010 native path also
 executes `main :: IO ()` actions for `putStrLn` and `print` output using
 list-of-`Char` traversal, built-in scalar/string `Show` results represented as
-lists, generated list `Show` dictionaries, and a compatibility path for legacy internal string payloads. Dedicated
+lists, generated list `Show` dictionaries, do-bind result values, explicit
+`(>>=)`, and a compatibility path for legacy internal string payloads. Dedicated
 native wet tests now cover direct string output, list operations over strings,
 show-produced strings, explicit `Char` cons patterns, and string literal
 patterns in both default and `--no-egglog` modes.
@@ -140,7 +142,8 @@ Current status:
   `Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, `Show Bool`, `Show Char`,
   `Show String`, and structural list `Show` dictionaries, plus
   source-spanned Haskell 2010 typecheck diagnostics, plus
-  `putStrLn`, `print`, `return`, `(>>)`, and expression-only `do` sequencing
+  `putStrLn`, `print`, `return`, `(>>)`, `(>>=)`, and expression/bind-statement
+  `do` sequencing
 - Haskell 2010 Core reference evaluator: implemented and unit-tested for
   arithmetic, polymorphic instantiation, Bool and user ADT cases, lazy
   lets/arguments, lazy constructor fields, Prelude list functions, tuple and
@@ -169,8 +172,8 @@ Current status:
   division-by-zero failure, curried partial application, user-defined type
   class dictionary calls, built-in `Eq`/`Ord`/`Num` class dictionary calls,
   `Eq Char`, `Char` literal cases, scalar `main :: Char` printing, guarded
-  RHS/as-pattern programs, `main :: IO ()` printing through `putStrLn` and
-  `print`, process-lifetime runtime allocation, and guard-fallthrough runtime
+  RHS/as-pattern programs, `main :: IO ()` printing through `putStrLn`,
+  `print`, do-bind statements, and explicit `(>>=)`, process-lifetime runtime allocation, and guard-fallthrough runtime
   failure
 - Haskell 2010 Egglog Core optimizer: implemented and unit/wet-tested for
   safe Core-0 arithmetic identities, checked constant folding, known Bool case

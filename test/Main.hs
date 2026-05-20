@@ -174,6 +174,7 @@ testGroups =
       , pureTest "documents monomorphism restriction defaulting policy" testHaskell2010MonomorphismRestrictionDefaulting
       , pureTest "typechecks multi-module imports" testHaskell2010Core0MultiModuleImports
       , pureTest "typechecks IO printing" testHaskell2010Core0IOPrinting
+      , pureTest "typechecks normal IO examples" testHaskell2010Core0IONormalExamples
       , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
       , pureTest "desugars operator sections to Core lambdas" testHaskell2010Core0Sections
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
@@ -206,6 +207,7 @@ testGroups =
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
+      , pureTest "evaluates normal IO examples" testHaskell2010Core0EvalIONormalExamples
       , pureTest "evaluates guards and as-patterns" testHaskell2010Core0EvalGuardsAndAsPatterns
       , pureTest "evaluates operator sections" testHaskell2010Core0EvalSections
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
@@ -245,6 +247,7 @@ testGroups =
       , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
       , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
+      , pureTest "preserves normal IO example semantics" testHaskell2010CoreToSTGIONormalExamples
       , pureTest "preserves guard and as-pattern semantics" testHaskell2010CoreToSTGGuardsAndAsPatterns
       , pureTest "preserves operator section semantics" testHaskell2010CoreToSTGSections
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
@@ -1617,6 +1620,15 @@ testHaskell2010Core0IOPrinting = do
   assertBool "Prelude >> binding is emitted" (containsBindingOccurrence ">>" coreModule)
   expectCoreEvalIO "IO printing Core oracle" "ok\nanswer\n42\nTrue\n" =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0IONormalExamples :: Either String ()
+testHaskell2010Core0IONormalExamples = do
+  coreModule <- typecheckHaskell2010 haskell2010IONormalExamplesSource
+  assertBool "Prelude >>= binding is emitted" (containsBindingOccurrence ">>=" coreModule)
+  assertBool "Prelude Show Char instance dictionary is emitted" (containsBindingOccurrence "$fShowChar" coreModule)
+  assertBool "Prelude Show String instance dictionary is emitted" (containsBindingOccurrence "$fShowString" coreModule)
+  assertBool "Prelude generic Show list dictionary is emitted" (containsBindingOccurrence "$fShowList" coreModule)
+  expectCoreEvalIO "normal IO examples Core oracle" haskell2010IONormalExamplesOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0GuardsAndAsPatterns :: Either String ()
 testHaskell2010Core0GuardsAndAsPatterns = do
   coreModule <- typecheckHaskell2010 haskell2010GuardAsPatternSource
@@ -1907,6 +1919,13 @@ testHaskell2010Core0EvalIOPrinting =
     "ok\nanswer\n42\nTrue\n"
     =<< evalHaskell2010Binding "main" haskell2010IOPrintingSource
 
+testHaskell2010Core0EvalIONormalExamples :: Either String ()
+testHaskell2010Core0EvalIONormalExamples =
+  expectCoreEvalIO
+    "Core-0 normal IO examples evaluation"
+    haskell2010IONormalExamplesOutput
+    =<< evalHaskell2010Binding "main" haskell2010IONormalExamplesSource
+
 testHaskell2010Core0EvalGuardsAndAsPatterns :: Either String ()
 testHaskell2010Core0EvalGuardsAndAsPatterns =
   expectCoreEvalInt
@@ -2190,6 +2209,10 @@ testHaskell2010CoreToSTGMultiModuleImports = do
 testHaskell2010CoreToSTGIOPrinting :: Either String ()
 testHaskell2010CoreToSTGIOPrinting =
   checkCoreToSTGIO "Core-to-STG IO printing" "ok\nanswer\n42\nTrue\n" haskell2010IOPrintingSource
+
+testHaskell2010CoreToSTGIONormalExamples :: Either String ()
+testHaskell2010CoreToSTGIONormalExamples =
+  checkCoreToSTGIO "Core-to-STG normal IO examples" haskell2010IONormalExamplesOutput haskell2010IONormalExamplesSource
 
 testHaskell2010CoreToSTGGuardsAndAsPatterns :: Either String ()
 testHaskell2010CoreToSTGGuardsAndAsPatterns =
@@ -5544,7 +5567,7 @@ expectCoreEvalInt label expected = \case
 
 expectCoreEvalIO :: String -> Text -> H2010CoreEval.CoreValue -> Either String ()
 expectCoreEvalIO label expected = \case
-  H2010CoreEval.CoreIO chunks ->
+  H2010CoreEval.CoreIO chunks _ ->
     expectEqual label expected (Text.concat chunks)
   actual ->
     Left
@@ -5658,6 +5681,7 @@ haskell2010NativeSuccessExamples =
   , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
+  , ("io-normal-examples", haskell2010IONormalExamplesSource, Text.unpack haskell2010IONormalExamplesOutput)
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
   , ("irrefutable-patterns", haskell2010IrrefutablePatternSource, "7\n")
   , ("sections", haskell2010SectionsSource, "6\n")
@@ -5687,6 +5711,7 @@ haskell2010NativeExecutableExamples =
   , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
+  , ("io-normal-examples", haskell2010IONormalExamplesSource, Text.unpack haskell2010IONormalExamplesOutput)
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
   , ("irrefutable-patterns", haskell2010IrrefutablePatternSource, "7\n")
   , ("sections", haskell2010SectionsSource, "6\n")
@@ -6062,6 +6087,30 @@ haskell2010IOPrintingSource =
   \  print (not False)\n\
   \  return ()\n"
 
+haskell2010IONormalExamplesSource :: Text
+haskell2010IONormalExamplesSource =
+  "module Main where\n\
+  \greeting :: String\n\
+  \greeting = \"hello\"\n\
+  \announce :: String -> IO ()\n\
+  \announce label = putStrLn label\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  word <- return greeting\n\
+  \  announce word\n\
+  \  return \"bound\" >>= putStrLn\n\
+  \  let values = [1, 2, 3]\n\
+  \  putStrLn (show \"quoted\")\n\
+  \  print 'X'\n\
+  \  print \"plain\"\n\
+  \  print values\n\
+  \  print [True, False]\n\
+  \  return ()\n"
+
+haskell2010IONormalExamplesOutput :: Text
+haskell2010IONormalExamplesOutput =
+  "hello\nbound\n\"quoted\"\n'X'\n\"plain\"\n[1,2,3]\n[True,False]\n"
+
 haskell2010GuardAsPatternSource :: Text
 haskell2010GuardAsPatternSource =
   "module Main where\n\
@@ -6176,7 +6225,7 @@ expectSTGInt label expected = \case
 
 expectSTGIO :: String -> Text -> H2010STGEval.STGValue -> Either String ()
 expectSTGIO label expected = \case
-  H2010STGEval.STGIO chunks ->
+  H2010STGEval.STGIO chunks _ ->
     expectEqual label expected (Text.concat chunks)
   actual ->
     Left

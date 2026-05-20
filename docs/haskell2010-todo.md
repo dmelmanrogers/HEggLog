@@ -228,9 +228,9 @@ Rules:
 15. PRELUDE-013 — append: Implement `(++)` for supported list and string programs.
 16. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
 17. IO-006 — getLine: Add stdin line input or document the initial IO deviation.
-18. IO-008 — `(>>=)`: Implement bind for the supported IO subset.
-19. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
-20. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
+18. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
+19. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
+20. MOD-009 — instance import/export behavior: Define how class instances move across module boundaries.
 
 # Task Backlog
 
@@ -14112,7 +14112,7 @@ Notes:
 ## IO-008 — (>>=)
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -14125,7 +14125,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver (>>=) for IO and do-notation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver `(>>=)` for the supported stdout-oriented IO subset while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Core and STG IO actions now carry both accumulated stdout chunks and a result value, explicit `(>>=)` enters the continuation with that result, and do-notation `<-` statements lower through the same bind path.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -14141,7 +14141,9 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- (>>=) is implemented, completed, or explicitly documented according to status `not started`.
+- `(>>=)` typechecks, lowers, evaluates, and compiles natively for supported `IO` actions.
+- Do-notation `<-` bind statements typecheck, lower, evaluate, and compile natively for normal stdout examples.
+- Core and STG evaluator IO values preserve the returned action result while accumulating stdout output.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -14156,7 +14158,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M13 (IO and do-notation). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M13 (IO and do-notation). Completed for explicit `(>>=)`, do-bind statements, `return`-produced values, and normal `putStrLn`/`print` examples over `String`, `Char`, and lists. `getLine`, handles, `fail`, full Monad dictionaries, and rich IO error behavior remain separate tasks.
 
 ## IO-009 — (>>)
 

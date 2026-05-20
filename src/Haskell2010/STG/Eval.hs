@@ -20,7 +20,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Core.Syntax
-import Haskell2010.Names (RName, nameOcc, renderRName)
+import Haskell2010.Names (Namespace (..), RName (..), nameOcc, renderRName)
 import Haskell2010.STG.Syntax
 import qualified Haskell2010.STG.Validate as STGValidate
 import Haskell2010.Syntax (Literal (..))
@@ -47,7 +47,7 @@ data STGValue
   | STGBool Bool
   | STGChar Char
   | STGString Text
-  | STGIO [Text]
+  | STGIO [Text] STGValue
   | STGData RName [STGHeapAddress]
   | STGFunctionValue STGHeapAddress
   deriving stock (Show, Eq, Ord)
@@ -176,7 +176,7 @@ evalExpr env = \case
     scrutineeValue <- evalExpr env scrutinee
     evalCaseAlternative env binder alternatives scrutineeValue
   STGPrim op arguments _ ->
-    traverse (evalAtom env) arguments >>= evalPrimitive op
+    evalPrimitive env op arguments
 
 evalAtom :: RuntimeEnv -> STGAtom -> EvalM STGValue
 evalAtom env = \case
@@ -277,11 +277,20 @@ applyFunction ::
   STGExpr ->
   [STGAtom] ->
   EvalM STGValue
-applyFunction callerEnv callee closureEnv binders body arguments
+applyFunction callerEnv callee closureEnv binders body arguments =
+  traverse (atomAddress callerEnv) arguments >>= applyFunctionAddresses callee closureEnv binders body
+
+applyFunctionAddresses ::
+  RName ->
+  RuntimeEnv ->
+  [STGBinder] ->
+  STGExpr ->
+  [STGHeapAddress] ->
+  EvalM STGValue
+applyFunctionAddresses callee closureEnv binders body argumentAddresses
   | expectedArity /= actualArity =
       throwEval (STGEvalArityMismatch callee expectedArity actualArity)
   | otherwise = do
-      argumentAddresses <- traverse (atomAddress callerEnv) arguments
       let parameterEnv =
             Map.fromList (zip (map stgBinderName binders) argumentAddresses)
       evalExpr (Map.union parameterEnv closureEnv) body
@@ -289,7 +298,26 @@ applyFunction callerEnv callee closureEnv binders body arguments
   expectedArity =
     length binders
   actualArity =
-    length arguments
+    length argumentAddresses
+
+enterFunctionAddressWithArguments :: RName -> STGHeapAddress -> [STGHeapAddress] -> EvalM STGValue
+enterFunctionAddressWithArguments callee address argumentAddresses =
+  lookupClosure address >>= \case
+    FunctionClosure closureEnv binders body ->
+      applyFunctionAddresses callee closureEnv binders body argumentAddresses
+    ThunkClosure {} -> do
+      value <- forceAddress address
+      case value of
+        STGFunctionValue functionAddress ->
+          enterFunctionAddressWithArguments callee functionAddress argumentAddresses
+        other ->
+          typeError ("expected STG function, got " <> renderSTGValue other)
+    ValueClosure (STGFunctionValue functionAddress) ->
+      enterFunctionAddressWithArguments callee functionAddress argumentAddresses
+    ValueClosure other ->
+      typeError ("expected STG function, got " <> renderSTGValue other)
+    BlackHole origin ->
+      throwEval (STGEvalBlackHole origin)
 
 forceAddress :: STGHeapAddress -> EvalM STGValue
 forceAddress address =
@@ -361,8 +389,9 @@ alternativeFields altCon value =
     _ ->
       Nothing
 
-evalPrimitive :: CorePrimOp -> [STGValue] -> EvalM STGValue
-evalPrimitive op values =
+evalPrimitive :: RuntimeEnv -> CorePrimOp -> [STGAtom] -> EvalM STGValue
+evalPrimitive env op arguments = do
+  values <- traverse (evalAtom env) arguments
   case (op, values) of
     (PrimAdd, [STGInt lhs, STGInt rhs]) ->
       liftEither (checkedIntValue (addHInt lhs rhs))
@@ -388,14 +417,24 @@ evalPrimitive op values =
     (PrimShowBool, [STGBool False]) ->
       stringListValue "False"
     (PrimPutStrLn, [value]) ->
-      STGIO . (: []) . (<> "\n") <$> stgStringText value
-    (PrimIOThen, [STGIO first, STGIO second]) ->
-      pure (STGIO (first <> second))
-    (PrimIOReturn, [_]) ->
-      pure (STGIO [])
+      (\text -> STGIO [text <> "\n"] (STGData unitDataConName [])) <$> stgStringText value
+    (PrimIOThen, [STGIO first _, STGIO second result]) ->
+      pure (STGIO (first <> second) result)
+    (PrimIOBind, [STGIO first value, STGFunctionValue functionAddress]) -> do
+      valueAddress <- allocateClosure (ValueClosure value)
+      second <- enterFunctionAddressWithArguments ioBindContinuationName functionAddress [valueAddress]
+      case second of
+        STGIO secondChunks result ->
+          pure (STGIO (first <> secondChunks) result)
+        other ->
+          typeError ("expected STG IO action from bind continuation, got " <> renderSTGValue other)
+    (PrimIOReturn, [value]) ->
+      pure (STGIO [] value)
     _ ->
       throwEval (STGEvalTypeError ("invalid STG primitive operands for " <> renderCorePrimOpName op))
  where
+  ioBindContinuationName =
+    RName TermNamespace "$io_bind_continuation" (-3921) False
   checkedIntValue =
     \case
       Right value -> Right (STGInt value)
@@ -528,7 +567,7 @@ renderSTGValue = \case
     Text.pack (show value)
   STGString value ->
     Text.pack (show (Text.unpack value))
-  STGIO chunks ->
+  STGIO chunks _ ->
     "<STG IO " <> Text.pack (show (Text.unpack (Text.concat chunks))) <> ">"
   STGData name fields ->
     renderRName name <> "/" <> Text.pack (show (length fields))
@@ -586,4 +625,5 @@ renderCorePrimOpName = \case
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"
   PrimIOThen -> "thenIO#"
+  PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"

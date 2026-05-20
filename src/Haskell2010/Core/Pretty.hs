@@ -117,6 +117,7 @@ renderCorePrimOp = \case
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"
   PrimIOThen -> "thenIO#"
+  PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"
 
 renderCoreType :: CoreType -> Text

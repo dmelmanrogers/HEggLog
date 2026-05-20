@@ -1377,6 +1377,7 @@ supportedPreludeValueOccurrences =
   , "putStrLn"
   , "print"
   , "return"
+  , ">>="
   , ">>"
   , "=="
   , "/="
@@ -2340,9 +2341,28 @@ inferDo env (statement@(RLetStmt decls) : rest) =
     (bindings, env') <- inferBindingGroup env decls
     body <- inferDo env' rest
     pure (TLet bindings body (typedExprType body))
-inferDo _ (statement@(RBindStmt {}) : _) =
-  withTypecheckSpan (rStmtSpan statement) $
-    throwTypecheck (UnsupportedCore0 "do bind statements")
+inferDo env (statement@(RBindStmt pat expr) : rest) =
+  withTypecheckSpan (rStmtSpan statement) $ do
+    first <- inferExpr env expr
+    valueTy <- freshMeta
+    unify (typedExprType first) (ioMonoType valueTy)
+    valueTy' <- applyCurrent valueTy
+    argumentBinder <- freshTermBinder "$do_bind" valueTy'
+    caseBinder <- freshTermBinder "$do_bind_case" valueTy'
+    let argument =
+          TVar
+            (typedBinderName argumentBinder)
+            (Scheme [] [] valueTy')
+            []
+            valueTy'
+    plan <- inferPatternPlan env valueTy' argument pat
+    body <- inferDo (patternEnv plan) rest
+    resultTy <- freshMeta
+    unify (typedExprType body) (ioMonoType resultTy)
+    let wrappedBody = caseForPatternPlan argument caseBinder plan body
+        continuationTy = TyFun valueTy' (typedExprType wrappedBody)
+        continuation = TLam argumentBinder wrappedBody continuationTy
+    pure (TPrim PrimIOBind [first, continuation] (typedExprType wrappedBody))
 
 inferRecordConstruction :: TypeEnv -> RName -> [(RName, RExpr)] -> InferM TypedExpr
 inferRecordConstruction env name fields = do
@@ -2484,6 +2504,13 @@ preludeValueScheme name
             "putStrLn" -> Just (Scheme [] [] (TyFun stringMonoType ioUnit))
             "print" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun aTy ioUnit))
             "return" -> Just (Scheme [a] [] (TyFun aTy (ioMonoType aTy)))
+            ">>=" ->
+              Just
+                ( Scheme
+                    [a, b]
+                    []
+                    (TyFun (ioMonoType aTy) (TyFun (TyFun aTy (ioMonoType bTy)) (ioMonoType bTy)))
+                )
             ">>" -> Just (Scheme [a, b] [] (TyFun (ioMonoType aTy) (TyFun (ioMonoType bTy) (ioMonoType bTy))))
             _ -> Nothing
  where
@@ -2509,6 +2536,7 @@ inferPrimitive env lhs op rhs =
     ">=" -> overloadedBinary "Ord" ">="
     "==" -> overloadedBinary "Eq" "=="
     "/=" -> overloadedBinary "Eq" "/="
+    ">>=" -> inferExpr env (RApp (RApp (RVar op) lhs) rhs)
     ">>" -> inferExpr env (RApp (RApp (RVar op) lhs) rhs)
     "&&" -> shortCircuit falseTyped trueDataConName
     "||" -> shortCircuit trueTyped falseDataConName
@@ -3930,6 +3958,8 @@ preludeCorePair name =
       Just (binderFor name printTy, printRhs)
     "return" ->
       Just (binderFor name returnTy, CTypeLam [a] (lam returnX aTy (CPrimOp PrimIOReturn [var returnX aTy] (ioTy aTy))) returnTy)
+    ">>=" ->
+      Just (binderFor name bindTy, bindRhs)
     ">>" ->
       Just (binderFor name thenTy, thenRhs)
     _ -> Nothing
@@ -3960,6 +3990,7 @@ preludeCorePair name =
   showTy = CTyForall [showMethodA] (CTyFun showMethodDictA (CTyFun showMethodATy stringTy))
   printTy = CTyForall [a] (CTyFun showDictA (CTyFun aTy ioUnitTy))
   returnTy = CTyForall [a] (CTyFun aTy ioA)
+  bindTy = CTyForall [a, b] (CTyFun ioA (CTyFun (CTyFun aTy ioB) ioB))
   thenTy = CTyForall [a, b] (CTyFun ioA (CTyFun ioB ioB))
 
   idX = preludeTermName "$id_x" (-3001)
@@ -4000,6 +4031,8 @@ preludeCorePair name =
   returnX = preludeTermName "$return_x" (-3063)
   thenFirst = preludeTermName "$then_first" (-3064)
   thenSecond = preludeTermName "$then_second" (-3065)
+  bindFirst = preludeTermName "$bind_first" (-3066)
+  bindContinuation = preludeTermName "$bind_continuation" (-3067)
 
   binderFor binderName ty = CoreBinder binderName ty
   lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
@@ -4162,6 +4195,20 @@ preludeCorePair name =
 
   thenRhs =
     CTypeLam [a, b] (lam thenFirst ioA (lam thenSecond ioB (CPrimOp PrimIOThen [var thenFirst ioA, var thenSecond ioB] ioB))) thenTy
+
+  bindRhs =
+    CTypeLam
+      [a, b]
+      ( lam
+          bindFirst
+          ioA
+          ( lam
+              bindContinuation
+              (CTyFun aTy ioB)
+              (CPrimOp PrimIOBind [var bindFirst ioA, var bindContinuation (CTyFun aTy ioB)] ioB)
+          )
+      )
+      bindTy
 
 reverseGoCorePair :: (CoreBinder, CoreExpr)
 reverseGoCorePair =

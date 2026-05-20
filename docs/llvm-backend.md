@@ -140,7 +140,8 @@ functions.
 `main` prints `Int` roots as decimal integers and `Bool` roots as `0` or `1`.
 For Haskell 2010 `main :: IO ()`, the generated wrapper forces the IO action
 instead; the current IO subset lowers `putStrLn`, `print` for the supported
-`Show` scalar/string/list subset, `return`, and `(>>)`.
+`Show` scalar/string/list subset, `return`, `(>>)`, `(>>=)`, and do-bind
+continuations.
 The emitter uses opaque pointer syntax (`ptr`) for the `printf` declaration and
 format-string pointers.
 

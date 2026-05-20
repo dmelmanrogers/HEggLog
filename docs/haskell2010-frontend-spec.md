@@ -186,8 +186,8 @@ constructors/selectors, dictionary-passed method calls, and built-in `Eq Int`,
 `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`,
 `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and structural list
 `Show` dictionaries. It also covers `IO`, `main :: IO ()`, `putStrLn`,
-`print`, `return`, `(>>)`, and expression-only `do` sequencing with local
-`let`. It also covers `fromInteger`, overloaded integer literals, numeric
+`print`, `return`, `(>>)`, `(>>=)`, expression `do`, and `<-` bind-statement
+sequencing with local `let`. It also covers `fromInteger`, overloaded integer literals, numeric
 defaulting to executable `Int`, inferred constrained helper schemes, and
 SCC-based binding generalization, and recursive non-variable pattern bindings.
 It also covers import-driven dependency-file loading, export/import filtering,
@@ -195,8 +195,8 @@ whole-program Core flattening, and root `main` native entrypoint selection for
 the executable subset. It exposes structured exhaustiveness warning
 placeholders for partial `case`, function, and lambda patterns through the
 typechecker and native API. Full Haskell 2010 type classes, derived/user ADT-shaped `Show`, a
-full pattern coverage checker, richer pattern diagnostics, broader Prelude, and
-broader IO remain planned. The strict
+full pattern coverage checker, richer pattern diagnostics, broader Prelude, `getLine`,
+handles, and richer IO behavior remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

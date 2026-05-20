@@ -293,6 +293,7 @@ validatePrimitive op arguments resultTy =
     PrimShowBool -> validateFixedPrimitive op [boolTy] stringTy arguments resultTy
     PrimPutStrLn -> validateFixedPrimitive op [stringTy] (ioTy unitTy) arguments resultTy
     PrimIOThen -> validateIOThenPrimitive op arguments resultTy
+    PrimIOBind -> validateIOBindPrimitive op arguments resultTy
     PrimIOReturn -> validateIOReturnPrimitive op arguments resultTy
     PrimEq ->
       [ checkPrimitiveArity op 2 arguments
@@ -340,6 +341,23 @@ validateIOReturnPrimitive op arguments resultTy =
   [ checkPrimitiveArity op 1 arguments
   , case map exprType arguments of
       [valueTy] -> checkPrimitiveResult op (ioTy valueTy) resultTy
+      _ -> Right ()
+  ]
+
+validateIOBindPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateIOBindPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 2 arguments
+  , case map exprType arguments of
+      [actionTy, continuationTy]
+        | Just actionResultTy <- ioResultType actionTy
+        , CTyFun continuationArgTy continuationResultTy <- continuationTy
+        , continuationArgTy == actionResultTy
+        , Just _ <- ioResultType continuationResultTy ->
+            checkPrimitiveResult op continuationResultTy resultTy
+        | Just actionResultTy <- ioResultType actionTy ->
+            Left [CorePrimitiveArgumentMismatch op 1 (CTyFun actionResultTy (ioTy (CTyVar unknownIOTypeVariable))) continuationTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ioTy (CTyVar unknownIOTypeVariable)) actionTy]
       _ -> Right ()
   ]
 

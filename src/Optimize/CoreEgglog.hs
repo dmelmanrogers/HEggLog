@@ -677,6 +677,7 @@ corePrimToANF = \case
   PrimShowBool -> Nothing
   PrimPutStrLn -> Nothing
   PrimIOThen -> Nothing
+  PrimIOBind -> Nothing
   PrimIOReturn -> Nothing
 
 anfPrimToCore :: BinOp -> CorePrimOp
