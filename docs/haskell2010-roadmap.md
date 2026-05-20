@@ -522,9 +522,9 @@ Acceptance criteria:
 Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
-`haskell2010-conformance-test` Cabal suite. The baseline currently records 64
-fixtures: 51 native-success cases, 1 native-runtime-error case, 6 compile-error
-cases, and 6 unsupported-documented cases. The suite invokes the built
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 68
+fixtures: 56 native-success cases, 1 native-runtime-error case, 6 compile-error
+cases, and 5 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
 runtime-error exits, checks compile-error diagnostics, and fails if documented

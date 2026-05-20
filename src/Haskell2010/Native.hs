@@ -13,6 +13,7 @@ module Haskell2010.Native
   )
 where
 
+import qualified Data.List as List
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Egglog.Eval as Egglog
@@ -27,12 +28,13 @@ import Haskell2010.ModuleGraph
   )
 import Haskell2010.Names (RName, nameOcc)
 import Haskell2010.Parser (parseSourceModule)
+import Haskell2010.Pretty (renderModuleName)
 import Haskell2010.Renamed (RDecl (..), RHsModule (..), RPat (..))
 import Haskell2010.Renamer (RenameError, renameModule, renameModuleGraph, renderRenameError)
 import Haskell2010.STG.LLVM (STGLLVMError, lowerSTGProgramToLLVMByName, renderSTGLLVMError)
 import Haskell2010.STG.Lower (STGLowerError, lowerCoreModule, renderSTGLowerError)
 import Haskell2010.STG.Syntax (STGProgram)
-import Haskell2010.Syntax (HsModule)
+import Haskell2010.Syntax (HsModule, ModuleName (..))
 import Haskell2010.Typecheck
   ( TypecheckError
   , TypecheckResult (..)
@@ -130,12 +132,23 @@ compileHaskell2010LoadedModulesToLLVMWithOptions options graph = do
       (renameModuleGraph (map loadedModuleParsed (loadedModules graph)))
   let renamed = wholeProgramModule renamedModules
       parsed = loadedModuleParsed (loadedRoot graph)
+      rootName = loadedModuleName (loadedRoot graph)
   rootRenamed <-
-    case renamedModules of
-      [] -> Left (Haskell2010LLVMMissingMain "Haskell 2010 module graph is empty")
-      _ -> Right (last renamedModules)
+    case List.find ((== rootName) . renamedModuleSourceName) renamedModules of
+      Just root -> Right root
+      Nothing ->
+        Left
+          ( Haskell2010LLVMMissingMain
+              ("renamed Haskell 2010 module graph is missing root module `" <> renderModuleName rootName <> "`")
+          )
   mainName <- mapLeft Haskell2010LLVMMissingMain (rootMainName rootRenamed)
   compileHaskell2010RenamedToLLVMWithOptions options parsed renamed mainName
+
+renamedModuleSourceName :: RHsModule -> ModuleName
+renamedModuleSourceName renamedModule =
+  case rModuleName renamedModule of
+    Just name -> name
+    Nothing -> ModuleName ["Main"]
 
 compileHaskell2010RenamedToLLVMWithOptions ::
   Haskell2010NativeOptions ->

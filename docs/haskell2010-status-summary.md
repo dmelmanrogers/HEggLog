@@ -55,7 +55,8 @@ implemented:
 - broader Prelude/library subset
 - Haskell source desugaring beyond the current executable subset
 - broader IO, including handles, rich IO errors, `fail`, and effects beyond line-oriented stdin/stdout
-- Haskell 2010 conformance suite
+- full Haskell 2010 conformance suite breadth beyond the current
+  manifest-backed executable subset
 
 ## What Is Parsed Today
 
@@ -371,13 +372,14 @@ GHC compatibility is not claimed. The initial target is documented Haskell 2010
 semantics and explicitly tracked deviations. GHC extensions are excluded
 initially.
 
-## Next Immediate Implementation Task
+## Next Immediate Implementation Focus
 
-Implement TC-003 superclass representation while preserving the `.hg`
-compiler, Core evaluator, STG runtime, Core-to-STG lowering, native executable
-path, Egglog Core optimizer, ADT/list/tuple/Prelude/recursion/typeclass-dictionary
-support, built-in `Eq`/`Ord`/`Num`/`Show` dictionary support, boxed native
-`Char` support, source `String = [Char]` behavior, numeric defaulting,
-guard/as-pattern support, IO printing support, arithmetic sequence and list
-comprehension support, module graph support, known-constructor optimizer
-support, and wet-test baseline.
+The authoritative queue is maintained in `docs/haskell2010-roadmap.md` and
+`docs/haskell2010-todo.md`. The current near-term focus is completing the
+remaining standard Prelude/module/IO surface around the existing executable
+subset, starting with the Monad class surface decision, implicit Prelude import
+behavior, fuller import/export declarations, `foldl`, and standard library
+module layout. Already-completed typeclass expansion work, including
+superclass dictionaries, default methods, overlap rejection, public
+`Enum`/`Bounded`, and numeric defaulting, should be preserved as regression
+baseline while those tasks proceed.

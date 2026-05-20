@@ -427,6 +427,11 @@ Validation at this baseline passed through `./scripts/smoke-test.sh`.
 - Reworded stale Haskell 2010 status-summary headings so supported compilation
   is not listed under "What Does Not Yet Compile".
 - Added this architecture document and linked it from the documentation index.
+- May 20 follow-up audit: verified the current import graph still obeys the
+  stage dependency rules, removed partial root-module selection in the
+  multi-module native path by resolving the renamed root explicitly by module
+  name, and synchronized roadmap/status documents with the manifest's current
+  conformance counts and completed `getLine`/typeclass work.
 
 ## File-Level Audit Notes
 

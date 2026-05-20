@@ -45,9 +45,11 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. TC-003 superclass representation.
-2. TC-005 default class methods.
-3. TC-008 overlapping instance rejection.
+1. TC-020 Monad class surface decision/implementation.
+2. PRELUDE-002 implicit Prelude import behavior.
+3. MODULE-001 import/export declarations.
+4. PRELUDE-009 foldl.
+5. PRELUDE-017 standard library module layout.
 
 Completed Haskell 2010 roadmap work:
 

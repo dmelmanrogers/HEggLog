@@ -188,23 +188,30 @@ cyclePath repeated active =
   repeated : (takeWhile (/= repeated) active <> [repeated])
 
 wholeProgramModule :: [RHsModule] -> RHsModule
-wholeProgramModule [] =
-  RHsModule
-    { rModuleName = Nothing
-    , rModuleExports = Nothing
-    , rModuleImports = []
-    , rModuleFixities = Map.empty
-    , rModuleDecls = []
-    }
 wholeProgramModule modules =
-  let root = last modules
-   in RHsModule
-        { rModuleName = rModuleName root
-        , rModuleExports = rModuleExports root
-        , rModuleImports = concatMap rModuleImports modules
-        , rModuleFixities = Map.unions (map rModuleFixities modules)
-        , rModuleDecls = concatMap rModuleDecls modules
+  case modules of
+    [] ->
+      RHsModule
+        { rModuleName = Nothing
+        , rModuleExports = Nothing
+        , rModuleImports = []
+        , rModuleFixities = Map.empty
+        , rModuleDecls = []
         }
+    root : rest ->
+      let finalRoot = lastModule root rest
+       in RHsModule
+            { rModuleName = rModuleName finalRoot
+            , rModuleExports = rModuleExports finalRoot
+            , rModuleImports = concatMap rModuleImports modules
+            , rModuleFixities = Map.unions (map rModuleFixities modules)
+            , rModuleDecls = concatMap rModuleDecls modules
+            }
+ where
+  lastModule latest [] =
+    latest
+  lastModule _ (next : rest) =
+    lastModule next rest
 
 renderModuleGraphError :: ModuleGraphError -> Text
 renderModuleGraphError = \case

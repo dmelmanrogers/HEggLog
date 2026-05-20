@@ -201,9 +201,9 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 64 manifest-tracked fixtures with
-  51 native-success cases, 1 native-runtime-error case, 6 compile-error cases,
-  and 6 unsupported-documented cases
+  `haskell2010-conformance-test`; it contains 68 manifest-tracked fixtures with
+  56 native-success cases, 1 native-runtime-error case, 6 compile-error cases,
+  and 5 unsupported-documented cases
 
 Progress is tracked in
 [haskell2010-conformance-matrix.md](haskell2010-conformance-matrix.md).
@@ -244,8 +244,8 @@ Current tests include:
   programs, user-defined type class dictionary programs, derived `Eq`/`Ord`/`Show`
   programs, and built-in `Eq`/`Ord`/`Num`/`Show`/`Enum`/`Bounded` dictionary programs, numeric-defaulting and
   monomorphism/defaulting decision programs, multi-file module programs,
-  known-constructor optimizer programs, plus IO
-  printing programs, and compiles selected emitted LLVM through `clang`
+  known-constructor optimizer programs, plus line-oriented IO
+  printing/input programs, and compiles selected emitted LLVM through `clang`
 - `haskell2010-conformance-test`, included in `cabal test all`, which reads the
   JSON conformance manifest, invokes the built `hegglog` executable as a
   subprocess, compiles native-success cases to actual executables, executes
