@@ -6837,7 +6837,7 @@
     {
       "id": "TC-016",
       "title": "Read, if implemented or documented deviation",
-      "status": "not started",
+      "status": "documented deviation",
       "category": "typechecker",
       "depends_on": [
         "TYPE-016",
@@ -6846,7 +6846,7 @@
       "blocks": [],
       "milestone": "M11",
       "acceptance_criteria": [
-        "Read, if implemented or documented deviation is implemented, completed, or explicitly documented according to status `not started`.",
+        "Read is explicitly documented as a Haskell 2010 Prelude/typeclass deviation according to status `documented deviation`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

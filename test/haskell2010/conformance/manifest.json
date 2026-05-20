@@ -552,6 +552,15 @@
       "notes": "Method-specific class constraints are rejected by the explicit class-constraint placeholder."
     },
     {
+      "name": "unsupported.read-class",
+      "sourceFile": "test/haskell2010/conformance/unsupported/read-class.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "unsupported",
+      "requiredStage": "typecheck",
+      "notes": "TC-016 documents Read as a deliberate Prelude/typeclass deviation until ReadS, readsPrec/readList, lexical parsing, and derived Read are implemented coherently."
+    },
+    {
       "name": "unsupported.kind-checking",
       "sourceFile": "test/haskell2010/conformance/unsupported/kind-checking.hs",
       "category": "negative",

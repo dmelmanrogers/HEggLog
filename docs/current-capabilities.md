@@ -124,7 +124,11 @@ Core while preserving lazy constructor fields and forced bottom behavior.
 Haskell 2010 conformance is now tracked by a dedicated mandatory suite backed
 by `test/haskell2010/conformance/manifest.json`; the current compiler passes
 the documented executable-subset cases, while incomplete Haskell 2010 features
-are represented as explicit failing or unsupported-documented fixtures.
+are represented as explicit failing or unsupported-documented fixtures. `Read`
+is a documented Prelude/typeclass deviation: `Read` constraints are recognized
+only far enough to fail explicitly as unsupported until the compiler has
+coherent `ReadS`, lexical read parsing, standard instances, and derived `Read`
+support.
 
 Current status:
 
@@ -192,9 +196,9 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 63 manifest-tracked fixtures with
+  `haskell2010-conformance-test`; it contains 64 manifest-tracked fixtures with
   51 native-success cases, 1 native-runtime-error case, 6 compile-error cases,
-  and 5 unsupported-documented cases
+  and 6 unsupported-documented cases
 
 Progress is tracked in
 [haskell2010-conformance-matrix.md](haskell2010-conformance-matrix.md).

@@ -519,9 +519,9 @@ Acceptance criteria:
 Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
-`haskell2010-conformance-test` Cabal suite. The baseline currently records 55
-fixtures: 41 native-success cases, 1 native-runtime-error case, 6 compile-error
-cases, and 7 unsupported-documented cases. The suite invokes the built
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 64
+fixtures: 51 native-success cases, 1 native-runtime-error case, 6 compile-error
+cases, and 6 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
 runtime-error exits, checks compile-error diagnostics, and fails if documented
@@ -581,11 +581,11 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. TC-003 superclass representation.
-2. TC-005 default class methods.
-3. TC-008 overlapping instance rejection.
-4. TC-016 Read decision/documented deviation.
-5. TC-018 Enum class surface decision/implementation.
+1. TC-020 Monad class surface decision/implementation.
+2. TC-023 derived Eq.
+3. TC-024 derived Ord.
+4. TC-025 derived Show.
+5. PRELUDE-002 implicit Prelude import behavior.
 
 Completed immediate tasks:
 
@@ -698,6 +698,15 @@ Completed immediate tasks:
   tuple/list/constructor/literal/refutable pattern filtering, accumulator-tail
   Core lowering, Core/STG/native oracles, conformance fixtures, and
   default/no-egglog wet tests.
+- Haskell 2010 typeclass expansion for the executable subset, including
+  superclass dictionary fields/projection, default class methods,
+  overlapping-instance rejection, public `Enum` and `Bounded` Prelude classes,
+  Core/STG/native oracles, conformance fixtures, and default/no-egglog wet
+  tests.
+- TC-016 `Read` decision as a documented deviation: the renamer recognizes
+  `Read` as a Prelude class name for explicit unsupported diagnostics, while
+  dictionaries, methods, standard instances, lexical read parsing, and derived
+  `Read` remain future work.
 
 ## Non-Negotiable Rules
 

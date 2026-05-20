@@ -1213,7 +1213,7 @@ preludeNames =
     ]
     <> fmap (ConstructorNamespace,) ["True", "False", "Nothing", "Just", "Left", "Right", "LT", "EQ", "GT", ":"]
     <> fmap (TypeNamespace,) ["Int", "Integer", "Bool", "Char", "String", "IO", "CString", "Maybe", "Either", "Ordering", "()"]
-    <> fmap (ClassNamespace,) ["Eq", "Ord", "Show", "Num", "Enum", "Bounded", "Functor", "Monad"]
+    <> fmap (ClassNamespace,) ["Eq", "Ord", "Show", "Read", "Num", "Enum", "Bounded", "Functor", "Monad"]
 
 isConstructorLike :: Text -> Bool
 isConstructorLike text =

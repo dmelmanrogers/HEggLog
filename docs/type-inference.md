@@ -119,6 +119,15 @@ contexts, and expression type-signature constraints still have structured
 placeholder diagnostics until their dedicated class-system tasks are
 implemented.
 
+TC-016 documents `Read` as a deliberate Haskell 2010 Prelude/typeclass
+deviation. The renamer recognizes `Read` as a Prelude class name so source
+constraints fail as explicit unsupported type-class constraints, but the
+typechecker does not install `Read` class metadata, dictionaries, methods, or
+standard instances. This avoids a partial implementation of `readsPrec`,
+`readList`, `read`, `reads`, and lexical read behavior before the compiler has
+the parser-combinator and derived-instance infrastructure needed to make `Read`
+coherent.
+
 TYPE-019 records the monomorphism-restriction decision for the executable
 subset: unsigned nullary value bindings without explicit signatures are eligible
 for standard-class defaulting before generalization, while explicitly signed
