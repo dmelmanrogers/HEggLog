@@ -1,7 +1,7 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after the Haskell 2010 module graph
-and Core Egglog known-constructor optimizer expansion. The suite covers the
+Recorded for the mandatory wet-test suite after PRELUDE-DATA-012 string literal
+native wet-test expansion. The suite covers the
 existing `.hg` native compiler baseline and Haskell 2010 executable-subset
 `.hs` programs that compile to native executables, compare lazy runtime
 behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
@@ -9,7 +9,7 @@ optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-18`
+- Date/time: `2026-05-20 01:46:13 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -18,17 +18,23 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 111
-- Source files: 47
-- Successful source cases: 37
+- HUnit checks: 132
+- Source files: 55
+- Successful source cases: 44
 - Runtime-error source cases: 7
 - Compile-error source cases: 3
-- Native compile/run checks: 82
-- Default Egglog native checks: 47
-- `--no-egglog` native checks: 35
-- Emit-LLVM checks: 17
+- Native compile/run checks: 96
+- Default Egglog native checks: 54
+- `--no-egglog` native checks: 42
+- Emit-LLVM checks: 24
 - Report/interpreter comparisons: 12
 - Failures: 0
+
+PRELUDE-DATA-012 adds dedicated Haskell 2010 native cases for direct source
+string output, list operations over strings, `putStrLn` over built-in `show`
+results, explicit `Char` cons patterns, and string literal patterns. The
+fixtures run in both default and `--no-egglog` modes and all three new e2e
+programs also emit LLVM that is compiled through clang.
 
 ## Case Table
 

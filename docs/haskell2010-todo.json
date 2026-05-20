@@ -6367,7 +6367,7 @@
     {
       "id": "PRELUDE-DATA-012",
       "title": "String literal native wet tests",
-      "status": "in progress",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "ADT-001",
@@ -6376,9 +6376,11 @@
       "blocks": [],
       "milestone": "M10",
       "acceptance_criteria": [
-        "String literal native wet tests is implemented, completed, or explicitly documented according to status `in progress`.",
-        "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "Native example execution covers direct string literals, reversed string literals, and `length` over string/show output.",
+        "Native example execution covers `putStrLn (show 42)` and `putStrLn (show False)`.",
+        "Native example execution covers explicit `Char` cons patterns and string literal patterns over source string values.",
+        "E2E wet tests run the new string fixtures in default and `--no-egglog` modes with emit-LLVM coverage.",
+        "Haskell 2010 conformance manifest includes the same exact-stdout native-success fixtures."
       ],
       "required_tests": [
         "library unit tests",

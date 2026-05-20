@@ -580,9 +580,9 @@ Acceptance criteria:
 
 1. PRELUDE-DATA-008 arithmetic sequences.
 2. PRELUDE-DATA-009 list comprehensions.
-3. PRELUDE-DATA-012 String literal native wet tests.
-4. TC-003 superclass representation.
-5. TC-005 default class methods.
+3. TC-003 superclass representation.
+4. TC-005 default class methods.
+5. TC-008 overlapping instance rejection.
 
 Completed immediate tasks:
 
@@ -676,6 +676,10 @@ Completed immediate tasks:
   constructors, Core/STG evaluator list values, built-in `show` results as
   lists, native LLVM without per-literal string globals, conformance fixtures,
   and default/no-egglog wet tests.
+- Haskell 2010 string literal native wet tests, including direct source string
+  output, `reverse`/`length` over strings, `putStrLn` over built-in `show`
+  results, explicit `Char` cons patterns, string literal patterns, conformance
+  fixtures, default/no-egglog runs, and emit-LLVM wet checks.
 
 ## Non-Negotiable Rules
 

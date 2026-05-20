@@ -101,7 +101,10 @@ constructor values, and checked primitive aborts, then uses the existing clang
 toolchain path to produce native executables. The Haskell 2010 native path also
 executes `main :: IO ()` actions for `putStrLn` and `print` output using
 list-of-`Char` traversal, built-in `Show Int`/`Show Bool` results represented as
-lists, and a compatibility path for legacy internal string payloads.
+lists, and a compatibility path for legacy internal string payloads. Dedicated
+native wet tests now cover direct string output, list operations over strings,
+show-produced strings, explicit `Char` cons patterns, and string literal
+patterns in both default and `--no-egglog` modes.
 The Haskell 2010
 native path now runs an Egglog Core optimizer by
 default for safe typed Core fragments before STG lowering; `--no-egglog`

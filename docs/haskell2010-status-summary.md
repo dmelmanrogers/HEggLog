@@ -321,6 +321,10 @@ and compiled to native executables through the existing clang toolchain.
     values, built-in `show` results as lists, native LLVM list construction
     without per-literal string globals, conformance fixtures, and
     default/no-egglog wet tests.
+22. String literal native wet tests. Completed for direct string literal
+    output, list functions over strings, `putStrLn` over built-in `show`
+    results, explicit `Char` cons patterns, string literal patterns,
+    conformance fixtures, default/no-egglog runs, and emit-LLVM wet checks.
 
 ## Where Egglog Fits
 

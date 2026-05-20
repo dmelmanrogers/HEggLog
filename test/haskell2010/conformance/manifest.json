@@ -368,6 +368,36 @@
       "notes": "Source string literals and string literal patterns lower to ordinary [Char] lists; length and show output consume them as lists."
     },
     {
+      "name": "prelude.string-output",
+      "sourceFile": "test/haskell2010/conformance/prelude/string-output.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "native\nok\n7\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Direct string literals and list functions over strings feed native putStrLn/print through ordinary [Char] values."
+    },
+    {
+      "name": "prelude.string-show-output",
+      "sourceFile": "test/haskell2010/conformance/prelude/string-show-output.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "42\nFalse\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Built-in Show Int and Show Bool results are native [Char] values consumable by putStrLn."
+    },
+    {
+      "name": "prelude.string-char-patterns",
+      "sourceFile": "test/haskell2010/conformance/prelude/string-char-patterns.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "6\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Native execution covers explicit Char cons patterns and string literal patterns over source string values."
+    },
+    {
       "name": "io.printing",
       "sourceFile": "test/haskell2010/conformance/io/printing.hs",
       "category": "io",

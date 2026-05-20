@@ -47,7 +47,7 @@ For the detailed current support matrix, see
 
 1. PRELUDE-DATA-008 arithmetic sequences.
 2. PRELUDE-DATA-009 list comprehensions.
-3. PRELUDE-DATA-012 String literal native wet tests.
+3. TC-003 superclass representation.
 
 Completed Haskell 2010 roadmap work:
 
@@ -127,6 +127,10 @@ Completed Haskell 2010 roadmap work:
   constructors, Core/STG evaluator list values, built-in `show` results as
   lists, native LLVM without per-literal string globals, conformance fixtures,
   and default/no-egglog wet tests.
+- Haskell 2010 string literal native wet tests: implemented direct source
+  string output, `reverse`/`length` over strings, `putStrLn` over built-in
+  `show` results, explicit `Char` cons patterns, string literal patterns,
+  conformance fixtures, default/no-egglog runs, and emit-LLVM wet checks.
 - Haskell 2010 modules/whole-program compilation: implemented for import-driven
   dependency-file loading, module graph cycle/name diagnostics, actual
   exported-name import resolution, export/import filtering, hiding, qualified

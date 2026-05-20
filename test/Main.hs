@@ -2254,6 +2254,9 @@ testHaskell2010NativeStringCharList = do
   assertBool "native LLVM converts show buffers to Char lists" ("@hegglog_hs_make_char_list_from_cstring" `Text.isInfixOf` llvmText)
   assertBool "native LLVM does not emit per-literal string globals" (not ("@haskell2010_str_" `Text.isInfixOf` llvmText))
   assertBool "native LLVM does not call special string payload allocator" (not ("call ptr @hegglog_hs_make_string" `Text.isInfixOf` llvmText))
+  outputText <- compileHaskell2010NativeText haskell2010StringOutputSource
+  assertBool "native output LLVM boxes direct String literal chars" ("@hegglog_hs_make_char" `Text.isInfixOf` outputText)
+  assertBool "native output LLVM keeps direct String literals as Char lists" (not ("@haskell2010_str_" `Text.isInfixOf` outputText))
 
 testHaskell2010NativeLLVMExecution :: IO (Either String ())
 testHaskell2010NativeLLVMExecution = do
@@ -5626,6 +5629,9 @@ haskell2010NativeSuccessExamples =
   , ("char-runtime", haskell2010CharRuntimeSource, "1\n")
   , ("char-main", haskell2010CharMainSource, "Z\n")
   , ("string-char-list", haskell2010StringCharListSource, "5\n")
+  , ("string-output", haskell2010StringOutputSource, "native\nok\n7\n")
+  , ("string-show-output", haskell2010StringShowOutputSource, "42\nFalse\n")
+  , ("string-char-patterns", haskell2010StringCharPatternsSource, "6\n")
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
@@ -5651,6 +5657,9 @@ haskell2010NativeExecutableExamples =
   , ("char-runtime", haskell2010CharRuntimeSource, "1\n")
   , ("char-main", haskell2010CharMainSource, "Z\n")
   , ("string-char-list", haskell2010StringCharListSource, "5\n")
+  , ("string-output", haskell2010StringOutputSource, "native\nok\n7\n")
+  , ("string-show-output", haskell2010StringShowOutputSource, "42\nFalse\n")
+  , ("string-char-patterns", haskell2010StringCharPatternsSource, "6\n")
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
@@ -5917,6 +5926,38 @@ haskell2010StringCharListSource =
   \main = case \"hi\" of\n\
   \  \"hi\" -> stringLength \"abc\" + shownLength\n\
   \  _ -> 0\n"
+
+haskell2010StringOutputSource :: Text
+haskell2010StringOutputSource =
+  "module Main where\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  putStrLn \"native\"\n\
+  \  putStrLn (reverse \"ko\")\n\
+  \  print (length \"abc\" + length (show True))\n\
+  \  return ()\n"
+
+haskell2010StringShowOutputSource :: Text
+haskell2010StringShowOutputSource =
+  "module Main where\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  putStrLn (show 42)\n\
+  \  putStrLn (show False)\n\
+  \  return ()\n"
+
+haskell2010StringCharPatternsSource :: Text
+haskell2010StringCharPatternsSource =
+  "module Main where\n\
+  \prefixScore :: String -> Int\n\
+  \prefixScore xs = case xs of\n\
+  \  'h' : 'i' : rest -> length rest\n\
+  \  _ -> 100\n\
+  \literalScore :: String -> Int\n\
+  \literalScore xs = case xs of\n\
+  \  \"ok\" -> 1\n\
+  \  _ -> 0\n\
+  \main = prefixScore \"hithere\" + literalScore \"ok\"\n"
 
 haskell2010NumericDefaultingSource :: Text
 haskell2010NumericDefaultingSource =
