@@ -121,6 +121,7 @@ data CorePrimOp
   | PrimShowInt
   | PrimShowBool
   | PrimPutStrLn
+  | PrimGetLine
   | PrimIOThen
   | PrimIOBind
   | PrimIOReturn

@@ -1539,6 +1539,7 @@ supportedPreludeValueOccurrences =
   , "++"
   , "show"
   , "putStrLn"
+  , "getLine"
   , "print"
   , "return"
   , ">>="
@@ -3661,6 +3662,7 @@ preludeValueScheme name
             "reverse" -> Just (Scheme [a] [] (TyFun listA listA))
             "++" -> Just (Scheme [a] [] (TyFun listA (TyFun listA listA)))
             "putStrLn" -> Just (Scheme [] [] (TyFun stringMonoType ioUnit))
+            "getLine" -> Just (Scheme [] [] (ioMonoType stringMonoType))
             "print" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun aTy ioUnit))
             "return" -> Just (Scheme [a] [] (TyFun aTy (ioMonoType aTy)))
             ">>=" ->
@@ -5121,6 +5123,8 @@ preludeCorePair name =
         ( binderFor name putStrLnTy
         , lam putStrLnS stringTy (CPrimOp PrimPutStrLn [var putStrLnS stringTy] ioUnitTy)
         )
+    "getLine" ->
+      Just (binderFor name getLineTy, CPrimOp PrimGetLine [] getLineTy)
     "print" ->
       Just (binderFor name printTy, printRhs)
     "return" ->
@@ -5155,6 +5159,7 @@ preludeCorePair name =
   reverseTy = CTyForall [a] (CTyFun listA listA)
   appendTy = CTyForall [a] (CTyFun listA (CTyFun listA listA))
   putStrLnTy = CTyFun stringTy ioUnitTy
+  getLineTy = ioTy stringTy
   showTy = CTyForall [showMethodA] (CTyFun showMethodDictA (CTyFun showMethodATy stringTy))
   printTy = CTyForall [a] (CTyFun showDictA (CTyFun aTy ioUnitTy))
   returnTy = CTyForall [a] (CTyFun aTy ioA)

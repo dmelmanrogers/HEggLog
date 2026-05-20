@@ -48,6 +48,7 @@ data ConformanceCase = ConformanceCase
   , caseRequiredStage :: Text
   , caseNotes :: Text
   , caseCompilerModes :: [CompilerMode]
+  , caseStdin :: Text
   }
   deriving stock (Show, Eq)
 
@@ -65,6 +66,7 @@ instance FromJSON ConformanceCase where
         <*> object .: "requiredStage"
         <*> object .: "notes"
         <*> ((object .:? "compilerModes") .!= [DefaultCompilerMode])
+        <*> ((object .:? "stdin") .!= "")
 
 data ExpectedStatus
   = ParsePass
@@ -169,7 +171,7 @@ runNativeSuccessCase hegglog conformanceCase mode =
     compileResult <- runCommand hegglog args
     assertExitSuccess ("native compile " <> showCommand hegglog args) compileResult
     assertExecutableExists outputPath
-    runResult <- runCommand outputPath []
+    runResult <- runCommandWithInput outputPath [] (caseStdin conformanceCase)
     assertExitSuccess ("native run " <> outputPath) runResult
     assertEqual "native stdout" (Text.unpack expectedStdout) (resultStdout runResult)
     assertEqual "native stderr" "" (resultStderr runResult)
@@ -225,8 +227,12 @@ runCompileToLLVMPassCase hegglog conformanceCase =
     assertBool ("LLVM output should exist for stage-pass case " <> outputPath) outputExists
 
 runCommand :: FilePath -> [String] -> IO CommandResult
-runCommand command args = do
-  (code, stdoutText, stderrText) <- readProcessWithExitCode command args ""
+runCommand command args =
+  runCommandWithInput command args ""
+
+runCommandWithInput :: FilePath -> [String] -> Text -> IO CommandResult
+runCommandWithInput command args stdinText = do
+  (code, stdoutText, stderrText) <- readProcessWithExitCode command args (Text.unpack stdinText)
   pure
     CommandResult
       { resultExitCode = code

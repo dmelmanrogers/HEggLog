@@ -308,6 +308,8 @@ evalPrimitive coreEnv op values =
       Right (coreStringList "False")
     (PrimPutStrLn, [value]) ->
       (\text -> CoreIO [text <> "\n"] (CoreData unitDataConName [])) <$> coreStringText coreEnv value
+    (PrimGetLine, []) ->
+      Right (CoreIO [] (coreStringList ""))
     (PrimIOThen, [CoreIO first _, CoreIO second result]) ->
       Right (CoreIO (first <> second) result)
     (PrimIOBind, [CoreIO first value, CoreClosure closureEnv binder body]) -> do
@@ -441,6 +443,7 @@ renderCorePrimOpName = \case
   PrimShowInt -> "showInt#"
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"
+  PrimGetLine -> "getLine#"
   PrimIOThen -> "thenIO#"
   PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"

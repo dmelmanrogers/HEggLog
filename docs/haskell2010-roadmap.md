@@ -373,8 +373,8 @@ Acceptance criteria:
 
 ### Phase 13 - IO and `main`
 
-Status: the first IO printing slice is implemented for the executable subset.
-The typechecker recognizes `IO`, `main :: IO ()`, `putStrLn`, `print`,
+Status: the first IO printing/input slice is implemented for the executable subset.
+The typechecker recognizes `IO`, `main :: IO ()`, `putStrLn`, `getLine`, `print`,
 `return`, `(>>)`, `(>>=)`, expression `do`, `<-` bind statements, and local
 `let`. Core/STG reference evaluators model IO output plus returned action
 values for oracle tests, and the native entrypoint executes `IO ()` actions
@@ -382,19 +382,22 @@ instead of scalar root printing. Source
 string literals and built-in `show` results are represented as list-of-`Char`
 values, and boxed `Char` values, `Eq Char`, scalar `main :: Char`, broadened
 `Show` dictionaries for `Int`/`Bool`/`Char`/`String`/lists support the current
-output subset through default/no-egglog wet tests. `getLine`, real-world IO
-handles, rich IO errors, `fail`, and broader Prelude IO remain planned.
+IO subset through default/no-egglog wet tests. Native `getLine` reads stdin
+line-by-line, strips line terminators, and returns ordinary `[Char]` strings.
+Real-world IO handles, rich IO errors, `fail`, and broader Prelude IO remain
+planned.
 
 Deliverables:
 
 - `main :: IO ()`
-- `print`, `putStrLn`, and do-notation desugaring
+- `print`, `putStrLn`, `getLine`, and do-notation desugaring
 - representation for `return`, `(>>=)`, and `(>>)`
 
 Acceptance criteria:
 
 - `main = print 42` compiles and runs
 - `main = putStrLn "hello"` compiles and runs
+- `main = getLine >>= putStrLn` compiles and reads stdin in native executables
 - do notation compiles
 - native executable entrypoint uses Haskell `main`
 
@@ -594,6 +597,7 @@ Completed immediate tasks:
 - TC-024 derived Ord, including generated `Ord` dictionaries, `Eq` superclass dictionaries, and structural list/string ordering.
 - TC-025 derived Show, including generated `Show` dictionaries for supported data/newtype declarations, records, recursive data, `String` fields, and list-backed contexts.
 - PRELUDE-013 append, including generated `(++)` over lists/strings, parenthesized operator variables, and operator sections.
+- IO-006 getLine, including generated `getLine :: IO String`, native stdin line reads, stdin-aware wet tests, and single-entry IO thunks to avoid sharing effects.
 - Haskell 2010 parser/layout MVP.
 - Haskell 2010 renamer MVP.
 - Haskell 2010 typed Core MVP, including Core syntax, Core types, validator,
@@ -663,11 +667,11 @@ Completed immediate tasks:
   case alternatives, alias bindings for as-patterns in parameters and case
   alternatives, Core/STG guard-fallthrough no-matching-alternative behavior,
   native empty-case lowering, and default/no-egglog native wet tests.
-- Haskell 2010 IO printing slice, including `IO` typechecking, `main :: IO ()`
-  native entrypoint execution, `putStrLn`, `print`, `return`, `(>>)`, `(>>=)`,
+- Haskell 2010 IO printing/input slice, including `IO` typechecking, `main :: IO ()`
+  native entrypoint execution, `putStrLn`, `getLine`, `print`, `return`, `(>>)`, `(>>=)`,
   expression and bind-statement `do` sequencing with local `let`, built-in `Show Int` and
   `Show Bool` dictionaries, Core/STG IO output/result oracles, list-of-`Char` output,
-  and default/no-egglog native wet tests.
+  native stdin line input, and default/no-egglog native wet tests.
 - Haskell 2010 module graph and whole-program compilation for the executable
   subset, including dependency-file loading from imports, cycle/name-mismatch
   diagnostics, actual exported-name import resolution, explicit export/import

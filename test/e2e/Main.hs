@@ -37,6 +37,7 @@ data E2ECase = E2ECase
   , egglogModes :: [EgglogMode]
   , alsoEmitLLVM :: Bool
   , includeReport :: Bool
+  , stdinText :: Text
   }
   deriving stock (Show, Eq)
 
@@ -113,7 +114,7 @@ runNativeCase hegglog e2eCase mode =
       ExpectSuccess expectedStdout -> do
         assertExitSuccess ("native compile " <> showCommand hegglog args) compileResult
         assertExecutableExists outputPath
-        runResult <- runCommand outputPath []
+        runResult <- runCommandWithInput outputPath [] (stdinText e2eCase)
         assertExitSuccess ("native run " <> outputPath) runResult
         assertEqual "native stdout" (Text.unpack expectedStdout <> "\n") (resultStdout runResult)
         assertEqual "native stderr" "" (resultStderr runResult)
@@ -149,7 +150,7 @@ runEmitLLVMCase hegglog clang e2eCase =
     clangResult <- runCommand clang [llvmPath, "-o", exePath]
     assertExitSuccess ("clang emitted LLVM " <> showCommand clang [llvmPath, "-o", exePath]) clangResult
     assertExecutableExists exePath
-    runResult <- runCommand exePath []
+    runResult <- runCommandWithInput exePath [] (stdinText e2eCase)
     case expected e2eCase of
       ExpectSuccess expectedStdout -> do
         assertExitSuccess ("run emitted LLVM artifact " <> exePath) runResult
@@ -171,8 +172,12 @@ runReportCase hegglog e2eCase =
       assertFailure "report cases should be successful programs"
 
 runCommand :: FilePath -> [String] -> IO CommandResult
-runCommand command args = do
-  (code, stdoutText, stderrText) <- readProcessWithExitCode command args ""
+runCommand command args =
+  runCommandWithInput command args ""
+
+runCommandWithInput :: FilePath -> [String] -> Text -> IO CommandResult
+runCommandWithInput command args stdinText' = do
+  (code, stdoutText, stderrText) <- readProcessWithExitCode command args (Text.unpack stdinText')
   pure
     CommandResult
       { resultExitCode = code
@@ -271,6 +276,7 @@ successCase name path expectedStdout modes emitLLVM =
     , egglogModes = modes
     , alsoEmitLLVM = emitLLVM
     , includeReport = True
+    , stdinText = ""
     }
 
 nativeOnlySuccessCase :: Text -> FilePath -> Text -> [EgglogMode] -> Bool -> E2ECase
@@ -282,7 +288,12 @@ nativeOnlySuccessCase name path expectedStdout modes emitLLVM =
     , egglogModes = modes
     , alsoEmitLLVM = emitLLVM
     , includeReport = False
+    , stdinText = ""
     }
+
+nativeOnlySuccessCaseWithInput :: Text -> FilePath -> Text -> Text -> [EgglogMode] -> Bool -> E2ECase
+nativeOnlySuccessCaseWithInput name path input expectedStdout modes emitLLVM =
+  (nativeOnlySuccessCase name path expectedStdout modes emitLLVM) {stdinText = input}
 
 runtimeErrorCase :: Text -> FilePath -> [EgglogMode] -> E2ECase
 runtimeErrorCase name path modes =
@@ -293,6 +304,7 @@ runtimeErrorCase name path modes =
     , egglogModes = modes
     , alsoEmitLLVM = False
     , includeReport = False
+    , stdinText = ""
     }
 
 compileErrorCase :: Text -> FilePath -> [Text] -> E2ECase
@@ -304,6 +316,7 @@ compileErrorCase name path categories =
     , egglogModes = [DefaultEgglog]
     , alsoEmitLLVM = False
     , includeReport = False
+    , stdinText = ""
     }
 
 e2eCases :: [E2ECase]
@@ -349,6 +362,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-modules" "test/e2e/programs/haskell2010/modules/Main.hs" "20" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-printing" "test/e2e/programs/haskell2010/io-printing.hs" "ok\nanswer\n42\nTrue" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-normal-examples" "test/e2e/programs/haskell2010/io-normal-examples.hs" "hello\nbound\n\"quoted\"\n'X'\n\"plain\"\n[1,2,3]\n[True,False]" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCaseWithInput "haskell2010-io-getline" "test/e2e/programs/haskell2010/io-getline.hs" "hegg\nlog\nunused\n" "first=hegg\nsecond=log\n7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-guards-as-patterns" "test/e2e/programs/haskell2010/guards-as-patterns.hs" "15" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-sections" "test/e2e/programs/haskell2010/sections.hs" "6" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-arithmetic-sequences" "test/e2e/programs/haskell2010/arithmetic-sequences.hs" "[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]" [DefaultEgglog, NoEgglog] True

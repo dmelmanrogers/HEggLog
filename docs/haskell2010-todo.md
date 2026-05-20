@@ -216,11 +216,10 @@ Rules:
 3. MODULE-001 — import/export declarations: Broaden module graph behavior beyond the current executable subset.
 4. PRELUDE-009 — foldl: Add the strictness-aware left fold surface or document the initial deviation.
 5. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
-6. IO-006 — getLine: Add stdin line input or document the initial IO deviation.
-7. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
-8. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
-9. MOD-009 — instance import/export behavior: Define how class instances move across module boundaries.
-10. MOD-010 — Prelude implicit import: Align module import behavior with the standard Prelude surface.
+6. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
+7. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
+8. MOD-009 — instance import/export behavior: Define how class instances move across module boundaries.
+9. MOD-010 — Prelude implicit import: Align module import behavior with the standard Prelude surface.
 
 # Task Backlog
 
@@ -14004,7 +14003,7 @@ Notes:
 ## IO-006 — getLine
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -14017,7 +14016,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver getLine for IO and do-notation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver getLine for IO and do-notation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. `getLine` is available as a generated Prelude IO action returning ordinary `String = [Char]` values, native executables read from stdin line-by-line and strip line terminators, and IO-typed STG thunks are single-entry so repeated sequencing of the same IO action re-executes the effect instead of sharing a cached result.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -14033,7 +14032,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- getLine is implemented, completed, or explicitly documented according to status `not started`.
+- getLine is implemented for the supported native IO subset, including repeated line reads, do-bind use, append/length composition over returned strings, Core/STG empty-stdin oracle coverage, conformance coverage, and default/no-egglog wet tests with stdin.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -14048,7 +14047,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M13 (IO and do-notation). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M13 (IO and do-notation). Complete for current line-input subset: `getLine :: IO String` lowers through Core/STG/native, native runtime input builds list-backed strings, and stdin fixtures cover two sequential reads. EOF/error behavior remains owned by IO-011.
 
 ## IO-007 — return
 
@@ -14148,7 +14147,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M13 (IO and do-notation). Completed for explicit `(>>=)`, do-bind statements, `return`-produced values, and normal `putStrLn`/`print` examples over `String`, `Char`, and lists. `getLine`, handles, `fail`, full Monad dictionaries, and rich IO error behavior remain separate tasks.
+- Milestone M13 (IO and do-notation). Completed for explicit `(>>=)`, do-bind statements, `return`-produced values, normal `putStrLn`/`print` examples over `String`, `Char`, and lists, and native `getLine` over stdin. Handles, `fail`, full Monad dictionaries, and rich IO error behavior remain separate tasks.
 
 ## IO-009 — (>>)
 

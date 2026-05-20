@@ -469,6 +469,20 @@
       "notes": "Normal IO examples after real String and Show support: do-bind, explicit >>=, putStrLn, and print over Char, String, and lists."
     },
     {
+      "name": "io.getline",
+      "sourceFile": "test/haskell2010/conformance/io/getline.hs",
+      "category": "io",
+      "expectedStatus": "native-success",
+      "expectedStdout": "first=hegg\nsecond=log\n7\n",
+      "stdin": "hegg\nlog\nunused\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Native getLine reads stdin line-by-line, strips line terminators, returns ordinary String values, and composes with append, length, putStrLn, print, and do-bind."
+    },
+    {
       "name": "egglog.known-constructor",
       "sourceFile": "test/haskell2010/conformance/egglog/known-constructor.hs",
       "category": "egglog",
@@ -603,7 +617,7 @@
       "expectedStatus": "unsupported-documented",
       "expectedDiagnosticCategory": "unbound",
       "requiredStage": "typecheck",
-      "notes": "Handle-based IO and do-bind statements are beyond the current output-only IO slice."
+      "notes": "Handle-based IO remains beyond the current line-oriented stdin/stdout IO slice."
     },
     {
       "name": "patterns.irrefutable-pattern",

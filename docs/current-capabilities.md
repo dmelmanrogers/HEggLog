@@ -81,9 +81,9 @@ documented nullary-binding monomorphism/defaulting behavior, boxed `Char`
 literals and literal cases, scalar `main :: Char` output, and built-in
 `Eq Int`, `Eq Bool`, `Eq Char`, structural `Eq [a]`, `Ord Int`, `Ord Bool`, `Ord Char`, structural `Ord [a]`, and executable `Num Int`
 class methods, plus guarded RHSs, guarded case alternatives, as-pattern
-aliases, and guard-fallthrough no-match behavior, plus the first IO printing
+aliases, and guard-fallthrough no-match behavior, plus the first IO printing/input
 slice for `IO`, `main :: IO ()`,
-`putStrLn`, `print`, `return`, `(>>)`, `(>>=)`, expression and bind-statement
+`putStrLn`, `getLine`, `print`, `return`, `(>>)`, `(>>=)`, expression and bind-statement
 `do` sequencing, and
 built-in `Show Int`/`Show Bool`/`Show Char`/`Show String` plus generated
 structural list `Show` dictionaries, plus executable arithmetic sequences over
@@ -168,12 +168,13 @@ Current status:
   recursion, mutual recursion, recursive list functions, recursive pattern
   bindings, user class dictionary
   calls, built-in `Eq`/`Ord`/`Num`/`Enum`/`Bounded` dictionary calls, `Char` literals and
-  literal cases, arithmetic sequences, list comprehensions, guarded RHS/as-pattern programs, IO output actions, guard
+  literal cases, arithmetic sequences, list comprehensions, guarded RHS/as-pattern programs, IO output actions, empty-stdin `getLine` oracle behavior, guard
   fallthrough no-match reporting, and division-by-zero reporting
 - Haskell 2010 STG-like lazy IR/runtime MVP: implemented and unit-tested for
   validation, lazy lets/arguments, case demand, constructor dispatch, thunk
   sharing/update behavior, single-entry thunks, black-hole detection, and
-  checked primitive errors
+  checked primitive errors, including single-entry IO thunks so repeated IO
+  actions re-execute effects instead of sharing cached results
 - Core-to-STG lowering: implemented and unit-tested for Core-0 arithmetic,
   polymorphic type erasure, Bool/user ADT case, nested constructor patterns,
   list/tuple/Prelude constructor cases, generated Prelude list functions including `(++)`, lazy
@@ -189,7 +190,8 @@ Current status:
   class dictionary calls, built-in `Eq`/`Ord`/`Num` class dictionary calls,
   `Eq Char`, public `Enum`/`Bounded` examples, `Char` literal cases, scalar `main :: Char` printing, guarded
   RHS/as-pattern programs, `main :: IO ()` printing through `putStrLn`,
-  `print`, do-bind statements, and explicit `(>>=)`, process-lifetime runtime allocation, and guard-fallthrough runtime
+  `print`, native `getLine` over stdin, do-bind statements, and explicit
+  `(>>=)`, process-lifetime runtime allocation, and guard-fallthrough runtime
   failure, plus executable `Int`/`Char` arithmetic sequences and list comprehensions
 - Haskell 2010 Egglog Core optimizer: implemented and unit/wet-tested for
   safe Core-0 arithmetic identities, checked constant folding, known Bool case

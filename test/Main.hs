@@ -176,6 +176,7 @@ testGroups =
       , pureTest "typechecks multi-module imports" testHaskell2010Core0MultiModuleImports
       , pureTest "typechecks IO printing" testHaskell2010Core0IOPrinting
       , pureTest "typechecks normal IO examples" testHaskell2010Core0IONormalExamples
+      , pureTest "typechecks IO getLine" testHaskell2010Core0IOGetLine
       , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
       , pureTest "desugars operator sections to Core lambdas" testHaskell2010Core0Sections
       , pureTest "typechecks arithmetic sequences" testHaskell2010Core0ArithmeticSequences
@@ -216,6 +217,7 @@ testGroups =
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
       , pureTest "evaluates normal IO examples" testHaskell2010Core0EvalIONormalExamples
+      , pureTest "evaluates IO getLine with empty interpreter stdin" testHaskell2010Core0EvalIOGetLine
       , pureTest "evaluates guards and as-patterns" testHaskell2010Core0EvalGuardsAndAsPatterns
       , pureTest "evaluates operator sections" testHaskell2010Core0EvalSections
       , pureTest "evaluates arithmetic sequences" testHaskell2010Core0EvalArithmeticSequences
@@ -263,6 +265,7 @@ testGroups =
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
       , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
       , pureTest "preserves normal IO example semantics" testHaskell2010CoreToSTGIONormalExamples
+      , pureTest "preserves IO getLine empty-stdin semantics" testHaskell2010CoreToSTGIOGetLine
       , pureTest "preserves guard and as-pattern semantics" testHaskell2010CoreToSTGGuardsAndAsPatterns
       , pureTest "preserves operator section semantics" testHaskell2010CoreToSTGSections
       , pureTest "preserves arithmetic sequence semantics" testHaskell2010CoreToSTGArithmeticSequences
@@ -288,9 +291,11 @@ testGroups =
       , pureTest "emits derived Ord LLVM" testHaskell2010NativeDerivedOrd
       , pureTest "emits derived Show LLVM" testHaskell2010NativeDerivedShow
       , pureTest "emits Prelude append LLVM" testHaskell2010NativeAppend
+      , pureTest "emits IO getLine LLVM" testHaskell2010NativeGetLine
       , pureTest "emits list comprehension LLVM" testHaskell2010NativeListComprehensions
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
       , ioTest "native executable preserves lazy Core-0 semantics" testHaskell2010NativeExecutableExecution
+      , ioTest "native getLine reads stdin" testHaskell2010NativeGetLineExecution
       , ioTest "native runtime errors fail when forced" testHaskell2010NativeRuntimeError
       ]
   , TestGroup
@@ -1693,6 +1698,13 @@ testHaskell2010Core0IONormalExamples = do
   assertBool "Prelude generic Show list dictionary is emitted" (containsBindingOccurrence "$fShowList" coreModule)
   expectCoreEvalIO "normal IO examples Core oracle" haskell2010IONormalExamplesOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0IOGetLine :: Either String ()
+testHaskell2010Core0IOGetLine = do
+  coreModule <- typecheckHaskell2010 haskell2010IOGetLineSource
+  assertBool "Prelude getLine binding is emitted" (containsBindingOccurrence "getLine" coreModule)
+  assertBool "Prelude append binding is emitted for getLine output formatting" (containsBindingOccurrence "++" coreModule)
+  expectCoreEvalIO "IO getLine empty-stdin Core oracle" haskell2010IOGetLineEmptyOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0GuardsAndAsPatterns :: Either String ()
 testHaskell2010Core0GuardsAndAsPatterns = do
   coreModule <- typecheckHaskell2010 haskell2010GuardAsPatternSource
@@ -2067,6 +2079,13 @@ testHaskell2010Core0EvalIONormalExamples =
     haskell2010IONormalExamplesOutput
     =<< evalHaskell2010Binding "main" haskell2010IONormalExamplesSource
 
+testHaskell2010Core0EvalIOGetLine :: Either String ()
+testHaskell2010Core0EvalIOGetLine =
+  expectCoreEvalIO
+    "Core-0 IO getLine empty-stdin evaluation"
+    haskell2010IOGetLineEmptyOutput
+    =<< evalHaskell2010Binding "main" haskell2010IOGetLineSource
+
 testHaskell2010Core0EvalGuardsAndAsPatterns :: Either String ()
 testHaskell2010Core0EvalGuardsAndAsPatterns =
   expectCoreEvalInt
@@ -2401,6 +2420,10 @@ testHaskell2010CoreToSTGIONormalExamples :: Either String ()
 testHaskell2010CoreToSTGIONormalExamples =
   checkCoreToSTGIO "Core-to-STG normal IO examples" haskell2010IONormalExamplesOutput haskell2010IONormalExamplesSource
 
+testHaskell2010CoreToSTGIOGetLine :: Either String ()
+testHaskell2010CoreToSTGIOGetLine =
+  checkCoreToSTGIO "Core-to-STG IO getLine empty stdin" haskell2010IOGetLineEmptyOutput haskell2010IOGetLineSource
+
 testHaskell2010CoreToSTGGuardsAndAsPatterns :: Either String ()
 testHaskell2010CoreToSTGGuardsAndAsPatterns =
   checkCoreToSTGInt "Core-to-STG guards and as-patterns" 15 haskell2010GuardAsPatternSource
@@ -2551,6 +2574,13 @@ testHaskell2010NativeAppend = do
   assertBool "native Prelude append emits list case dispatch" ("case_data_match" `Text.isInfixOf` llvmText)
   assertBool "native Prelude append keeps String values as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
 
+testHaskell2010NativeGetLine :: Either String ()
+testHaskell2010NativeGetLine = do
+  llvmText <- compileHaskell2010NativeText haskell2010IOGetLineSource
+  assertBool "native IO getLine emits runtime helper" ("@hegglog_hs_getline" `Text.isInfixOf` llvmText)
+  assertBool "native IO getLine reads from stdin" ("declare i32 @getchar()" `Text.isInfixOf` llvmText)
+  assertBool "native IO getLine returns Char-list strings" ("call ptr @hegglog_hs_make_char(i64 %char_i64)" `Text.isInfixOf` llvmText)
+
 testHaskell2010NativeListComprehensions :: Either String ()
 testHaskell2010NativeListComprehensions = do
   llvmText <- compileHaskell2010NativeText haskell2010ListComprehensionsSource
@@ -2620,6 +2650,38 @@ testHaskell2010NativeExecutableExecution = do
                 )
             LLVMTools.NativeRunIOError message ->
               Left ("Haskell 2010 native execution I/O error for " <> outputPath <> ": " <> message)
+
+testHaskell2010NativeGetLineExecution :: IO (Either String ())
+testHaskell2010NativeGetLineExecution = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} -> do
+      createDirectoryIfMissing True ".context/native-tests"
+      case compileHaskell2010Native haskell2010IOGetLineSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          let outputPath = ".context/native-tests/haskell2010-io-getline"
+          buildResult <- LLVMTools.buildNativeExecutable tools (H2010Native.haskell2010LLVMText result) outputPath
+          runBuiltNativeWithInput outputPath haskell2010IOGetLineInput buildResult $ \runResult ->
+            case runResult of
+              LLVMTools.NativeRunSucceeded stdoutText ->
+                expectEqual "Haskell 2010 native getLine stdout" (Text.unpack haskell2010IOGetLineOutput) stdoutText
+              LLVMTools.NativeRunFailed code stdoutText stderrText ->
+                Left
+                  ( "Haskell 2010 native getLine execution failed for "
+                      <> outputPath
+                      <> " with "
+                      <> show code
+                      <> "\nstdout:\n"
+                      <> stdoutText
+                      <> "\nstderr:\n"
+                      <> stderrText
+                  )
+              LLVMTools.NativeRunIOError message ->
+                Left ("Haskell 2010 native getLine execution I/O error for " <> outputPath <> ": " <> message)
 
 testHaskell2010NativeRuntimeError :: IO (Either String ())
 testHaskell2010NativeRuntimeError = do
@@ -4695,9 +4757,18 @@ testNativeRuntimeErrorExecutable = do
 
 runBuiltNative :: FilePath -> LLVMTools.NativeBuildResult -> (LLVMTools.NativeRunResult -> Either String ()) -> IO (Either String ())
 runBuiltNative outputPath buildResult checkRun =
+  runBuiltNativeWithInput outputPath "" buildResult checkRun
+
+runBuiltNativeWithInput ::
+  FilePath ->
+  Text ->
+  LLVMTools.NativeBuildResult ->
+  (LLVMTools.NativeRunResult -> Either String ()) ->
+  IO (Either String ())
+runBuiltNativeWithInput outputPath stdinText buildResult checkRun =
   case buildResult of
     LLVMTools.NativeBuildSucceeded ->
-      checkRun <$> LLVMTools.runNativeExecutable outputPath
+      checkRun <$> LLVMTools.runNativeExecutableWithInput outputPath (Text.unpack stdinText)
     LLVMTools.NativeBuildToolchainMissing {} ->
       pure (Right ())
     LLVMTools.NativeBuildFailed clangPath args code stdoutText stderrText ->
@@ -6559,6 +6630,30 @@ haskell2010IONormalExamplesSource =
 haskell2010IONormalExamplesOutput :: Text
 haskell2010IONormalExamplesOutput =
   "hello\nbound\n\"quoted\"\n'X'\n\"plain\"\n[1,2,3]\n[True,False]\n"
+
+haskell2010IOGetLineSource :: Text
+haskell2010IOGetLineSource =
+  "module Main where\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  first <- getLine\n\
+  \  second <- getLine\n\
+  \  putStrLn (\"first=\" ++ first)\n\
+  \  putStrLn (\"second=\" ++ second)\n\
+  \  print (length first + length second)\n\
+  \  return ()\n"
+
+haskell2010IOGetLineInput :: Text
+haskell2010IOGetLineInput =
+  "hegg\nlog\nunused\n"
+
+haskell2010IOGetLineOutput :: Text
+haskell2010IOGetLineOutput =
+  "first=hegg\nsecond=log\n7\n"
+
+haskell2010IOGetLineEmptyOutput :: Text
+haskell2010IOGetLineEmptyOutput =
+  "first=\nsecond=\n0\n"
 
 haskell2010GuardAsPatternSource :: Text
 haskell2010GuardAsPatternSource =

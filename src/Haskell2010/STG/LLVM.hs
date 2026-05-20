@@ -394,6 +394,10 @@ emitPrim env op arguments =
       valueObject <- emitAtomAddress env value
       emit (ICall Nothing LVoid (DirectCall putStrLnFunctionName) False [(LPtr, valueObject)])
       emitConstructorObject unitDataConName unitTy []
+    (PrimGetLine, []) -> do
+      resultReg <- freshRegister "getline"
+      emit (ICall (Just resultReg) LPtr (DirectCall getLineFunctionName) False [])
+      pure (OLocal LPtr resultReg)
     (PrimIOThen, [firstAction, secondAction]) -> do
       firstObject <- emitAtomAddress env firstAction
       _ <- emitForce firstObject
@@ -1017,6 +1021,7 @@ runtimeFunctions =
   , makeCharListFromCStringFunction
   , showIntFunction
   , putStrLnFunction
+  , getLineFunction
   , printCharListFunction
   ]
 
@@ -1410,6 +1415,70 @@ putStrLnFunction =
         ]
     }
 
+getLineFunction :: LLVMFunction
+getLineFunction =
+  LLVMFunction
+    { functionName = getLineFunctionName
+    , functionReturnType = LPtr
+    , functionParams = []
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "char")) LI32 (DirectCall "getchar") False []
+            , IIcmp (Register "is_eof") ICmpEq LI32 (OLocal LI32 (Register "char")) (OConstInt LI32 (-1))
+            ]
+            (TCondBr (OLocal LI1 (Register "is_eof")) "nil" "newline_check")
+        , LLVMBlock
+            "newline_check"
+            [IIcmp (Register "is_newline") ICmpEq LI32 (OLocal LI32 (Register "char")) (OConstInt LI32 10)]
+            (TCondBr (OLocal LI1 (Register "is_newline")) "nil" "cons")
+        , LLVMBlock
+            "nil"
+            [ ICall
+                (Just (Register "nil_list"))
+                LPtr
+                (DirectCall makeDataFunctionName)
+                False
+                [ (LI64, OConstInt LI64 (constructorRuntimeTag listNilDataConName))
+                , (LI64, OConstInt LI64 0)
+                , (LPtr, OConstNull)
+                ]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "nil_list")))
+        , LLVMBlock
+            "cons"
+            [ IZext (Register "char_i64") (OLocal LI32 (Register "char")) LI64
+            , ICall
+                (Just (Register "head"))
+                LPtr
+                (DirectCall makeCharFunctionName)
+                False
+                [(LI64, OLocal LI64 (Register "char_i64"))]
+            , ICall (Just (Register "tail")) LPtr (DirectCall getLineFunctionName) False []
+            , ICall
+                (Just (Register "fields"))
+                LPtr
+                (DirectCall processLifetimeAllocFunctionName)
+                False
+                [(LI64, OConstInt LI64 16)]
+            , IGetElementPtr (Register "head_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 0)]
+            , IStore LPtr (OLocal LPtr (Register "head")) (OLocal LPtr (Register "head_slot"))
+            , IGetElementPtr (Register "tail_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 1)]
+            , IStore LPtr (OLocal LPtr (Register "tail")) (OLocal LPtr (Register "tail_slot"))
+            , ICall
+                (Just (Register "cons_list"))
+                LPtr
+                (DirectCall makeDataFunctionName)
+                False
+                [ (LI64, OConstInt LI64 (constructorRuntimeTag listConsDataConName))
+                , (LI64, OConstInt LI64 2)
+                , (LPtr, OLocal LPtr (Register "fields"))
+                ]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "cons_list")))
+        ]
+    }
+
 printCharListFunction :: LLVMFunction
 printCharListFunction =
   LLVMFunction
@@ -1580,7 +1649,7 @@ makeFunctionFunctionName = "hegglog_hs_make_function"
 makeThunkFunctionName = "hegglog_hs_make_thunk"
 forceFunctionName = "hegglog_hs_force"
 
-expectIntFunctionName, expectBoolFunctionName, expectCharFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, putStrLnFunctionName, printCharListFunctionName :: Text
+expectIntFunctionName, expectBoolFunctionName, expectCharFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, putStrLnFunctionName, getLineFunctionName, printCharListFunctionName :: Text
 expectIntFunctionName = "hegglog_hs_expect_int"
 expectBoolFunctionName = "hegglog_hs_expect_bool"
 expectCharFunctionName = "hegglog_hs_expect_char"
@@ -1589,6 +1658,7 @@ expectFunctionName = "hegglog_hs_expect_function"
 makeCharListFromCStringFunctionName = "hegglog_hs_make_char_list_from_cstring"
 showIntFunctionName = "hegglog_hs_show_int"
 putStrLnFunctionName = "hegglog_hs_putstrln"
+getLineFunctionName = "hegglog_hs_getline"
 printCharListFunctionName = "hegglog_hs_print_char_list"
 
 formatGlobals :: [LLVMGlobal]
@@ -1604,6 +1674,7 @@ runtimeDeclarations :: [Text]
 runtimeDeclarations =
   [ "declare i32 @printf(ptr, ...)"
   , "declare i32 @putchar(i32)"
+  , "declare i32 @getchar()"
   , "declare i32 @snprintf(ptr, i64, ptr, ...)"
   , "declare noalias ptr @malloc(i64)"
   , "declare void @abort()"

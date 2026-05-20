@@ -196,8 +196,8 @@ the executable subset. It exposes structured exhaustiveness warning
 placeholders for partial `case`, function, and lambda patterns through the
 typechecker and native API. The full Haskell 2010 type-class surface, the
 report-compatible `showsPrec`/`showList` hierarchy, a full pattern coverage
-checker, richer pattern diagnostics, broader Prelude, `getLine`,
-handles, and richer IO behavior remain planned. The strict
+checker, richer pattern diagnostics, broader Prelude, handles, and richer IO
+behavior remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

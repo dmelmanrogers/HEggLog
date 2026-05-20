@@ -426,6 +426,8 @@ evalPrimitive env op arguments = do
       stringListValue "False"
     (PrimPutStrLn, [value]) ->
       (\text -> STGIO [text <> "\n"] (STGData unitDataConName [])) <$> stgStringText value
+    (PrimGetLine, []) ->
+      stringListValue "" >>= \line -> pure (STGIO [] line)
     (PrimIOThen, [STGIO first _, STGIO second result]) ->
       pure (STGIO (first <> second) result)
     (PrimIOBind, [STGIO first value, STGFunctionValue functionAddress]) -> do
@@ -634,6 +636,7 @@ renderCorePrimOpName = \case
   PrimShowInt -> "showInt#"
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"
+  PrimGetLine -> "getLine#"
   PrimIOThen -> "thenIO#"
   PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"

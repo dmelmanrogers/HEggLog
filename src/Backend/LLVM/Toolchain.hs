@@ -7,6 +7,7 @@ module Backend.LLVM.Toolchain
   , buildNativeExecutable
   , findLLVMTools
   , runNativeExecutable
+  , runNativeExecutableWithInput
   , renderLLVMTools
   , runLLVMText
   , validateLLVMText
@@ -114,8 +115,12 @@ buildNativeExecutable tools llvmText outputPath =
         ExitFailure {} -> NativeBuildFailed clangPath args code stdoutText stderrText
 
 runNativeExecutable :: FilePath -> IO NativeRunResult
-runNativeExecutable path = do
-  result <- try (readProcessWithExitCode (nativeExecutableCommand path) [] "") :: IO (Either IOException (ExitCode, String, String))
+runNativeExecutable path =
+  runNativeExecutableWithInput path ""
+
+runNativeExecutableWithInput :: FilePath -> String -> IO NativeRunResult
+runNativeExecutableWithInput path stdinText = do
+  result <- try (readProcessWithExitCode (nativeExecutableCommand path) [] stdinText) :: IO (Either IOException (ExitCode, String, String))
   pure $
     case result of
       Left err ->

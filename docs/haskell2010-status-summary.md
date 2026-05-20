@@ -37,9 +37,9 @@ constrained functions, boxed native `Char` literals and literal cases, scalar
 `main :: Char` output, and built-in Prelude dictionaries for `Eq Int`,
 `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, and executable `Num Int`
 methods. Guarded RHSs, guarded case alternatives, as-pattern aliases, and
-guard-fallthrough no-match behavior are also implemented. The first IO printing
+guard-fallthrough no-match behavior are also implemented. The first IO printing/input
 slice is implemented for `IO`,
-`main :: IO ()`, `putStrLn`, `print`, `return`, `(>>)`, `(>>=)`, expression and
+`main :: IO ()`, `putStrLn`, `getLine`, `print`, `return`, `(>>)`, `(>>=)`, expression and
 bind-statement `do` sequencing with local `let`, and built-in `Show Int`/`Show Bool` dictionaries.
 The current `Show` slice also includes exact `Show Char`, exact `Show String`,
 and generated structural list dictionaries.
@@ -54,7 +54,7 @@ implemented:
 - instance contexts, derived `Read`, and the full `showsPrec`/`showList` hierarchy
 - broader Prelude/library subset
 - Haskell source desugaring beyond the current executable subset
-- broader IO, including `getLine`, handles, rich IO errors, `fail`, and effects beyond stdout
+- broader IO, including handles, rich IO errors, `fail`, and effects beyond line-oriented stdin/stdout
 - Haskell 2010 conformance suite
 
 ## What Is Parsed Today
@@ -171,7 +171,7 @@ sections, including lazy Boolean sections. It reports guard fallthrough as a
 no-matching-alternative runtime error.
 Core evaluation covers `Char` literals, literal `Char` cases, and `Eq Char`
 dictionary calls in the executable subset.
-It now models IO output and result values for `putStrLn`, `print`, `return`,
+It now models IO output and result values for `putStrLn`, `print`, `getLine`, `return`,
 `(>>)`, `(>>=)`, and expression/bind-statement `do` sequencing so Core remains the oracle for native
 `main :: IO ()` execution.
 
@@ -196,9 +196,10 @@ constructor closures. Native STG heap allocations now pass through the
 `hegglog_hs_alloc_process_lifetime` runtime helper, making the current no-GC,
 no-free ownership policy explicit and tested. The first IO action layer is
 implemented for
-output-oriented programs: STG can represent and evaluate IO output actions, and
-native `main :: IO ()` forces the compiled action instead of auto-printing a
-scalar root.
+line-oriented programs: STG can represent and evaluate IO output actions,
+IO-typed thunks are single-entry so effects are not cached, native `getLine`
+reads stdin into list-backed strings, and native `main :: IO ()` forces the
+compiled action instead of auto-printing a scalar root.
 
 ## What Core Optimizes Today
 
@@ -296,10 +297,10 @@ and compiled to native executables through the existing clang toolchain.
     CLI runs. Irrefutable/lazy patterns are implemented for the executable
     subset; structured exhaustiveness warning placeholders are exposed by the
     typechecker and native API, while a full coverage checker remains planned.
-16. IO printing and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
-    `putStrLn`, `print`, `return`, `(>>)`, `(>>=)`, expression and bind-statement
+16. IO printing/input and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
+    `putStrLn`, `getLine`, `print`, `return`, `(>>)`, `(>>=)`, expression and bind-statement
     `do` sequencing with local `let`, broadened built-in `Show`, Core/STG output/result oracles,
-    source strings and built-in show results as list-of-`Char` output, and
+    source strings and built-in show results as list-of-`Char` output, native stdin line input, and
     wet-tested default/no-egglog CLI runs.
 17. Numeric literals and defaulting. Completed for dictionary-backed
     `fromInteger`, overloaded integer literals, default declarations that map

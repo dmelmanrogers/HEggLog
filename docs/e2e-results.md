@@ -1,7 +1,7 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after PRELUDE-013 added executable
-Prelude append. The suite covers the
+Recorded for the mandatory wet-test suite after IO-006 added executable
+`getLine` stdin support. The suite covers the
 existing `.hg` native compiler baseline and Haskell 2010 executable-subset
 `.hs` programs that compile to native executables, compare lazy runtime
 behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
@@ -9,7 +9,7 @@ optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-20 06:03:50 UTC`
+- Date/time: `2026-05-20 06:30:18 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -18,22 +18,23 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 147
-- Source files: 60
-- Successful source cases: 49
+- HUnit checks: 150
+- Source files: 61
+- Successful source cases: 50
 - Runtime-error source cases: 7
 - Compile-error source cases: 3
-- Native compile/run checks: 106
-- Default Egglog native checks: 59
-- `--no-egglog` native checks: 47
-- Emit-LLVM checks: 29
+- Native compile/run checks: 108
+- Default Egglog native checks: 60
+- `--no-egglog` native checks: 48
+- Emit-LLVM checks: 30
 - Report/interpreter comparisons: 12
 - Failures: 0
 
-This update adds a dedicated Haskell 2010 native case for Prelude `(++)`:
-list append, string append through `String = [Char]`, right-associative infix
-use, prefix `(++)`, and left/right operator sections. The fixture runs in both
-default and `--no-egglog` modes and emits LLVM that is compiled through clang.
+This update adds a dedicated Haskell 2010 native case for IO `getLine`:
+two sequential stdin reads, returned `String = [Char]` values, append-based
+output formatting, `length`, `putStrLn`, `print`, and do-bind sequencing. The
+fixture runs in both default and `--no-egglog` modes and emits LLVM that is
+compiled through clang.
 
 ## Case Table
 
@@ -130,6 +131,9 @@ default and `--no-egglog` modes and emits LLVM that is compiled through clang.
 | haskell2010-io-normal-examples | `test/e2e/programs/haskell2010/io-normal-examples.hs` | success | native/default | `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]` | stdout `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]`, stderr empty, exit 0 | pass |
 | haskell2010-io-normal-examples | `test/e2e/programs/haskell2010/io-normal-examples.hs` | success | native/no-egglog | `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]` | stdout `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]`, stderr empty, exit 0 | pass |
 | haskell2010-io-normal-examples | `test/e2e/programs/haskell2010/io-normal-examples.hs` | success | emit-llvm/default | `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]` | LLVM compiled through clang, stdout `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]`, stderr empty, exit 0 | pass |
+| haskell2010-io-getline | `test/e2e/programs/haskell2010/io-getline.hs` | success | native/default | `first=hegg\nsecond=log\n7` | stdout matched with stdin `hegg\nlog\nunused\n`, stderr empty, exit 0 | pass |
+| haskell2010-io-getline | `test/e2e/programs/haskell2010/io-getline.hs` | success | native/no-egglog | `first=hegg\nsecond=log\n7` | stdout matched with stdin `hegg\nlog\nunused\n`, stderr empty, exit 0 | pass |
+| haskell2010-io-getline | `test/e2e/programs/haskell2010/io-getline.hs` | success | emit-llvm/default | `first=hegg\nsecond=log\n7` | LLVM compiled through clang, stdout matched with stdin `hegg\nlog\nunused\n`, stderr empty, exit 0 | pass |
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | native/default | `15` | stdout `15`, stderr empty, exit 0 | pass |
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | native/no-egglog | `15` | stdout `15`, stderr empty, exit 0 | pass |
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | emit-llvm/default | `15` | LLVM compiled through clang, stdout `15`, stderr empty, exit 0 | pass |

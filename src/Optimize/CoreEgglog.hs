@@ -678,6 +678,7 @@ corePrimToANF = \case
   PrimShowInt -> Nothing
   PrimShowBool -> Nothing
   PrimPutStrLn -> Nothing
+  PrimGetLine -> Nothing
   PrimIOThen -> Nothing
   PrimIOBind -> Nothing
   PrimIOReturn -> Nothing

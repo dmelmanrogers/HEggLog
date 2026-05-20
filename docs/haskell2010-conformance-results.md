@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-20 06:03:50 UTC
+Date/time: 2026-05-20 06:30:18 UTC
 
-Commit hash tested: PRELUDE-013 working tree before final task commit.
+Commit hash tested: IO-006 working tree before final task commit.
 The final commit for the task records the same source tree plus this results
 document.
 
@@ -38,14 +38,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 67 |
-| Haskell source files in corpus | 68 |
-| HUnit test cases executed | 80 |
-| Native-success fixtures | 55 |
+| Manifest conformance fixtures | 68 |
+| Haskell source files in corpus | 69 |
+| HUnit test cases executed | 82 |
+| Native-success fixtures | 56 |
 | Native-runtime-error fixtures | 1 |
 | Compile-error fixtures | 6 |
 | Unsupported-documented fixtures | 5 |
-| Native subprocess compile/run checks | 69 |
+| Native subprocess compile/run checks | 71 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -62,7 +62,7 @@ explicit conformance cases rather than omitted.
 | `declarations` | 4 | representative native tests exist |
 | `egglog` | 1 | optimized/unoptimized native agreement covered |
 | `expressions` | 10 | representative native tests exist |
-| `io` | 2 | current output-only IO slice covered, including do-bind and explicit `(>>=)` examples |
+| `io` | 3 | current line-oriented stdin/stdout IO slice covered, including do-bind, explicit `(>>=)`, and `getLine` examples |
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |

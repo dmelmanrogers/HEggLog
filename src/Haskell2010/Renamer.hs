@@ -1205,6 +1205,7 @@ preludeNames =
     , "reverse"
     , "show"
     , "putStrLn"
+    , "getLine"
     , "print"
     , "not"
     , "id"

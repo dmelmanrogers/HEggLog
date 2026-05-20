@@ -6452,7 +6452,7 @@
     {
       "id": "TC-003",
       "title": "superclass representation",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TYPE-016",
@@ -6508,7 +6508,7 @@
     {
       "id": "TC-005",
       "title": "default methods",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TYPE-016",
@@ -7822,7 +7822,7 @@
     {
       "id": "IO-006",
       "title": "getLine",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "RTS-017",
@@ -7831,7 +7831,7 @@
       "blocks": [],
       "milestone": "M13",
       "acceptance_criteria": [
-        "getLine is implemented, completed, or explicitly documented according to status `not started`.",
+        "getLine is implemented for the supported native IO subset, including repeated line reads, do-bind use, append/length composition over returned strings, Core/STG empty-stdin oracle coverage, conformance coverage, and default/no-egglog wet tests with stdin.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

@@ -135,9 +135,9 @@ is built alongside them.
     multi-branch guards, guarded case alternatives, as-pattern alias binding,
     Core/STG/native no-match behavior for guard fallthrough, and wet-tested
     default/no-egglog CLI runs.
-16. IO printing and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
-    `putStrLn`, `print`, `return`, `(>>)`, `(>>=)`, expression and bind-statement
-    `do` sequencing with local `let`, Core/STG/native execution, and wet-tested
+16. IO printing/input and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
+    `putStrLn`, `getLine`, `print`, `return`, `(>>)`, `(>>=)`, expression and bind-statement
+    `do` sequencing with local `let`, Core/STG/native execution, native stdin line reads, and wet-tested
     default/no-egglog CLI runs.
 17. Numeric literals and defaulting. Completed for dictionary-backed
     `fromInteger`, overloaded integer literals, executable `Int` defaulting,

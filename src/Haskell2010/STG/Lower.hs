@@ -107,7 +107,7 @@ lowerNonConstructorRhs expression =
     CCon name ty ->
       STGConstructor name [] <$> runtimeType ty
     other ->
-      STGThunk Updatable <$> lowerExpr other
+      STGThunk (updateFlagForThunkType (exprType other)) <$> lowerExpr other
 
 lowerConstructorRhs :: RName -> [CoreExpr] -> CoreType -> LowerM STGRhs
 lowerConstructorRhs name fields resultTy = do
@@ -415,6 +415,12 @@ namesInConstructorInfo info =
 throwLower :: STGLowerError -> LowerM a
 throwLower =
   lift . Left
+
+updateFlagForThunkType :: CoreType -> STGUpdateFlag
+updateFlagForThunkType = \case
+  CTyApp (CTyCon name) _
+    | name == ioTyConName -> SingleEntry
+  _ -> Updatable
 
 renderSTGLowerError :: STGLowerError -> Text
 renderSTGLowerError = \case

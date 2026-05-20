@@ -284,6 +284,7 @@ validatePrimitive op arguments resultTy =
     PrimShowInt -> validateFixedPrimitive op [intTy] stringTy arguments resultTy
     PrimShowBool -> validateFixedPrimitive op [boolTy] stringTy arguments resultTy
     PrimPutStrLn -> validateFixedPrimitive op [stringTy] (ioTy unitTy) arguments resultTy
+    PrimGetLine -> validateFixedPrimitive op [] (ioTy stringTy) arguments resultTy
     PrimIOThen -> validateIOThenPrimitive op arguments resultTy
     PrimIOBind -> validateIOBindPrimitive op arguments resultTy
     PrimIOReturn -> validateIOReturnPrimitive op arguments resultTy
