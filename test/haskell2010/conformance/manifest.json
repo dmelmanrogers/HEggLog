@@ -543,13 +543,13 @@
       "notes": "Derived Ord synthesizes Haskell 2010 declaration-order constructor comparison, lexicographic product-field comparison, superclass Eq dictionaries, recursive instances, newtype ordering, String fields, and structural Ord lists."
     },
     {
-      "name": "unsupported.deriving-show",
-      "sourceFile": "test/haskell2010/conformance/unsupported/deriving-show.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "unsupported",
-      "requiredStage": "typecheck",
-      "notes": "TC-023 and TC-024 implement derived Eq/Ord only; derived Show remains a later task."
+      "name": "typeclasses.derived-show",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/derived-show.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-success",
+      "expectedStdout": "Off\nBox ('x')\nName (\"aa\")\nNode (Leaf ('a')) (Leaf ('b'))\nYears (7)\nPerson { age = (42), label = (\"Ada\") }\n[Box (True),Box (False)]\n",
+      "requiredStage": "native",
+      "notes": "Derived Show synthesizes executable-subset Show dictionaries for nullary constructors, products, recursive data, newtypes, records, String fields, and list-backed contexts."
     },
     {
       "name": "unsupported.instance-context",

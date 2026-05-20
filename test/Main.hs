@@ -181,6 +181,7 @@ testGroups =
       , pureTest "typechecks Enum Bounded and superclass defaulting" testHaskell2010Core0EnumBounded
       , pureTest "typechecks derived Eq instances" testHaskell2010Core0DerivedEq
       , pureTest "typechecks derived Ord instances" testHaskell2010Core0DerivedOrd
+      , pureTest "typechecks derived Show instances" testHaskell2010Core0DerivedShow
       , pureTest "typechecks list comprehensions" testHaskell2010Core0ListComprehensions
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
@@ -219,6 +220,7 @@ testGroups =
       , pureTest "evaluates Enum Bounded and superclass defaulting" testHaskell2010Core0EvalEnumBounded
       , pureTest "evaluates derived Eq instances" testHaskell2010Core0EvalDerivedEq
       , pureTest "evaluates derived Ord instances" testHaskell2010Core0EvalDerivedOrd
+      , pureTest "evaluates derived Show instances" testHaskell2010Core0EvalDerivedShow
       , pureTest "evaluates list comprehensions" testHaskell2010Core0EvalListComprehensions
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
@@ -264,6 +266,7 @@ testGroups =
       , pureTest "preserves Enum Bounded semantics" testHaskell2010CoreToSTGEnumBounded
       , pureTest "preserves derived Eq semantics" testHaskell2010CoreToSTGDerivedEq
       , pureTest "preserves derived Ord semantics" testHaskell2010CoreToSTGDerivedOrd
+      , pureTest "preserves derived Show semantics" testHaskell2010CoreToSTGDerivedShow
       , pureTest "preserves list comprehension semantics" testHaskell2010CoreToSTGListComprehensions
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves guard fallthrough errors" testHaskell2010CoreToSTGGuardFallthrough
@@ -280,6 +283,7 @@ testGroups =
       , pureTest "emits Enum Bounded LLVM" testHaskell2010NativeEnumBounded
       , pureTest "emits derived Eq LLVM" testHaskell2010NativeDerivedEq
       , pureTest "emits derived Ord LLVM" testHaskell2010NativeDerivedOrd
+      , pureTest "emits derived Show LLVM" testHaskell2010NativeDerivedShow
       , pureTest "emits list comprehension LLVM" testHaskell2010NativeListComprehensions
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
       , ioTest "native executable preserves lazy Core-0 semantics" testHaskell2010NativeExecutableExecution
@@ -1748,6 +1752,16 @@ testHaskell2010Core0DerivedOrd = do
   assertBool "generic Ord list compare helper is emitted" (containsBindingOccurrence "$compare_list" coreModule)
   expectCoreEvalInt "derived Ord Core oracle" 11 =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0DerivedShow :: Either String ()
+testHaskell2010Core0DerivedShow = do
+  coreModule <- typecheckHaskell2010 haskell2010DerivedShowSource
+  assertBool "Prelude Show dictionary constructor is recorded" (containsConstructorOccurrence "$MkShowDict" coreModule)
+  assertBool "derived Show Flag dictionary is emitted" (containsBindingPrefix "$fShowFlag" coreModule)
+  assertBool "derived Show Box dictionary is emitted" (containsBindingPrefix "$fShowBox" coreModule)
+  assertBool "derived Show Tree dictionary is emitted" (containsBindingPrefix "$fShowTree" coreModule)
+  assertBool "generic Show list dictionary is emitted" (containsBindingOccurrence "$fShowList" coreModule)
+  expectCoreEvalIO "derived Show Core oracle" haskell2010DerivedShowOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0ListComprehensions :: Either String ()
 testHaskell2010Core0ListComprehensions = do
   coreModule <- typecheckHaskell2010 haskell2010ListComprehensionsSource
@@ -1760,7 +1774,6 @@ testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
     *> expectTypecheckMessage "rejects overlapping instances" "overlapping instance" overlappingInstanceSource
     *> expectTypecheckMessage "rejects missing instance methods" "missing instance method" missingInstanceMethodSource
     *> expectTypecheckMessage "rejects unsolved Prelude class dictionaries" "unsolved type-class constraint" unsolvedPreludeConstraintSource
-    *> expectTypecheckMessage "rejects unsupported derived Show" "derived class" unsupportedDerivedShowSource
  where
   expectTypecheckMessage label needle source =
     case typecheckHaskell2010Raw source of
@@ -1803,11 +1816,6 @@ testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
     "module Main where\n\
     \data Box = Box Int\n\
     \main = if Box 1 == Box 1 then 1 else 0\n"
-
-  unsupportedDerivedShowSource =
-    "module Main where\n\
-    \data Flag = Off | On deriving (Show)\n\
-    \main = 1\n"
 
 testHaskell2010Core0TypeError :: Either String ()
 testHaskell2010Core0TypeError =
@@ -2083,6 +2091,13 @@ testHaskell2010Core0EvalDerivedOrd =
     "Core-0 derived Ord evaluation"
     11
     =<< evalHaskell2010Binding "main" haskell2010DerivedOrdSource
+
+testHaskell2010Core0EvalDerivedShow :: Either String ()
+testHaskell2010Core0EvalDerivedShow =
+  expectCoreEvalIO
+    "Core-0 derived Show evaluation"
+    haskell2010DerivedShowOutput
+    =<< evalHaskell2010Binding "main" haskell2010DerivedShowSource
 
 testHaskell2010Core0EvalListComprehensions :: Either String ()
 testHaskell2010Core0EvalListComprehensions =
@@ -2389,6 +2404,10 @@ testHaskell2010CoreToSTGDerivedOrd :: Either String ()
 testHaskell2010CoreToSTGDerivedOrd =
   checkCoreToSTGInt "Core-to-STG derived Ord" 11 haskell2010DerivedOrdSource
 
+testHaskell2010CoreToSTGDerivedShow :: Either String ()
+testHaskell2010CoreToSTGDerivedShow =
+  checkCoreToSTGIO "Core-to-STG derived Show" haskell2010DerivedShowOutput haskell2010DerivedShowSource
+
 testHaskell2010CoreToSTGListComprehensions :: Either String ()
 testHaskell2010CoreToSTGListComprehensions =
   checkCoreToSTGIO "Core-to-STG list comprehensions" haskell2010ListComprehensionsOutput haskell2010ListComprehensionsSource
@@ -2498,6 +2517,12 @@ testHaskell2010NativeDerivedOrd = do
   llvmText <- compileHaskell2010NativeText haskell2010DerivedOrdSource
   assertBool "native derived Ord emits Ordering case branches" ("br i1" `Text.isInfixOf` llvmText)
   assertBool "native derived Ord keeps String fields as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeDerivedShow :: Either String ()
+testHaskell2010NativeDerivedShow = do
+  llvmText <- compileHaskell2010NativeText haskell2010DerivedShowSource
+  assertBool "native derived Show emits synthesized append helpers" ("derived_ushow_uappend" `Text.isInfixOf` llvmText)
+  assertBool "native derived Show keeps String fields as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeListComprehensions :: Either String ()
 testHaskell2010NativeListComprehensions = do
@@ -5889,6 +5914,7 @@ haskell2010NativeSuccessExamples =
   , ("enum-bounded", haskell2010EnumBoundedSource, Text.unpack haskell2010EnumBoundedOutput)
   , ("derived-eq", haskell2010DerivedEqSource, "10\n")
   , ("derived-ord", haskell2010DerivedOrdSource, "11\n")
+  , ("derived-show", haskell2010DerivedShowSource, Text.unpack haskell2010DerivedShowOutput)
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-record-fields", haskell2010RecordFieldSource, "43\n")
@@ -5924,6 +5950,7 @@ haskell2010NativeExecutableExamples =
   , ("enum-bounded", haskell2010EnumBoundedSource, Text.unpack haskell2010EnumBoundedOutput)
   , ("derived-eq", haskell2010DerivedEqSource, "10\n")
   , ("derived-ord", haskell2010DerivedOrdSource, "11\n")
+  , ("derived-show", haskell2010DerivedShowSource, Text.unpack haskell2010DerivedShowOutput)
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   ]
 
@@ -6186,6 +6213,36 @@ haskell2010DerivedOrdSource =
   \  GT -> False\n\
   \main :: Int\n\
   \main = score (Low < Mid) + score (High > Mid) + score (Mid <= Mid) + score (Box 'a' < Box 'b') + score (Box \"aa\" < Box \"ab\") + score (Name \"aa\" < Name \"ab\") + score (Node (Leaf 'a') (Leaf 'b') < Node (Leaf 'a') (Leaf 'c')) + score (Age 8 >= Age 7) + score (max Low High == High) + score (min (Box 'a') (Box 'b') == Box 'a') + score (isLT (compare Mid High))\n"
+
+haskell2010DerivedShowSource :: Text
+haskell2010DerivedShowSource =
+  "module Main where\n\
+  \data Flag = Off | On deriving (Show)\n\
+  \data Box a = Box a deriving (Show)\n\
+  \data Name = Name String deriving (Show)\n\
+  \data Tree a = Leaf a | Node (Tree a) (Tree a) deriving (Show)\n\
+  \data Person = Person { age :: Int, label :: String } deriving (Show)\n\
+  \newtype Years = Years Int deriving (Show)\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  putStrLn (show Off)\n\
+  \  putStrLn (show (Box 'x'))\n\
+  \  putStrLn (show (Name \"aa\"))\n\
+  \  putStrLn (show (Node (Leaf 'a') (Leaf 'b')))\n\
+  \  putStrLn (show (Years 7))\n\
+  \  putStrLn (show (Person { label = \"Ada\", age = 42 }))\n\
+  \  putStrLn (show [Box True, Box False])\n\
+  \  return ()\n"
+
+haskell2010DerivedShowOutput :: Text
+haskell2010DerivedShowOutput =
+  "Off\n\
+  \Box ('x')\n\
+  \Name (\"aa\")\n\
+  \Node (Leaf ('a')) (Leaf ('b'))\n\
+  \Years (7)\n\
+  \Person { age = (42), label = (\"Ada\") }\n\
+  \[Box (True),Box (False)]\n"
 
 haskell2010ListComprehensionsSource :: Text
 haskell2010ListComprehensionsSource =

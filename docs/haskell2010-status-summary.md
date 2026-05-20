@@ -51,7 +51,7 @@ The following Haskell 2010 requirements are planned but not
 implemented:
 
 - a full pattern coverage checker and richer pattern-match diagnostics
-- instance contexts, derived `Show`/`Read`, and user ADT-shaped `Show`
+- instance contexts, derived `Read`, and the full `showsPrec`/`showList` hierarchy
 - broader Prelude/library subset
 - Haskell source desugaring beyond the current executable subset
 - broader IO, including `getLine`, handles, rich IO errors, `fail`, and effects beyond stdout
@@ -146,8 +146,9 @@ defaulting and dictionary elaboration. Unsupported class-constraint positions
 now use a structured placeholder diagnostic for superclass contexts,
 method-specific constraints, instance contexts, and expression type-signature
 constraints, so broader class features remain planned without silent fallback.
-`/` remains checked concrete `Int` division; derived and user ADT-shaped
-`Show` remain planned.
+`/` remains checked concrete `Int` division; derived `Show` is implemented for
+the executable data/newtype subset, while the full report-compatible
+`showsPrec`/`showList` hierarchy remains planned.
 
 ## What Core Evaluates Today
 
@@ -303,7 +304,7 @@ and compiled to native executables through the existing clang toolchain.
 17. Numeric literals and defaulting. Completed for dictionary-backed
     `fromInteger`, overloaded integer literals, default declarations that map
     the supported default set to executable `Int`, ambiguous numeric defaulting
-    for `Eq`/`Ord`/`Num`/`Show` constraints, derived `Eq`/`Ord`, inferred constrained helper
+    for `Eq`/`Ord`/`Num`/`Show` constraints, derived `Eq`/`Ord`/`Show`, inferred constrained helper
     schemes, SCC-based binding generalization, Core/STG/native IO output
     oracles, and default/no-egglog wet tests.
 18. Modules and whole-program compilation. Completed for same-directory

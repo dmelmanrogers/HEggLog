@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-20 05:28:35 UTC
+Date/time: 2026-05-20 05:44:51 UTC
 
-Commit hash tested: TC-024 working tree before final task commit.
+Commit hash tested: TC-025 working tree before final task commit.
 The final commit for the task records the same source tree plus this results
 document.
 
@@ -21,6 +21,8 @@ cabal test haskell2010-conformance-test --test-options='--hide-successes'
 cabal test all --test-options='--hide-successes'
 cabal check
 python3 scripts/validate-haskell2010-todo.py
+python3 -m json.tool docs/haskell2010-todo.json
+python3 -m json.tool test/haskell2010/conformance/manifest.json
 git diff --check
 ```
 
@@ -39,11 +41,11 @@ Summary:
 | Manifest conformance fixtures | 66 |
 | Haskell source files in corpus | 67 |
 | HUnit test cases executed | 79 |
-| Native-success fixtures | 53 |
+| Native-success fixtures | 54 |
 | Native-runtime-error fixtures | 1 |
 | Compile-error fixtures | 6 |
-| Unsupported-documented fixtures | 6 |
-| Native subprocess compile/run checks | 67 |
+| Unsupported-documented fixtures | 5 |
+| Native subprocess compile/run checks | 68 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -69,6 +71,6 @@ explicit conformance cases rather than omitted.
 | `patterns` | 2 | guards/as-patterns and irrefutable/lazy pattern representative native tests exist |
 | `prelude` | 12 | list functions, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
-| `typeclasses` | 5 | user dictionary, superclass/default method, synonym-normalized constraint, derived Eq, and derived Ord tests exist |
+| `typeclasses` | 6 | user dictionary, superclass/default method, synonym-normalized constraint, derived Eq, derived Ord, and derived Show tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |
-| `unsupported` | 6 | unsupported features documented by failing cases, including TC-016 `Read` |
+| `unsupported` | 5 | unsupported features documented by failing cases, including TC-016 `Read` |

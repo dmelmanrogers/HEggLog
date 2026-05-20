@@ -135,8 +135,8 @@ Current initial Haskell 2010 class capabilities:
 
 Remaining planned Haskell 2010 capabilities:
 
-- superclasses, default methods, deriving, and instance contexts
-- derived/user ADT-shaped `Show`, additional numeric classes, and fuller Prelude hierarchy
+- instance contexts, method-specific constraints, and remaining deriving classes
+- full `showsPrec`/`showList`, additional numeric classes, and fuller Prelude hierarchy
 - kind checking for type constructors and classes
 
 The typechecker emits typed Core or rejects the program. It must not accept a
@@ -194,8 +194,9 @@ It also covers import-driven dependency-file loading, export/import filtering,
 whole-program Core flattening, and root `main` native entrypoint selection for
 the executable subset. It exposes structured exhaustiveness warning
 placeholders for partial `case`, function, and lambda patterns through the
-typechecker and native API. Full Haskell 2010 type classes, derived/user ADT-shaped `Show`, a
-full pattern coverage checker, richer pattern diagnostics, broader Prelude, `getLine`,
+typechecker and native API. The full Haskell 2010 type-class surface, the
+report-compatible `showsPrec`/`showList` hierarchy, a full pattern coverage
+checker, richer pattern diagnostics, broader Prelude, `getLine`,
 handles, and richer IO behavior remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:

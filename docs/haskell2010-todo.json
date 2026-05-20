@@ -7089,7 +7089,7 @@
     {
       "id": "TC-025",
       "title": "derived Show",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TYPE-016",
@@ -7098,7 +7098,7 @@
       "blocks": [],
       "milestone": "M11",
       "acceptance_criteria": [
-        "derived Show is implemented, completed, or explicitly documented according to status `not started`.",
+        "derived Show is implemented for the supported executable subset and represented in unit, native, and conformance coverage.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

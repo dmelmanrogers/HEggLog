@@ -180,6 +180,14 @@ Structural `Ord [a]` is available for list and `String` fields, and superclass
 projection now lowers through reusable Core selector bindings rather than
 duplicating local projection cases.
 
+TC-025 adds derived `Show` for the same executable deriving surface. Generated
+instances synthesize ordinary `show :: a -> String` dictionary methods for
+nullary constructors, product constructors, records, recursive data, `newtype`,
+`String` fields, list-backed contexts, and parameterized declarations. Because
+the current `Show` class intentionally exposes only `show` and not the full
+Haskell 2010 `showsPrec`/`showList` hierarchy, product fields are conservatively
+parenthesized until that method hierarchy is introduced.
+
 ADT-005 adds the supported record-label subset. Record declarations introduce
 field selector names in the term namespace, record construction is typechecked
 against the constructor's labelled fields and currently requires every field

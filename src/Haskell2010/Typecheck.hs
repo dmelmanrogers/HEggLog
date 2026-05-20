@@ -2167,6 +2167,10 @@ inferDerivedInstanceDictionaries env decls existing =
         dictionary <- inferDerivedOrdInstanceDictionary env typeName params constructors
         validateInstanceDictionary known dictionary
         pure (known <> [dictionary], derived <> [dictionary])
+    | className == builtinShowClassName = do
+        dictionary <- inferDerivedShowInstanceDictionary env typeName params constructors
+        validateInstanceDictionary known dictionary
+        pure (known <> [dictionary], derived <> [dictionary])
     | otherwise =
         throwTypecheck (UnsupportedCore0 ("derived class `" <> renderRName className <> "`"))
 
@@ -2180,7 +2184,7 @@ validateDerivedClasses derivingNames = do
       pure ()
   traverse_
     ( \className ->
-        unless (className `elem` [builtinEqClassName, builtinOrdClassName]) $
+        unless (className `elem` [builtinEqClassName, builtinOrdClassName, builtinShowClassName]) $
           throwTypecheck (UnsupportedCore0 ("derived class `" <> renderRName className <> "`"))
     )
     classNames
@@ -2246,6 +2250,32 @@ inferDerivedOrdInstanceDictionary env typeName params constructors = do
   pure
     TypedInstanceDictionary
       { typedInstanceClass = builtinOrdClassName
+      , typedInstanceType = instanceType
+      , typedInstanceVariables = params
+      , typedInstanceContext = context
+      , typedInstanceDictName = dictName
+      , typedInstanceSuperclasses = superclassConstraints
+      , typedInstanceMethods = typedMethods
+      }
+
+inferDerivedShowInstanceDictionary :: TypeEnv -> RName -> [RName] -> [RConDecl] -> InferM TypedInstanceDictionary
+inferDerivedShowInstanceDictionary env typeName params constructors = do
+  classes <- classInfos <$> get
+  info <-
+    case Map.lookup builtinShowClassName classes of
+      Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Show class")
+      Just classInfo -> pure classInfo
+  fieldTypes <- concat <$> traverse (traverse sourceMonoType . conDeclFieldTypes) constructors
+  context <- List.nub . concat <$> traverse (derivedFieldConstraints "Show" builtinShowClassName typeName) fieldTypes
+  methodMap <- derivedShowMethodBindings constructors info
+  let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
+      replacements = Map.singleton (classInfoVariable info) instanceType
+      superclassConstraints = map (replaceConstraintTypeVars replacements) (classInfoSuperclasses info)
+  typedMethods <- traverse (inferInstanceMethod env info instanceType methodMap) (classInfoMethods info)
+  dictName <- instanceDictionaryName builtinShowClassName instanceType
+  pure
+    TypedInstanceDictionary
+      { typedInstanceClass = builtinShowClassName
       , typedInstanceType = instanceType
       , typedInstanceVariables = params
       , typedInstanceContext = context
@@ -2573,6 +2603,127 @@ derivedEQ =
 derivedGT :: RExpr
 derivedGT =
   RCon orderingGTDataConName
+
+derivedShowMethodBindings :: [RConDecl] -> ClassInfo -> InferM (Map.Map RName SourceBinding)
+derivedShowMethodBindings constructors info = do
+  showMethod <- requireShowMethod "show"
+  binding <- derivedShowBinding (classMethodName showMethod) constructors
+  pure (Map.singleton (classMethodName showMethod) binding)
+ where
+  requireShowMethod occurrence =
+    case List.find ((== occurrence) . nameOcc . classMethodName) (classInfoMethods info) of
+      Just method -> pure method
+      Nothing -> throwTypecheck (UnsupportedCore0 ("missing Show method `" <> occurrence <> "`"))
+
+derivedShowBinding :: RName -> [RConDecl] -> InferM SourceBinding
+derivedShowBinding methodName constructors = do
+  valueName <- freshGeneratedName TermNamespace "$derived_show_value"
+  appendName <- freshGeneratedName TermNamespace "$derived_show_append"
+  alternatives <- traverse (derivedShowAlt appendName) constructors
+  appendDecl <- derivedShowAppendDecl appendName
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar valueName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs = RUnguarded (RCase (RVar valueName) alternatives)
+      , sourceBindingWhereDecls = [appendDecl]
+      }
+
+derivedShowAlt :: RName -> RConDecl -> InferM RAlt
+derivedShowAlt appendName constructor = do
+  fieldNames <- freshConstructorFields "$derived_show_field" constructor
+  pure
+    ( RAlt
+        (RPCon (conDeclName constructor) (map RPVar fieldNames))
+        (RUnguarded (derivedShowConstructor appendName constructor fieldNames))
+        []
+    )
+
+derivedShowConstructor :: RName -> RConDecl -> [RName] -> RExpr
+derivedShowConstructor appendName constructor fieldNames
+  | null fieldNames =
+      derivedShowString (nameOcc (conDeclName constructor))
+  | any (/= Nothing) labels =
+      derivedShowRecordConstructor appendName constructor fieldNames labels
+  | otherwise =
+      derivedShowPrefixConstructor appendName constructor fieldNames
+ where
+  labels = conDeclFieldLabels constructor
+
+derivedShowPrefixConstructor :: RName -> RConDecl -> [RName] -> RExpr
+derivedShowPrefixConstructor appendName constructor fieldNames =
+  derivedShowConcat appendName (derivedShowString (nameOcc (conDeclName constructor) <> " ") : fieldPieces)
+ where
+  fieldPieces =
+    List.intersperse (derivedShowString " ") (map (derivedShowParenthesizedField appendName) fieldNames)
+
+derivedShowRecordConstructor :: RName -> RConDecl -> [RName] -> [Maybe RName] -> RExpr
+derivedShowRecordConstructor appendName constructor fieldNames labels =
+  derivedShowConcat appendName ([derivedShowString (nameOcc (conDeclName constructor) <> " { ")] <> fieldPieces <> [derivedShowString " }"])
+ where
+  fieldPieces =
+    List.intersperse
+      (derivedShowString ", ")
+      [ derivedShowConcat
+          appendName
+          [ derivedShowString (nameOcc label <> " = ")
+          , derivedShowParenthesizedField appendName fieldName
+          ]
+      | (Just label, fieldName) <- zip labels fieldNames
+      ]
+
+derivedShowParenthesizedField :: RName -> RName -> RExpr
+derivedShowParenthesizedField appendName fieldName =
+  derivedShowConcat
+    appendName
+    [ derivedShowString "("
+    , RApp (RVar derivedShowName) (RVar fieldName)
+    , derivedShowString ")"
+    ]
+
+derivedShowAppendDecl :: RName -> InferM RDecl
+derivedShowAppendDecl appendName = do
+  xsName <- freshGeneratedName TermNamespace "$derived_show_append_xs"
+  ysName <- freshGeneratedName TermNamespace "$derived_show_append_ys"
+  cName <- freshGeneratedName TermNamespace "$derived_show_append_c"
+  csName <- freshGeneratedName TermNamespace "$derived_show_append_cs"
+  pure
+    ( RFunctionBinding
+        appendName
+        [RPVar xsName, RPVar ysName]
+        ( RUnguarded
+            ( RCase
+                (RVar xsName)
+                [ RAlt (RPList []) (RUnguarded (RVar ysName)) []
+                , RAlt
+                    (RPCon listConsDataConName [RPVar cName, RPVar csName])
+                    (RUnguarded (RApp (RApp (RCon listConsDataConName) (RVar cName)) (RApp (RApp (RVar appendName) (RVar csName)) (RVar ysName))))
+                    []
+                ]
+            )
+        )
+        []
+    )
+
+derivedShowConcat :: RName -> [RExpr] -> RExpr
+derivedShowConcat appendName = \case
+  [] -> derivedShowString ""
+  expression : rest ->
+    foldl (derivedShowAppend appendName) expression rest
+
+derivedShowAppend :: RName -> RExpr -> RExpr -> RExpr
+derivedShowAppend appendName lhs rhs =
+  RApp (RApp (RVar appendName) lhs) rhs
+
+derivedShowString :: Text -> RExpr
+derivedShowString =
+  RLit . LString
+
+derivedShowName :: RName
+derivedShowName =
+  preludeTermName "show" (-1431)
 
 constraintsOverlap :: ClassConstraint -> ClassConstraint -> Bool
 constraintsOverlap lhs rhs =

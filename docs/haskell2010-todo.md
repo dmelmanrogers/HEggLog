@@ -212,17 +212,16 @@ Rules:
 # Next Implementation Tasks
 
 1. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
-2. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
-3. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
-4. MODULE-001 — import/export declarations: Broaden module graph behavior beyond the current executable subset.
-5. PRELUDE-009 — foldl: Add the strictness-aware left fold surface or document the initial deviation.
-6. PRELUDE-013 — append: Implement `(++)` for supported list and string programs.
-7. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
-8. IO-006 — getLine: Add stdin line input or document the initial IO deviation.
-10. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
-11. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
-13. MOD-009 — instance import/export behavior: Define how class instances move across module boundaries.
-14. MOD-010 — Prelude implicit import: Align module import behavior with the standard Prelude surface.
+2. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
+3. MODULE-001 — import/export declarations: Broaden module graph behavior beyond the current executable subset.
+4. PRELUDE-009 — foldl: Add the strictness-aware left fold surface or document the initial deviation.
+5. PRELUDE-013 — append: Implement `(++)` for supported list and string programs.
+6. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
+7. IO-006 — getLine: Add stdin line input or document the initial IO deviation.
+8. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
+9. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
+10. MOD-009 — instance import/export behavior: Define how class instances move across module boundaries.
+11. MOD-010 — Prelude implicit import: Align module import behavior with the standard Prelude surface.
 
 # Task Backlog
 
@@ -12674,12 +12673,12 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: supported data/newtype declarations can derive `Ord` when an `Eq` superclass dictionary is available, and structural list ordering supports string and list-backed fields. Derived `Show`, `Read`, `Enum`, and `Bounded` remain separate tasks.
+- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: supported data/newtype declarations can derive `Ord` when an `Eq` superclass dictionary is available, and structural list ordering supports string and list-backed fields. Derived `Show` is now covered by TC-025; derived `Read`, `Enum`, and `Bounded` remain separate tasks.
 
 ## TC-025 — derived Show
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -12692,7 +12691,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver derived Show for Type classes and dictionaries while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver derived `Show` for the supported Type classes and dictionaries executable subset while preserving the current `.hg` substrate. The compiler synthesizes ordinary `Show` dictionaries for supported `data` and `newtype` declarations, including nullary constructors, product constructors, records, recursive data, `String` fields, list-backed contexts, and parameterized instances.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -12708,7 +12707,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- derived Show is implemented, completed, or explicitly documented according to status `not started`.
+- derived `Show` is implemented for the supported executable subset and represented in unit, native, and conformance coverage.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -12724,7 +12723,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: generated `Show` dictionaries return ordinary `[Char]` values and compose through the existing structural list/string `Show` surface. Because the current class exposes `show :: a -> String` rather than the full Haskell 2010 `showsPrec`/`showList` hierarchy, derived product fields are conservatively parenthesized until the report-compatible method hierarchy is implemented.
 
 ## TC-026 — class negative tests
 

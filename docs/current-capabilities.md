@@ -73,7 +73,7 @@ and local functions, plus the initial type class dictionary slice for
 user-defined single-parameter classes, concrete instances, explicit source
 constraints with normalized argument representation, dictionary-passed method
 calls, superclass dictionary fields/projection, default class methods,
-derived `Eq`/`Ord` dictionaries for supported data/newtype declarations including
+derived `Eq`/`Ord`/`Show` dictionaries for supported data/newtype declarations including
 parameterized, recursive, `String`-field, and list-backed cases,
 overlapping-instance rejection, structured placeholder diagnostics for remaining unsupported constraint contexts,
 source-spanned typecheck diagnostics including delayed dictionary failures,
@@ -152,7 +152,7 @@ Current status:
   for remaining unsupported constraint contexts, superclass dictionaries,
   default class methods, overlapping-instance rejection, dictionary constructors/selectors,
   dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Eq Char`,
-  `Ord Int`, `Ord Bool`, `Ord Char`, structural list `Ord`, derived `Eq`/`Ord`,
+  `Ord Int`, `Ord Bool`, `Ord Char`, structural list `Ord`, derived `Eq`/`Ord`/`Show`,
   `Num Int`, `Show Int`, `Show Bool`, `Show Char`,
   `Show String`, structural list `Show`, `Enum Int`, `Enum Char`,
   `Bounded Int`, `Bounded Char`, and `Bounded Bool` dictionaries, plus
@@ -239,7 +239,7 @@ Current tests include:
   executes native artifacts, verifies stdout/stderr/exit codes, compares
   report-mode `Result: <value>` output, runs Haskell 2010 default Egglog and
   `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
-  programs, user-defined type class dictionary programs, derived `Eq`/`Ord`
+  programs, user-defined type class dictionary programs, derived `Eq`/`Ord`/`Show`
   programs, and built-in `Eq`/`Ord`/`Num`/`Show`/`Enum`/`Bounded` dictionary programs, numeric-defaulting and
   monomorphism/defaulting decision programs, multi-file module programs,
   known-constructor optimizer programs, plus IO
@@ -253,7 +253,7 @@ Current tests include:
 
 Future Haskell 2010 conformance work should extend this direct executable
 coverage as the full pattern coverage checker, richer pattern diagnostics,
-derived/user ADT-shaped `Show`, exhaustive Unicode/string escape fidelity,
+the report-compatible `showsPrec`/`showList` hierarchy, exhaustive Unicode/string escape fidelity,
 additional string library behavior, and broader IO are implemented. Structured exhaustiveness
 warning placeholders are already exposed through the Haskell 2010 typechecker
 and native compilation result APIs.
