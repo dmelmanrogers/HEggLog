@@ -1,14 +1,15 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-19 07:19:31 UTC
+Date/time: 2026-05-20 01:08:30 UTC
 
-Commit hash tested: CORE-REC-004 working tree before final task commit. The final
-commit for the task records the same source tree plus this results document.
+Commit hash tested: PRELUDE-DATA-006 working tree before final task commit. The
+final commit for the task records the same source tree plus this results
+document.
 
 Primary conformance command run:
 
 ```bash
-cabal test haskell2010-conformance-test --test-options='--hide-successes'
+cabal test all --test-options='--hide-successes'
 ```
 
 Required task validation also passed:
@@ -34,14 +35,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 53 |
-| Haskell source files in corpus | 54 |
-| HUnit test cases executed | 55 |
-| Native-success fixtures | 39 |
+| Manifest conformance fixtures | 55 |
+| Haskell source files in corpus | 56 |
+| HUnit test cases executed | 59 |
+| Native-success fixtures | 41 |
 | Native-runtime-error fixtures | 1 |
 | Compile-error fixtures | 6 |
 | Unsupported-documented fixtures | 7 |
-| Native subprocess compile/run checks | 42 |
+| Native subprocess compile/run checks | 46 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -65,7 +66,7 @@ explicit conformance cases rather than omitted.
 | `modules` | 2 | single-module and same-directory import tests exist |
 | `negative` | 6 | compile-error diagnostics covered, including a source-spanned type error |
 | `patterns` | 2 | guards/as-patterns and irrefutable/lazy pattern representative native tests exist |
-| `prelude` | 2 | list functions and class dictionaries covered |
+| `prelude` | 4 | list functions, class dictionaries, and native Char runtime covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
 | `typeclasses` | 2 | user dictionary and synonym-normalized constraint tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |

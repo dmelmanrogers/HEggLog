@@ -121,7 +121,7 @@ is built alongside them.
     classes, concrete context-free instances, structured explicit constraints,
     structured placeholder diagnostics for unsupported constraint contexts,
     generated dictionary constructors/selectors, built-in `Eq Int`, `Eq Bool`,
-    `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and `Show Bool`
+    `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and `Show Bool`
     dictionaries,
     source-spanned typecheck diagnostics including delayed class-constraint
     dictionary failures,

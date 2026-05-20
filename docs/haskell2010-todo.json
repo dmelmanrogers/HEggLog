@@ -6189,7 +6189,7 @@
     {
       "id": "PRELUDE-DATA-006",
       "title": "Char runtime representation",
-      "status": "in progress",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "ADT-001",
@@ -6198,7 +6198,7 @@
       "blocks": [],
       "milestone": "M10",
       "acceptance_criteria": [
-        "Char runtime representation is implemented, completed, or explicitly documented according to status `in progress`.",
+        "`Char` literals, `Char` literal cases, `Eq Char`, and scalar `main :: Char` are implemented in Core/STG/native execution for the current executable subset.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

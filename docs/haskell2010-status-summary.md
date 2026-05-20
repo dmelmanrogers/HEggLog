@@ -33,11 +33,12 @@ generated Core bindings for basic Prelude list/Bool functions, recursive
 top-level/local functions, recursive list functions, lazy constructor fields,
 recursive non-variable pattern bindings through the Core recursion model,
 user-defined single-parameter classes with concrete instances and explicit
-constrained functions, and built-in Prelude dictionaries for `Eq Int`,
-`Eq Bool`, `Ord Int`, `Ord Bool`, and
-executable `Num Int` methods. Guarded RHSs, guarded case alternatives,
-as-pattern aliases, and guard-fallthrough no-match behavior are also
-implemented. The first IO printing slice is implemented for `IO`,
+constrained functions, boxed native `Char` literals and literal cases, scalar
+`main :: Char` output, and built-in Prelude dictionaries for `Eq Int`,
+`Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, and executable `Num Int`
+methods. Guarded RHSs, guarded case alternatives, as-pattern aliases, and
+guard-fallthrough no-match behavior are also implemented. The first IO printing
+slice is implemented for `IO`,
 `main :: IO ()`, `putStrLn`, `print`, `return`, `(>>)`, expression-only `do`
 sequencing with local `let`, and built-in `Show Int`/`Show Bool` dictionaries.
 The typechecker now also exposes structured exhaustiveness warning
@@ -104,7 +105,7 @@ list and tuple expressions/patterns/types, built-in Prelude data constructors,
 wildcard patterns, literal patterns, short-circuit `&&`/`||`, generated Prelude
 bindings for `id`, `const`, `not`, `otherwise`, `map`, `foldr`, `length`,
 `filter`, and `reverse`; dictionary-backed `Eq`, `Ord`, and `Num` methods for
-the first built-in instances; guarded RHSs and
+the first built-in instances, including `Eq Char`; guarded RHSs and
 guarded case alternatives desugared to Bool `case`; as-pattern aliases lowered
 as local Core bindings; `IO` actions for `putStrLn`, `print`, `return`, `(>>)`,
 expression-only `do` sequencing; left and right operator sections over the
@@ -117,7 +118,7 @@ bindings now emit recursive Core groups in the supported subset. The initial
 type class slice typechecks user-defined single-parameter classes, concrete
 context-free instances, explicit source constraints, and method calls by
 emitting dictionary constructor values, selector functions, and explicit Core
-dictionary arguments. Built-in `Eq Int`, `Eq Bool`, `Ord Int`, `Ord Bool`, and
+dictionary arguments. Built-in `Eq Int`, `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, and
 `Num Int` dictionaries cover `(==)`, `(/=)`, `compare`, `(<)`, `(<=)`, `(>)`,
 `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`, and `signum`.
 Built-in `Show Int` and `Show Bool` cover enough `show` support for `print`.
@@ -161,6 +162,8 @@ selector functions and instance dictionary values.
 Core evaluation also covers guarded RHS/as-pattern programs and operator
 sections, including lazy Boolean sections. It reports guard fallthrough as a
 no-matching-alternative runtime error.
+Core evaluation covers `Char` literals, literal `Char` cases, and `Eq Char`
+dictionary calls in the executable subset.
 It now models IO output for `putStrLn`, `print`, `return`, `(>>)`, and
 expression-only `do` sequencing so Core remains the oracle for native
 `main :: IO ()` execution.
@@ -269,8 +272,8 @@ and compiled to native executables through the existing clang toolchain.
     dictionary arguments, STG lowering/evaluation, native LLVM execution, and
     wet-tested default/no-egglog CLI runs.
 14. Built-in Prelude class dictionary coverage. Completed for `Eq Int`,
-    `Eq Bool`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and
-    `Show Bool` methods,
+    `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`,
+    `Show Int`, and `Show Bool` methods,
     including generated built-in dictionaries/selectors, overloaded
     comparison/arithmetic/show method desugaring, Core/STG lowering/evaluation,
     native LLVM execution, and wet-tested default/no-egglog CLI runs.
@@ -309,6 +312,10 @@ and compiled to native executables through the existing clang toolchain.
     with selected-Core validation, provenance, Core/STG/native oracles,
     optimized/unoptimized native agreement, unused lazy-field preservation, and
     forced field-bottom preservation.
+20. Char runtime representation. Completed for boxed native `Char` values,
+    literal `Char` case dispatch, built-in `Eq Char` dictionaries,
+    Core/STG/native oracles, scalar `main :: Char` printing, conformance
+    fixtures, and default/no-egglog wet tests.
 
 ## Where Egglog Fits
 
@@ -333,7 +340,8 @@ constructor dispatch, boxed constructor fields,
 recursive closure/thunk groups, user and built-in type class dictionary
 constructor/selector execution, guarded RHS/as-pattern programs, empty-case
 guard-fallthrough aborts, `putStrLn`/`print` output for `IO ()` programs with
-native string literal objects, list-of-`Char` traversal, and built-in
+native string literal objects, list-of-`Char` traversal, boxed `Char` values,
+`Eq Char` primitive lowering, scalar `Char` root printing, and built-in
 `Show Int`/`Show Bool`, and checked primitives, and invokes clang to produce
 native machine-code executables.
 
@@ -345,10 +353,10 @@ initially.
 
 ## Next Immediate Implementation Task
 
-Implement `Char` runtime representation while preserving the `.hg` compiler,
-Core evaluator, STG runtime,
-Core-to-STG lowering, native executable path, Egglog Core optimizer,
-ADT/list/tuple/Prelude/recursion/typeclass-dictionary support, built-in
-`Eq`/`Ord`/`Num`/`Show` dictionary support, numeric defaulting,
-guard/as-pattern support, IO printing support, module graph support, and
-known-constructor optimizer support, and wet-test baseline.
+Implement `String = [Char]` source/runtime alignment while preserving the `.hg`
+compiler, Core evaluator, STG runtime, Core-to-STG lowering, native executable
+path, Egglog Core optimizer, ADT/list/tuple/Prelude/recursion/typeclass-dictionary
+support, built-in `Eq`/`Ord`/`Num`/`Show` dictionary support, boxed native
+`Char` support, numeric defaulting, guard/as-pattern support, IO printing
+support, module graph support, known-constructor optimizer support, and wet-test
+baseline.

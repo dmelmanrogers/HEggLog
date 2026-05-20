@@ -223,8 +223,8 @@ Responsibilities:
 Architectural status: sound, with one scaling concern. `STG.LLVM` currently
 contains lowering logic, runtime object layout constants, runtime helper
 functions, and low-level LLVM builder utilities in one module. That has been
-effective for the current runtime, but future GC, `Char`, broader `String`, and
-IO expansion will benefit from a split.
+effective for the current runtime, but future GC, broader `String`/`Char` APIs,
+and IO expansion will benefit from a split.
 
 Recommended target split:
 

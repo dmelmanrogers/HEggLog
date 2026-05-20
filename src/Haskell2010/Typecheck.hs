@@ -4529,6 +4529,11 @@ builtinInstanceDictionaries classes =
         boolMonoType
         (preludeTermName "$fEqBool" (-1502))
         [boolEqMethod, boolNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        charMonoType
+        (preludeTermName "$fEqChar" (-1503))
+        [charEqMethod, charNotEqMethod]
     ]
 
   ordInstances info =
@@ -4646,6 +4651,14 @@ boolEqMethod =
 boolNotEqMethod :: CoreExpr
 boolNotEqMethod =
   binaryBoolMethod "$neq_bool" (-1631) boolTy (\lhs rhs -> boolNotCore "$neq_bool_not" (-1634) (CPrimOp PrimEq [lhs, rhs] boolTy))
+
+charEqMethod :: CoreExpr
+charEqMethod =
+  binaryPrimMethod "$eq_char" (-1871) charTy boolTy PrimEq
+
+charNotEqMethod :: CoreExpr
+charNotEqMethod =
+  binaryBoolMethod "$neq_char" (-1881) charTy (\lhs rhs -> boolNotCore "$neq_char_not" (-1884) (CPrimOp PrimEq [lhs, rhs] boolTy))
 
 intCompareMethod :: CoreExpr
 intCompareMethod =

@@ -339,10 +339,10 @@ Haskell 2010 AST, and class constraints carry their source attribution so
 delayed dictionary failures still render with a concrete source span.
 
 The built-in executable Prelude class slice now supports `Eq Int`, `Eq Bool`,
-`Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool`: `(==)`, `(/=)`,
-`compare`, `(<)`, `(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`,
-`negate`, `abs`, `signum`, `fromInteger`, and `show` lower through generated
-dictionaries and selectors. Integer literals elaborate through `fromInteger`,
+`Eq Char`, `Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool`:
+`(==)`, `(/=)`, `compare`, `(<)`, `(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`,
+`(-)`, `(*)`, `negate`, `abs`, `signum`, `fromInteger`, and `show` lower
+through generated dictionaries and selectors. Integer literals elaborate through `fromInteger`,
 ambiguous numeric constraints default to the executable `Int` type, and binding
 groups are dependency-sorted before generalization so helper functions can be
 specialized by later bindings. TYPE-019 fixes the current MR decision:
@@ -376,8 +376,9 @@ The typechecker recognizes `IO`, `main :: IO ()`, `putStrLn`, `print`,
 `return`, `(>>)`, and expression-only `do` sequencing with local `let`.
 Core/STG reference evaluators model IO output for oracle tests, and the native
 entrypoint executes `IO ()` actions instead of scalar root printing. Native
-string literal objects, list-of-`Char` traversal, `Show Int`, and `Show Bool`
-support `putStrLn` and `print` through default/no-egglog wet tests. `<-`
+string literal objects, list-of-`Char` traversal, boxed `Char` values,
+`Eq Char`, scalar `main :: Char`, `Show Int`, and `Show Bool` support the
+current output subset through default/no-egglog wet tests. `<-`
 binding, `(>>=)`, real-world IO handles, and broader Prelude IO remain planned.
 
 Deliverables:
@@ -514,9 +515,9 @@ Acceptance criteria:
 Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
-`haskell2010-conformance-test` Cabal suite. The baseline currently records 46
-fixtures: 32 native-success cases, 1 native-runtime-error case, 5 compile-error
-cases, and 8 unsupported-documented cases. The suite invokes the built
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 55
+fixtures: 41 native-success cases, 1 native-runtime-error case, 6 compile-error
+cases, and 7 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
 runtime-error exits, checks compile-error diagnostics, and fails if documented
@@ -576,7 +577,7 @@ Acceptance criteria:
 
 ## Immediate Next Five Tasks
 
-1. `Char` runtime representation across native/runtime execution.
+1. `String = [Char]` source/runtime alignment.
 2. Haskell 2010 conformance matrix expansion for the broader executable
    surface.
 3. Broader `Show`/`String` interoperability, including `Show Char`,
@@ -647,7 +648,7 @@ Completed immediate tasks:
   Core/STG preservation tests, native LLVM execution, and default/no-egglog
   native wet tests.
 - Haskell 2010 built-in Prelude class dictionary coverage for `Eq Int`,
-  `Eq Bool`, `Ord Int`, `Ord Bool`, and executable `Num Int` methods, including
+  `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, and executable `Num Int` methods, including
   generated built-in dictionaries/selectors, overloaded comparison/arithmetic
   operator desugaring, Core/STG preservation tests, native LLVM execution, and
   default/no-egglog native wet tests.
@@ -667,6 +668,10 @@ Completed immediate tasks:
   filtering, qualified aliases, hiding, `Thing(..)` children, whole-program
   Core flattening, root `main` entrypoint selection, and default/no-egglog
   native wet tests.
+- Haskell 2010 `Char` runtime representation, including boxed native `Char`
+  objects, literal `Char` case dispatch, built-in `Eq Char`, scalar
+  `main :: Char` printing, Core/STG/native oracles, conformance fixtures, and
+  default/no-egglog native wet tests.
 
 ## Non-Negotiable Rules
 

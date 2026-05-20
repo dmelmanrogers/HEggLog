@@ -45,7 +45,7 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. `Char` runtime representation across native/runtime execution.
+1. `String = [Char]` source/runtime alignment.
 2. Haskell 2010 conformance matrix expansion for the broader executable
    surface.
 3. Broader `Show`/`String` interoperability, including `Show Char`,
@@ -113,13 +113,17 @@ Completed Haskell 2010 roadmap work:
   constrained functions, generated dictionary constructors/selectors, Core
   dictionary arguments, STG/native lowering, and default/no-egglog wet tests.
 - Haskell 2010 built-in Prelude class dictionaries: implemented for `Eq Int`,
-  `Eq Bool`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and
+  `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and
   `Show Bool` methods, including overloaded comparison/arithmetic/show method
   desugaring, Core/STG/native lowering, and default/no-egglog wet tests.
 - Haskell 2010 numeric literals/defaulting: implemented for dictionary-backed
   `fromInteger`, overloaded integer literals, executable `Int` numeric
   defaulting, inferred constrained helper schemes, SCC-based binding
   generalization, Core/STG/native lowering, and default/no-egglog wet tests.
+- Haskell 2010 `Char` runtime representation: implemented for boxed native
+  `Char` values, literal `Char` case dispatch, built-in `Eq Char`, scalar
+  `main :: Char` printing, Core/STG/native oracles, conformance fixtures, and
+  default/no-egglog wet tests.
 - Haskell 2010 modules/whole-program compilation: implemented for import-driven
   dependency-file loading, module graph cycle/name diagnostics, actual
   exported-name import resolution, export/import filtering, hiding, qualified

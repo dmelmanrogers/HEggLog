@@ -338,6 +338,26 @@
       "notes": "Built-in Eq, Ord, Num, and Bool Prelude methods."
     },
     {
+      "name": "prelude.char-runtime",
+      "sourceFile": "test/haskell2010/conformance/prelude/char-runtime.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "1\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Boxed Char literals, Char literal case alternatives, and the built-in Eq Char dictionary lower through native STG."
+    },
+    {
+      "name": "prelude.char-main",
+      "sourceFile": "test/haskell2010/conformance/prelude/char-main.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "Z\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Executable scalar Char main unboxes through the native runtime and prints as a character."
+    },
+    {
       "name": "io.printing",
       "sourceFile": "test/haskell2010/conformance/io/printing.hs",
       "category": "io",

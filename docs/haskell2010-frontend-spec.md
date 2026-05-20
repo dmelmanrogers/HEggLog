@@ -121,8 +121,8 @@ Current initial Haskell 2010 class capabilities:
   typechecker diagnostics, including delayed class-constraint dictionary errors
 - instance lookup
 - dictionary-passing elaboration
-- generated built-in dictionaries for `Eq Int`, `Eq Bool`, `Ord Int`,
-  `Ord Bool`, executable `Num Int`, `Show Int`, and `Show Bool`
+- generated built-in dictionaries for `Eq Int`, `Eq Bool`, `Eq Char`,
+  `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and `Show Bool`
 - dictionary-backed built-in methods: `(==)`, `(/=)`, `compare`, `(<)`,
   `(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`,
   `signum`, `fromInteger`, and `show`
@@ -176,13 +176,13 @@ patterns, list and tuple expressions/types, built-in `Maybe`, `Either`, and
 `Ordering`, generated Core Prelude bindings for `id`, `const`, `not`,
 `otherwise`, `map`, `foldr`, `length`, `filter`, and `reverse`, short-circuit
 Bool operators, recursive top-level/local binding groups, primitive `/`, and
-dictionary-backed `Eq`/`Ord`/`Num` methods, guarded RHSs, guarded case
+dictionary-backed `Eq`/`Ord`/`Num` methods, boxed `Char` literals and cases, guarded RHSs, guarded case
 alternatives, as-pattern aliases, and guard-fallthrough no-match behavior. It
 also covers the initial type
 class dictionary slice: user-defined single-parameter classes, concrete
 context-free instances, explicit constrained functions, generated dictionary
 constructors/selectors, dictionary-passed method calls, and built-in `Eq Int`,
-`Eq Bool`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and
+`Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and
 `Show Bool` dictionaries. It also covers `IO`, `main :: IO ()`, `putStrLn`,
 `print`, `return`, `(>>)`, and expression-only `do` sequencing with local
 `let`. It also covers `fromInteger`, overloaded integer literals, numeric

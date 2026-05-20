@@ -337,6 +337,8 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-recursive-list" "test/e2e/programs/haskell2010/recursive-list.hs" "10" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-typeclass-dictionary" "test/e2e/programs/haskell2010/typeclass-dictionary.hs" "1" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-prelude-classes" "test/e2e/programs/haskell2010/prelude-classes.hs" "6" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-char-runtime" "test/e2e/programs/haskell2010/char-runtime.hs" "1" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-char-main" "test/e2e/programs/haskell2010/char-main.hs" "Z" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-numeric-defaulting" "test/e2e/programs/haskell2010/numeric-defaulting.hs" "7\n47" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-modules" "test/e2e/programs/haskell2010/modules/Main.hs" "20" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-printing" "test/e2e/programs/haskell2010/io-printing.hs" "ok\nanswer\n42\nTrue" [DefaultEgglog, NoEgglog] True

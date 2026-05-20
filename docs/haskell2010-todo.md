@@ -211,21 +211,26 @@ Rules:
 
 # Next 20 Implementation Tasks
 
-1. PRELUDE-DATA-006 — Char runtime representation: Finish native/runtime treatment for `Char`.
-2. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
-3. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
-4. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
-5. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
-6. TC-003 — superclass representation: Model superclass relationships before broader class solving.
-7. TC-005 — default methods: Implement default class method typing and dictionary filling.
-8. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
-9. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
-10. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
-11. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
-12. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
-13. TC-020 — Ix: Implement or explicitly defer the Haskell 2010 `Ix` class surface.
-14. TC-021 — numeric literal overloading: Finish the Haskell 2010 numeric literal overloading surface.
-15. TC-022 — defaulting: Finish the Haskell 2010 defaulting behavior for the supported numeric/class surface.
+1. PRELUDE-DATA-007 — String = [Char]: Align source strings with list-of-Char semantics.
+2. PRELUDE-DATA-008 — arithmetic sequences: Implement the `Enum`-driven sequence surface.
+3. PRELUDE-DATA-009 — list comprehensions: Desugar list comprehensions into the supported list/Core subset.
+4. PRELUDE-DATA-012 — String literal native wet tests: Broaden native tests for source strings and printed strings.
+5. TC-003 — superclass representation: Model superclass relationships before broader class solving.
+6. TC-005 — default methods: Implement default class method typing and dictionary filling.
+7. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
+8. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
+9. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
+10. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
+11. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
+12. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
+13. TC-021 — numeric literal overloading: Finish the Haskell 2010 numeric literal overloading surface.
+14. TC-022 — defaulting: Finish the Haskell 2010 defaulting behavior for the supported numeric/class surface.
+15. TC-023 — derived Eq: Synthesize or explicitly defer derived `Eq` instances.
+16. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
+17. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
+18. TC-026 — class negative tests: Broaden negative tests for unsupported and invalid class forms.
+19. TC-027 — dictionary Core validation tests: Keep generated dictionary Core validated by focused regressions.
+20. TC-028 — typeclass native wet tests: Broaden native typeclass execution coverage.
 
 # Task Backlog
 
@@ -11097,7 +11102,7 @@ Notes:
 ## PRELUDE-DATA-006 — Char runtime representation
 
 Status:
-- in progress
+- complete
 
 Category:
 - libraries
@@ -11110,7 +11115,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver Char runtime representation for Lists, tuples, Char, String while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver boxed native/runtime representation for `Char` in the current Haskell 2010 executable subset: `Char` literals lower to native boxed objects, literal `Char` case alternatives dispatch natively, `Eq Char` dictionaries lower through primitive equality, and scalar `main :: Char` prints through the native executable path. Keep broader `String = [Char]`, full Unicode IO semantics, and wider Prelude `Char` APIs in later tasks.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -11123,10 +11128,11 @@ Files likely touched:
 - `src/Haskell2010/Typecheck.hs`
 - `src/Haskell2010/Core/Eval.hs`
 - `src/Haskell2010/STG/LLVM.hs`
+- `test/e2e/programs/haskell2010/`
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- Char runtime representation is implemented, completed, or explicitly documented according to status `in progress`.
+- `Char` literals, `Char` literal cases, `Eq Char`, and scalar `main :: Char` are implemented in Core/STG/native execution for the current executable subset.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -11141,7 +11147,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M10 (Lists, tuples, Char, String). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M10 (Lists, tuples, Char, String). Completed with boxed native `Char` values, an `Eq Char` built-in dictionary, scalar `Char` root printing, conformance fixtures, and default/no-egglog native wet tests. Broader `String = [Char]` and Unicode/output-library behavior remain tracked by later M10 and Prelude/IO tasks.
 
 ## PRELUDE-DATA-007 — String = [Char]
 

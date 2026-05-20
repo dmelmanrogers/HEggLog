@@ -167,6 +167,7 @@ testGroups =
       , pureTest "typechecks recursive pattern bindings" testHaskell2010RecursivePatternBindings
       , pureTest "typechecks type class dictionaries" testHaskell2010Core0TypeClassDictionaries
       , pureTest "typechecks Prelude class dictionaries" testHaskell2010Core0PreludeClassDictionaries
+      , pureTest "typechecks Char runtime representation" testHaskell2010Core0CharRuntime
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
       , pureTest "documents monomorphism restriction defaulting policy" testHaskell2010MonomorphismRestrictionDefaulting
       , pureTest "typechecks multi-module imports" testHaskell2010Core0MultiModuleImports
@@ -197,6 +198,7 @@ testGroups =
       , pureTest "evaluates recursive functions and list recursion" testHaskell2010Core0EvalRecursion
       , pureTest "evaluates type class dictionary calls" testHaskell2010Core0EvalTypeClassDictionaries
       , pureTest "evaluates Prelude class dictionary calls" testHaskell2010Core0EvalPreludeClassDictionaries
+      , pureTest "evaluates Char equality and literal cases" testHaskell2010Core0EvalCharRuntime
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
@@ -233,6 +235,7 @@ testGroups =
       , pureTest "preserves recursive function semantics" testHaskell2010CoreToSTGRecursion
       , pureTest "preserves type class dictionary semantics" testHaskell2010CoreToSTGTypeClassDictionaries
       , pureTest "preserves Prelude class dictionary semantics" testHaskell2010CoreToSTGPreludeClassDictionaries
+      , pureTest "preserves Char runtime semantics" testHaskell2010CoreToSTGCharRuntime
       , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
       , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
@@ -247,6 +250,7 @@ testGroups =
       "Haskell 2010 Native Output"
       [ pureTest "emits boxed lazy STG runtime LLVM" testHaskell2010NativeLLVMShape
       , pureTest "erases newtype constructor allocation in native LLVM" testHaskell2010NativeNewtypeErasure
+      , pureTest "emits Char runtime LLVM" testHaskell2010NativeCharRuntime
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
       , ioTest "native executable preserves lazy Core-0 semantics" testHaskell2010NativeExecutableExecution
       , ioTest "native runtime errors fail when forced" testHaskell2010NativeRuntimeError
@@ -1545,6 +1549,12 @@ testHaskell2010Core0PreludeClassDictionaries = do
   assertBool "Prelude Num Int instance dictionary is emitted" (containsBindingOccurrence "$fNumInt" coreModule)
   expectCoreEvalInt "Prelude class dictionary Core oracle" 6 =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0CharRuntime :: Either String ()
+testHaskell2010Core0CharRuntime = do
+  coreModule <- typecheckHaskell2010 haskell2010CharRuntimeSource
+  assertBool "Prelude Eq Char instance dictionary is emitted" (containsBindingOccurrence "$fEqChar" coreModule)
+  expectCoreEvalInt "Char runtime Core oracle" 1 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0NumericDefaulting :: Either String ()
 testHaskell2010Core0NumericDefaulting = do
   coreModule <- typecheckHaskell2010 haskell2010NumericDefaultingSource
@@ -1827,6 +1837,13 @@ testHaskell2010Core0EvalPreludeClassDictionaries =
     6
     =<< evalHaskell2010Binding "main" haskell2010PreludeClassDictionarySource
 
+testHaskell2010Core0EvalCharRuntime :: Either String ()
+testHaskell2010Core0EvalCharRuntime =
+  expectCoreEvalInt
+    "Core-0 Char runtime evaluation"
+    1
+    =<< evalHaskell2010Binding "main" haskell2010CharRuntimeSource
+
 testHaskell2010Core0EvalNumericDefaulting :: Either String ()
 testHaskell2010Core0EvalNumericDefaulting =
   expectCoreEvalIO
@@ -2106,6 +2123,10 @@ testHaskell2010CoreToSTGPreludeClassDictionaries :: Either String ()
 testHaskell2010CoreToSTGPreludeClassDictionaries =
   checkCoreToSTGInt "Core-to-STG Prelude class dictionaries" 6 haskell2010PreludeClassDictionarySource
 
+testHaskell2010CoreToSTGCharRuntime :: Either String ()
+testHaskell2010CoreToSTGCharRuntime =
+  checkCoreToSTGInt "Core-to-STG Char runtime" 1 haskell2010CharRuntimeSource
+
 testHaskell2010CoreToSTGNumericDefaulting :: Either String ()
 testHaskell2010CoreToSTGNumericDefaulting =
   checkCoreToSTGIO "Core-to-STG numeric defaulting" "7\n47\n" haskell2010NumericDefaultingSource
@@ -2190,6 +2211,15 @@ testHaskell2010NativeNewtypeErasure = do
     "native LLVM newtype data allocations match unwrapped Int baseline"
     (countTextOccurrences "call ptr @hegglog_hs_make_data" baselineText)
     (countTextOccurrences "call ptr @hegglog_hs_make_data" llvmText)
+
+testHaskell2010NativeCharRuntime :: Either String ()
+testHaskell2010NativeCharRuntime = do
+  charRuntimeText <- compileHaskell2010NativeText haskell2010CharRuntimeSource
+  assertBool "native LLVM boxes Char literals" ("@hegglog_hs_make_char" `Text.isInfixOf` charRuntimeText)
+  assertBool "native LLVM unboxes Char values" ("@hegglog_hs_expect_char" `Text.isInfixOf` charRuntimeText)
+  assertBool "native LLVM compares unboxed Char values" ("icmp eq i32" `Text.isInfixOf` charRuntimeText)
+  charMainText <- compileHaskell2010NativeText haskell2010CharMainSource
+  assertBool "native LLVM has a Char main format" ("@haskell2010_fmt_char" `Text.isInfixOf` charMainText)
 
 testHaskell2010NativeLLVMExecution :: IO (Either String ())
 testHaskell2010NativeLLVMExecution = do
@@ -5559,6 +5589,8 @@ haskell2010NativeSuccessExamples =
   , ("recursive-pattern-binding", haskell2010RecursivePatternBindingSource, "2\n")
   , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
   , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
+  , ("char-runtime", haskell2010CharRuntimeSource, "1\n")
+  , ("char-main", haskell2010CharMainSource, "Z\n")
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
@@ -5581,6 +5613,8 @@ haskell2010NativeExecutableExamples =
   , ("recursive-pattern-binding", haskell2010RecursivePatternBindingSource, "2\n")
   , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
   , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
+  , ("char-runtime", haskell2010CharRuntimeSource, "1\n")
+  , ("char-main", haskell2010CharMainSource, "Z\n")
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
@@ -5820,6 +5854,22 @@ haskell2010PreludeClassDictionarySource =
   \  GT -> True\n\
   \  _ -> False\n\
   \main = if same 7 7 && not (same 7 8) && ordered 3 4 && compareFlag && max False True && not (min False True) then distancePlusSign 9 4 else 0\n"
+
+haskell2010CharRuntimeSource :: Text
+haskell2010CharRuntimeSource =
+  "module Main where\n\
+  \same :: Char -> Char -> Bool\n\
+  \same x y = x == y\n\
+  \different :: Char -> Char -> Bool\n\
+  \different x y = x /= y\n\
+  \main = case 'h' of\n\
+  \  'h' -> if same 'a' 'a' && different 'a' 'b' then 1 else 0\n\
+  \  _ -> 0\n"
+
+haskell2010CharMainSource :: Text
+haskell2010CharMainSource =
+  "module Main where\n\
+  \main = 'Z'\n"
 
 haskell2010NumericDefaultingSource :: Text
 haskell2010NumericDefaultingSource =

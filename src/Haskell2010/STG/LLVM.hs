@@ -152,16 +152,21 @@ printableMainValue ty value
       intReg <- freshRegister "main_bool_i32"
       emit (IZext intReg (OLocal LI1 boolReg) LI32)
       pure (OLocal LI32 intReg)
+  | ty == charTy = do
+      charReg <- freshRegister "main_char"
+      emit (ICall (Just charReg) LI32 (DirectCall expectCharFunctionName) False [(LPtr, value)])
+      pure (OLocal LI32 charReg)
   | otherwise =
-      throwSTGLLVM (STGLLVMUnsupported ("native Haskell 2010 main must be Int or Bool, got " <> renderCoreType ty))
+      throwSTGLLVM (STGLLVMUnsupported ("native Haskell 2010 main must be Int, Bool, or Char, got " <> renderCoreType ty))
 
 formatPointer :: CoreType -> FunctionM LLVMOperand
 formatPointer ty = do
   reg <- freshRegister "fmt"
-  let (globalName, bytes) =
-        if ty == boolTy
-          then ("haskell2010_fmt_i1", boolFormatBytes)
-          else ("haskell2010_fmt_i64", intFormatBytes)
+  let formatSpec
+        | ty == boolTy = ("haskell2010_fmt_i1", boolFormatBytes)
+        | ty == charTy = ("haskell2010_fmt_char", charFormatBytes)
+        | otherwise = ("haskell2010_fmt_i64", intFormatBytes)
+      (globalName, bytes) = formatSpec
       arrayType = LArray (Text.length bytes) LI8
   emit
     ( IGetElementPtr
@@ -388,10 +393,16 @@ emitPrim env op arguments =
           reg <- freshRegister "eq"
           emit (IIcmp reg ICmpEq LI1 lhsValue rhsValue)
           emitMakeBool (OLocal LI1 reg)
+      | stgAtomType lhs == charTy -> do
+          lhsValue <- emitExpectAtomChar env lhs
+          rhsValue <- emitExpectAtomChar env rhs
+          reg <- freshRegister "eq"
+          emit (IIcmp reg ICmpEq LI32 lhsValue rhsValue)
+          emitMakeBool (OLocal LI1 reg)
       | otherwise ->
           throwSTGLLVM
             ( STGLLVMUnsupported
-                ("native equality is implemented for Int and Bool, got " <> renderCoreType (stgAtomType lhs))
+                ("native equality is implemented for Int, Bool, and Char, got " <> renderCoreType (stgAtomType lhs))
             )
     (PrimNegate, [value]) -> do
       valueOperand <- emitExpectAtomInt env value
@@ -444,6 +455,13 @@ emitExpectAtomBool env atom = do
   reg <- freshRegister "bool"
   emit (ICall (Just reg) LI1 (DirectCall expectBoolFunctionName) False [(LPtr, object)])
   pure (OLocal LI1 reg)
+
+emitExpectAtomChar :: ValueEnv -> STGAtom -> FunctionM LLVMOperand
+emitExpectAtomChar env atom = do
+  object <- emitAtomAddress env atom
+  reg <- freshRegister "char"
+  emit (ICall (Just reg) LI32 (DirectCall expectCharFunctionName) False [(LPtr, object)])
+  pure (OLocal LI32 reg)
 
 emitShowBool :: LLVMOperand -> FunctionM LLVMOperand
 emitShowBool value = do
@@ -984,6 +1002,7 @@ runtimeFunctions =
   , forceFunction
   , expectIntFunction
   , expectBoolFunction
+  , expectCharFunction
   , expectStringFunction
   , expectFunctionFunction
   , showIntFunction
@@ -1209,6 +1228,15 @@ expectBoolFunction =
     "bool"
     (TRet LI1 (OLocal LI1 (Register "is_true")))
 
+expectCharFunction :: LLVMFunction
+expectCharFunction =
+  expectPayloadFunction
+    expectCharFunctionName
+    tagChar
+    LI32
+    "char"
+    (TRet LI32 (OLocal LI32 (Register "char_i32")))
+
 expectStringFunction :: LLVMFunction
 expectStringFunction =
   expectPayloadFunction expectStringFunctionName tagString LPtr "string" (TRet LPtr (OLocal LPtr (Register "payload")))
@@ -1402,6 +1430,11 @@ expectPayloadFunction name expectedTag _ prefix successTerminator =
     , ILoad (Register "payload") LI64 (OLocal LPtr (Register "payload_ptr"))
     , IIcmp (Register "is_true") ICmpEq LI64 (OLocal LI64 (Register "payload")) (OConstInt LI64 1)
     ]
+  payloadInstructions "char" =
+    [ IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "forced")) objectField1
+    , ILoad (Register "payload") LI64 (OLocal LPtr (Register "payload_ptr"))
+    , ITrunc (Register "char_i32") (OLocal LI64 (Register "payload")) LI32
+    ]
   payloadInstructions "string" =
     [ IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
     , ILoad (Register "payload") LPtr (OLocal LPtr (Register "payload_ptr"))
@@ -1467,9 +1500,10 @@ makeFunctionFunctionName = "hegglog_hs_make_function"
 makeThunkFunctionName = "hegglog_hs_make_thunk"
 forceFunctionName = "hegglog_hs_force"
 
-expectIntFunctionName, expectBoolFunctionName, expectStringFunctionName, expectFunctionName, showIntFunctionName, putStrLnFunctionName, printCharListFunctionName :: Text
+expectIntFunctionName, expectBoolFunctionName, expectCharFunctionName, expectStringFunctionName, expectFunctionName, showIntFunctionName, putStrLnFunctionName, printCharListFunctionName :: Text
 expectIntFunctionName = "hegglog_hs_expect_int"
 expectBoolFunctionName = "hegglog_hs_expect_bool"
+expectCharFunctionName = "hegglog_hs_expect_char"
 expectStringFunctionName = "hegglog_hs_expect_string"
 expectFunctionName = "hegglog_hs_expect_function"
 showIntFunctionName = "hegglog_hs_show_int"
@@ -1480,6 +1514,7 @@ formatGlobals :: [LLVMGlobal]
 formatGlobals =
   [ LLVMStringGlobal "haskell2010_fmt_i64" intFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_i1" boolFormatBytes
+  , LLVMStringGlobal "haskell2010_fmt_char" charFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_i64_raw" intRawFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_string_line" stringLineFormatBytes
   ]
@@ -1503,6 +1538,10 @@ intFormatBytes =
 boolFormatBytes :: Text
 boolFormatBytes =
   "%d\n\0"
+
+charFormatBytes :: Text
+charFormatBytes =
+  "%c\n\0"
 
 intRawFormatBytes :: Text
 intRawFormatBytes =

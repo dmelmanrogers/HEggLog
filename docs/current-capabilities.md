@@ -74,10 +74,12 @@ user-defined single-parameter classes, concrete instances, explicit source
 constraints with normalized argument representation, dictionary-passed method
 calls, structured placeholder diagnostics for unsupported constraint contexts,
 source-spanned typecheck diagnostics including delayed dictionary failures,
-documented nullary-binding monomorphism/defaulting behavior, and built-in `Eq Int`, `Eq Bool`,
-`Ord Int`, `Ord Bool`, and executable `Num Int` class methods, plus guarded
-RHSs, guarded case alternatives, as-pattern aliases, and guard-fallthrough
-no-match behavior, plus the first IO printing slice for `IO`, `main :: IO ()`,
+documented nullary-binding monomorphism/defaulting behavior, boxed `Char`
+literals and literal cases, scalar `main :: Char` output, and built-in
+`Eq Int`, `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, and executable `Num Int`
+class methods, plus guarded RHSs, guarded case alternatives, as-pattern
+aliases, and guard-fallthrough no-match behavior, plus the first IO printing
+slice for `IO`, `main :: IO ()`,
 `putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing, and
 built-in `Show Int`/`Show Bool`. A Core
 reference evaluator executes validating typed Core with erased type
@@ -93,11 +95,12 @@ updateable and single-entry thunks, function closures, enter/apply, Bool,
 user-constructor, list, tuple, `Maybe`/`Either`/`Ordering` case dispatch,
 boxed constructor field arrays, process-lifetime heap allocation through
 `hegglog_hs_alloc_process_lifetime` under the documented no-free/no-GC
-ownership policy, and checked primitive aborts, then uses the existing clang
-toolchain path to produce native executables. The Haskell 2010 native path also
-executes `main :: IO ()` actions for `putStrLn` and `print`
-output using native string literal objects, list-of-`Char` traversal, and
-built-in `Show Int`/`Show Bool`.
+ownership policy, boxed `Char` values, `Eq Char` primitive lowering, scalar
+`Char` root printing, and checked primitive aborts, then uses the existing
+clang toolchain path to produce native executables. The Haskell 2010 native
+path also executes `main :: IO ()` actions for `putStrLn` and `print` output
+using native string literal objects, list-of-`Char` traversal, and built-in
+`Show Int`/`Show Bool`.
 The Haskell 2010
 native path now runs an Egglog Core optimizer by
 default for safe typed Core fragments before STG lowering; `--no-egglog`
@@ -121,14 +124,15 @@ Current status:
 - Haskell source desugaring to typed Core: implemented and unit-tested for
   functions, lambdas, application, `let`, `if`, Bool/user-constructor `case`,
   nested/list/tuple constructor patterns, list/tuple expressions, short-circuit
-  Bool operators, generated Prelude list functions, primitive `/`, and
-  dictionary-backed `Eq`/`Ord`/`Num` methods, guarded RHSs, guarded case
+  Bool operators, generated Prelude list functions, primitive `/`, boxed
+  `Char` literals and literal cases, and dictionary-backed `Eq`/`Ord`/`Num`
+  methods, guarded RHSs, guarded case
   alternatives, and as-pattern aliases, including singleton self-recursive bindings and
   mutually recursive top-level groups, user-defined single-parameter classes,
   concrete instances, structured explicit constraints, placeholder diagnostics
   for unsupported constraint contexts, dictionary constructors/selectors,
-  dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Ord Int`,
-  `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool` dictionaries, plus
+  dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Eq Char`,
+  `Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool` dictionaries, plus
   source-spanned Haskell 2010 typecheck diagnostics, plus
   `putStrLn`, `print`, `return`, `(>>)`, and expression-only `do` sequencing
 - Haskell 2010 Core reference evaluator: implemented and unit-tested for
@@ -138,9 +142,9 @@ Current status:
   guarded self recursion, local factorial recursion, top-level fibonacci
   recursion, mutual recursion, recursive list functions, recursive pattern
   bindings, user class dictionary
-  calls, built-in `Eq`/`Ord`/`Num` dictionary calls, guarded RHS/as-pattern
-  programs, IO output actions, guard fallthrough no-match reporting, and
-  division-by-zero reporting
+  calls, built-in `Eq`/`Ord`/`Num` dictionary calls, `Char` literals and
+  literal cases, guarded RHS/as-pattern programs, IO output actions, guard
+  fallthrough no-match reporting, and division-by-zero reporting
 - Haskell 2010 STG-like lazy IR/runtime MVP: implemented and unit-tested for
   validation, lazy lets/arguments, case demand, constructor dispatch, thunk
   sharing/update behavior, single-entry thunks, black-hole detection, and
@@ -148,9 +152,9 @@ Current status:
 - Core-to-STG lowering: implemented and unit-tested for Core-0 arithmetic,
   polymorphic type erasure, Bool/user ADT case, nested constructor patterns,
   list/tuple/Prelude constructor cases, generated Prelude list functions, lazy
-  lets/arguments, recursive binding groups, forced runtime errors, and curried
-  partial application, plus guarded RHS/as-pattern semantics and guard
-  fallthrough errors
+  lets/arguments, recursive binding groups, `Char` literal cases and equality,
+  forced runtime errors, and curried partial application, plus guarded
+  RHS/as-pattern semantics and guard fallthrough errors
 - Haskell 2010 native executable path: implemented and wet-tested for
   arithmetic, polymorphic identity, lazy lets/arguments, Bool case, custom ADTs,
   `Maybe`, built-in `Maybe`/`Either`/`Ordering`, lists, tuples, Prelude list
@@ -158,9 +162,10 @@ Current status:
   constructor fields, top-level/local/mutual/list recursion, forced
   division-by-zero failure, curried partial application, user-defined type
   class dictionary calls, built-in `Eq`/`Ord`/`Num` class dictionary calls,
-  guarded RHS/as-pattern programs, `main :: IO ()` printing through `putStrLn`
-  and `print`, process-lifetime runtime allocation, and guard-fallthrough
-  runtime failure
+  `Eq Char`, `Char` literal cases, scalar `main :: Char` printing, guarded
+  RHS/as-pattern programs, `main :: IO ()` printing through `putStrLn` and
+  `print`, process-lifetime runtime allocation, and guard-fallthrough runtime
+  failure
 - Haskell 2010 Egglog Core optimizer: implemented and unit/wet-tested for
   safe Core-0 arithmetic identities, checked constant folding, known Bool case
   selection, known literal and saturated known-constructor case/projection
@@ -169,9 +174,9 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 52 manifest-tracked fixtures with
-  37 native-success cases, 1 native-runtime-error case, 6 compile-error cases,
-  and 8 unsupported-documented cases
+  `haskell2010-conformance-test`; it contains 55 manifest-tracked fixtures with
+  41 native-success cases, 1 native-runtime-error case, 6 compile-error cases,
+  and 7 unsupported-documented cases
 
 Progress is tracked in
 [haskell2010-conformance-matrix.md](haskell2010-conformance-matrix.md).
