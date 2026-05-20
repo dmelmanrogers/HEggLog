@@ -110,22 +110,26 @@ checked for recursive cycles, and expanded structurally before Core conversion.
 Class constraints now use an explicit class-head-plus-arguments representation;
 the current executable slice validates single-argument constraint arity before
 kind checking and dictionary elaboration, and constraint arguments participate in
-type synonym expansion and substitution like other source types. Unsupported
-constraint positions have a structured placeholder diagnostic: superclass
-contexts, method-specific constraints, instance contexts, and expression
-type-signature constraints are parsed and then rejected deliberately until their
-dedicated class-system tasks are implemented.
+type synonym expansion and substitution like other source types. Superclass
+contexts on single-parameter classes are represented in dictionary types as
+leading superclass fields, default class methods are used to fill omitted
+instance methods, and dictionary resolution can project superclass dictionaries
+from local and instance dictionaries. Method-specific constraints, instance
+contexts, and expression type-signature constraints still have structured
+placeholder diagnostics until their dedicated class-system tasks are
+implemented.
 
 TYPE-019 records the monomorphism-restriction decision for the executable
 subset: unsigned nullary value bindings without explicit signatures are eligible
 for standard-class defaulting before generalization, while explicitly signed
 bindings and functions with value parameters keep their result metavariables
 protected from this defaulting pass. This matches the current executable
-`Int`-defaulting behavior for numeric/simple class constraints without claiming
-complete Haskell 2010 monomorphism-restriction coverage for every pattern
-binding and class-library form. Full MR conformance should be revisited when
-broader pattern bindings, superclass solving, and Prelude class coverage are in
-place.
+`Int`-defaulting behavior for numeric/simple class constraints, now including
+standard-class compatibility with `Enum`/`Bounded` when a `Num` constraint is
+present, without claiming complete Haskell 2010 monomorphism-restriction
+coverage for every pattern binding and class-library form. Full MR conformance
+should be revisited when broader pattern bindings and the remaining numeric
+class hierarchy are in place.
 
 TYPE-020 preserves source attribution for Haskell 2010 typecheck failures.
 Parsed declarations, expressions, patterns, statements, alternatives,

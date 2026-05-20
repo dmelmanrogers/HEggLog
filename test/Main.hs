@@ -154,7 +154,7 @@ testGroups =
       , pureTest "forces irrefutable patterns only through demanded binders" testHaskell2010IrrefutablePatternDemand
       , pureTest "represents class constraints structurally" testHaskell2010ConstraintRepresentation
       , pureTest "rejects invalid class constraint arity" testHaskell2010ConstraintRejectsInvalidArity
-      , pureTest "rejects unsupported class constraint contexts deliberately" testHaskell2010ClassConstraintPlaceholders
+      , pureTest "handles supported and unsupported class constraint contexts deliberately" testHaskell2010ClassConstraintPlaceholders
       , pureTest "typechecks explicit polymorphic identity" testHaskell2010Core0Identity
       , pureTest "typechecks explicit polymorphic const" testHaskell2010Core0Const
       , pureTest "generalizes local let polymorphism" testHaskell2010Core0PolymorphicLet
@@ -178,6 +178,7 @@ testGroups =
       , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
       , pureTest "desugars operator sections to Core lambdas" testHaskell2010Core0Sections
       , pureTest "typechecks arithmetic sequences" testHaskell2010Core0ArithmeticSequences
+      , pureTest "typechecks Enum Bounded and superclass defaulting" testHaskell2010Core0EnumBounded
       , pureTest "typechecks list comprehensions" testHaskell2010Core0ListComprehensions
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
@@ -213,6 +214,7 @@ testGroups =
       , pureTest "evaluates guards and as-patterns" testHaskell2010Core0EvalGuardsAndAsPatterns
       , pureTest "evaluates operator sections" testHaskell2010Core0EvalSections
       , pureTest "evaluates arithmetic sequences" testHaskell2010Core0EvalArithmeticSequences
+      , pureTest "evaluates Enum Bounded and superclass defaulting" testHaskell2010Core0EvalEnumBounded
       , pureTest "evaluates list comprehensions" testHaskell2010Core0EvalListComprehensions
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
@@ -255,6 +257,7 @@ testGroups =
       , pureTest "preserves guard and as-pattern semantics" testHaskell2010CoreToSTGGuardsAndAsPatterns
       , pureTest "preserves operator section semantics" testHaskell2010CoreToSTGSections
       , pureTest "preserves arithmetic sequence semantics" testHaskell2010CoreToSTGArithmeticSequences
+      , pureTest "preserves Enum Bounded semantics" testHaskell2010CoreToSTGEnumBounded
       , pureTest "preserves list comprehension semantics" testHaskell2010CoreToSTGListComprehensions
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves guard fallthrough errors" testHaskell2010CoreToSTGGuardFallthrough
@@ -268,6 +271,7 @@ testGroups =
       , pureTest "emits Char runtime LLVM" testHaskell2010NativeCharRuntime
       , pureTest "emits String as Char lists in native LLVM" testHaskell2010NativeStringCharList
       , pureTest "emits arithmetic sequence LLVM" testHaskell2010NativeArithmeticSequences
+      , pureTest "emits Enum Bounded LLVM" testHaskell2010NativeEnumBounded
       , pureTest "emits list comprehension LLVM" testHaskell2010NativeListComprehensions
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
       , ioTest "native executable preserves lazy Core-0 semantics" testHaskell2010NativeExecutableExecution
@@ -1413,11 +1417,15 @@ testHaskell2010ConstraintRejectsInvalidArity =
       Right coreModule -> Left ("invalid class constraint arity typechecked unexpectedly: " <> show coreModule)
 
 testHaskell2010ClassConstraintPlaceholders :: Either String ()
-testHaskell2010ClassConstraintPlaceholders =
-  expectPlaceholder "superclass constraint context" superclassSource
-    *> expectPlaceholder "method-specific constraint context" methodConstraintSource
+testHaskell2010ClassConstraintPlaceholders = do
+  coreModule <- typecheckHaskell2010 superclassDefaultSource
+  assertBool "superclass dictionary constructor is recorded" (containsConstructorOccurrence "$MkOrderedDict" coreModule)
+  assertBool "default method-filled instance dictionary is emitted" (containsBindingPrefix "$fOrdered" coreModule)
+  expectCoreEvalInt "superclass/default method Core oracle" 7 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+  expectPlaceholder "method-specific constraint context" methodConstraintSource
     *> expectPlaceholder "instance constraint context" instanceContextSource
     *> expectPlaceholder "expression signature constraint context" expressionSignatureSource
+    *> expectTypecheckMessage "recursive superclass cycle" "recursive superclass cycle" recursiveSuperclassSource
  where
   expectPlaceholder label source =
     case typecheckHaskell2010Raw source of
@@ -1427,11 +1435,29 @@ testHaskell2010ClassConstraintPlaceholders =
       Left err -> Left (label <> ": expected unsupported class-constraint context, got " <> show err)
       Right coreModule -> Left (label <> ": typechecked unexpectedly: " <> show coreModule)
 
-  superclassSource =
+  expectTypecheckMessage label needle source =
+    case typecheckHaskell2010Raw source of
+      Left err
+        | needle `Text.isInfixOf` H2010Typecheck.renderTypecheckError err -> Right ()
+      Left err -> Left (label <> ": expected diagnostic containing " <> Text.unpack needle <> ", got " <> show err)
+      Right coreModule -> Left (label <> ": typechecked unexpectedly: " <> show coreModule)
+
+  superclassDefaultSource =
     "module Core0 where\n\
-    \class Eq a => Ordered a where\n\
+    \class Equal a where\n\
+    \  equal :: a -> a -> Bool\n\
+    \class Equal a => Ordered a where\n\
     \  ordered :: a -> a -> Bool\n\
-    \main = 0\n"
+    \  same :: a -> a -> Bool\n\
+    \  same x y = equal x y\n\
+    \data Box = Box Int\n\
+    \instance Equal Box where\n\
+    \  equal (Box x) (Box y) = x == y\n\
+    \instance Ordered Box where\n\
+    \  ordered (Box x) (Box y) = x < y\n\
+    \sameOrdered :: Ordered a => a -> a -> Bool\n\
+    \sameOrdered x y = equal x y\n\
+    \main = if same (Box 4) (Box 4) && sameOrdered (Box 5) (Box 5) && ordered (Box 1) (Box 2) then 7 else 0\n"
 
   methodConstraintSource =
     "module Core0 where\n\
@@ -1451,6 +1477,14 @@ testHaskell2010ClassConstraintPlaceholders =
   expressionSignatureSource =
     "module Core0 where\n\
     \main = (1 :: Eq Int => Int)\n"
+
+  recursiveSuperclassSource =
+    "module Core0 where\n\
+    \class Second a => First a where\n\
+    \  first :: a -> Int\n\
+    \class First a => Second a where\n\
+    \  second :: a -> Int\n\
+    \main = 0\n"
 
 testHaskell2010Core0If :: Either String ()
 testHaskell2010Core0If = do
@@ -1673,6 +1707,17 @@ testHaskell2010Core0ArithmeticSequences = do
   assertBool "open Int enumFrom helper is emitted" (containsBindingOccurrence "$enumFromInt" coreModule)
   expectCoreEvalIO "arithmetic sequence Core oracle" haskell2010ArithmeticSequencesOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0EnumBounded :: Either String ()
+testHaskell2010Core0EnumBounded = do
+  coreModule <- typecheckHaskell2010 haskell2010EnumBoundedSource
+  assertBool "Prelude Enum dictionary constructor is recorded" (containsConstructorOccurrence "$MkEnumDict" coreModule)
+  assertBool "Prelude Bounded dictionary constructor is recorded" (containsConstructorOccurrence "$MkBoundedDict" coreModule)
+  assertBool "Prelude Enum Int instance dictionary is emitted" (containsBindingOccurrence "$fEnumInt" coreModule)
+  assertBool "Prelude Enum Char instance dictionary is emitted" (containsBindingOccurrence "$fEnumChar" coreModule)
+  assertBool "Prelude Bounded Bool instance dictionary is emitted" (containsBindingOccurrence "$fBoundedBool" coreModule)
+  assertBool "Enum helper support is emitted" (containsBindingOccurrence "$enumFromToChar" coreModule)
+  expectCoreEvalIO "Enum/Bounded Core oracle" haskell2010EnumBoundedOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0ListComprehensions :: Either String ()
 testHaskell2010Core0ListComprehensions = do
   coreModule <- typecheckHaskell2010 haskell2010ListComprehensionsSource
@@ -1682,6 +1727,7 @@ testHaskell2010Core0ListComprehensions = do
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries :: Either String ()
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
   expectTypecheckMessage "rejects duplicate concrete instances" "duplicate instance" duplicateInstanceSource
+    *> expectTypecheckMessage "rejects overlapping instances" "overlapping instance" overlappingInstanceSource
     *> expectTypecheckMessage "rejects missing instance methods" "missing instance method" missingInstanceMethodSource
     *> expectTypecheckMessage "rejects unsolved Prelude class dictionaries" "unsolved type-class constraint" unsolvedPreludeConstraintSource
  where
@@ -1709,6 +1755,17 @@ testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
     \  equal :: a -> a -> Bool\n\
     \data Box = Box Int\n\
     \instance Equal Box where {}\n\
+    \main = 1\n"
+
+  overlappingInstanceSource =
+    "module Main where\n\
+    \class Tag a where\n\
+    \  tag :: a -> Int\n\
+    \data Box a = Box a\n\
+    \instance Tag (Box a) where\n\
+    \  tag (Box _) = 0\n\
+    \instance Tag (Box Int) where\n\
+    \  tag (Box x) = x\n\
     \main = 1\n"
 
   unsolvedPreludeConstraintSource =
@@ -1969,6 +2026,13 @@ testHaskell2010Core0EvalArithmeticSequences =
     "Core-0 arithmetic sequence evaluation"
     haskell2010ArithmeticSequencesOutput
     =<< evalHaskell2010Binding "main" haskell2010ArithmeticSequencesSource
+
+testHaskell2010Core0EvalEnumBounded :: Either String ()
+testHaskell2010Core0EvalEnumBounded =
+  expectCoreEvalIO
+    "Core-0 Enum/Bounded evaluation"
+    haskell2010EnumBoundedOutput
+    =<< evalHaskell2010Binding "main" haskell2010EnumBoundedSource
 
 testHaskell2010Core0EvalListComprehensions :: Either String ()
 testHaskell2010Core0EvalListComprehensions =
@@ -2263,6 +2327,10 @@ testHaskell2010CoreToSTGArithmeticSequences :: Either String ()
 testHaskell2010CoreToSTGArithmeticSequences =
   checkCoreToSTGIO "Core-to-STG arithmetic sequences" haskell2010ArithmeticSequencesOutput haskell2010ArithmeticSequencesSource
 
+testHaskell2010CoreToSTGEnumBounded :: Either String ()
+testHaskell2010CoreToSTGEnumBounded =
+  checkCoreToSTGIO "Core-to-STG Enum/Bounded" haskell2010EnumBoundedOutput haskell2010EnumBoundedSource
+
 testHaskell2010CoreToSTGListComprehensions :: Either String ()
 testHaskell2010CoreToSTGListComprehensions =
   checkCoreToSTGIO "Core-to-STG list comprehensions" haskell2010ListComprehensionsOutput haskell2010ListComprehensionsSource
@@ -2354,6 +2422,12 @@ testHaskell2010NativeArithmeticSequences = do
   llvmText <- compileHaskell2010NativeText haskell2010ArithmeticSequencesSource
   assertBool "native arithmetic sequences lower Char ordinals" ("zext i32" `Text.isInfixOf` llvmText)
   assertBool "native arithmetic sequences rebox generated Chars" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeEnumBounded :: Either String ()
+testHaskell2010NativeEnumBounded = do
+  llvmText <- compileHaskell2010NativeText haskell2010EnumBoundedSource
+  assertBool "native Enum emits checked Int arithmetic" ("@llvm.sadd.with.overflow.i64" `Text.isInfixOf` llvmText)
+  assertBool "native Enum/Bounded emits Char boxing" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeListComprehensions :: Either String ()
 testHaskell2010NativeListComprehensions = do
@@ -5742,6 +5816,7 @@ haskell2010NativeSuccessExamples =
   , ("irrefutable-patterns", haskell2010IrrefutablePatternSource, "7\n")
   , ("sections", haskell2010SectionsSource, "6\n")
   , ("arithmetic-sequences", haskell2010ArithmeticSequencesSource, Text.unpack haskell2010ArithmeticSequencesOutput)
+  , ("enum-bounded", haskell2010EnumBoundedSource, Text.unpack haskell2010EnumBoundedOutput)
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-record-fields", haskell2010RecordFieldSource, "43\n")
@@ -5774,6 +5849,7 @@ haskell2010NativeExecutableExamples =
   , ("irrefutable-patterns", haskell2010IrrefutablePatternSource, "7\n")
   , ("sections", haskell2010SectionsSource, "6\n")
   , ("arithmetic-sequences", haskell2010ArithmeticSequencesSource, Text.unpack haskell2010ArithmeticSequencesOutput)
+  , ("enum-bounded", haskell2010EnumBoundedSource, Text.unpack haskell2010EnumBoundedOutput)
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   ]
 
@@ -5973,6 +6049,34 @@ haskell2010ArithmeticSequencesSource =
 haskell2010ArithmeticSequencesOutput :: Text
 haskell2010ArithmeticSequencesOutput =
   "[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]\n"
+
+haskell2010EnumBoundedSource :: Text
+haskell2010EnumBoundedSource =
+  "module Main where\n\
+  \letter :: Char\n\
+  \letter = toEnum 65\n\
+  \charCode :: Int\n\
+  \charCode = fromEnum 'A'\n\
+  \stepped :: String\n\
+  \stepped = enumFromThenTo 'a' 'c' 'g'\n\
+  \boundedBools :: [Bool]\n\
+  \boundedBools = [minBound, maxBound]\n\
+  \defaulted = enumFromTo 4 6\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (succ (41 :: Int))\n\
+  \  print (pred (43 :: Int))\n\
+  \  putStrLn (enumFromTo 'x' 'z')\n\
+  \  putStrLn stepped\n\
+  \  print charCode\n\
+  \  putStrLn [letter]\n\
+  \  print boundedBools\n\
+  \  print defaulted\n\
+  \  return ()\n"
+
+haskell2010EnumBoundedOutput :: Text
+haskell2010EnumBoundedOutput =
+  "42\n42\nxyz\naceg\n65\nA\n[False,True]\n[4,5,6]\n"
 
 haskell2010ListComprehensionsSource :: Text
 haskell2010ListComprehensionsSource =

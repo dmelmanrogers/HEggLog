@@ -72,7 +72,8 @@ Core Prelude bindings for basic list/Bool functions, plus recursive top-level
 and local functions, plus the initial type class dictionary slice for
 user-defined single-parameter classes, concrete instances, explicit source
 constraints with normalized argument representation, dictionary-passed method
-calls, structured placeholder diagnostics for unsupported constraint contexts,
+calls, superclass dictionary fields/projection, default class methods,
+overlapping-instance rejection, structured placeholder diagnostics for remaining unsupported constraint contexts,
 source-spanned typecheck diagnostics including delayed dictionary failures,
 documented nullary-binding monomorphism/defaulting behavior, boxed `Char`
 literals and literal cases, scalar `main :: Char` output, and built-in
@@ -84,7 +85,8 @@ slice for `IO`, `main :: IO ()`,
 `do` sequencing, and
 built-in `Show Int`/`Show Bool`/`Show Char`/`Show String` plus generated
 structural list `Show` dictionaries, plus executable arithmetic sequences over
-`Int` and `Char` ranges, plus executable list comprehensions with generator
+`Int` and `Char` ranges, public `Enum Int`/`Enum Char` and
+`Bounded Int`/`Bounded Char`/`Bounded Bool` dictionaries, plus executable list comprehensions with generator
 scoping, Bool guards, `let` qualifiers, nested generators, and refutable
 pattern filtering. A Core
 reference evaluator executes validating typed Core with erased type
@@ -141,10 +143,12 @@ Current status:
   alternatives, and as-pattern aliases, including singleton self-recursive bindings and
   mutually recursive top-level groups, user-defined single-parameter classes,
   concrete instances, structured explicit constraints, placeholder diagnostics
-  for unsupported constraint contexts, dictionary constructors/selectors,
+  for remaining unsupported constraint contexts, superclass dictionaries,
+  default class methods, overlapping-instance rejection, dictionary constructors/selectors,
   dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Eq Char`,
   `Ord Int`, `Ord Bool`, `Ord Char`, `Num Int`, `Show Int`, `Show Bool`, `Show Char`,
-  `Show String`, and structural list `Show` dictionaries, plus
+  `Show String`, structural list `Show`, `Enum Int`, `Enum Char`,
+  `Bounded Int`, `Bounded Char`, and `Bounded Bool` dictionaries, plus
   source-spanned Haskell 2010 typecheck diagnostics, plus
   `putStrLn`, `print`, `return`, `(>>)`, `(>>=)`, and expression/bind-statement
   `do` sequencing, plus executable `Int`/`Char` arithmetic sequences and list
@@ -156,7 +160,7 @@ Current status:
   guarded self recursion, local factorial recursion, top-level fibonacci
   recursion, mutual recursion, recursive list functions, recursive pattern
   bindings, user class dictionary
-  calls, built-in `Eq`/`Ord`/`Num` dictionary calls, `Char` literals and
+  calls, built-in `Eq`/`Ord`/`Num`/`Enum`/`Bounded` dictionary calls, `Char` literals and
   literal cases, arithmetic sequences, list comprehensions, guarded RHS/as-pattern programs, IO output actions, guard
   fallthrough no-match reporting, and division-by-zero reporting
 - Haskell 2010 STG-like lazy IR/runtime MVP: implemented and unit-tested for
@@ -176,7 +180,7 @@ Current status:
   constructor fields, top-level/local/mutual/list recursion, forced
   division-by-zero failure, curried partial application, user-defined type
   class dictionary calls, built-in `Eq`/`Ord`/`Num` class dictionary calls,
-  `Eq Char`, `Char` literal cases, scalar `main :: Char` printing, guarded
+  `Eq Char`, public `Enum`/`Bounded` examples, `Char` literal cases, scalar `main :: Char` printing, guarded
   RHS/as-pattern programs, `main :: IO ()` printing through `putStrLn`,
   `print`, do-bind statements, and explicit `(>>=)`, process-lifetime runtime allocation, and guard-fallthrough runtime
   failure, plus executable `Int`/`Char` arithmetic sequences and list comprehensions
@@ -188,9 +192,9 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 55 manifest-tracked fixtures with
-  41 native-success cases, 1 native-runtime-error case, 6 compile-error cases,
-  and 7 unsupported-documented cases
+  `haskell2010-conformance-test`; it contains 63 manifest-tracked fixtures with
+  51 native-success cases, 1 native-runtime-error case, 6 compile-error cases,
+  and 5 unsupported-documented cases
 
 Progress is tracked in
 [haskell2010-conformance-matrix.md](haskell2010-conformance-matrix.md).
@@ -229,7 +233,7 @@ Current tests include:
   report-mode `Result: <value>` output, runs Haskell 2010 default Egglog and
   `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
   programs, user-defined type class dictionary programs, and built-in
-  `Eq`/`Ord`/`Num`/`Show` dictionary programs, numeric-defaulting and
+  `Eq`/`Ord`/`Num`/`Show`/`Enum`/`Bounded` dictionary programs, numeric-defaulting and
   monomorphism/defaulting decision programs, multi-file module programs,
   known-constructor optimizer programs, plus IO
   printing programs, and compiles selected emitted LLVM through `clang`

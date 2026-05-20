@@ -418,6 +418,16 @@
       "notes": "Executable arithmetic sequences for Int and Char, including ascending, descending, and lazily consumed open Int ranges."
     },
     {
+      "name": "prelude.enum-bounded",
+      "sourceFile": "test/haskell2010/conformance/prelude/enum-bounded.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "42\n42\nxyz\naceg\n65\nA\n[False,True]\n[4,5,6]\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Public Enum Int/Char and Bounded Int/Char/Bool dictionaries, including defaulting through Num+Enum, compile and run natively."
+    },
+    {
       "name": "prelude.list-comprehensions",
       "sourceFile": "test/haskell2010/conformance/prelude/list-comprehensions.hs",
       "category": "prelude",
@@ -506,13 +516,13 @@
       "notes": "Malformed layout must fail during Haskell 2010 parsing."
     },
     {
-      "name": "unsupported.superclass-default-method",
-      "sourceFile": "test/haskell2010/conformance/unsupported/superclass-default-method.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "unsupported",
-      "requiredStage": "typecheck",
-      "notes": "Superclass constraints and default class methods remain outside the implemented class slice."
+      "name": "typeclasses.superclass-default-method",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/superclass-default-method.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-success",
+      "expectedStdout": "1\n",
+      "requiredStage": "native",
+      "notes": "Superclass dictionaries, default class methods, and superclass projection from local dictionaries compile and run."
     },
     {
       "name": "unsupported.deriving-eq",

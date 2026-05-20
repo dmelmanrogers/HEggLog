@@ -17,6 +17,7 @@ module Haskell2010.Typecheck
   )
 where
 
+import Control.Applicative ((<|>))
 import Control.Monad (foldM, unless, when)
 import Control.Monad.State.Strict (StateT, get, lift, modify, runStateT)
 import Data.Foldable (traverse_)
@@ -255,6 +256,7 @@ data ClassInfo = ClassInfo
   , classInfoVariable :: RName
   , classInfoDictTypeName :: RName
   , classInfoDictConstructorName :: RName
+  , classInfoSuperclasses :: [ClassConstraint]
   , classInfoMethods :: [ClassMethodInfo]
   }
   deriving stock (Show, Eq, Ord)
@@ -264,6 +266,7 @@ data ClassMethodInfo = ClassMethodInfo
   , classMethodScheme :: Scheme
   , classMethodFieldType :: MonoType
   , classMethodFieldIndex :: Int
+  , classMethodDefault :: Maybe SourceBinding
   }
   deriving stock (Show, Eq, Ord)
 
@@ -271,6 +274,7 @@ data TypedInstanceDictionary = TypedInstanceDictionary
   { typedInstanceClass :: RName
   , typedInstanceType :: MonoType
   , typedInstanceDictName :: RName
+  , typedInstanceSuperclasses :: [ClassConstraint]
   , typedInstanceMethods :: [TypedExpr]
   }
   deriving stock (Show, Eq, Ord)
@@ -369,6 +373,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
         CoreElabEnv
           (substitution finalState)
           Map.empty
+          classesForCore
           instances
           []
   coreBinds <- traverse (bindingToCore elaborationEnv) typedBindings
@@ -377,7 +382,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
   builtinShowSupportBinds <- builtinShowSupportCoreBinds classesForCore
   builtinInstanceCoreBinds <- traverse (builtinInstanceDictionaryToCore classesForCore) builtinInstances
   instanceCoreBinds <- traverse (instanceDictionaryToCore (substitution finalState) classesForCore instances) typedInstances
-  preludeCoreBinds <- preludeCoreBindings preludeValues
+  preludeCoreBinds <- preludeCoreBindings (preludeValues <> classPreludeSupportNames classesForCore)
   let sourceCoreBinds = maybe [] (: []) (bindingGroupCoreBind typedBindings coreBinds)
   coreConstructors <-
     Map.union (tupleConstructorInfos tupleArities)
@@ -786,42 +791,118 @@ recordSelectorTypeEnv =
   Map.map recordSelectorScheme
 
 collectClassInfos :: [RDecl] -> InferM (Map.Map RName ClassInfo)
-collectClassInfos =
-  foldM collect Map.empty
+collectClassInfos decls = do
+  infos <- foldM collect Map.empty decls
+  validateSuperclassGraph infos
+  pure infos
  where
   collect acc = \case
-    RClassDecl [] className classVariable decls -> do
-      methods <- collectClassMethods className classVariable decls
+    RClassDecl constraints className classVariable classDecls -> do
+      superclasses <- traverse sourceClassConstraint constraints
+      let normalizedSuperclasses = map (replaceConstraintClassVariable classVariable) superclasses
+      validateSuperclasses className classVariable normalizedSuperclasses
+      methods <- collectClassMethods className classVariable (length normalizedSuperclasses) classDecls
       let info =
             ClassInfo
               { classInfoName = className
               , classInfoVariable = classVariable
               , classInfoDictTypeName = classDictionaryTypeName className
               , classInfoDictConstructorName = classDictionaryConstructorName className
+              , classInfoSuperclasses = normalizedSuperclasses
               , classInfoMethods = methods
               }
       pure (Map.insert className info acc)
-    RClassDecl constraints className _ _ ->
-      unsupportedSourceClassConstraintContext (SuperclassConstraintContext className) constraints
     _ ->
       pure acc
 
-collectClassMethods :: RName -> RName -> [RDecl] -> InferM [ClassMethodInfo]
-collectClassMethods className classVariable decls = do
+  validateSuperclasses className classVariable constraints = do
+    when (any ((== className) . classConstraintClass) constraints) $
+      throwTypecheck (UnsupportedCore0 ("recursive superclass for `" <> renderRName className <> "`"))
+    unless (all superclassUsesClassVariable constraints) $
+      throwUnsupportedClassConstraintContext (SuperclassConstraintContext className) constraints
+   where
+    superclassUsesClassVariable constraint =
+      case classConstraintArguments constraint of
+        [TyVar variable] -> variable == classVariable
+        _ -> False
+
+validateSuperclassGraph :: Map.Map RName ClassInfo -> InferM ()
+validateSuperclassGraph sourceInfos =
+  traverse_ validateClass (Map.keys sourceInfos)
+ where
+  allInfos = Map.union sourceInfos builtinClassInfos
+
+  validateClass className =
+    visit [] className
+
+  visit path className
+    | className `elem` path =
+        throwTypecheck (UnsupportedCore0 ("recursive superclass cycle involving `" <> renderRName className <> "`"))
+    | otherwise =
+        case Map.lookup className allInfos of
+          Nothing ->
+            throwTypecheck (UnsupportedCore0 ("superclass for unknown class `" <> renderRName className <> "`"))
+          Just info ->
+            traverse_ (visit (className : path) . classConstraintClass) (classInfoSuperclasses info)
+
+collectClassMethods :: RName -> RName -> Int -> [RDecl] -> InferM [ClassMethodInfo]
+collectClassMethods className classVariable superclassCount decls = do
   signatures <- concat <$> traverse methodSignatures decls
-  traverse methodInfo (zip [0 ..] signatures)
+  defaults <- collectDefaults decls
+  signatureMap <- foldM insertSignature Map.empty signatures
+  case filter (`Map.notMember` signatureMap) (Map.keys defaults) of
+    [] -> pure ()
+    defaultName : _ ->
+      throwTypecheck (UnsupportedCore0 ("default method without signature `" <> renderRName defaultName <> "`"))
+  traverse (methodInfo defaults) (zip [0 ..] signatures)
  where
   methodSignatures = \case
     RTypeSignature names sourceType ->
       pure [(name, sourceType) | name <- names]
-    RFunctionBinding name _ _ _ ->
-      throwTypecheck (UnsupportedCore0 ("default method binding `" <> renderRName name <> "`"))
+    RFunctionBinding {} ->
+      pure []
     RFixityDecl {} ->
       pure []
     other ->
       throwTypecheck (UnsupportedCore0 ("class declaration item " <> Text.pack (show other)))
 
-  methodInfo (index, (methodName, sourceType)) = do
+  collectDefaults =
+    foldM collectDefault Map.empty
+
+  collectDefault acc decl =
+    withTypecheckSpan (rDeclSpan decl) $
+      case decl of
+        RFunctionBinding name patterns rhs whereDecls ->
+          case Map.lookup name acc of
+            Just _ ->
+              throwTypecheck (UnsupportedCore0 ("duplicate default method `" <> renderRName name <> "`"))
+            Nothing ->
+              pure
+                ( Map.insert
+                    name
+                    SourceBinding
+                      { sourceBindingSpan = rDeclSpan decl
+                      , sourceBindingName = name
+                      , sourceBindingPatterns = patterns
+                      , sourceBindingPatternBinding = Nothing
+                      , sourceBindingRhs = rhs
+                      , sourceBindingWhereDecls = whereDecls
+                      }
+                    acc
+                )
+        RTypeSignature {} ->
+          pure acc
+        RFixityDecl {} ->
+          pure acc
+        other ->
+          throwTypecheck (UnsupportedCore0 ("class declaration item " <> Text.pack (show other)))
+
+  insertSignature acc (methodName, sourceType) =
+    case Map.lookup methodName acc of
+      Just _ -> throwTypecheck (DuplicateTypeSignature methodName)
+      Nothing -> pure (Map.insert methodName sourceType acc)
+
+  methodInfo defaults (index, (methodName, sourceType)) = do
     Scheme _ constraints body <- sourceScheme sourceType
     let normalizedConstraints = map (replaceConstraintClassVariable classVariable) constraints
         normalizedBody = replaceMonoTypeClassVariable classVariable body
@@ -838,7 +919,8 @@ collectClassMethods className classVariable decls = do
         { classMethodName = methodName
         , classMethodScheme = scheme
         , classMethodFieldType = normalizedBody
-        , classMethodFieldIndex = index
+        , classMethodFieldIndex = superclassCount + index
+        , classMethodDefault = Map.lookup methodName defaults
         }
 
 replaceConstraintClassVariable :: RName -> ClassConstraint -> ClassConstraint
@@ -872,12 +954,22 @@ classDictionaryConstructors =
   constructorInfo info =
     let classVar = classInfoVariable info
         classTy = TyVar classVar
-        fields = map classMethodFieldType (classInfoMethods info)
+        fields = classDictionaryFieldTypes info
         resultTy = classDictionaryType info classTy
         scheme = Scheme [classVar] [] (foldr TyFun resultTy fields)
      in ( classInfoDictConstructorName info
         , positionalDataConstructorInfo [classVar] fields resultTy scheme CoreDataConstructor
         )
+
+classDictionaryFieldTypes :: ClassInfo -> [MonoType]
+classDictionaryFieldTypes info =
+  map superclassDictionaryFieldType (classInfoSuperclasses info) <> map classMethodFieldType (classInfoMethods info)
+
+superclassDictionaryFieldType :: ClassConstraint -> MonoType
+superclassDictionaryFieldType constraint =
+  case classConstraintArguments constraint of
+    [argument] -> TyApp (TyCon (classDictionaryTypeName (classConstraintClass constraint))) argument
+    _ -> error "superclassDictionaryFieldType called with non-unary constraint"
 
 classDictionaryType :: ClassInfo -> MonoType -> MonoType
 classDictionaryType info arg =
@@ -898,6 +990,8 @@ builtinClassInfos =
     , (builtinOrdClassName, ordInfo)
     , (builtinNumClassName, numInfo)
     , (builtinShowClassName, showInfo)
+    , (builtinEnumClassName, enumInfo)
+    , (builtinBoundedClassName, boundedInfo)
     ]
  where
   eqA = preludeTypeVariable "a" (-1301)
@@ -906,6 +1000,7 @@ builtinClassInfos =
     builtinClassInfo
       builtinEqClassName
       eqA
+      []
       [ ("==", -1401, TyFun eqATy (TyFun eqATy boolMonoType))
       , ("/=", -1402, TyFun eqATy (TyFun eqATy boolMonoType))
       ]
@@ -916,6 +1011,7 @@ builtinClassInfos =
     builtinClassInfo
       builtinOrdClassName
       ordA
+      [singleClassConstraint builtinEqClassName ordATy]
       [ ("compare", -1410, TyFun ordATy (TyFun ordATy orderingMonoType))
       , ("<", -1411, TyFun ordATy (TyFun ordATy boolMonoType))
       , ("<=", -1412, TyFun ordATy (TyFun ordATy boolMonoType))
@@ -931,6 +1027,9 @@ builtinClassInfos =
     builtinClassInfo
       builtinNumClassName
       numA
+      [ singleClassConstraint builtinEqClassName numATy
+      , singleClassConstraint builtinShowClassName numATy
+      ]
       [ ("+", -1421, TyFun numATy (TyFun numATy numATy))
       , ("-", -1422, TyFun numATy (TyFun numATy numATy))
       , ("*", -1423, TyFun numATy (TyFun numATy numATy))
@@ -946,22 +1045,54 @@ builtinClassInfos =
     builtinClassInfo
       builtinShowClassName
       showA
+      []
       [ ("show", -1431, TyFun showATy stringMonoType)
       ]
 
-builtinClassInfo :: RName -> RName -> [(Text, Int, MonoType)] -> ClassInfo
-builtinClassInfo className classVariable methodSpecs =
+  enumA = preludeTypeVariable "a" (-1341)
+  enumATy = TyVar enumA
+  enumListATy = TyList enumATy
+  enumInfo =
+    builtinClassInfo
+      builtinEnumClassName
+      enumA
+      []
+      [ ("succ", -1441, TyFun enumATy enumATy)
+      , ("pred", -1442, TyFun enumATy enumATy)
+      , ("toEnum", -1443, TyFun intMonoType enumATy)
+      , ("fromEnum", -1444, TyFun enumATy intMonoType)
+      , ("enumFrom", -1445, TyFun enumATy enumListATy)
+      , ("enumFromThen", -1446, TyFun enumATy (TyFun enumATy enumListATy))
+      , ("enumFromTo", -1447, TyFun enumATy (TyFun enumATy enumListATy))
+      , ("enumFromThenTo", -1448, TyFun enumATy (TyFun enumATy (TyFun enumATy enumListATy)))
+      ]
+
+  boundedA = preludeTypeVariable "a" (-1351)
+  boundedATy = TyVar boundedA
+  boundedInfo =
+    builtinClassInfo
+      builtinBoundedClassName
+      boundedA
+      []
+      [ ("minBound", -1451, boundedATy)
+      , ("maxBound", -1452, boundedATy)
+      ]
+
+builtinClassInfo :: RName -> RName -> [ClassConstraint] -> [(Text, Int, MonoType)] -> ClassInfo
+builtinClassInfo className classVariable superclasses methodSpecs =
   ClassInfo
     { classInfoName = className
     , classInfoVariable = classVariable
     , classInfoDictTypeName = classDictionaryTypeName className
     , classInfoDictConstructorName = classDictionaryConstructorName className
+    , classInfoSuperclasses = superclasses
     , classInfoMethods =
         [ ClassMethodInfo
             { classMethodName = preludeTermName occurrence unique
             , classMethodScheme = Scheme [classVariable] [singleClassConstraint className (TyVar classVariable)] fieldType
             , classMethodFieldType = fieldType
-            , classMethodFieldIndex = index
+            , classMethodFieldIndex = length superclasses + index
+            , classMethodDefault = Nothing
             }
         | (index, (occurrence, unique, fieldType)) <- zip [0 ..] methodSpecs
         ]
@@ -983,6 +1114,14 @@ builtinShowClassName :: RName
 builtinShowClassName =
   preludeClassName "Show" (-1330)
 
+builtinEnumClassName :: RName
+builtinEnumClassName =
+  preludeClassName "Enum" (-1340)
+
+builtinBoundedClassName :: RName
+builtinBoundedClassName =
+  preludeClassName "Bounded" (-1350)
+
 preludeClassName :: Text -> Int -> RName
 preludeClassName occurrence unique =
   RName ClassNamespace occurrence unique True
@@ -995,6 +1134,8 @@ canonicalClassName name
         "Ord" -> builtinOrdClassName
         "Num" -> builtinNumClassName
         "Show" -> builtinShowClassName
+        "Enum" -> builtinEnumClassName
+        "Bounded" -> builtinBoundedClassName
         _ -> name
   | otherwise = name
 
@@ -1012,6 +1153,8 @@ builtinClassInfoByOccurrence occurrence = do
           "Ord" -> builtinOrdClassName
           "Num" -> builtinNumClassName
           "Show" -> builtinShowClassName
+          "Enum" -> builtinEnumClassName
+          "Bounded" -> builtinBoundedClassName
           _ -> RName ClassNamespace occurrence 0 True
   case Map.lookup className classes of
     Just info -> pure info
@@ -1089,13 +1232,26 @@ usedClassInfos classes subst bindings instances =
     concatMap typedBindingClassConstraints bindings
   instanceConstraints =
     [singleClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary) | dictionary <- instances]
+      <> concatMap typedInstanceSuperclasses instances
       <> concatMap (concatMap typedExprClassConstraints . typedInstanceMethods) instances
-  usedNames =
+  initialUsedNames =
     Set.fromList
       [ className
       | constraint <- map (applyConstraintSubst subst) (bindingConstraints <> instanceConstraints)
       , let className = classConstraintClass constraint
       ]
+  usedNames = closeSuperclassNames initialUsedNames
+
+  closeSuperclassNames names =
+    let extra =
+          Set.fromList
+            [ classConstraintClass superclass
+            | name <- Set.toList names
+            , Just info <- [Map.lookup name classes]
+            , superclass <- classInfoSuperclasses info
+            ]
+        names' = names <> extra
+     in if names' == names then names else closeSuperclassNames names'
 
 typedBindingClassConstraints :: TypedBinding -> [ClassConstraint]
 typedBindingClassConstraints binding =
@@ -1388,6 +1544,16 @@ supportedPreludeValueOccurrences =
   , "compare"
   , "max"
   , "min"
+  , "succ"
+  , "pred"
+  , "toEnum"
+  , "fromEnum"
+  , "enumFrom"
+  , "enumFromThen"
+  , "enumFromTo"
+  , "enumFromThenTo"
+  , "minBound"
+  , "maxBound"
   , "+"
   , "-"
   , "*"
@@ -1628,7 +1794,7 @@ isStandardDefaultingClass className =
 
 standardDefaultingClasses :: Set.Set RName
 standardDefaultingClasses =
-  Set.fromList [builtinEqClassName, builtinOrdClassName, builtinNumClassName, builtinShowClassName]
+  Set.fromList [builtinEqClassName, builtinOrdClassName, builtinEnumClassName, builtinBoundedClassName, builtinNumClassName, builtinShowClassName]
 
 refreshBindingReferences :: Subst -> Map.Map RName Scheme -> TypedBinding -> TypedBinding
 refreshBindingReferences subst schemes binding =
@@ -1963,8 +2129,12 @@ inferInstanceDictionaries env =
       let instanceKey = singleClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary)
       when (isBuiltinInstanceConstraint instanceKey) $
         throwTypecheck (UnsupportedCore0 ("duplicate built-in instance for `" <> renderClassConstraint instanceKey <> "`"))
+      when (overlapsBuiltinInstanceConstraint instanceKey) $
+        throwTypecheck (UnsupportedCore0 ("overlapping built-in instance for `" <> renderClassConstraint instanceKey <> "`"))
       when (any (constraintMatches instanceKey . instanceKeyFor) acc) $
         throwTypecheck (UnsupportedCore0 ("duplicate instance for `" <> renderClassConstraint instanceKey <> "`"))
+      when (any (constraintsOverlap instanceKey . instanceKeyFor) acc) $
+        throwTypecheck (UnsupportedCore0 ("overlapping instance for `" <> renderClassConstraint instanceKey <> "`"))
       pure (acc <> [dictionary])
     RInstanceDecl constraints instanceHead _ ->
       unsupportedSourceClassConstraintContext (InstanceConstraintContext instanceHead) constraints
@@ -1973,6 +2143,31 @@ inferInstanceDictionaries env =
 
   instanceKeyFor dictionary =
     singleClassConstraint (typedInstanceClass dictionary) (typedInstanceType dictionary)
+
+constraintsOverlap :: ClassConstraint -> ClassConstraint -> Bool
+constraintsOverlap lhs rhs =
+  classConstraintClass lhs == classConstraintClass rhs
+    && case (classConstraintArguments lhs, classConstraintArguments rhs) of
+      ([lhsArg], [rhsArg]) -> typesMayUnify lhsArg rhsArg
+      _ -> False
+
+typesMayUnify :: MonoType -> MonoType -> Bool
+typesMayUnify lhs rhs =
+  case (lhs, rhs) of
+    (TyVar {}, _) -> True
+    (_, TyVar {}) -> True
+    (TyMeta {}, _) -> True
+    (_, TyMeta {}) -> True
+    (TyCon lhsName, TyCon rhsName) -> lhsName == rhsName
+    (TyApp lhsFn lhsArg, TyApp rhsFn rhsArg) ->
+      typesMayUnify lhsFn rhsFn && typesMayUnify lhsArg rhsArg
+    (TyFun lhsArg lhsResult, TyFun rhsArg rhsResult) ->
+      typesMayUnify lhsArg rhsArg && typesMayUnify lhsResult rhsResult
+    (TyTuple lhsFields, TyTuple rhsFields) ->
+      length lhsFields == length rhsFields && and (zipWith typesMayUnify lhsFields rhsFields)
+    (TyList lhsElement, TyList rhsElement) ->
+      typesMayUnify lhsElement rhsElement
+    _ -> False
 
 inferInstanceDictionary :: TypeEnv -> RHsType -> [RDecl] -> InferM TypedInstanceDictionary
 inferInstanceDictionary env instanceHead decls = do
@@ -1989,6 +2184,8 @@ inferInstanceDictionary env instanceHead decls = do
     [] -> pure ()
     extra : _ ->
       throwTypecheck (UnsupportedCore0 ("unknown instance method `" <> renderRName extra <> "`"))
+  let replacements = Map.singleton (classInfoVariable info) instanceType
+      superclassConstraints = map (replaceConstraintTypeVars replacements) (classInfoSuperclasses info)
   typedMethods <- traverse (inferInstanceMethod env info instanceType methodMap) (classInfoMethods info)
   dictName <- instanceDictionaryName className instanceType
   pure
@@ -1996,6 +2193,7 @@ inferInstanceDictionary env instanceHead decls = do
       { typedInstanceClass = className
       , typedInstanceType = instanceType
       , typedInstanceDictName = dictName
+      , typedInstanceSuperclasses = superclassConstraints
       , typedInstanceMethods = typedMethods
       }
 
@@ -2046,22 +2244,32 @@ inferInstanceMethod ::
   ClassMethodInfo ->
   InferM TypedExpr
 inferInstanceMethod env info instanceType methodMap method =
-  case Map.lookup (classMethodName method) methodMap of
+  case Map.lookup (classMethodName method) methodMap <|> classMethodDefault method of
     Nothing ->
       throwTypecheck (UnsupportedCore0 ("missing instance method `" <> renderRName (classMethodName method) <> "`"))
     Just binding ->
-      withTypecheckSpan (sourceBindingSpan binding) $ do
-        let replacements = Map.singleton (classInfoVariable info) instanceType
-            expected = replaceTypeVars replacements (classMethodFieldType method)
-        expr <-
-          inferFunctionBindingExpr
-            env
-            (FunctionPatternExhaustiveness (sourceBindingName binding))
-            (sourceBindingPatterns binding)
-            (sourceBindingRhs binding)
-            (sourceBindingWhereDecls binding)
-        unify expected (typedExprType expr)
-        pure expr
+      inferInstanceMethodBinding env info instanceType method binding
+
+inferInstanceMethodBinding ::
+  TypeEnv ->
+  ClassInfo ->
+  MonoType ->
+  ClassMethodInfo ->
+  SourceBinding ->
+  InferM TypedExpr
+inferInstanceMethodBinding env info instanceType method binding =
+  withTypecheckSpan (sourceBindingSpan binding) $ do
+    let replacements = Map.singleton (classInfoVariable info) instanceType
+        expected = replaceTypeVars replacements (classMethodFieldType method)
+    expr <-
+      inferFunctionBindingExpr
+        env
+        (FunctionPatternExhaustiveness (sourceBindingName binding))
+        (sourceBindingPatterns binding)
+        (sourceBindingRhs binding)
+        (sourceBindingWhereDecls binding)
+    unify expected (typedExprType expr)
+    pure expr
 
 aliasPatternBinder :: RName -> MonoType -> TypedExpr -> TypedExpr -> TypedExpr
 aliasPatternBinder name ty scrutinee body =
@@ -4283,6 +4491,11 @@ preludeCoreBindings names =
     ]
       <> [reverseGoCorePair | any ((== "reverse") . nameOcc) names]
 
+classPreludeSupportNames :: Map.Map RName ClassInfo -> [RName]
+classPreludeSupportNames classes
+  | builtinEnumClassName `Map.member` classes = arithmeticSequencePreludeNames
+  | otherwise = []
+
 preludeCorePair :: RName -> Maybe (CoreBinder, CoreExpr)
 preludeCorePair name =
   case nameOcc name of
@@ -4945,6 +5158,7 @@ consCore elementTy headExpr tailExpr =
 data CoreElabEnv = CoreElabEnv
   { coreElabSubst :: Subst
   , coreElabMetas :: Map.Map Int RName
+  , coreElabClasses :: Map.Map RName ClassInfo
   , coreElabInstances :: [InstanceDictionaryRef]
   , coreElabDictionaries :: [(ClassConstraint, CoreExpr)]
   }
@@ -5210,16 +5424,137 @@ resolveDictionary env wanted = do
           dictTy <- classConstraintCoreType (coreElabSubst env) (coreElabMetas env) normalized
           pure (CVar (instanceRefName ref) dictTy)
         Nothing ->
-          case builtinStructuralDictionary env normalized of
+          case superclassDictionary env normalized of
             Just dictionary -> dictionary
             Nothing ->
-              Left
-                ( maybe
-                    id
-                    TypecheckErrorAt
-                    (classConstraintSpan wanted)
-                    (UnsolvedClassConstraint normalized)
-                )
+              case builtinStructuralDictionary env normalized of
+                Just dictionary -> dictionary
+                Nothing ->
+                  Left
+                    ( maybe
+                        id
+                        TypecheckErrorAt
+                        (classConstraintSpan wanted)
+                        (UnsolvedClassConstraint normalized)
+                    )
+
+superclassDictionary :: CoreElabEnv -> ClassConstraint -> Maybe (Either TypecheckError CoreExpr)
+superclassDictionary env wanted =
+  firstJustEither (map localProjection localCandidates <> map instanceProjection instanceCandidates)
+ where
+  localCandidates =
+    [ (source, dictionary)
+    | (source, dictionary) <- coreElabDictionaries env
+    , not (constraintMatches wanted source)
+    ]
+  instanceCandidates =
+    [ (instanceRefConstraint ref, instanceRefName ref)
+    | ref <- coreElabInstances env
+    , not (constraintMatches wanted (instanceRefConstraint ref))
+    ]
+
+  localProjection (source, dictionary) = do
+    normalizedSource <- normalizeConstraint (coreElabSubst env) (coreElabMetas env) source
+    projectSuperclassDictionary env wanted normalizedSource dictionary
+
+  instanceProjection (source, dictionaryName) = do
+    normalizedSource <- normalizeConstraint (coreElabSubst env) (coreElabMetas env) source
+    sourceTy <- classConstraintCoreType (coreElabSubst env) (coreElabMetas env) normalizedSource
+    projectSuperclassDictionary env wanted normalizedSource (CVar dictionaryName sourceTy)
+
+firstJustEither :: [Either TypecheckError (Maybe a)] -> Maybe (Either TypecheckError a)
+firstJustEither = \case
+  [] -> Nothing
+  result : rest ->
+    case result of
+      Left err -> Just (Left err)
+      Right Nothing -> firstJustEither rest
+      Right (Just value) -> Just (Right value)
+
+projectSuperclassDictionary :: CoreElabEnv -> ClassConstraint -> ClassConstraint -> CoreExpr -> Either TypecheckError (Maybe CoreExpr)
+projectSuperclassDictionary env wanted source dictionary =
+  projectFrom Set.empty source dictionary
+ where
+  projectFrom visited current currentDictionary
+    | classConstraintClass current `Set.member` visited = pure Nothing
+    | otherwise =
+        case Map.lookup (classConstraintClass current) (coreElabClasses env) of
+          Nothing -> pure Nothing
+          Just info ->
+            case classConstraintArguments current of
+              [argument] -> do
+                let replacements = Map.singleton (classInfoVariable info) argument
+                    instantiatedSuperclasses =
+                      map (replaceConstraintTypeVars replacements) (classInfoSuperclasses info)
+                searchSuperclasses (Set.insert (classConstraintClass current) visited) info current currentDictionary instantiatedSuperclasses
+              _ -> pure Nothing
+
+  searchSuperclasses visited info current currentDictionary superclasses =
+    firstProjection
+      [ do
+          projected <- projectDirectSuperclass env info current currentDictionary index superclass
+          if constraintMatches wanted superclass
+            then pure (Just projected)
+            else projectFrom visited superclass projected
+      | (index, superclass) <- zip [0 ..] superclasses
+      ]
+
+firstProjection :: [Either TypecheckError (Maybe a)] -> Either TypecheckError (Maybe a)
+firstProjection = \case
+  [] -> Right Nothing
+  result : rest ->
+    case result of
+      Left err -> Left err
+      Right Nothing -> firstProjection rest
+      Right found -> Right found
+
+projectDirectSuperclass ::
+  CoreElabEnv ->
+  ClassInfo ->
+  ClassConstraint ->
+  CoreExpr ->
+  Int ->
+  ClassConstraint ->
+  Either TypecheckError CoreExpr
+projectDirectSuperclass env info current dictionary index superclass = do
+  dictTy <- classConstraintCoreType (coreElabSubst env) (coreElabMetas env) current
+  resultTy <- classConstraintCoreType (coreElabSubst env) (coreElabMetas env) superclass
+  fieldTypes <- classDictionaryCoreFieldTypes env info current
+  let caseBinder =
+        CoreBinder
+          ( RName
+              TermNamespace
+              ("$supercase_" <> nameOcc (classInfoName info) <> "_" <> nameOcc (classConstraintClass superclass))
+              (5460000 + nameUnique (classInfoName info) * 1000 + nameUnique (classConstraintClass superclass) * 10 + index)
+              False
+          )
+          dictTy
+      fieldBinders =
+        [ CoreBinder
+            ( RName
+                TermNamespace
+                ("$super" <> renderInt fieldIndex <> "_" <> nameOcc (classInfoName info))
+                (5470000 + nameUnique (classInfoName info) * 1000 + fieldIndex)
+                False
+            )
+            fieldTy
+        | (fieldIndex, fieldTy) <- zip [0 ..] fieldTypes
+        ]
+      selected = fieldBinders !! index
+  pure $
+    CCase
+      dictionary
+      caseBinder
+      [CoreAlt (ConstructorAlt (classInfoDictConstructorName info)) fieldBinders (CVar (coreBinderName selected) (coreBinderType selected))]
+      resultTy
+
+classDictionaryCoreFieldTypes :: CoreElabEnv -> ClassInfo -> ClassConstraint -> Either TypecheckError [CoreType]
+classDictionaryCoreFieldTypes env info constraint =
+  case classConstraintArguments constraint of
+    [argument] ->
+      let replacements = Map.singleton (classInfoVariable info) argument
+       in traverse (monoToCoreType (coreElabSubst env) (coreElabMetas env) . replaceTypeVars replacements) (classDictionaryFieldTypes info)
+    _ -> Left (InvalidClassConstraintArity (classInfoName info) (length (classConstraintArguments constraint)))
 
 builtinStructuralDictionary :: CoreElabEnv -> ClassConstraint -> Maybe (Either TypecheckError CoreExpr)
 builtinStructuralDictionary env wanted =
@@ -5291,6 +5626,8 @@ builtinInstanceDictionaries classes =
     , maybe [] ordInstances (Map.lookup builtinOrdClassName classes)
     , maybe [] numInstances (Map.lookup builtinNumClassName classes)
     , maybe [] showInstances (Map.lookup builtinShowClassName classes)
+    , maybe [] enumInstances (Map.lookup builtinEnumClassName classes)
+    , maybe [] boundedInstances (Map.lookup builtinBoundedClassName classes)
     ]
  where
   eqInstances info =
@@ -5388,6 +5725,53 @@ builtinInstanceDictionaries classes =
         [stringShowMethod]
     ]
 
+  enumInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fEnumInt" (-1541))
+        [ intSuccMethod
+        , intPredMethod
+        , intToEnumMethod
+        , intFromEnumMethod
+        , intEnumFromMethod
+        , intEnumFromThenMethod
+        , intEnumFromToMethod
+        , intEnumFromThenToMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        charMonoType
+        (preludeTermName "$fEnumChar" (-1542))
+        [ charSuccMethod
+        , charPredMethod
+        , charToEnumMethod
+        , charFromEnumMethod
+        , charEnumFromMethod
+        , charEnumFromThenMethod
+        , charEnumFromToMethod
+        , charEnumFromThenToMethod
+        ]
+    ]
+
+  boundedInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fBoundedInt" (-1551))
+        [intMinBoundMethod, intMaxBoundMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        charMonoType
+        (preludeTermName "$fBoundedChar" (-1552))
+        [charMinBoundMethod, charMaxBoundMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        boolMonoType
+        (preludeTermName "$fBoundedBool" (-1553))
+        [boolMinBoundMethod, boolMaxBoundMethod]
+    ]
+
 builtinInstanceDictionaryRefs :: [BuiltinInstanceDictionary] -> [InstanceDictionaryRef]
 builtinInstanceDictionaryRefs =
   map
@@ -5403,11 +5787,24 @@ isBuiltinInstanceConstraint wanted =
   any (constraintMatches wanted . instanceRefConstraint) (builtinInstanceDictionaryRefs (builtinInstanceDictionaries builtinClassInfos))
     || isBuiltinStructuralInstanceConstraint wanted
 
+overlapsBuiltinInstanceConstraint :: ClassConstraint -> Bool
+overlapsBuiltinInstanceConstraint wanted =
+  any (constraintsOverlap wanted . instanceRefConstraint) (builtinInstanceDictionaryRefs (builtinInstanceDictionaries builtinClassInfos))
+    || overlapsBuiltinStructuralInstanceConstraint wanted
+
 isBuiltinStructuralInstanceConstraint :: ClassConstraint -> Bool
 isBuiltinStructuralInstanceConstraint wanted =
   case (classConstraintClass wanted, classConstraintArguments wanted) of
     (className, [TyList _])
       | className == builtinShowClassName -> True
+    _ -> False
+
+overlapsBuiltinStructuralInstanceConstraint :: ClassConstraint -> Bool
+overlapsBuiltinStructuralInstanceConstraint wanted =
+  case (classConstraintClass wanted, classConstraintArguments wanted) of
+    (className, [argument])
+      | className == builtinShowClassName ->
+          typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$show_list_overlap" (-1599))))
     _ -> False
 
 builtinInstanceDictionaryToCore :: Map.Map RName ClassInfo -> BuiltinInstanceDictionary -> Either TypecheckError CoreBind
@@ -5418,20 +5815,26 @@ builtinInstanceDictionaryToCore classes dictionary = do
       Just classInfo -> pure classInfo
   dictTy <- monoToCoreType Map.empty Map.empty (classDictionaryType info (builtinInstanceType dictionary))
   instanceTypeArg <- monoToCoreType Map.empty Map.empty (builtinInstanceType dictionary)
+  let replacements = Map.singleton (classInfoVariable info) (builtinInstanceType dictionary)
+      superclassConstraints = map (replaceConstraintTypeVars replacements) (classInfoSuperclasses info)
+      instanceRefs = builtinInstanceDictionaryRefs (builtinInstanceDictionaries classes)
+      env = CoreElabEnv Map.empty Map.empty classes instanceRefs []
+  superclassExprs <- traverse (resolveDictionary env) superclassConstraints
+  let fieldExprs = superclassExprs <> builtinInstanceMethods dictionary
   constructorTy <-
     schemeToCoreType
       ( Scheme
           [classInfoVariable info]
           []
-          (foldr TyFun (classDictionaryType info (TyVar (classInfoVariable info))) (map classMethodFieldType (classInfoMethods info)))
+          (foldr TyFun (classDictionaryType info (TyVar (classInfoVariable info))) (classDictionaryFieldTypes info))
       )
-  let constructorResultTy = foldr CTyFun dictTy (map exprType (builtinInstanceMethods dictionary))
+  let constructorResultTy = foldr CTyFun dictTy (map exprType fieldExprs)
       typedConstructor =
         CTypeApp
           (CCon (classInfoDictConstructorName info) constructorTy)
           [instanceTypeArg]
           constructorResultTy
-      rhs = foldl applyValue typedConstructor (builtinInstanceMethods dictionary)
+      rhs = foldl applyValue typedConstructor fieldExprs
   pure (CoreNonRec (CoreBinder (builtinInstanceName dictionary) dictTy) rhs)
  where
   applyValue callee argument =
@@ -5658,6 +6061,94 @@ intSignumMethod =
 intFromIntegerMethod :: CoreExpr
 intFromIntegerMethod =
   unaryMethod "$fromInteger_int" (-1861) intTy intTy id
+
+intSuccMethod :: CoreExpr
+intSuccMethod =
+  unaryMethod "$succ_int" (-1971) intTy intTy (`intAdd` oneInt)
+
+intPredMethod :: CoreExpr
+intPredMethod =
+  unaryMethod "$pred_int" (-1972) intTy intTy (`intSub` oneInt)
+
+intToEnumMethod :: CoreExpr
+intToEnumMethod =
+  unaryMethod "$toEnum_int" (-1973) intTy intTy id
+
+intFromEnumMethod :: CoreExpr
+intFromEnumMethod =
+  unaryMethod "$fromEnum_int" (-1974) intTy intTy id
+
+intEnumFromMethod :: CoreExpr
+intEnumFromMethod =
+  CVar enumFromIntName enumFromIntCoreType
+
+intEnumFromThenMethod :: CoreExpr
+intEnumFromThenMethod =
+  CVar enumFromThenIntName enumFromThenIntCoreType
+
+intEnumFromToMethod :: CoreExpr
+intEnumFromToMethod =
+  CVar enumFromToIntName enumFromToIntCoreType
+
+intEnumFromThenToMethod :: CoreExpr
+intEnumFromThenToMethod =
+  CVar enumFromThenToIntName enumFromThenToIntCoreType
+
+charSuccMethod :: CoreExpr
+charSuccMethod =
+  unaryMethod "$succ_char" (-1981) charTy charTy (intToCharCore . (`intAdd` oneInt) . charToIntCore)
+
+charPredMethod :: CoreExpr
+charPredMethod =
+  unaryMethod "$pred_char" (-1982) charTy charTy (intToCharCore . (`intSub` oneInt) . charToIntCore)
+
+charToEnumMethod :: CoreExpr
+charToEnumMethod =
+  unaryMethod "$toEnum_char" (-1983) intTy charTy intToCharCore
+
+charFromEnumMethod :: CoreExpr
+charFromEnumMethod =
+  unaryMethod "$fromEnum_char" (-1984) charTy intTy charToIntCore
+
+charEnumFromMethod :: CoreExpr
+charEnumFromMethod =
+  CVar enumFromCharName enumFromCharCoreType
+
+charEnumFromThenMethod :: CoreExpr
+charEnumFromThenMethod =
+  CVar enumFromThenCharName enumFromThenCharCoreType
+
+charEnumFromToMethod :: CoreExpr
+charEnumFromToMethod =
+  CVar enumFromToCharName enumFromToCharCoreType
+
+charEnumFromThenToMethod :: CoreExpr
+charEnumFromThenToMethod =
+  CVar enumFromThenToCharName enumFromThenToCharCoreType
+
+intMinBoundMethod :: CoreExpr
+intMinBoundMethod =
+  CLit (LInt (-9223372036854775808)) intTy
+
+intMaxBoundMethod :: CoreExpr
+intMaxBoundMethod =
+  CLit (LInt 9223372036854775807) intTy
+
+charMinBoundMethod :: CoreExpr
+charMinBoundMethod =
+  intToCharCore zeroInt
+
+charMaxBoundMethod :: CoreExpr
+charMaxBoundMethod =
+  intToCharCore (CLit (LInt 1114111) intTy)
+
+boolMinBoundMethod :: CoreExpr
+boolMinBoundMethod =
+  CCon falseDataConName boolTy
+
+boolMaxBoundMethod :: CoreExpr
+boolMaxBoundMethod =
+  CCon trueDataConName boolTy
 
 intShowMethod :: CoreExpr
 intShowMethod =
@@ -6064,7 +6555,7 @@ classSelectorCoreBinds subst classes =
     binderTy <- schemeToCoreType (classMethodScheme method)
     dictTy <- monoToCoreType subst Map.empty (classDictionaryType info (TyVar (classInfoVariable info)))
     methodTy <- monoToCoreType subst Map.empty (classMethodFieldType method)
-    fieldTypes <- traverse (monoToCoreType subst Map.empty . classMethodFieldType) (classInfoMethods info)
+    fieldTypes <- traverse (monoToCoreType subst Map.empty) (classDictionaryFieldTypes info)
     let dictBinder =
           CoreBinder
             ( RName
@@ -6190,16 +6681,18 @@ instanceDictionaryToCore subst classes instances dictionary = do
       Just classInfo -> pure classInfo
   dictTy <- monoToCoreType subst Map.empty (classDictionaryType info (typedInstanceType dictionary))
   instanceTypeArg <- monoToCoreType subst Map.empty (typedInstanceType dictionary)
-  let env = CoreElabEnv subst Map.empty instances []
+  let env = CoreElabEnv subst Map.empty classes instances []
+  superclassExprs <- traverse (resolveDictionary env) (typedInstanceSuperclasses dictionary)
   methodExprs <- traverse (exprToCore env) (typedInstanceMethods dictionary)
-  constructorTy <- schemeToCoreType (Scheme [classInfoVariable info] [] (foldr TyFun (classDictionaryType info (TyVar (classInfoVariable info))) (map classMethodFieldType (classInfoMethods info))))
-  let constructorResultTy = foldr CTyFun dictTy (map exprType methodExprs)
+  constructorTy <- schemeToCoreType (Scheme [classInfoVariable info] [] (foldr TyFun (classDictionaryType info (TyVar (classInfoVariable info))) (classDictionaryFieldTypes info)))
+  let fieldExprs = superclassExprs <> methodExprs
+      constructorResultTy = foldr CTyFun dictTy (map exprType fieldExprs)
       typedConstructor =
         CTypeApp
           (CCon (classInfoDictConstructorName info) constructorTy)
           [instanceTypeArg]
           constructorResultTy
-      rhs = foldl applyValue typedConstructor methodExprs
+      rhs = foldl applyValue typedConstructor fieldExprs
   pure (CoreNonRec (CoreBinder (typedInstanceDictName dictionary) dictTy) rhs)
  where
   applyValue callee argument =

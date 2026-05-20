@@ -211,18 +211,16 @@ Rules:
 
 # Next 20 Implementation Tasks
 
-1. TC-003 — superclass representation: Model superclass relationships before broader class solving.
-2. TC-005 — default methods: Implement default class method typing and dictionary filling.
-3. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
-4. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
-5. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
-6. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
-7. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
-8. TC-023 — derived Eq: Synthesize or explicitly defer derived `Eq` instances.
-9. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
-10. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
-11. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
-12. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
+1. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
+2. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
+3. TC-023 — derived Eq: Synthesize or explicitly defer derived `Eq` instances.
+4. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
+5. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
+6. TC-026 — derived Read: Synthesize or explicitly defer derived `Read` instances.
+7. TC-027 — derived Enum: Synthesize or explicitly defer derived `Enum` instances.
+8. TC-028 — derived Bounded: Synthesize or explicitly defer derived `Bounded` instances.
+9. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
+10. MODULE-001 — import/export declarations: Broaden module graph behavior beyond the current executable subset.
 13. PRELUDE-009 — foldl: Add the strictness-aware left fold surface or document the initial deviation.
 14. PRELUDE-013 — append: Implement `(++)` for supported list and string programs.
 15. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
@@ -11231,7 +11229,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver the executable arithmetic sequence surface for supported `Int` and `Char` ranges while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the public generalized `Enum` class surface tracked under TC-018 rather than claiming broader support.
+- Deliver the executable arithmetic sequence surface for supported `Int` and `Char` ranges while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Public `Enum` dictionaries are now tracked as complete under TC-018; derived and broader non-`Int`/`Char` enumeration remains separate.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -11262,7 +11260,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M10 (Lists, tuples, Char, String). Completed for the executable subset with `[a..]`, `[a,b..]`, `[a..z]`, and `[a,b..z]` over `Int` and `Char`; sequence helpers preserve ascending/descending bounded behavior and lazy open-range consumption through Core, STG, and native LLVM. Full Haskell 2010 `Enum` dictionaries and non-`Int`/`Char` instances remain tracked by TC-018.
+- Milestone M10 (Lists, tuples, Char, String). Completed for the executable subset with `[a..]`, `[a,b..]`, `[a..z]`, and `[a,b..z]` over `Int` and `Char`; sequence helpers preserve ascending/descending bounded behavior and lazy open-range consumption through Core, STG, and native LLVM. TC-018 now reuses these helpers for the public `Enum Int` and `Enum Char` dictionaries.
 
 ## PRELUDE-DATA-009 — list comprehensions
 
@@ -11567,7 +11565,7 @@ Notes:
 ## TC-003 — superclass representation
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -11596,7 +11594,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- superclass representation is implemented, completed, or explicitly documented according to status `not started`.
+- superclass representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -11612,7 +11610,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M11 (Type classes and dictionaries). Complete for the current single-parameter class surface: class dictionaries now store superclass dictionaries before method fields, built-in `Ord` and `Num` expose their Haskell 2010 superclass edges, and dictionary resolution can project superclass dictionaries from local and instance dictionaries. Validated by unit, Core/STG/native, and conformance coverage.
 
 ## TC-004 — method signatures
 
@@ -11667,7 +11665,7 @@ Notes:
 ## TC-005 — default methods
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -11696,7 +11694,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- default methods is implemented, completed, or explicitly documented according to status `not started`.
+- default methods is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -11712,7 +11710,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M11 (Type classes and dictionaries). Complete for default method bindings that use the class type variable and existing supported expression surface. Instance dictionaries fill omitted methods from class defaults, including defaults that call superclass methods through dictionary projection. Method-specific constraints and instance contexts remain separate unsupported/deferred items.
 
 ## TC-006 — constraint solver
 
@@ -11817,7 +11815,7 @@ Notes:
 ## TC-008 — overlapping instance rejection per Haskell 2010
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -11846,7 +11844,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- overlapping instance rejection per Haskell 2010 is implemented, completed, or explicitly documented according to status `not started`.
+- overlapping instance rejection per Haskell 2010 is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -11862,7 +11860,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M11 (Type classes and dictionaries). Complete for the supported instance-head language: duplicate instances and unifiable overlapping instance heads are rejected, including overlap with built-in and structural `Show [a]` dictionaries. Validated by negative type-class dictionary tests.
 
 ## TC-009 — dictionary type representation
 
@@ -12337,7 +12335,7 @@ Notes:
 ## TC-018 — Enum
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -12366,7 +12364,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- Enum is implemented, completed, or explicitly documented according to status `not started`.
+- Enum is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -12382,12 +12380,12 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M11 (Type classes and dictionaries). Complete for the current executable Prelude surface: `Enum` is exported as a built-in class with `succ`, `pred`, `toEnum`, `fromEnum`, `enumFrom`, `enumFromThen`, `enumFromTo`, and `enumFromThenTo`; built-in `Int` and `Char` instances share the arithmetic-sequence helpers and are validated through Core, STG, native, and conformance tests. Derived `Enum` remains tracked separately.
 
 ## TC-019 — Bounded
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -12416,7 +12414,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- Bounded is implemented, completed, or explicitly documented according to status `not started`.
+- Bounded is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -12432,7 +12430,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M11 (Type classes and dictionaries). Complete for the current executable Prelude surface: `Bounded` is exported as a built-in class with `minBound` and `maxBound`, with built-in instances for `Int`, `Char`, and `Bool`. Derived `Bounded` remains tracked separately.
 
 ## TC-020 — Monad
 
