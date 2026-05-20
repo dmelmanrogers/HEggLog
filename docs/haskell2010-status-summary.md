@@ -51,7 +51,7 @@ The following Haskell 2010 requirements are planned but not
 implemented:
 
 - a full pattern coverage checker and richer pattern-match diagnostics
-- instance contexts, derived `Ord`/`Show`/`Read`, and user ADT-shaped `Show`
+- instance contexts, derived `Show`/`Read`, and user ADT-shaped `Show`
 - broader Prelude/library subset
 - Haskell source desugaring beyond the current executable subset
 - broader IO, including `getLine`, handles, rich IO errors, `fail`, and effects beyond stdout
@@ -119,7 +119,9 @@ bindings now emit recursive Core groups in the supported subset. The initial
 type class slice typechecks user-defined single-parameter classes, concrete
 context-free instances, explicit source constraints, and method calls by
 emitting dictionary constructor values, selector functions, and explicit Core
-dictionary arguments. Built-in `Eq Int`, `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, and
+dictionary arguments. Derived `Eq` and `Ord` synthesize supported data/newtype
+dictionaries, including recursive, parameterized, `String`-field, and list-backed
+cases. Built-in `Eq Int`, `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, structural `Eq [a]`, structural `Ord [a]`, and
 `Num Int` dictionaries cover `(==)`, `(/=)`, `compare`, `(<)`, `(<=)`, `(>)`,
 `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`, and `signum`.
 Built-in `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and
@@ -301,7 +303,7 @@ and compiled to native executables through the existing clang toolchain.
 17. Numeric literals and defaulting. Completed for dictionary-backed
     `fromInteger`, overloaded integer literals, default declarations that map
     the supported default set to executable `Int`, ambiguous numeric defaulting
-    for `Eq`/`Ord`/`Num`/`Show` constraints, inferred constrained helper
+    for `Eq`/`Ord`/`Num`/`Show` constraints, derived `Eq`/`Ord`, inferred constrained helper
     schemes, SCC-based binding generalization, Core/STG/native IO output
     oracles, and default/no-egglog wet tests.
 18. Modules and whole-program compilation. Completed for same-directory

@@ -534,13 +534,22 @@
       "notes": "Derived Eq synthesizes structural equality and inequality for nullary/product constructors, parameterized data, recursive data, newtype, String fields, and list-backed instance contexts."
     },
     {
+      "name": "typeclasses.derived-ord",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/derived-ord.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-success",
+      "expectedStdout": "11\n",
+      "requiredStage": "native",
+      "notes": "Derived Ord synthesizes Haskell 2010 declaration-order constructor comparison, lexicographic product-field comparison, superclass Eq dictionaries, recursive instances, newtype ordering, String fields, and structural Ord lists."
+    },
+    {
       "name": "unsupported.deriving-show",
       "sourceFile": "test/haskell2010/conformance/unsupported/deriving-show.hs",
       "category": "unsupported",
       "expectedStatus": "unsupported-documented",
       "expectedDiagnosticCategory": "unsupported",
       "requiredStage": "typecheck",
-      "notes": "TC-023 implements derived Eq only; derived Show remains a later task."
+      "notes": "TC-023 and TC-024 implement derived Eq/Ord only; derived Show remains a later task."
     },
     {
       "name": "unsupported.instance-context",

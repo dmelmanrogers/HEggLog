@@ -172,6 +172,14 @@ short-circuit field equality with `&&`, define `(/=)` in terms of `(==)`, and
 support recursive data, `newtype`, `String` fields, and list-backed contexts
 through a generated structural `Eq [a]` dictionary.
 
+TC-024 adds derived `Ord` for the same executable deriving surface. Generated
+instances carry the required `Eq` superclass dictionary, compare constructors in
+declaration order, compare product fields lexicographically with `compare`, and
+derive the relational, `max`, and `min` methods from the generated comparison.
+Structural `Ord [a]` is available for list and `String` fields, and superclass
+projection now lowers through reusable Core selector bindings rather than
+duplicating local projection cases.
+
 ADT-005 adds the supported record-label subset. Record declarations introduce
 field selector names in the term namespace, record construction is typechecked
 against the constructor's labelled fields and currently requires every field

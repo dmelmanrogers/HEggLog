@@ -73,13 +73,13 @@ and local functions, plus the initial type class dictionary slice for
 user-defined single-parameter classes, concrete instances, explicit source
 constraints with normalized argument representation, dictionary-passed method
 calls, superclass dictionary fields/projection, default class methods,
-derived `Eq` dictionaries for supported data/newtype declarations including
+derived `Eq`/`Ord` dictionaries for supported data/newtype declarations including
 parameterized, recursive, `String`-field, and list-backed cases,
 overlapping-instance rejection, structured placeholder diagnostics for remaining unsupported constraint contexts,
 source-spanned typecheck diagnostics including delayed dictionary failures,
 documented nullary-binding monomorphism/defaulting behavior, boxed `Char`
 literals and literal cases, scalar `main :: Char` output, and built-in
-`Eq Int`, `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, and executable `Num Int`
+`Eq Int`, `Eq Bool`, `Eq Char`, structural `Eq [a]`, `Ord Int`, `Ord Bool`, `Ord Char`, structural `Ord [a]`, and executable `Num Int`
 class methods, plus guarded RHSs, guarded case alternatives, as-pattern
 aliases, and guard-fallthrough no-match behavior, plus the first IO printing
 slice for `IO`, `main :: IO ()`,
@@ -152,7 +152,8 @@ Current status:
   for remaining unsupported constraint contexts, superclass dictionaries,
   default class methods, overlapping-instance rejection, dictionary constructors/selectors,
   dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Eq Char`,
-  `Ord Int`, `Ord Bool`, `Ord Char`, `Num Int`, `Show Int`, `Show Bool`, `Show Char`,
+  `Ord Int`, `Ord Bool`, `Ord Char`, structural list `Ord`, derived `Eq`/`Ord`,
+  `Num Int`, `Show Int`, `Show Bool`, `Show Char`,
   `Show String`, structural list `Show`, `Enum Int`, `Enum Char`,
   `Bounded Int`, `Bounded Char`, and `Bounded Bool` dictionaries, plus
   source-spanned Haskell 2010 typecheck diagnostics, plus
@@ -238,8 +239,8 @@ Current tests include:
   executes native artifacts, verifies stdout/stderr/exit codes, compares
   report-mode `Result: <value>` output, runs Haskell 2010 default Egglog and
   `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
-  programs, user-defined type class dictionary programs, and built-in
-  `Eq`/`Ord`/`Num`/`Show`/`Enum`/`Bounded` dictionary programs, numeric-defaulting and
+  programs, user-defined type class dictionary programs, derived `Eq`/`Ord`
+  programs, and built-in `Eq`/`Ord`/`Num`/`Show`/`Enum`/`Bounded` dictionary programs, numeric-defaulting and
   monomorphism/defaulting decision programs, multi-file module programs,
   known-constructor optimizer programs, plus IO
   printing programs, and compiles selected emitted LLVM through `clang`

@@ -180,6 +180,7 @@ testGroups =
       , pureTest "typechecks arithmetic sequences" testHaskell2010Core0ArithmeticSequences
       , pureTest "typechecks Enum Bounded and superclass defaulting" testHaskell2010Core0EnumBounded
       , pureTest "typechecks derived Eq instances" testHaskell2010Core0DerivedEq
+      , pureTest "typechecks derived Ord instances" testHaskell2010Core0DerivedOrd
       , pureTest "typechecks list comprehensions" testHaskell2010Core0ListComprehensions
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
@@ -217,6 +218,7 @@ testGroups =
       , pureTest "evaluates arithmetic sequences" testHaskell2010Core0EvalArithmeticSequences
       , pureTest "evaluates Enum Bounded and superclass defaulting" testHaskell2010Core0EvalEnumBounded
       , pureTest "evaluates derived Eq instances" testHaskell2010Core0EvalDerivedEq
+      , pureTest "evaluates derived Ord instances" testHaskell2010Core0EvalDerivedOrd
       , pureTest "evaluates list comprehensions" testHaskell2010Core0EvalListComprehensions
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
@@ -261,6 +263,7 @@ testGroups =
       , pureTest "preserves arithmetic sequence semantics" testHaskell2010CoreToSTGArithmeticSequences
       , pureTest "preserves Enum Bounded semantics" testHaskell2010CoreToSTGEnumBounded
       , pureTest "preserves derived Eq semantics" testHaskell2010CoreToSTGDerivedEq
+      , pureTest "preserves derived Ord semantics" testHaskell2010CoreToSTGDerivedOrd
       , pureTest "preserves list comprehension semantics" testHaskell2010CoreToSTGListComprehensions
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves guard fallthrough errors" testHaskell2010CoreToSTGGuardFallthrough
@@ -276,6 +279,7 @@ testGroups =
       , pureTest "emits arithmetic sequence LLVM" testHaskell2010NativeArithmeticSequences
       , pureTest "emits Enum Bounded LLVM" testHaskell2010NativeEnumBounded
       , pureTest "emits derived Eq LLVM" testHaskell2010NativeDerivedEq
+      , pureTest "emits derived Ord LLVM" testHaskell2010NativeDerivedOrd
       , pureTest "emits list comprehension LLVM" testHaskell2010NativeListComprehensions
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
       , ioTest "native executable preserves lazy Core-0 semantics" testHaskell2010NativeExecutableExecution
@@ -1733,6 +1737,17 @@ testHaskell2010Core0DerivedEq = do
   assertBool "generic Eq list method helper is emitted" (containsBindingOccurrence "$eq_list" coreModule)
   expectCoreEvalInt "derived Eq Core oracle" 10 =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0DerivedOrd :: Either String ()
+testHaskell2010Core0DerivedOrd = do
+  coreModule <- typecheckHaskell2010 haskell2010DerivedOrdSource
+  assertBool "Prelude Ord dictionary constructor is recorded" (containsConstructorOccurrence "$MkOrdDict" coreModule)
+  assertBool "derived Ord Rank dictionary is emitted" (containsBindingPrefix "$fOrdRank" coreModule)
+  assertBool "derived Ord Box dictionary is emitted" (containsBindingPrefix "$fOrdBox" coreModule)
+  assertBool "derived Ord Tree dictionary is emitted" (containsBindingPrefix "$fOrdTree" coreModule)
+  assertBool "generic Ord list dictionary is emitted" (containsBindingOccurrence "$fOrdList" coreModule)
+  assertBool "generic Ord list compare helper is emitted" (containsBindingOccurrence "$compare_list" coreModule)
+  expectCoreEvalInt "derived Ord Core oracle" 11 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0ListComprehensions :: Either String ()
 testHaskell2010Core0ListComprehensions = do
   coreModule <- typecheckHaskell2010 haskell2010ListComprehensionsSource
@@ -2062,6 +2077,13 @@ testHaskell2010Core0EvalDerivedEq =
     10
     =<< evalHaskell2010Binding "main" haskell2010DerivedEqSource
 
+testHaskell2010Core0EvalDerivedOrd :: Either String ()
+testHaskell2010Core0EvalDerivedOrd =
+  expectCoreEvalInt
+    "Core-0 derived Ord evaluation"
+    11
+    =<< evalHaskell2010Binding "main" haskell2010DerivedOrdSource
+
 testHaskell2010Core0EvalListComprehensions :: Either String ()
 testHaskell2010Core0EvalListComprehensions =
   expectCoreEvalIO
@@ -2363,6 +2385,10 @@ testHaskell2010CoreToSTGDerivedEq :: Either String ()
 testHaskell2010CoreToSTGDerivedEq =
   checkCoreToSTGInt "Core-to-STG derived Eq" 10 haskell2010DerivedEqSource
 
+testHaskell2010CoreToSTGDerivedOrd :: Either String ()
+testHaskell2010CoreToSTGDerivedOrd =
+  checkCoreToSTGInt "Core-to-STG derived Ord" 11 haskell2010DerivedOrdSource
+
 testHaskell2010CoreToSTGListComprehensions :: Either String ()
 testHaskell2010CoreToSTGListComprehensions =
   checkCoreToSTGIO "Core-to-STG list comprehensions" haskell2010ListComprehensionsOutput haskell2010ListComprehensionsSource
@@ -2466,6 +2492,12 @@ testHaskell2010NativeDerivedEq = do
   llvmText <- compileHaskell2010NativeText haskell2010DerivedEqSource
   assertBool "native derived Eq emits Bool branch comparisons" ("br i1" `Text.isInfixOf` llvmText)
   assertBool "native derived Eq keeps String fields as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeDerivedOrd :: Either String ()
+testHaskell2010NativeDerivedOrd = do
+  llvmText <- compileHaskell2010NativeText haskell2010DerivedOrdSource
+  assertBool "native derived Ord emits Ordering case branches" ("br i1" `Text.isInfixOf` llvmText)
+  assertBool "native derived Ord keeps String fields as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeListComprehensions :: Either String ()
 testHaskell2010NativeListComprehensions = do
@@ -5856,6 +5888,7 @@ haskell2010NativeSuccessExamples =
   , ("arithmetic-sequences", haskell2010ArithmeticSequencesSource, Text.unpack haskell2010ArithmeticSequencesOutput)
   , ("enum-bounded", haskell2010EnumBoundedSource, Text.unpack haskell2010EnumBoundedOutput)
   , ("derived-eq", haskell2010DerivedEqSource, "10\n")
+  , ("derived-ord", haskell2010DerivedOrdSource, "11\n")
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-record-fields", haskell2010RecordFieldSource, "43\n")
@@ -5890,6 +5923,7 @@ haskell2010NativeExecutableExamples =
   , ("arithmetic-sequences", haskell2010ArithmeticSequencesSource, Text.unpack haskell2010ArithmeticSequencesOutput)
   , ("enum-bounded", haskell2010EnumBoundedSource, Text.unpack haskell2010EnumBoundedOutput)
   , ("derived-eq", haskell2010DerivedEqSource, "10\n")
+  , ("derived-ord", haskell2010DerivedOrdSource, "11\n")
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   ]
 
@@ -6132,6 +6166,26 @@ haskell2010DerivedEqSource =
   \  False -> 0\n\
   \main :: Int\n\
   \main = score (On == On) + score (Off /= On) + score (Box 'x' == Box 'x') + score (Box 'x' /= Box 'y') + score (Name \"aa\" == Name \"aa\") + score (Name \"aa\" /= Name \"ab\") + score (Node (Leaf 'a') (Leaf 'b') == Node (Leaf 'a') (Leaf 'b')) + score (Node (Leaf 'a') (Leaf 'b') /= Node (Leaf 'a') (Leaf 'c')) + score (Age 7 == Age 7) + score (Box \"hi\" == Box \"hi\")\n"
+
+haskell2010DerivedOrdSource :: Text
+haskell2010DerivedOrdSource =
+  "module Main where\n\
+  \data Rank = Low | Mid | High deriving (Eq, Ord)\n\
+  \data Box a = Box a deriving (Eq, Ord)\n\
+  \data Name = Name String deriving (Eq, Ord)\n\
+  \data Tree a = Leaf a | Node (Tree a) (Tree a) deriving (Eq, Ord)\n\
+  \newtype Age = Age Int deriving (Eq, Ord)\n\
+  \score :: Bool -> Int\n\
+  \score flag = case flag of\n\
+  \  True -> 1\n\
+  \  False -> 0\n\
+  \isLT :: Ordering -> Bool\n\
+  \isLT ordering = case ordering of\n\
+  \  LT -> True\n\
+  \  EQ -> False\n\
+  \  GT -> False\n\
+  \main :: Int\n\
+  \main = score (Low < Mid) + score (High > Mid) + score (Mid <= Mid) + score (Box 'a' < Box 'b') + score (Box \"aa\" < Box \"ab\") + score (Name \"aa\" < Name \"ab\") + score (Node (Leaf 'a') (Leaf 'b') < Node (Leaf 'a') (Leaf 'c')) + score (Age 8 >= Age 7) + score (max Low High == High) + score (min (Box 'a') (Box 'b') == Box 'a') + score (isLT (compare Mid High))\n"
 
 haskell2010ListComprehensionsSource :: Text
 haskell2010ListComprehensionsSource =

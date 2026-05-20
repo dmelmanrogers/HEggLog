@@ -212,14 +212,13 @@ Rules:
 # Next Implementation Tasks
 
 1. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
-2. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
-3. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
-4. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
-5. MODULE-001 — import/export declarations: Broaden module graph behavior beyond the current executable subset.
-6. PRELUDE-009 — foldl: Add the strictness-aware left fold surface or document the initial deviation.
-7. PRELUDE-013 — append: Implement `(++)` for supported list and string programs.
-8. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
-9. IO-006 — getLine: Add stdin line input or document the initial IO deviation.
+2. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
+3. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
+4. MODULE-001 — import/export declarations: Broaden module graph behavior beyond the current executable subset.
+5. PRELUDE-009 — foldl: Add the strictness-aware left fold surface or document the initial deviation.
+6. PRELUDE-013 — append: Implement `(++)` for supported list and string programs.
+7. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
+8. IO-006 — getLine: Add stdin line input or document the initial IO deviation.
 10. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
 11. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
 13. MOD-009 — instance import/export behavior: Define how class instances move across module boundaries.
@@ -12630,7 +12629,7 @@ Notes:
 ## TC-024 — derived Ord
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -12643,7 +12642,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver derived Ord for Type classes and dictionaries while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Derived `Ord` now synthesizes dictionaries for supported `data` and `newtype` declarations. The implementation follows Haskell 2010 declaration-order constructor comparison and lexicographic product-field comparison, emits `Eq` superclass dictionaries, supports parameterized and recursive instances, handles `String` fields through structural `Ord [a]`, and generates `compare`, `<`, `<=`, `>`, `>=`, `max`, and `min` methods for the executable subset.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -12659,7 +12658,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- derived Ord is implemented, completed, or explicitly documented according to status `not started`.
+- derived Ord is implemented for the supported executable subset and represented in unit, native, and conformance coverage.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -12675,7 +12674,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: supported data/newtype declarations can derive `Ord` when an `Eq` superclass dictionary is available, and structural list ordering supports string and list-backed fields. Derived `Show`, `Read`, `Enum`, and `Bounded` remain separate tasks.
 
 ## TC-025 — derived Show
 

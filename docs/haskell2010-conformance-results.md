@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-20 05:03:55 UTC
+Date/time: 2026-05-20 05:28:35 UTC
 
-Commit hash tested: TC-023 working tree before final task commit.
+Commit hash tested: TC-024 working tree before final task commit.
 The final commit for the task records the same source tree plus this results
 document.
 
@@ -36,14 +36,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 65 |
-| Haskell source files in corpus | 66 |
-| HUnit test cases executed | 78 |
-| Native-success fixtures | 52 |
+| Manifest conformance fixtures | 66 |
+| Haskell source files in corpus | 67 |
+| HUnit test cases executed | 79 |
+| Native-success fixtures | 53 |
 | Native-runtime-error fixtures | 1 |
 | Compile-error fixtures | 6 |
 | Unsupported-documented fixtures | 6 |
-| Native subprocess compile/run checks | 66 |
+| Native subprocess compile/run checks | 67 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -69,6 +69,6 @@ explicit conformance cases rather than omitted.
 | `patterns` | 2 | guards/as-patterns and irrefutable/lazy pattern representative native tests exist |
 | `prelude` | 12 | list functions, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
-| `typeclasses` | 4 | user dictionary, superclass/default method, synonym-normalized constraint, and derived Eq tests exist |
+| `typeclasses` | 5 | user dictionary, superclass/default method, synonym-normalized constraint, derived Eq, and derived Ord tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |
 | `unsupported` | 6 | unsupported features documented by failing cases, including TC-016 `Read` |

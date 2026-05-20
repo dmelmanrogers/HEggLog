@@ -384,6 +384,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
   classCoreBinds <- classSelectorCoreBinds (substitution finalState) classesForCore
   recordCoreBinds <- recordSelectorCoreBinds (substitution finalState) (recordSelectors finalState)
   builtinEqSupportBinds <- builtinEqSupportCoreBinds classesForCore
+  builtinOrdSupportBinds <- builtinOrdSupportCoreBinds classesForCore
   builtinShowSupportBinds <- builtinShowSupportCoreBinds classesForCore
   builtinInstanceCoreBinds <- traverse (builtinInstanceDictionaryToCore classesForCore) builtinInstances
   instanceCoreBinds <- traverse (instanceDictionaryToCore (substitution finalState) classesForCore instances) typedInstances
@@ -399,7 +400,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
           { coreModuleName = rModuleName sourceModule
           , coreModuleConstructors = coreConstructors
           , coreModuleBinds =
-              case preludeCoreBinds <> classCoreBinds <> recordCoreBinds <> builtinEqSupportBinds <> builtinShowSupportBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> sourceCoreBinds of
+              case preludeCoreBinds <> classCoreBinds <> recordCoreBinds <> builtinEqSupportBinds <> builtinOrdSupportBinds <> builtinShowSupportBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> sourceCoreBinds of
                 [] -> []
                 [one] -> [one]
                 many -> [CoreRec (concatMap bindPairs many)]
@@ -2162,6 +2163,10 @@ inferDerivedInstanceDictionaries env decls existing =
         dictionary <- inferDerivedEqInstanceDictionary env typeName params constructors
         validateInstanceDictionary known dictionary
         pure (known <> [dictionary], derived <> [dictionary])
+    | className == builtinOrdClassName = do
+        dictionary <- inferDerivedOrdInstanceDictionary env typeName params constructors
+        validateInstanceDictionary known dictionary
+        pure (known <> [dictionary], derived <> [dictionary])
     | otherwise =
         throwTypecheck (UnsupportedCore0 ("derived class `" <> renderRName className <> "`"))
 
@@ -2175,7 +2180,7 @@ validateDerivedClasses derivingNames = do
       pure ()
   traverse_
     ( \className ->
-        unless (className == builtinEqClassName) $
+        unless (className `elem` [builtinEqClassName, builtinOrdClassName]) $
           throwTypecheck (UnsupportedCore0 ("derived class `" <> renderRName className <> "`"))
     )
     classNames
@@ -2205,7 +2210,7 @@ inferDerivedEqInstanceDictionary env typeName params constructors = do
       Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Eq class")
       Just classInfo -> pure classInfo
   fieldTypes <- concat <$> traverse (traverse sourceMonoType . conDeclFieldTypes) constructors
-  context <- List.nub . concat <$> traverse (derivedEqFieldConstraints typeName) fieldTypes
+  context <- List.nub . concat <$> traverse (derivedFieldConstraints "Eq" builtinEqClassName typeName) fieldTypes
   methodMap <- derivedEqMethodBindings constructors info
   let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
       replacements = Map.singleton (classInfoVariable info) instanceType
@@ -2223,15 +2228,41 @@ inferDerivedEqInstanceDictionary env typeName params constructors = do
       , typedInstanceMethods = typedMethods
       }
 
-derivedEqFieldConstraints :: RName -> MonoType -> InferM [ClassConstraint]
-derivedEqFieldConstraints selfTypeName fieldType =
+inferDerivedOrdInstanceDictionary :: TypeEnv -> RName -> [RName] -> [RConDecl] -> InferM TypedInstanceDictionary
+inferDerivedOrdInstanceDictionary env typeName params constructors = do
+  classes <- classInfos <$> get
+  info <-
+    case Map.lookup builtinOrdClassName classes of
+      Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Ord class")
+      Just classInfo -> pure classInfo
+  fieldTypes <- concat <$> traverse (traverse sourceMonoType . conDeclFieldTypes) constructors
+  context <- List.nub . concat <$> traverse (derivedFieldConstraints "Ord" builtinOrdClassName typeName) fieldTypes
+  methodMap <- derivedOrdMethodBindings constructors info
+  let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
+      replacements = Map.singleton (classInfoVariable info) instanceType
+      superclassConstraints = map (replaceConstraintTypeVars replacements) (classInfoSuperclasses info)
+  typedMethods <- traverse (inferInstanceMethod env info instanceType methodMap) (classInfoMethods info)
+  dictName <- instanceDictionaryName builtinOrdClassName instanceType
+  pure
+    TypedInstanceDictionary
+      { typedInstanceClass = builtinOrdClassName
+      , typedInstanceType = instanceType
+      , typedInstanceVariables = params
+      , typedInstanceContext = context
+      , typedInstanceDictName = dictName
+      , typedInstanceSuperclasses = superclassConstraints
+      , typedInstanceMethods = typedMethods
+      }
+
+derivedFieldConstraints :: Text -> RName -> RName -> MonoType -> InferM [ClassConstraint]
+derivedFieldConstraints classOccurrence className selfTypeName fieldType =
   go fieldType
  where
   go ty = do
     normalized <- applyCurrent ty
     case normalized of
       TyVar {} ->
-        pure [singleClassConstraint builtinEqClassName normalized]
+        pure [singleClassConstraint className normalized]
       TyCon {} ->
         pure []
       TyApp {} ->
@@ -2239,17 +2270,17 @@ derivedEqFieldConstraints selfTypeName fieldType =
           Just headName
             | headName == selfTypeName -> pure []
           _ | monoTypeHeadIsVariable normalized ->
-              pure [singleClassConstraint builtinEqClassName normalized]
+              pure [singleClassConstraint className normalized]
           _ ->
               pure []
       TyList element ->
         go element
       TyTuple {} ->
-        throwTypecheck (UnsupportedCore0 "derived Eq for tuple fields")
+        throwTypecheck (UnsupportedCore0 ("derived " <> classOccurrence <> " for tuple fields"))
       TyFun {} ->
-        throwTypecheck (UnsupportedCore0 "derived Eq for function fields")
+        throwTypecheck (UnsupportedCore0 ("derived " <> classOccurrence <> " for function fields"))
       TyMeta {} ->
-        pure [singleClassConstraint builtinEqClassName normalized]
+        pure [singleClassConstraint className normalized]
 
 monoTypeHeadIsVariable :: MonoType -> Bool
 monoTypeHeadIsVariable = \case
@@ -2351,6 +2382,197 @@ derivedTrue =
 derivedFalse :: RExpr
 derivedFalse =
   RCon falseDataConName
+
+derivedOrdMethodBindings :: [RConDecl] -> ClassInfo -> InferM (Map.Map RName SourceBinding)
+derivedOrdMethodBindings constructors info = do
+  compareMethod <- requireOrdMethod "compare"
+  ltMethod <- requireOrdMethod "<"
+  leMethod <- requireOrdMethod "<="
+  gtMethod <- requireOrdMethod ">"
+  geMethod <- requireOrdMethod ">="
+  maxMethod <- requireOrdMethod "max"
+  minMethod <- requireOrdMethod "min"
+  compareBinding <- derivedOrdCompareBinding (classMethodName compareMethod) constructors
+  ltBinding <-
+    derivedOrdPredicateBinding
+      (classMethodName ltMethod)
+      (classMethodName compareMethod)
+      derivedTrue
+      derivedFalse
+      derivedFalse
+  leBinding <-
+    derivedOrdPredicateBinding
+      (classMethodName leMethod)
+      (classMethodName compareMethod)
+      derivedTrue
+      derivedTrue
+      derivedFalse
+  gtBinding <-
+    derivedOrdPredicateBinding
+      (classMethodName gtMethod)
+      (classMethodName compareMethod)
+      derivedFalse
+      derivedFalse
+      derivedTrue
+  geBinding <-
+    derivedOrdPredicateBinding
+      (classMethodName geMethod)
+      (classMethodName compareMethod)
+      derivedFalse
+      derivedTrue
+      derivedTrue
+  maxBinding <-
+    derivedOrdChoiceBinding
+      (classMethodName maxMethod)
+      (classMethodName compareMethod)
+      (\lhs rhs -> (rhs, rhs, lhs))
+  minBinding <-
+    derivedOrdChoiceBinding
+      (classMethodName minMethod)
+      (classMethodName compareMethod)
+      (\lhs rhs -> (lhs, lhs, rhs))
+  pure
+    ( Map.fromList
+        [ (classMethodName compareMethod, compareBinding)
+        , (classMethodName ltMethod, ltBinding)
+        , (classMethodName leMethod, leBinding)
+        , (classMethodName gtMethod, gtBinding)
+        , (classMethodName geMethod, geBinding)
+        , (classMethodName maxMethod, maxBinding)
+        , (classMethodName minMethod, minBinding)
+        ]
+    )
+ where
+  requireOrdMethod occurrence =
+    case List.find ((== occurrence) . nameOcc . classMethodName) (classInfoMethods info) of
+      Just method -> pure method
+      Nothing -> throwTypecheck (UnsupportedCore0 ("missing Ord method `" <> occurrence <> "`"))
+
+derivedOrdCompareBinding :: RName -> [RConDecl] -> InferM SourceBinding
+derivedOrdCompareBinding methodName constructors = do
+  lhsName <- freshGeneratedName TermNamespace "$derived_compare_lhs"
+  rhsName <- freshGeneratedName TermNamespace "$derived_compare_rhs"
+  alternatives <- traverse (outerAlt rhsName) (zip [0 :: Int ..] constructors)
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar lhsName, RPVar rhsName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs = RUnguarded (RCase (RVar lhsName) alternatives)
+      , sourceBindingWhereDecls = []
+      }
+ where
+  indexedConstructors = zip [0 :: Int ..] constructors
+
+  outerAlt rhsName (lhsIndex, constructor) = do
+    lhsFields <- freshConstructorFields "$derived_ord_lhs_field" constructor
+    rhsAlternatives <- traverse (rhsAlt lhsIndex lhsFields) indexedConstructors
+    pure
+      ( RAlt
+          (RPCon (conDeclName constructor) (map RPVar lhsFields))
+          (RUnguarded (RCase (RVar rhsName) rhsAlternatives))
+          []
+      )
+
+  rhsAlt lhsIndex lhsFields (rhsIndex, constructor)
+    | lhsIndex == rhsIndex = do
+        rhsFields <- freshConstructorFields "$derived_ord_rhs_field" constructor
+        pure
+          ( RAlt
+              (RPCon (conDeclName constructor) (map RPVar rhsFields))
+              (RUnguarded (derivedOrdCompareFields (zip lhsFields rhsFields)))
+              []
+          )
+    | lhsIndex < rhsIndex =
+        pure
+          ( RAlt
+              (RPCon (conDeclName constructor) (replicate (length (conDeclFieldTypes constructor)) RPWildcard))
+              (RUnguarded derivedLT)
+              []
+          )
+    | otherwise =
+        pure
+          ( RAlt
+              (RPCon (conDeclName constructor) (replicate (length (conDeclFieldTypes constructor)) RPWildcard))
+              (RUnguarded derivedGT)
+              []
+          )
+
+derivedOrdCompareFields :: [(RName, RName)] -> RExpr
+derivedOrdCompareFields =
+  foldr compareField derivedEQ
+ where
+  compareField (lhs, rhs) rest =
+    RCase
+      (RApp (RApp (RVar derivedCompareName) (RVar lhs)) (RVar rhs))
+      [ RAlt (RPCon orderingLTDataConName []) (RUnguarded derivedLT) []
+      , RAlt (RPCon orderingEQDataConName []) (RUnguarded rest) []
+      , RAlt (RPCon orderingGTDataConName []) (RUnguarded derivedGT) []
+      ]
+
+derivedOrdPredicateBinding :: RName -> RName -> RExpr -> RExpr -> RExpr -> InferM SourceBinding
+derivedOrdPredicateBinding methodName compareName ltBody eqBody gtBody = do
+  lhsName <- freshGeneratedName TermNamespace ("$derived_" <> nameOcc methodName <> "_lhs")
+  rhsName <- freshGeneratedName TermNamespace ("$derived_" <> nameOcc methodName <> "_rhs")
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar lhsName, RPVar rhsName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs =
+          RUnguarded
+            ( RCase
+                (RApp (RApp (RVar compareName) (RVar lhsName)) (RVar rhsName))
+                [ RAlt (RPCon orderingLTDataConName []) (RUnguarded ltBody) []
+                , RAlt (RPCon orderingEQDataConName []) (RUnguarded eqBody) []
+                , RAlt (RPCon orderingGTDataConName []) (RUnguarded gtBody) []
+                ]
+            )
+      , sourceBindingWhereDecls = []
+      }
+
+derivedOrdChoiceBinding :: RName -> RName -> (RExpr -> RExpr -> (RExpr, RExpr, RExpr)) -> InferM SourceBinding
+derivedOrdChoiceBinding methodName compareName choices = do
+  lhsName <- freshGeneratedName TermNamespace ("$derived_" <> nameOcc methodName <> "_lhs")
+  rhsName <- freshGeneratedName TermNamespace ("$derived_" <> nameOcc methodName <> "_rhs")
+  let lhsExpr = RVar lhsName
+      rhsExpr = RVar rhsName
+      (ltBody, eqBody, gtBody) = choices lhsExpr rhsExpr
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar lhsName, RPVar rhsName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs =
+          RUnguarded
+            ( RCase
+                (RApp (RApp (RVar compareName) lhsExpr) rhsExpr)
+                [ RAlt (RPCon orderingLTDataConName []) (RUnguarded ltBody) []
+                , RAlt (RPCon orderingEQDataConName []) (RUnguarded eqBody) []
+                , RAlt (RPCon orderingGTDataConName []) (RUnguarded gtBody) []
+                ]
+            )
+      , sourceBindingWhereDecls = []
+      }
+
+derivedCompareName :: RName
+derivedCompareName =
+  preludeTermName "compare" (-1410)
+
+derivedLT :: RExpr
+derivedLT =
+  RCon orderingLTDataConName
+
+derivedEQ :: RExpr
+derivedEQ =
+  RCon orderingEQDataConName
+
+derivedGT :: RExpr
+derivedGT =
+  RCon orderingGTDataConName
 
 constraintsOverlap :: ClassConstraint -> ClassConstraint -> Bool
 constraintsOverlap lhs rhs =
@@ -5786,42 +6008,17 @@ projectDirectSuperclass ::
 projectDirectSuperclass env info current dictionary index superclass = do
   dictTy <- classConstraintCoreType (coreElabSubst env) (coreElabMetas env) current
   resultTy <- classConstraintCoreType (coreElabSubst env) (coreElabMetas env) superclass
-  fieldTypes <- classDictionaryCoreFieldTypes env info current
-  let caseBinder =
-        CoreBinder
-          ( RName
-              TermNamespace
-              ("$supercase_" <> nameOcc (classInfoName info) <> "_" <> nameOcc (classConstraintClass superclass))
-              (5460000 + nameUnique (classInfoName info) * 1000 + nameUnique (classConstraintClass superclass) * 10 + index)
-              False
-          )
-          dictTy
-      fieldBinders =
-        [ CoreBinder
-            ( RName
-                TermNamespace
-                ("$super" <> renderInt fieldIndex <> "_" <> nameOcc (classInfoName info))
-                (5470000 + nameUnique (classInfoName info) * 1000 + fieldIndex)
-                False
-            )
-            fieldTy
-        | (fieldIndex, fieldTy) <- zip [0 ..] fieldTypes
-        ]
-      selected = fieldBinders !! index
-  pure $
-    CCase
-      dictionary
-      caseBinder
-      [CoreAlt (ConstructorAlt (classInfoDictConstructorName info)) fieldBinders (CVar (coreBinderName selected) (coreBinderType selected))]
-      resultTy
-
-classDictionaryCoreFieldTypes :: CoreElabEnv -> ClassInfo -> ClassConstraint -> Either TypecheckError [CoreType]
-classDictionaryCoreFieldTypes env info constraint =
-  case classConstraintArguments constraint of
-    [argument] ->
-      let replacements = Map.singleton (classInfoVariable info) argument
-       in traverse (monoToCoreType (coreElabSubst env) (coreElabMetas env) . replaceTypeVars replacements) (classDictionaryFieldTypes info)
-    _ -> Left (InvalidClassConstraintArity (classInfoName info) (length (classConstraintArguments constraint)))
+  selectorTy <- superclassSelectorCoreType info index
+  typeArgument <-
+    case classConstraintArguments current of
+      [argument] -> monoToCoreType (coreElabSubst env) (coreElabMetas env) argument
+      _ -> Left (InvalidClassConstraintArity (classInfoName info) (length (classConstraintArguments current)))
+  let specializedSelector =
+        CTypeApp
+          (CVar (superclassSelectorName info index superclass) selectorTy)
+          [typeArgument]
+          (CTyFun dictTy resultTy)
+  pure (CApp specializedSelector dictionary resultTy)
 
 builtinStructuralDictionary :: CoreElabEnv -> ClassConstraint -> Maybe (Either TypecheckError CoreExpr)
 builtinStructuralDictionary env wanted =
@@ -5829,6 +6026,9 @@ builtinStructuralDictionary env wanted =
     (className, [TyList elementTy])
       | className == builtinEqClassName ->
           Just (eqListDictionaryValue env elementTy)
+    (className, [TyList elementTy])
+      | className == builtinOrdClassName ->
+          Just (ordListDictionaryValue env elementTy)
     (className, [TyList elementTy])
       | className == builtinShowClassName ->
           Just (showListDictionaryValue env elementTy)
@@ -5849,6 +6049,25 @@ eqListDictionaryValue env elementTy = do
       specializedFunction =
         CTypeApp
           (CVar eqListDictionaryName listDictionaryFunctionTy)
+          [elementCoreTy]
+          (CTyFun elementDictionaryTy listDictionaryTy)
+  pure (CApp specializedFunction elementDictionary listDictionaryTy)
+
+ordListDictionaryValue :: CoreElabEnv -> MonoType -> Either TypecheckError CoreExpr
+ordListDictionaryValue env elementTy = do
+  let subst = coreElabSubst env
+      metas = coreElabMetas env
+      normalizedElementTy = replaceMetasWithVars metas (applySubst subst elementTy)
+      elementConstraint = singleClassConstraint builtinOrdClassName normalizedElementTy
+      listConstraint = singleClassConstraint builtinOrdClassName (TyList normalizedElementTy)
+  elementDictionary <- resolveDictionary env elementConstraint
+  elementCoreTy <- monoToCoreType subst metas normalizedElementTy
+  elementDictionaryTy <- classConstraintCoreType subst metas elementConstraint
+  listDictionaryTy <- classConstraintCoreType subst metas listConstraint
+  let listDictionaryFunctionTy = ordListDictionaryCoreType
+      specializedFunction =
+        CTypeApp
+          (CVar ordListDictionaryName listDictionaryFunctionTy)
           [elementCoreTy]
           (CTyFun elementDictionaryTy listDictionaryTy)
   pure (CApp specializedFunction elementDictionary listDictionaryTy)
@@ -6091,6 +6310,8 @@ isBuiltinStructuralInstanceConstraint wanted =
     (className, [TyList _])
       | className == builtinEqClassName -> True
     (className, [TyList _])
+      | className == builtinOrdClassName -> True
+    (className, [TyList _])
       | className == builtinShowClassName -> True
     _ -> False
 
@@ -6100,6 +6321,9 @@ overlapsBuiltinStructuralInstanceConstraint wanted =
     (className, [argument])
       | className == builtinEqClassName ->
           typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$eq_list_overlap" (-1598))))
+    (className, [argument])
+      | className == builtinOrdClassName ->
+          typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$ord_list_overlap" (-1597))))
     (className, [argument])
       | className == builtinShowClassName ->
           typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$show_list_overlap" (-1599))))
@@ -6119,13 +6343,7 @@ builtinInstanceDictionaryToCore classes dictionary = do
       env = CoreElabEnv Map.empty Map.empty classes instanceRefs []
   superclassExprs <- traverse (resolveDictionary env) superclassConstraints
   let fieldExprs = superclassExprs <> builtinInstanceMethods dictionary
-  constructorTy <-
-    schemeToCoreType
-      ( Scheme
-          [classInfoVariable info]
-          []
-          (foldr TyFun (classDictionaryType info (TyVar (classInfoVariable info))) (classDictionaryFieldTypes info))
-      )
+  constructorTy <- classDictionaryFullConstructorCoreType info
   let constructorResultTy = foldr CTyFun dictTy (map exprType fieldExprs)
       typedConstructor =
         CTypeApp
@@ -6512,6 +6730,17 @@ boolCaseCore binderOccurrence binderUnique scrutinee resultTy trueBody falseBody
     ]
     resultTy
 
+orderingCaseCore :: Text -> Int -> CoreExpr -> CoreType -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+orderingCaseCore binderOccurrence binderUnique scrutinee resultTy ltBody eqBody gtBody =
+  CCase
+    scrutinee
+    (CoreBinder (builtinLocalTermName binderOccurrence binderUnique) orderingTy)
+    [ CoreAlt (ConstructorAlt orderingLTDataConName) [] ltBody
+    , CoreAlt (ConstructorAlt orderingEQDataConName) [] eqBody
+    , CoreAlt (ConstructorAlt orderingGTDataConName) [] gtBody
+    ]
+    resultTy
+
 builtinEqSupportCoreBinds :: Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
 builtinEqSupportCoreBinds classes =
   case Map.lookup builtinEqClassName classes of
@@ -6692,6 +6921,311 @@ eqListCallCore elementTy dictionary lhs rhs =
       (CTypeApp (CVar eqListMethodName eqListMethodCoreType) [elementTy] (CTyFun dictionaryTy (CTyFun listTy (CTyFun listTy boolTy))))
       dictionary
       (CTyFun listTy (CTyFun listTy boolTy))
+
+builtinOrdSupportCoreBinds :: Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
+builtinOrdSupportCoreBinds classes =
+  case Map.lookup builtinOrdClassName classes of
+    Nothing -> Right []
+    Just info -> do
+      listDictionaryPair <- ordListDictionaryCorePair info
+      pure
+        [ CoreRec
+            [ ordListCompareMethodCorePair
+            , listDictionaryPair
+            ]
+        ]
+
+ordListTypeVariable :: RName
+ordListTypeVariable =
+  preludeTypeVariable "a" (-8081)
+
+ordListDictionaryName :: RName
+ordListDictionaryName =
+  preludeTermName "$fOrdList" (-1514)
+
+ordListCompareMethodName :: RName
+ordListCompareMethodName =
+  preludeTermName "$compare_list" (-8082)
+
+ordDictCoreType :: CoreType -> CoreType
+ordDictCoreType ty =
+  CTyApp (CTyCon (classDictionaryTypeName builtinOrdClassName)) ty
+
+ordListDictionaryCoreType :: CoreType
+ordListDictionaryCoreType =
+  CTyForall [a] (CTyFun ordDictA ordDictListA)
+ where
+  a = ordListTypeVariable
+  aTy = CTyVar a
+  ordDictA = ordDictCoreType aTy
+  ordDictListA = ordDictCoreType (CTyList aTy)
+
+ordListCompareMethodCoreType :: CoreType
+ordListCompareMethodCoreType =
+  CTyForall [a] (CTyFun ordDictA (CTyFun listA (CTyFun listA orderingTy)))
+ where
+  a = ordListTypeVariable
+  aTy = CTyVar a
+  ordDictA = ordDictCoreType aTy
+  listA = CTyList aTy
+
+ordSelectorCoreType :: CoreType
+ordSelectorCoreType =
+  CTyForall [a] (CTyFun ordDictA (CTyFun aTy (CTyFun aTy orderingTy)))
+ where
+  a = preludeTypeVariable "a" (-1311)
+  aTy = CTyVar a
+  ordDictA = ordDictCoreType aTy
+
+ordListCompareMethodCorePair :: (CoreBinder, CoreExpr)
+ordListCompareMethodCorePair =
+  (CoreBinder ordListCompareMethodName ordListCompareMethodCoreType, CTypeLam [a] (lam dictName ordDictA (lam xsName listA (lam ysName listA body))) ordListCompareMethodCoreType)
+ where
+  a = ordListTypeVariable
+  aTy = CTyVar a
+  listA = CTyList aTy
+  ordDictA = ordDictCoreType aTy
+  dictName = builtinLocalTermName "$compare_list_dict" (-8083)
+  xsName = builtinLocalTermName "$compare_list_xs" (-8084)
+  ysName = builtinLocalTermName "$compare_list_ys" (-8085)
+  xName = builtinLocalTermName "$compare_list_x" (-8086)
+  xsTailName = builtinLocalTermName "$compare_list_xs_tail" (-8087)
+  yNilName = builtinLocalTermName "$compare_list_y_nil" (-8088)
+  ysNilTailName = builtinLocalTermName "$compare_list_ys_nil_tail" (-8089)
+  yConsName = builtinLocalTermName "$compare_list_y_cons" (-8090)
+  ysConsTailName = builtinLocalTermName "$compare_list_ys_cons_tail" (-8091)
+  xsCaseName = builtinLocalTermName "$compare_list_xs_case" (-8092)
+  ysNilCaseName = builtinLocalTermName "$compare_list_ys_nil_case" (-8093)
+  ysConsCaseName = builtinLocalTermName "$compare_list_ys_cons_case" (-8094)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  ltExpr = CCon orderingLTDataConName orderingTy
+  eqExpr = CCon orderingEQDataConName orderingTy
+  gtExpr = CCon orderingGTDataConName orderingTy
+  dictExpr = CVar dictName ordDictA
+  xsTail = CVar xsTailName listA
+  ysConsTail = CVar ysConsTailName listA
+  headCompare =
+    ordElementCompareCore aTy dictExpr (CVar xName aTy) (CVar yConsName aTy)
+  recursiveTailCompare =
+    ordListCompareCallCore aTy dictExpr xsTail ysConsTail
+  consBody =
+    listCaseCore
+      (CVar ysName listA)
+      ysConsCaseName
+      aTy
+      orderingTy
+      gtExpr
+      yConsName
+      ysConsTailName
+      ( orderingCaseCore
+          "$compare_list_head"
+          (-8095)
+          headCompare
+          orderingTy
+          ltExpr
+          recursiveTailCompare
+          gtExpr
+      )
+  body =
+    listCaseCore
+      (CVar xsName listA)
+      xsCaseName
+      aTy
+      orderingTy
+      ( listCaseCore
+          (CVar ysName listA)
+          ysNilCaseName
+          aTy
+          orderingTy
+          eqExpr
+          yNilName
+          ysNilTailName
+          ltExpr
+      )
+      xName
+      xsTailName
+      consBody
+
+ordListDictionaryCorePair :: ClassInfo -> Either TypecheckError (CoreBinder, CoreExpr)
+ordListDictionaryCorePair info = do
+  constructorTy <- classDictionaryFullConstructorCoreType info
+  let a = ordListTypeVariable
+      aTy = CTyVar a
+      listA = CTyList aTy
+      ordDictA = ordDictCoreType aTy
+      ordDictListA = ordDictCoreType listA
+      dictName = builtinLocalTermName "$ord_list_instance_dict" (-8096)
+      dictExpr = CVar dictName ordDictA
+      eqSuperclass =
+        eqListForOrdListCore aTy dictExpr
+      compareMethod =
+        ordListCompareFunctionCore aTy dictExpr
+      ltMethod =
+        ordListPredicateMethodCore "$lt_list" (-8110) aTy dictExpr True False False
+      leMethod =
+        ordListPredicateMethodCore "$le_list" (-8120) aTy dictExpr True True False
+      gtMethod =
+        ordListPredicateMethodCore "$gt_list" (-8130) aTy dictExpr False False True
+      geMethod =
+        ordListPredicateMethodCore "$ge_list" (-8140) aTy dictExpr False True True
+      maxMethod =
+        ordListChoiceMethodCore "$max_list" (-8150) aTy dictExpr (\left right -> (right, right, left))
+      minMethod =
+        ordListChoiceMethodCore "$min_list" (-8160) aTy dictExpr (\left right -> (left, left, right))
+      fieldExprs =
+        [ eqSuperclass
+        , compareMethod
+        , ltMethod
+        , leMethod
+        , gtMethod
+        , geMethod
+        , maxMethod
+        , minMethod
+        ]
+      typedConstructor =
+        CTypeApp
+          (CCon (classInfoDictConstructorName info) constructorTy)
+          [listA]
+          (foldr CTyFun ordDictListA (map exprType fieldExprs))
+      body = foldl applyValue typedConstructor fieldExprs
+      rhs = CTypeLam [a] (CLam (CoreBinder dictName ordDictA) body (CTyFun ordDictA ordDictListA)) ordListDictionaryCoreType
+  pure (CoreBinder ordListDictionaryName ordListDictionaryCoreType, rhs)
+ where
+  applyValue callee argument =
+    let remainingResult =
+          case exprType callee of
+            CTyFun _ result -> result
+            _ -> exprType callee
+     in CApp callee argument remainingResult
+
+eqListForOrdListCore :: CoreType -> CoreExpr -> CoreExpr
+eqListForOrdListCore elementTy ordDictionary =
+  CApp eqListDictionary eqElementDictionary eqListTy
+ where
+  eqElementTy = eqDictCoreType elementTy
+  eqListTy = eqDictCoreType (CTyList elementTy)
+  eqElementDictionary =
+    ordEqSuperclassCore elementTy ordDictionary
+  eqListDictionary =
+    CTypeApp
+      (CVar eqListDictionaryName eqListDictionaryCoreType)
+      [elementTy]
+      (CTyFun eqElementTy eqListTy)
+
+ordEqSuperclassCore :: CoreType -> CoreExpr -> CoreExpr
+ordEqSuperclassCore elementTy dictionary =
+  CCase
+    dictionary
+    (CoreBinder caseName ordDictA)
+    [ CoreAlt
+        (ConstructorAlt (classDictionaryConstructorName builtinOrdClassName))
+        [ CoreBinder eqName eqDictA
+        , CoreBinder compareName compareTy
+        , CoreBinder ltName predicateTy
+        , CoreBinder leName predicateTy
+        , CoreBinder gtName predicateTy
+        , CoreBinder geName predicateTy
+        , CoreBinder maxName choiceTy
+        , CoreBinder minName choiceTy
+        ]
+        (CVar eqName eqDictA)
+    ]
+    eqDictA
+ where
+  ordDictA = ordDictCoreType elementTy
+  eqDictA = eqDictCoreType elementTy
+  compareTy = CTyFun elementTy (CTyFun elementTy orderingTy)
+  predicateTy = CTyFun elementTy (CTyFun elementTy boolTy)
+  choiceTy = CTyFun elementTy (CTyFun elementTy elementTy)
+  caseName = builtinLocalTermName "$ord_eq_super_case" (-8170)
+  eqName = builtinLocalTermName "$ord_eq_super_eq" (-8171)
+  compareName = builtinLocalTermName "$ord_eq_super_compare" (-8172)
+  ltName = builtinLocalTermName "$ord_eq_super_lt" (-8173)
+  leName = builtinLocalTermName "$ord_eq_super_le" (-8174)
+  gtName = builtinLocalTermName "$ord_eq_super_gt" (-8175)
+  geName = builtinLocalTermName "$ord_eq_super_ge" (-8176)
+  maxName = builtinLocalTermName "$ord_eq_super_max" (-8177)
+  minName = builtinLocalTermName "$ord_eq_super_min" (-8178)
+
+ordListCompareFunctionCore :: CoreType -> CoreExpr -> CoreExpr
+ordListCompareFunctionCore elementTy dictionary =
+  CApp compareFunction dictionary (CTyFun listTy (CTyFun listTy orderingTy))
+ where
+  listTy = CTyList elementTy
+  dictionaryTy = ordDictCoreType elementTy
+  compareFunction =
+    CTypeApp
+      (CVar ordListCompareMethodName ordListCompareMethodCoreType)
+      [elementTy]
+      (CTyFun dictionaryTy (CTyFun listTy (CTyFun listTy orderingTy)))
+
+ordElementCompareCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+ordElementCompareCore elementTy dictionary lhs rhs =
+  CApp (CApp compareFunction lhs (CTyFun elementTy orderingTy)) rhs orderingTy
+ where
+  dictionaryTy = ordDictCoreType elementTy
+  compareFunction =
+    CApp
+      (CTypeApp (CVar derivedCompareName ordSelectorCoreType) [elementTy] (CTyFun dictionaryTy (CTyFun elementTy (CTyFun elementTy orderingTy))))
+      dictionary
+      (CTyFun elementTy (CTyFun elementTy orderingTy))
+
+ordListCompareCallCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+ordListCompareCallCore elementTy dictionary lhs rhs =
+  CApp (CApp compareFunction lhs (CTyFun listTy orderingTy)) rhs orderingTy
+ where
+  listTy = CTyList elementTy
+  dictionaryTy = ordDictCoreType elementTy
+  compareFunction =
+    CApp
+      (CTypeApp (CVar ordListCompareMethodName ordListCompareMethodCoreType) [elementTy] (CTyFun dictionaryTy (CTyFun listTy (CTyFun listTy orderingTy))))
+      dictionary
+      (CTyFun listTy (CTyFun listTy orderingTy))
+
+ordListPredicateMethodCore :: Text -> Int -> CoreType -> CoreExpr -> Bool -> Bool -> Bool -> CoreExpr
+ordListPredicateMethodCore occurrence unique elementTy dictionary ltResult eqResult gtResult =
+  CLam lhsBinder (CLam rhsBinder methodBody (CTyFun listTy boolTy)) (CTyFun listTy (CTyFun listTy boolTy))
+ where
+  listTy = CTyList elementTy
+  lhsName = builtinLocalTermName (occurrence <> "_lhs") unique
+  rhsName = builtinLocalTermName (occurrence <> "_rhs") (unique - 1)
+  lhsBinder = CoreBinder lhsName listTy
+  rhsBinder = CoreBinder rhsName listTy
+  lhs = CVar lhsName listTy
+  rhs = CVar rhsName listTy
+  boolExpr result =
+    if result then CCon trueDataConName boolTy else CCon falseDataConName boolTy
+  methodBody =
+    orderingCaseCore
+      (occurrence <> "_case")
+      (unique - 2)
+      (ordListCompareCallCore elementTy dictionary lhs rhs)
+      boolTy
+      (boolExpr ltResult)
+      (boolExpr eqResult)
+      (boolExpr gtResult)
+
+ordListChoiceMethodCore :: Text -> Int -> CoreType -> CoreExpr -> (CoreExpr -> CoreExpr -> (CoreExpr, CoreExpr, CoreExpr)) -> CoreExpr
+ordListChoiceMethodCore occurrence unique elementTy dictionary choices =
+  CLam lhsBinder (CLam rhsBinder methodBody (CTyFun listTy listTy)) (CTyFun listTy (CTyFun listTy listTy))
+ where
+  listTy = CTyList elementTy
+  lhsName = builtinLocalTermName (occurrence <> "_lhs") unique
+  rhsName = builtinLocalTermName (occurrence <> "_rhs") (unique - 1)
+  lhsBinder = CoreBinder lhsName listTy
+  rhsBinder = CoreBinder rhsName listTy
+  lhs = CVar lhsName listTy
+  rhs = CVar rhsName listTy
+  (ltBody, eqBody, gtBody) = choices lhs rhs
+  methodBody =
+    orderingCaseCore
+      (occurrence <> "_case")
+      (unique - 2)
+      (ordListCompareCallCore elementTy dictionary lhs rhs)
+      listTy
+      ltBody
+      eqBody
+      gtBody
 
 builtinShowSupportCoreBinds :: Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
 builtinShowSupportCoreBinds classes =
@@ -6914,6 +7448,15 @@ classDictionaryConstructorCoreType info =
         (foldr TyFun (classDictionaryType info (TyVar (classInfoVariable info))) (map classMethodFieldType (classInfoMethods info)))
     )
 
+classDictionaryFullConstructorCoreType :: ClassInfo -> Either TypecheckError CoreType
+classDictionaryFullConstructorCoreType info =
+  schemeToCoreType
+    ( Scheme
+        [classInfoVariable info]
+        []
+        (foldr TyFun (classDictionaryType info (TyVar (classInfoVariable info))) (classDictionaryFieldTypes info))
+    )
+
 showElementCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr
 showElementCore elementTy dictionary element =
   CApp showFunction element stringTy
@@ -7024,12 +7567,83 @@ builtinLocalTermName :: Text -> Int -> RName
 builtinLocalTermName occurrence unique =
   RName TermNamespace occurrence unique False
 
+superclassSelectorName :: ClassInfo -> Int -> ClassConstraint -> RName
+superclassSelectorName info index superclass =
+  RName
+    TermNamespace
+    ("$super_" <> nameOcc (classInfoName info) <> "_" <> nameOcc (classConstraintClass superclass) <> renderInt index)
+    (5450000 + nameUnique (classInfoName info) * 1000 + nameUnique (classConstraintClass superclass) * 10 + index)
+    False
+
+superclassSelectorCoreType :: ClassInfo -> Int -> Either TypecheckError CoreType
+superclassSelectorCoreType info index =
+  case drop index (classInfoSuperclasses info) of
+    superclass : _ ->
+      schemeToCoreType
+        ( Scheme
+            [classInfoVariable info]
+            []
+            ( TyFun
+                (classDictionaryType info (TyVar (classInfoVariable info)))
+                (superclassDictionaryFieldType superclass)
+            )
+        )
+    [] ->
+      Left (UnsupportedCore0 ("missing superclass selector for `" <> renderRName (classInfoName info) <> "`"))
+
 classSelectorCoreBinds :: Subst -> Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
 classSelectorCoreBinds subst classes =
   concat <$> traverse selectorBinds (Map.elems classes)
  where
   selectorBinds info =
-    traverse (selectorBind info) (classInfoMethods info)
+    (<>) <$> traverse (superclassSelectorBind info) (zip [0 ..] (classInfoSuperclasses info)) <*> traverse (selectorBind info) (classInfoMethods info)
+
+  superclassSelectorBind info (index, superclass) = do
+    binderTy <- superclassSelectorCoreType info index
+    dictTy <- monoToCoreType subst Map.empty (classDictionaryType info (TyVar (classInfoVariable info)))
+    resultTy <- monoToCoreType subst Map.empty (superclassDictionaryFieldType superclass)
+    fieldTypes <- traverse (monoToCoreType subst Map.empty) (classDictionaryFieldTypes info)
+    let selectorName = superclassSelectorName info index superclass
+        dictBinder =
+          CoreBinder
+            ( RName
+                TermNamespace
+                ("$dict_" <> nameOcc selectorName)
+                (5450000 + nameUnique selectorName)
+                False
+            )
+            dictTy
+        caseBinder =
+          CoreBinder
+            ( RName
+                TermNamespace
+                ("$case_" <> nameOcc selectorName)
+                (5451000 + nameUnique selectorName)
+                False
+            )
+            dictTy
+        fieldBinders =
+          [ CoreBinder
+              ( RName
+                  TermNamespace
+                  ("$super" <> renderInt fieldIndex <> "_" <> nameOcc (classInfoName info) <> "_" <> renderInt index)
+                  (5452000 + nameUnique (classInfoName info) * 1000 + index * 100 + fieldIndex)
+                  False
+              )
+              fieldTy
+          | (fieldIndex, fieldTy) <- zip [0 ..] fieldTypes
+          ]
+        selectedBinder = fieldBinders !! index
+        selected = CVar (coreBinderName selectedBinder) (coreBinderType selectedBinder)
+        caseExpr =
+          CCase
+            (CVar (coreBinderName dictBinder) dictTy)
+            caseBinder
+            [CoreAlt (ConstructorAlt (classInfoDictConstructorName info)) fieldBinders selected]
+            resultTy
+        body = CTypeLam [classInfoVariable info] (CLam dictBinder caseExpr (CTyFun dictTy resultTy)) binderTy
+    pure (CoreNonRec (CoreBinder selectorName binderTy) body)
+
   selectorBind info method = do
     binderTy <- schemeToCoreType (classMethodScheme method)
     dictTy <- monoToCoreType subst Map.empty (classDictionaryType info (TyVar (classInfoVariable info)))
@@ -7171,7 +7785,7 @@ instanceDictionaryToCore subst classes instances dictionary = do
       env = CoreElabEnv subst Map.empty classes instances localDictionaries
   superclassExprs <- traverse (resolveDictionary env) (typedInstanceSuperclasses dictionary)
   methodExprs <- traverse (exprToCore env) (typedInstanceMethods dictionary)
-  constructorTy <- schemeToCoreType (Scheme [classInfoVariable info] [] (foldr TyFun (classDictionaryType info (TyVar (classInfoVariable info))) (classDictionaryFieldTypes info)))
+  constructorTy <- classDictionaryFullConstructorCoreType info
   let fieldExprs = superclassExprs <> methodExprs
       constructorResultTy = foldr CTyFun dictTy (map exprType fieldExprs)
       typedConstructor =
