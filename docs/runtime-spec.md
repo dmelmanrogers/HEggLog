@@ -151,8 +151,8 @@ Current behavior:
   value)`.
 - In the Haskell 2010 path, `main :: IO ()` roots execute the compiled IO
   action instead of scalar root printing. The implemented IO subset supports
-  `putStrLn`, `print` through `Show Int`/`Show Bool`, `return`, `(>>)`, and
-  expression-only `do` sequencing.
+  `putStrLn`, `print` through the supported `Show` scalar/string/list subset,
+  `return`, `(>>)`, and expression-only `do` sequencing.
 
 The interpreter/report mode prints values through Haskell renderers:
 

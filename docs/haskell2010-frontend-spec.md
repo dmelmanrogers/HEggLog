@@ -122,7 +122,8 @@ Current initial Haskell 2010 class capabilities:
 - instance lookup
 - dictionary-passing elaboration
 - generated built-in dictionaries for `Eq Int`, `Eq Bool`, `Eq Char`,
-  `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and `Show Bool`
+  `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, `Show Bool`,
+  `Show Char`, exact `Show String`, and structural list `Show`
 - dictionary-backed built-in methods: `(==)`, `(/=)`, `compare`, `(<)`,
   `(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`,
   `signum`, `fromInteger`, and `show`
@@ -135,7 +136,7 @@ Current initial Haskell 2010 class capabilities:
 Remaining planned Haskell 2010 capabilities:
 
 - superclasses, default methods, deriving, and instance contexts
-- broader `Show`, additional numeric classes, and fuller Prelude hierarchy
+- derived/user ADT-shaped `Show`, additional numeric classes, and fuller Prelude hierarchy
 - kind checking for type constructors and classes
 
 The typechecker emits typed Core or rejects the program. It must not accept a
@@ -182,8 +183,9 @@ also covers the initial type
 class dictionary slice: user-defined single-parameter classes, concrete
 context-free instances, explicit constrained functions, generated dictionary
 constructors/selectors, dictionary-passed method calls, and built-in `Eq Int`,
-`Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and
-`Show Bool` dictionaries. It also covers `IO`, `main :: IO ()`, `putStrLn`,
+`Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`,
+`Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and structural list
+`Show` dictionaries. It also covers `IO`, `main :: IO ()`, `putStrLn`,
 `print`, `return`, `(>>)`, and expression-only `do` sequencing with local
 `let`. It also covers `fromInteger`, overloaded integer literals, numeric
 defaulting to executable `Int`, inferred constrained helper schemes, and
@@ -192,7 +194,7 @@ It also covers import-driven dependency-file loading, export/import filtering,
 whole-program Core flattening, and root `main` native entrypoint selection for
 the executable subset. It exposes structured exhaustiveness warning
 placeholders for partial `case`, function, and lambda patterns through the
-typechecker and native API. Full Haskell 2010 type classes, broader `Show`, a
+typechecker and native API. Full Haskell 2010 type classes, derived/user ADT-shaped `Show`, a
 full pattern coverage checker, richer pattern diagnostics, broader Prelude, and
 broader IO remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not

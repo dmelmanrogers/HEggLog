@@ -169,6 +169,7 @@ testGroups =
       , pureTest "typechecks Prelude class dictionaries" testHaskell2010Core0PreludeClassDictionaries
       , pureTest "typechecks Char runtime representation" testHaskell2010Core0CharRuntime
       , pureTest "typechecks String as Char lists" testHaskell2010Core0StringCharList
+      , pureTest "typechecks broader Show dictionaries" testHaskell2010Core0BroadShow
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
       , pureTest "documents monomorphism restriction defaulting policy" testHaskell2010MonomorphismRestrictionDefaulting
       , pureTest "typechecks multi-module imports" testHaskell2010Core0MultiModuleImports
@@ -201,6 +202,7 @@ testGroups =
       , pureTest "evaluates Prelude class dictionary calls" testHaskell2010Core0EvalPreludeClassDictionaries
       , pureTest "evaluates Char equality and literal cases" testHaskell2010Core0EvalCharRuntime
       , pureTest "evaluates String as Char lists" testHaskell2010Core0EvalStringCharList
+      , pureTest "evaluates broader Show dictionaries" testHaskell2010Core0EvalBroadShow
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
@@ -239,6 +241,7 @@ testGroups =
       , pureTest "preserves Prelude class dictionary semantics" testHaskell2010CoreToSTGPreludeClassDictionaries
       , pureTest "preserves Char runtime semantics" testHaskell2010CoreToSTGCharRuntime
       , pureTest "preserves String as Char lists" testHaskell2010CoreToSTGStringCharList
+      , pureTest "preserves broader Show semantics" testHaskell2010CoreToSTGBroadShow
       , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
       , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
@@ -1570,6 +1573,15 @@ testHaskell2010Core0StringCharList = do
   assertBool "String literal expressions emit cons constructors" (containsConstructorExpr ":" rhs)
   expectCoreEvalInt "String Char-list Core oracle" 5 =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0BroadShow :: Either String ()
+testHaskell2010Core0BroadShow = do
+  coreModule <- typecheckHaskell2010 haskell2010BroadShowSource
+  assertBool "Prelude Show Char instance dictionary is emitted" (containsBindingOccurrence "$fShowChar" coreModule)
+  assertBool "Prelude Show String instance dictionary is emitted" (containsBindingOccurrence "$fShowString" coreModule)
+  assertBool "Prelude generic Show list dictionary is emitted" (containsBindingOccurrence "$fShowList" coreModule)
+  assertBool "Prelude Show list method helper is emitted" (containsBindingOccurrence "$show_list" coreModule)
+  expectCoreEvalIO "broader Show Core oracle" haskell2010BroadShowOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0NumericDefaulting :: Either String ()
 testHaskell2010Core0NumericDefaulting = do
   coreModule <- typecheckHaskell2010 haskell2010NumericDefaultingSource
@@ -1866,6 +1878,13 @@ testHaskell2010Core0EvalStringCharList =
     5
     =<< evalHaskell2010Binding "main" haskell2010StringCharListSource
 
+testHaskell2010Core0EvalBroadShow :: Either String ()
+testHaskell2010Core0EvalBroadShow =
+  expectCoreEvalIO
+    "Core-0 broader Show evaluation"
+    haskell2010BroadShowOutput
+    =<< evalHaskell2010Binding "main" haskell2010BroadShowSource
+
 testHaskell2010Core0EvalNumericDefaulting :: Either String ()
 testHaskell2010Core0EvalNumericDefaulting =
   expectCoreEvalIO
@@ -2152,6 +2171,10 @@ testHaskell2010CoreToSTGCharRuntime =
 testHaskell2010CoreToSTGStringCharList :: Either String ()
 testHaskell2010CoreToSTGStringCharList =
   checkCoreToSTGInt "Core-to-STG String Char-list" 5 haskell2010StringCharListSource
+
+testHaskell2010CoreToSTGBroadShow :: Either String ()
+testHaskell2010CoreToSTGBroadShow =
+  checkCoreToSTGIO "Core-to-STG broader Show" haskell2010BroadShowOutput haskell2010BroadShowSource
 
 testHaskell2010CoreToSTGNumericDefaulting :: Either String ()
 testHaskell2010CoreToSTGNumericDefaulting =
@@ -5632,6 +5655,7 @@ haskell2010NativeSuccessExamples =
   , ("string-output", haskell2010StringOutputSource, "native\nok\n7\n")
   , ("string-show-output", haskell2010StringShowOutputSource, "42\nFalse\n")
   , ("string-char-patterns", haskell2010StringCharPatternsSource, "6\n")
+  , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
@@ -5660,6 +5684,7 @@ haskell2010NativeExecutableExamples =
   , ("string-output", haskell2010StringOutputSource, "native\nok\n7\n")
   , ("string-show-output", haskell2010StringShowOutputSource, "42\nFalse\n")
   , ("string-char-patterns", haskell2010StringCharPatternsSource, "6\n")
+  , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
@@ -5958,6 +5983,24 @@ haskell2010StringCharPatternsSource =
   \  \"ok\" -> 1\n\
   \  _ -> 0\n\
   \main = prefixScore \"hithere\" + literalScore \"ok\"\n"
+
+haskell2010BroadShowSource :: Text
+haskell2010BroadShowSource =
+  "module Main where\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  putStrLn (show 'Z')\n\
+  \  putStrLn (show \"hi\")\n\
+  \  putStrLn (show [1, 2, 3])\n\
+  \  putStrLn (show [True, False])\n\
+  \  putStrLn (show [\"a\", \"b\"])\n\
+  \  print 'Q'\n\
+  \  print \"ok\"\n\
+  \  return ()\n"
+
+haskell2010BroadShowOutput :: Text
+haskell2010BroadShowOutput =
+  "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Q'\n\"ok\"\n"
 
 haskell2010NumericDefaultingSource :: Text
 haskell2010NumericDefaultingSource =

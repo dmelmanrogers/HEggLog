@@ -81,7 +81,8 @@ class methods, plus guarded RHSs, guarded case alternatives, as-pattern
 aliases, and guard-fallthrough no-match behavior, plus the first IO printing
 slice for `IO`, `main :: IO ()`,
 `putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing, and
-built-in `Show Int`/`Show Bool`. A Core
+built-in `Show Int`/`Show Bool`/`Show Char`/`Show String` plus generated
+structural list `Show` dictionaries. A Core
 reference evaluator executes validating typed Core with erased type
 abstraction/application, checked `Int` primitives, and structured runtime
 errors. An isolated STG-like IR, validator, and pure heap evaluator now model
@@ -100,8 +101,8 @@ ownership policy, boxed `Char` values, `Eq Char` primitive lowering, scalar
 constructor values, and checked primitive aborts, then uses the existing clang
 toolchain path to produce native executables. The Haskell 2010 native path also
 executes `main :: IO ()` actions for `putStrLn` and `print` output using
-list-of-`Char` traversal, built-in `Show Int`/`Show Bool` results represented as
-lists, and a compatibility path for legacy internal string payloads. Dedicated
+list-of-`Char` traversal, built-in scalar/string `Show` results represented as
+lists, generated list `Show` dictionaries, and a compatibility path for legacy internal string payloads. Dedicated
 native wet tests now cover direct string output, list operations over strings,
 show-produced strings, explicit `Char` cons patterns, and string literal
 patterns in both default and `--no-egglog` modes.
@@ -136,7 +137,8 @@ Current status:
   concrete instances, structured explicit constraints, placeholder diagnostics
   for unsupported constraint contexts, dictionary constructors/selectors,
   dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Eq Char`,
-  `Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool` dictionaries, plus
+  `Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, `Show Bool`, `Show Char`,
+  `Show String`, and structural list `Show` dictionaries, plus
   source-spanned Haskell 2010 typecheck diagnostics, plus
   `putStrLn`, `print`, `return`, `(>>)`, and expression-only `do` sequencing
 - Haskell 2010 Core reference evaluator: implemented and unit-tested for
@@ -232,7 +234,7 @@ Current tests include:
 
 Future Haskell 2010 conformance work should extend this direct executable
 coverage as the full pattern coverage checker, richer pattern diagnostics,
-`Show Char`/`Show String`, Unicode/string escape fidelity, additional string
-library behavior, and broader IO are implemented. Structured exhaustiveness
+derived/user ADT-shaped `Show`, exhaustive Unicode/string escape fidelity,
+additional string library behavior, and broader IO are implemented. Structured exhaustiveness
 warning placeholders are already exposed through the Haskell 2010 typechecker
 and native compilation result APIs.

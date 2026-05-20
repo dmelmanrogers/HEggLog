@@ -111,8 +111,9 @@ Completed Haskell 2010 roadmap work:
   constrained functions, generated dictionary constructors/selectors, Core
   dictionary arguments, STG/native lowering, and default/no-egglog wet tests.
 - Haskell 2010 built-in Prelude class dictionaries: implemented for `Eq Int`,
-  `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and
-  `Show Bool` methods, including overloaded comparison/arithmetic/show method
+  `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`,
+  `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and generated
+  structural list `Show` methods, including overloaded comparison/arithmetic/show method
   desugaring, Core/STG/native lowering, and default/no-egglog wet tests.
 - Haskell 2010 numeric literals/defaulting: implemented for dictionary-backed
   `fromInteger`, overloaded integer literals, executable `Int` numeric
@@ -145,8 +146,8 @@ Completed Haskell 2010 roadmap work:
   diagnostics remain planned.
 - Haskell 2010 IO printing slice: implemented `IO` typechecking and native
   `main :: IO ()` entrypoint execution, `putStrLn`, `print`, `return`, `(>>)`,
-  expression-only `do` sequencing with local `let`, built-in `Show Int` and
-  `Show Bool` dictionaries, Core/STG IO reference values, source strings and
+  expression-only `do` sequencing with local `let`, broadened built-in
+  `Show` dictionaries, Core/STG IO reference values, source strings and
   built-in show results as list-of-`Char` values, and default/no-egglog wet
   tests.
 

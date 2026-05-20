@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-20 01:46:13 UTC
+Date/time: 2026-05-20 02:14:56 UTC
 
-Commit hash tested: PRELUDE-DATA-012 working tree before final task commit. The
+Commit hash tested: TC-015 working tree before final task commit. The
 final commit for the task records the same source tree plus this results
 document.
 
@@ -37,12 +37,12 @@ Summary:
 | --- | ---: |
 | Manifest conformance fixtures | 59 |
 | Haskell source files in corpus | 60 |
-| HUnit test cases executed | 67 |
-| Native-success fixtures | 45 |
+| HUnit test cases executed | 68 |
+| Native-success fixtures | 46 |
 | Native-runtime-error fixtures | 1 |
 | Compile-error fixtures | 6 |
-| Unsupported-documented fixtures | 7 |
-| Native subprocess compile/run checks | 54 |
+| Unsupported-documented fixtures | 6 |
+| Native subprocess compile/run checks | 56 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -66,8 +66,8 @@ explicit conformance cases rather than omitted.
 | `modules` | 2 | single-module and same-directory import tests exist |
 | `negative` | 6 | compile-error diagnostics covered, including a source-spanned type error |
 | `patterns` | 2 | guards/as-patterns and irrefutable/lazy pattern representative native tests exist |
-| `prelude` | 8 | list functions, class dictionaries, native Char runtime, `String = [Char]`, and string native wet cases covered |
+| `prelude` | 9 | list functions, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, and broadened Show covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
 | `typeclasses` | 2 | user dictionary and synonym-normalized constraint tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |
-| `unsupported` | 7 | unsupported features documented by failing cases |
+| `unsupported` | 6 | unsupported features documented by failing cases |

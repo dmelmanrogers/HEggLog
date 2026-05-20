@@ -97,7 +97,7 @@ as ordinary constructor closures with selector/method calls in the initial
 dictionary slice. The first IO action layer is implemented for `main :: IO ()`,
 `putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing, native
 source strings and built-in `show` results as list-of-`Char` output, and
-built-in `Show Int`/`Show Bool`; broader IO remains a future expansion.
+built-in scalar/string/list `Show`; broader IO remains a future expansion.
 RTS-009 chooses process-lifetime
 allocation for this executable subset: generated STG LLVM routes heap-object,
 environment, constructor-field-array, and runtime string-buffer allocations

@@ -374,6 +374,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
   coreBinds <- traverse (bindingToCore elaborationEnv) typedBindings
   classCoreBinds <- classSelectorCoreBinds (substitution finalState) classesForCore
   recordCoreBinds <- recordSelectorCoreBinds (substitution finalState) (recordSelectors finalState)
+  builtinShowSupportBinds <- builtinShowSupportCoreBinds classesForCore
   builtinInstanceCoreBinds <- traverse (builtinInstanceDictionaryToCore classesForCore) builtinInstances
   instanceCoreBinds <- traverse (instanceDictionaryToCore (substitution finalState) classesForCore instances) typedInstances
   preludeCoreBinds <- preludeCoreBindings preludeValues
@@ -388,7 +389,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
           { coreModuleName = rModuleName sourceModule
           , coreModuleConstructors = coreConstructors
           , coreModuleBinds =
-              case preludeCoreBinds <> classCoreBinds <> recordCoreBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> sourceCoreBinds of
+              case preludeCoreBinds <> classCoreBinds <> recordCoreBinds <> builtinShowSupportBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> sourceCoreBinds of
                 [] -> []
                 [one] -> [one]
                 many -> [CoreRec (concatMap bindPairs many)]
@@ -1583,8 +1584,7 @@ defaultableConstraintMetas protectedMetas constraints =
   [ meta
   | (meta, metaConstraints) <- Map.toAscList constraintsByMeta
   , meta `Set.notMember` protectedMetas
-  , all (isDirectMetaConstraint meta) metaConstraints
-  , all (isStandardDefaultingClass . constraintClassName) metaConstraints
+  , all (isDefaultingCompatibleConstraint meta) metaConstraints
   , any ((== builtinNumClassName) . constraintClassName) metaConstraints
   ]
  where
@@ -1596,11 +1596,26 @@ defaultableConstraintMetas protectedMetas constraints =
       , meta <- Set.toList (freeMetaVarsConstraint constraint)
       ]
 
-isDirectMetaConstraint :: Int -> ClassConstraint -> Bool
-isDirectMetaConstraint expectedMeta constraint =
-  case classConstraintArguments constraint of
-    [TyMeta meta] -> meta == expectedMeta
-    _ -> False
+isDefaultingCompatibleConstraint :: Int -> ClassConstraint -> Bool
+isDefaultingCompatibleConstraint expectedMeta constraint =
+  isStandardDefaultingClass (constraintClassName constraint)
+    && case classConstraintArguments constraint of
+      [TyMeta meta] ->
+        meta == expectedMeta
+      [argument]
+        | constraintClassName constraint == builtinShowClassName ->
+            isStructuralShowMetaArgument expectedMeta argument
+      _ ->
+        False
+
+isStructuralShowMetaArgument :: Int -> MonoType -> Bool
+isStructuralShowMetaArgument expectedMeta = \case
+  TyList element ->
+    isStructuralShowMetaArgument expectedMeta element
+  TyMeta meta ->
+    meta == expectedMeta
+  _ ->
+    False
 
 constraintClassName :: ClassConstraint -> RName
 constraintClassName =
@@ -4471,13 +4486,43 @@ resolveDictionary env wanted = do
           dictTy <- classConstraintCoreType (coreElabSubst env) (coreElabMetas env) normalized
           pure (CVar (instanceRefName ref) dictTy)
         Nothing ->
-          Left
-            ( maybe
-                id
-                TypecheckErrorAt
-                (classConstraintSpan wanted)
-                (UnsolvedClassConstraint normalized)
-            )
+          case builtinStructuralDictionary env normalized of
+            Just dictionary -> dictionary
+            Nothing ->
+              Left
+                ( maybe
+                    id
+                    TypecheckErrorAt
+                    (classConstraintSpan wanted)
+                    (UnsolvedClassConstraint normalized)
+                )
+
+builtinStructuralDictionary :: CoreElabEnv -> ClassConstraint -> Maybe (Either TypecheckError CoreExpr)
+builtinStructuralDictionary env wanted =
+  case (classConstraintClass wanted, classConstraintArguments wanted) of
+    (className, [TyList elementTy])
+      | className == builtinShowClassName ->
+          Just (showListDictionaryValue env elementTy)
+    _ -> Nothing
+
+showListDictionaryValue :: CoreElabEnv -> MonoType -> Either TypecheckError CoreExpr
+showListDictionaryValue env elementTy = do
+  let subst = coreElabSubst env
+      metas = coreElabMetas env
+      normalizedElementTy = replaceMetasWithVars metas (applySubst subst elementTy)
+      elementConstraint = singleClassConstraint builtinShowClassName normalizedElementTy
+      listConstraint = singleClassConstraint builtinShowClassName (TyList normalizedElementTy)
+  elementDictionary <- resolveDictionary env elementConstraint
+  elementCoreTy <- monoToCoreType subst metas normalizedElementTy
+  elementDictionaryTy <- classConstraintCoreType subst metas elementConstraint
+  listDictionaryTy <- classConstraintCoreType subst metas listConstraint
+  let listDictionaryFunctionTy = showListDictionaryCoreType
+      specializedFunction =
+        CTypeApp
+          (CVar showListDictionaryName listDictionaryFunctionTy)
+          [elementCoreTy]
+          (CTyFun elementDictionaryTy listDictionaryTy)
+  pure (CApp specializedFunction elementDictionary listDictionaryTy)
 
 normalizeConstraint :: Subst -> Map.Map Int RName -> ClassConstraint -> Either TypecheckError ClassConstraint
 normalizeConstraint subst metas =
@@ -4595,6 +4640,16 @@ builtinInstanceDictionaries classes =
         boolMonoType
         (preludeTermName "$fShowBool" (-1532))
         [boolShowMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        charMonoType
+        (preludeTermName "$fShowChar" (-1533))
+        [charShowMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        stringMonoType
+        (preludeTermName "$fShowString" (-1534))
+        [stringShowMethod]
     ]
 
 builtinInstanceDictionaryRefs :: [BuiltinInstanceDictionary] -> [InstanceDictionaryRef]
@@ -4610,6 +4665,14 @@ builtinInstanceDictionaryRefs =
 isBuiltinInstanceConstraint :: ClassConstraint -> Bool
 isBuiltinInstanceConstraint wanted =
   any (constraintMatches wanted . instanceRefConstraint) (builtinInstanceDictionaryRefs (builtinInstanceDictionaries builtinClassInfos))
+    || isBuiltinStructuralInstanceConstraint wanted
+
+isBuiltinStructuralInstanceConstraint :: ClassConstraint -> Bool
+isBuiltinStructuralInstanceConstraint wanted =
+  case (classConstraintClass wanted, classConstraintArguments wanted) of
+    (className, [TyList _])
+      | className == builtinShowClassName -> True
+    _ -> False
 
 builtinInstanceDictionaryToCore :: Map.Map RName ClassInfo -> BuiltinInstanceDictionary -> Either TypecheckError CoreBind
 builtinInstanceDictionaryToCore classes dictionary = do
@@ -4815,6 +4878,15 @@ boolShowMethod :: CoreExpr
 boolShowMethod =
   unaryPrimMethod "$show_bool" (-1851) boolTy stringTy PrimShowBool
 
+charShowMethod :: CoreExpr
+charShowMethod =
+  unaryMethod "$show_char" (-1881) charTy stringTy showCharLiteralCore
+
+stringShowMethod :: CoreExpr
+stringShowMethod =
+  unaryMethod "$show_string" (-1891) stringTy stringTy $ \value ->
+    consCharCore '"' (CApp (CVar showStringCharsName showStringCharsCoreType) value stringTy)
+
 binaryPrimMethod :: Text -> Int -> CoreType -> CoreType -> CorePrimOp -> CoreExpr
 binaryPrimMethod occurrence unique argumentTy resultTy prim =
   binaryMethod occurrence unique argumentTy resultTy (\lhs rhs -> CPrimOp prim [lhs, rhs] resultTy)
@@ -4861,6 +4933,333 @@ boolCaseCore binderOccurrence binderUnique scrutinee resultTy trueBody falseBody
     , CoreAlt (ConstructorAlt falseDataConName) [] falseBody
     ]
     resultTy
+
+builtinShowSupportCoreBinds :: Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
+builtinShowSupportCoreBinds classes =
+  case Map.lookup builtinShowClassName classes of
+    Nothing -> Right []
+    Just info -> do
+      listDictionaryPair <- showListDictionaryCorePair info
+      pure
+        [ CoreRec
+            [ showAppendCorePair
+            , showStringCharsCorePair
+            , showListMethodCorePair
+            , showListTailCorePair
+            , listDictionaryPair
+            ]
+        ]
+
+showListTypeVariable :: RName
+showListTypeVariable =
+  preludeTypeVariable "a" (-1541)
+
+showListDictionaryName :: RName
+showListDictionaryName =
+  preludeTermName "$fShowList" (-1535)
+
+showListMethodName :: RName
+showListMethodName =
+  preludeTermName "$show_list" (-1892)
+
+showListTailName :: RName
+showListTailName =
+  preludeTermName "$show_list_tail" (-1893)
+
+showAppendName :: RName
+showAppendName =
+  preludeTermName "$show_append" (-1894)
+
+showStringCharsName :: RName
+showStringCharsName =
+  preludeTermName "$show_string_chars" (-1895)
+
+showDictCoreType :: CoreType -> CoreType
+showDictCoreType ty =
+  CTyApp (CTyCon (classDictionaryTypeName builtinShowClassName)) ty
+
+showListDictionaryCoreType :: CoreType
+showListDictionaryCoreType =
+  CTyForall [a] (CTyFun showDictA showDictListA)
+ where
+  a = showListTypeVariable
+  aTy = CTyVar a
+  showDictA = showDictCoreType aTy
+  showDictListA = showDictCoreType (CTyList aTy)
+
+showListMethodCoreType :: CoreType
+showListMethodCoreType =
+  CTyForall [a] (CTyFun showDictA (CTyFun listA stringTy))
+ where
+  a = showListTypeVariable
+  aTy = CTyVar a
+  showDictA = showDictCoreType aTy
+  listA = CTyList aTy
+
+showListTailCoreType :: CoreType
+showListTailCoreType =
+  showListMethodCoreType
+
+showAppendCoreType :: CoreType
+showAppendCoreType =
+  CTyFun stringTy (CTyFun stringTy stringTy)
+
+showStringCharsCoreType :: CoreType
+showStringCharsCoreType =
+  CTyFun stringTy stringTy
+
+showSelectorCoreType :: CoreType
+showSelectorCoreType =
+  CTyForall [a] (CTyFun showDictA (CTyFun aTy stringTy))
+ where
+  a = preludeTypeVariable "a" (-1331)
+  aTy = CTyVar a
+  showDictA = showDictCoreType aTy
+
+showAppendCorePair :: (CoreBinder, CoreExpr)
+showAppendCorePair =
+  (CoreBinder showAppendName showAppendCoreType, lam xsName stringTy (lam ysName stringTy body))
+ where
+  xsName = builtinLocalTermName "$show_append_xs" (-1896)
+  ysName = builtinLocalTermName "$show_append_ys" (-1897)
+  cName = builtinLocalTermName "$show_append_c" (-1898)
+  csName = builtinLocalTermName "$show_append_cs" (-1899)
+  caseName = builtinLocalTermName "$show_append_case" (-1900)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  body =
+    listCaseCore
+      (CVar xsName stringTy)
+      caseName
+      charTy
+      stringTy
+      (CVar ysName stringTy)
+      cName
+      csName
+      (consCharExprCore (CVar cName charTy) (appendStringCore (CVar csName stringTy) (CVar ysName stringTy)))
+
+showStringCharsCorePair :: (CoreBinder, CoreExpr)
+showStringCharsCorePair =
+  (CoreBinder showStringCharsName showStringCharsCoreType, lam xsName stringTy body)
+ where
+  xsName = builtinLocalTermName "$show_string_xs" (-1901)
+  cName = builtinLocalTermName "$show_string_c" (-1902)
+  csName = builtinLocalTermName "$show_string_cs" (-1903)
+  caseName = builtinLocalTermName "$show_string_case" (-1904)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  body =
+    listCaseCore
+      (CVar xsName stringTy)
+      caseName
+      charTy
+      stringTy
+      (stringLiteralCore (Text.singleton '"'))
+      cName
+      csName
+      (showStringCharCore (CVar cName charTy) (CApp (CVar showStringCharsName showStringCharsCoreType) (CVar csName stringTy) stringTy))
+
+showListMethodCorePair :: (CoreBinder, CoreExpr)
+showListMethodCorePair =
+  (CoreBinder showListMethodName showListMethodCoreType, CTypeLam [a] (lam dictName showDictA (lam xsName listA body)) showListMethodCoreType)
+ where
+  a = showListTypeVariable
+  aTy = CTyVar a
+  listA = CTyList aTy
+  showDictA = showDictCoreType aTy
+  dictName = builtinLocalTermName "$show_list_dict" (-1905)
+  xsName = builtinLocalTermName "$show_list_xs" (-1906)
+  yName = builtinLocalTermName "$show_list_y" (-1907)
+  ysName = builtinLocalTermName "$show_list_ys" (-1908)
+  caseName = builtinLocalTermName "$show_list_case" (-1909)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  body =
+    listCaseCore
+      (CVar xsName listA)
+      caseName
+      aTy
+      stringTy
+      (stringLiteralCore "[]")
+      yName
+      ysName
+      ( consCharCore
+          '['
+          ( appendStringCore
+              (showElementCore aTy (CVar dictName showDictA) (CVar yName aTy))
+              (showListTailCallCore aTy (CVar dictName showDictA) (CVar ysName listA))
+          )
+      )
+
+showListTailCorePair :: (CoreBinder, CoreExpr)
+showListTailCorePair =
+  (CoreBinder showListTailName showListTailCoreType, CTypeLam [a] (lam dictName showDictA (lam xsName listA body)) showListTailCoreType)
+ where
+  a = showListTypeVariable
+  aTy = CTyVar a
+  listA = CTyList aTy
+  showDictA = showDictCoreType aTy
+  dictName = builtinLocalTermName "$show_tail_dict" (-1910)
+  xsName = builtinLocalTermName "$show_tail_xs" (-1911)
+  yName = builtinLocalTermName "$show_tail_y" (-1912)
+  ysName = builtinLocalTermName "$show_tail_ys" (-1913)
+  caseName = builtinLocalTermName "$show_tail_case" (-1914)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  body =
+    listCaseCore
+      (CVar xsName listA)
+      caseName
+      aTy
+      stringTy
+      (stringLiteralCore "]")
+      yName
+      ysName
+      ( consCharCore
+          ','
+          ( appendStringCore
+              (showElementCore aTy (CVar dictName showDictA) (CVar yName aTy))
+              (showListTailCallCore aTy (CVar dictName showDictA) (CVar ysName listA))
+          )
+      )
+
+showListDictionaryCorePair :: ClassInfo -> Either TypecheckError (CoreBinder, CoreExpr)
+showListDictionaryCorePair info = do
+  constructorTy <- classDictionaryConstructorCoreType info
+  let a = showListTypeVariable
+      aTy = CTyVar a
+      listA = CTyList aTy
+      showDictA = showDictCoreType aTy
+      showDictListA = showDictCoreType listA
+      dictName = builtinLocalTermName "$show_list_instance_dict" (-1915)
+      method =
+        CApp
+          ( CTypeApp
+              (CVar showListMethodName showListMethodCoreType)
+              [aTy]
+              (CTyFun showDictA (CTyFun listA stringTy))
+          )
+          (CVar dictName showDictA)
+          (CTyFun listA stringTy)
+      typedConstructor =
+        CTypeApp
+          (CCon (classInfoDictConstructorName info) constructorTy)
+          [listA]
+          (CTyFun (exprType method) showDictListA)
+      body = CApp typedConstructor method showDictListA
+      rhs = CTypeLam [a] (CLam (CoreBinder dictName showDictA) body (CTyFun showDictA showDictListA)) showListDictionaryCoreType
+  pure (CoreBinder showListDictionaryName showListDictionaryCoreType, rhs)
+
+classDictionaryConstructorCoreType :: ClassInfo -> Either TypecheckError CoreType
+classDictionaryConstructorCoreType info =
+  schemeToCoreType
+    ( Scheme
+        [classInfoVariable info]
+        []
+        (foldr TyFun (classDictionaryType info (TyVar (classInfoVariable info))) (map classMethodFieldType (classInfoMethods info)))
+    )
+
+showElementCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr
+showElementCore elementTy dictionary element =
+  CApp showFunction element stringTy
+ where
+  dictionaryTy = showDictCoreType elementTy
+  showFunction =
+    CApp
+      (CTypeApp (CVar (preludeTermName "show" (-1431)) showSelectorCoreType) [elementTy] (CTyFun dictionaryTy (CTyFun elementTy stringTy)))
+      dictionary
+      (CTyFun elementTy stringTy)
+
+showListTailCallCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr
+showListTailCallCore elementTy dictionary listValue =
+  CApp tailFunction listValue stringTy
+ where
+  listTy = CTyList elementTy
+  dictionaryTy = showDictCoreType elementTy
+  tailFunction =
+    CApp
+      (CTypeApp (CVar showListTailName showListTailCoreType) [elementTy] (CTyFun dictionaryTy (CTyFun listTy stringTy)))
+      dictionary
+      (CTyFun listTy stringTy)
+
+appendStringCore :: CoreExpr -> CoreExpr -> CoreExpr
+appendStringCore lhs rhs =
+  CApp (CApp (CVar showAppendName showAppendCoreType) lhs (CTyFun stringTy stringTy)) rhs stringTy
+
+listCaseCore :: CoreExpr -> RName -> CoreType -> CoreType -> CoreExpr -> RName -> RName -> CoreExpr -> CoreExpr
+listCaseCore scrutinee caseName elementTy resultTy nilBody headName tailName consBody =
+  CCase
+    scrutinee
+    (CoreBinder caseName (CTyList elementTy))
+    [ CoreAlt (ConstructorAlt listNilDataConName) [] nilBody
+    , CoreAlt
+        (ConstructorAlt listConsDataConName)
+        [CoreBinder headName elementTy, CoreBinder tailName (CTyList elementTy)]
+        consBody
+    ]
+    resultTy
+
+showCharLiteralCore :: CoreExpr -> CoreExpr
+showCharLiteralCore value =
+  CCase value (CoreBinder caseName charTy) (specialCases <> [defaultCase]) stringTy
+ where
+  caseName = builtinLocalTermName "$show_char_case" (-1916)
+  specialCases =
+    [ charCase '\n' "'\\n'"
+    , charCase '\t' "'\\t'"
+    , charCase '\r' "'\\r'"
+    , charCase '\b' "'\\b'"
+    , charCase '\f' "'\\f'"
+    , charCase '\v' "'\\v'"
+    , charCase '\a' "'\\a'"
+    , charCase '\'' "'\\''"
+    , charCase '\\' "'\\\\'"
+    ]
+  charCase char rendered =
+    CoreAlt (LiteralAlt (LChar char)) [] (stringLiteralCore rendered)
+  defaultCase =
+    CoreAlt DefaultAlt [] (quotedCharCore (CVar caseName charTy))
+
+showStringCharCore :: CoreExpr -> CoreExpr -> CoreExpr
+showStringCharCore value rest =
+  CCase value (CoreBinder caseName charTy) (specialCases <> [defaultCase]) stringTy
+ where
+  caseName = builtinLocalTermName "$show_string_char_case" (-1917)
+  specialCases =
+    [ charCase '\n' "\\n"
+    , charCase '\t' "\\t"
+    , charCase '\r' "\\r"
+    , charCase '\b' "\\b"
+    , charCase '\f' "\\f"
+    , charCase '\v' "\\v"
+    , charCase '\a' "\\a"
+    , charCase '"' "\\\""
+    , charCase '\\' "\\\\"
+    ]
+  charCase char rendered =
+    CoreAlt (LiteralAlt (LChar char)) [] (prefixStringCore rendered rest)
+  defaultCase =
+    CoreAlt DefaultAlt [] (consCharExprCore (CVar caseName charTy) rest)
+
+quotedCharCore :: CoreExpr -> CoreExpr
+quotedCharCore charExpr =
+  consCharCore '\'' (consCharExprCore charExpr (consCharCore '\'' emptyStringCore))
+
+stringLiteralCore :: Text -> CoreExpr
+stringLiteralCore value =
+  listCoreExpr charTy [CLit (LChar char) charTy | char <- Text.unpack value]
+
+prefixStringCore :: Text -> CoreExpr -> CoreExpr
+prefixStringCore prefix rest =
+  foldr consCharCore rest (Text.unpack prefix)
+
+consCharCore :: Char -> CoreExpr -> CoreExpr
+consCharCore char =
+  consCharExprCore (CLit (LChar char) charTy)
+
+consCharExprCore :: CoreExpr -> CoreExpr -> CoreExpr
+consCharExprCore headExpr tailExpr =
+  constructorApp listConsDataConName [charTy] [headExpr, tailExpr] stringTy
+
+emptyStringCore :: CoreExpr
+emptyStringCore =
+  listCoreExpr charTy []
 
 builtinLocalTermName :: Text -> Int -> RName
 builtinLocalTermName occurrence unique =

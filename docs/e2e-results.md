@@ -1,7 +1,7 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after PRELUDE-DATA-012 string literal
-native wet-test expansion. The suite covers the
+Recorded for the mandatory wet-test suite after TC-015 broadened Show
+expansion. The suite covers the
 existing `.hg` native compiler baseline and Haskell 2010 executable-subset
 `.hs` programs that compile to native executables, compare lazy runtime
 behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
@@ -9,7 +9,7 @@ optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-20 01:46:13 UTC`
+- Date/time: `2026-05-20 02:14:56 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -18,23 +18,23 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 132
-- Source files: 55
-- Successful source cases: 44
+- HUnit checks: 135
+- Source files: 56
+- Successful source cases: 45
 - Runtime-error source cases: 7
 - Compile-error source cases: 3
-- Native compile/run checks: 96
-- Default Egglog native checks: 54
-- `--no-egglog` native checks: 42
-- Emit-LLVM checks: 24
+- Native compile/run checks: 98
+- Default Egglog native checks: 55
+- `--no-egglog` native checks: 43
+- Emit-LLVM checks: 25
 - Report/interpreter comparisons: 12
 - Failures: 0
 
-PRELUDE-DATA-012 adds dedicated Haskell 2010 native cases for direct source
-string output, list operations over strings, `putStrLn` over built-in `show`
-results, explicit `Char` cons patterns, and string literal patterns. The
-fixtures run in both default and `--no-egglog` modes and all three new e2e
-programs also emit LLVM that is compiled through clang.
+TC-015 adds a dedicated Haskell 2010 native case for broadened `Show`: exact
+`Show Char`, exact `Show String`, generated list `Show`, nested `[String]`,
+`print`, and numeric-list defaulting through `show [1, 2, 3]`. The fixture runs
+in both default and `--no-egglog` modes and emits LLVM that is compiled through
+clang.
 
 ## Case Table
 

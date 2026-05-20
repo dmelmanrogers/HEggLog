@@ -6807,7 +6807,7 @@
     {
       "id": "TC-015",
       "title": "Show",
-      "status": "in progress",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TYPE-016",
@@ -6816,9 +6816,11 @@
       "blocks": [],
       "milestone": "M11",
       "acceptance_criteria": [
-        "Show is implemented, completed, or explicitly documented according to status `in progress`.",
-        "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "Built-in `Show Char` and `Show String` dictionaries typecheck, elaborate to Core dictionaries, evaluate through Core/STG, and run natively.",
+        "Generic structural `Show a => Show [a]` dictionary synthesis supports `Show [Int]`, `Show [Bool]`, and nested `Show [String]` without finite ad hoc list instances.",
+        "`print` uses the broadened dictionaries for `Char` and `String`.",
+        "Numeric-list defaulting supports `show [1, 2, 3]` in the executable `Int` subset.",
+        "Haskell 2010 conformance and e2e wet tests cover the broadened Show surface in default and `--no-egglog` native modes."
       ],
       "required_tests": [
         "typechecker unit tests",

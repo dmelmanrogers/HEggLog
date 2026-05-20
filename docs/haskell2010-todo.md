@@ -216,21 +216,21 @@ Rules:
 3. TC-003 — superclass representation: Model superclass relationships before broader class solving.
 4. TC-005 — default methods: Implement default class method typing and dictionary filling.
 5. TC-008 — overlapping instance rejection per Haskell 2010: Reject overlapping/duplicate instance choices before broader instance search.
-6. TC-015 — Show: Finish the supported `Show` surface beyond the current built-in exact instances.
-7. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
-8. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
-9. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
-10. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
-11. TC-023 — derived Eq: Synthesize or explicitly defer derived `Eq` instances.
-12. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
-13. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
-14. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
-15. PRELUDE-009 — foldl: Add the strictness-aware left fold surface or document the initial deviation.
-16. PRELUDE-013 — append: Implement `(++)` for supported list and string programs.
-17. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
-18. IO-006 — getLine: Add stdin line input or document the initial IO deviation.
-19. IO-008 — `(>>=)`: Implement bind for the supported IO subset.
-20. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
+6. TC-016 — Read, if implemented or documented deviation: Decide and document whether `Read` enters the supported class surface.
+7. TC-018 — Enum: Implement or explicitly defer the Haskell 2010 `Enum` class surface.
+8. TC-019 — Bounded: Implement or explicitly defer the Haskell 2010 `Bounded` class surface.
+9. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
+10. TC-023 — derived Eq: Synthesize or explicitly defer derived `Eq` instances.
+11. TC-024 — derived Ord: Synthesize or explicitly defer derived `Ord` instances.
+12. TC-025 — derived Show: Synthesize or explicitly defer derived `Show` instances.
+13. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
+14. PRELUDE-009 — foldl: Add the strictness-aware left fold surface or document the initial deviation.
+15. PRELUDE-013 — append: Implement `(++)` for supported list and string programs.
+16. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
+17. IO-006 — getLine: Add stdin line input or document the initial IO deviation.
+18. IO-008 — `(>>=)`: Implement bind for the supported IO subset.
+19. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
+20. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
 
 # Task Backlog
 
@@ -11213,7 +11213,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M10 (Lists, tuples, Char, String). Completed with source `String` literals and string literal patterns represented as ordinary `[Char]` values across typechecking, Core evaluation, STG evaluation, native LLVM, conformance, and wet tests. Broader `Show Char`, `Show String`, Unicode text IO, escape fidelity beyond the current parser/runtime subset, and additional string/list library behavior remain tracked by later Prelude/IO tasks.
+- Milestone M10 (Lists, tuples, Char, String). Completed with source `String` literals and string literal patterns represented as ordinary `[Char]` values across typechecking, Core evaluation, STG evaluation, native LLVM, conformance, and wet tests. Broader Unicode text IO, exhaustive escape fidelity beyond the current parser/runtime subset, and additional string/list library behavior remain tracked by later Prelude/IO tasks.
 
 ## PRELUDE-DATA-008 — arithmetic sequences
 
@@ -11462,7 +11462,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M10 (Lists, tuples, Char, String). Completed with direct native executable coverage for string literals as `[Char]`, list functions over strings, show-produced strings, `putStrLn`, explicit char-list patterns, string literal patterns, default/no-egglog runs, and emit-LLVM wet checks. Broader `Show Char`, `Show String`, Unicode text IO, and `(++)` remain tracked by later Prelude/IO tasks.
+- Milestone M10 (Lists, tuples, Char, String). Completed with direct native executable coverage for string literals as `[Char]`, list functions over strings, show-produced strings, `putStrLn`, explicit char-list patterns, string literal patterns, default/no-egglog runs, and emit-LLVM wet checks. Broader Unicode text IO, exhaustive escape fidelity, and `(++)` remain tracked by later Prelude/IO tasks.
 
 ## TC-001 — class declaration representation
 
@@ -12184,7 +12184,7 @@ Notes:
 ## TC-015 — Show
 
 Status:
-- in progress
+- complete
 
 Category:
 - typechecker
@@ -12197,7 +12197,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver Show for Type classes and dictionaries while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Broaden the supported `Show` surface beyond the original exact `Int`/`Bool` dictionaries while preserving explicit dictionary passing. The implemented executable subset now includes exact `Show Char`, exact `Show String` with quoted string output, a generated structural `Show a => Show [a]` dictionary, nested list/string output such as `[String]`, `print` through the broadened dictionaries, and numeric-list defaulting for examples like `show [1, 2, 3]`.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -12208,14 +12208,17 @@ Non-goals:
 
 Files likely touched:
 - `src/Haskell2010/Typecheck.hs`
-- `src/Haskell2010/Core/Syntax.hs`
 - `test/Main.hs`
+- `test/e2e/Main.hs`
+- `test/e2e/programs/haskell2010/broad-show.hs`
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- Show is implemented, completed, or explicitly documented according to status `in progress`.
-- All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- Built-in `Show Char` and `Show String` dictionaries typecheck, elaborate to Core dictionaries, evaluate through Core/STG, and run natively.
+- Generic structural `Show a => Show [a]` dictionary synthesis supports `Show [Int]`, `Show [Bool]`, and nested `Show [String]` without finite ad hoc list instances.
+- `print` uses the broadened dictionaries for `Char` and `String`.
+- Numeric-list defaulting supports `show [1, 2, 3]` in the executable `Int` subset.
+- Haskell 2010 conformance and e2e wet tests cover the broadened Show surface in default and `--no-egglog` native modes.
 
 Required tests:
 - typechecker unit tests
@@ -12229,7 +12232,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M11 (Type classes and dictionaries). Completed for the executable Show subset: exact `Int`, `Bool`, `Char`, and `String`, plus generated list dictionaries. Full Haskell 2010 `showsPrec`/`showList` method hierarchy, derived `Show`, user-defined ADT-shaped output, exhaustive lexical escaping, and standard library packaging remain tracked by later class/Prelude tasks.
 
 ## TC-016 — Read, if implemented or documented deviation
 

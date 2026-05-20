@@ -98,7 +98,8 @@ The generated C-compatible `main` prints root values as:
 The Haskell 2010 STG-to-LLVM path additionally recognizes `main :: IO ()`.
 For that entrypoint shape, `main` forces the compiled IO action instead of
 auto-printing a scalar root. The implemented IO subset supports `putStrLn`,
-`print` through `Show Int`/`Show Bool`, `return`, and `(>>)`.
+`print` through the supported `Show` scalar/string/list subset, `return`, and
+`(>>)`.
 
 ## Evaluation Contract
 

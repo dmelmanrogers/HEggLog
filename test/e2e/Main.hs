@@ -343,6 +343,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-string-output" "test/e2e/programs/haskell2010/string-output.hs" "native\nok\n7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-string-show-output" "test/e2e/programs/haskell2010/string-show-output.hs" "42\nFalse" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-string-char-patterns" "test/e2e/programs/haskell2010/string-char-patterns.hs" "6" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-broad-show" "test/e2e/programs/haskell2010/broad-show.hs" "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Q'\n\"ok\"" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-numeric-defaulting" "test/e2e/programs/haskell2010/numeric-defaulting.hs" "7\n47" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-modules" "test/e2e/programs/haskell2010/modules/Main.hs" "20" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-printing" "test/e2e/programs/haskell2010/io-printing.hs" "ok\nanswer\n42\nTrue" [DefaultEgglog, NoEgglog] True

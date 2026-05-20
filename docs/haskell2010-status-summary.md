@@ -41,6 +41,8 @@ guard-fallthrough no-match behavior are also implemented. The first IO printing
 slice is implemented for `IO`,
 `main :: IO ()`, `putStrLn`, `print`, `return`, `(>>)`, expression-only `do`
 sequencing with local `let`, and built-in `Show Int`/`Show Bool` dictionaries.
+The current `Show` slice also includes exact `Show Char`, exact `Show String`,
+and generated structural list dictionaries.
 The typechecker now also exposes structured exhaustiveness warning
 placeholders for partial `case`, function, and lambda patterns through
 `typecheckModuleToCoreWithWarnings`, and native compilation carries those
@@ -49,8 +51,8 @@ The following Haskell 2010 requirements are planned but not
 implemented:
 
 - a full pattern coverage checker and richer pattern-match diagnostics
-- superclasses, default methods, instance contexts, deriving, and broader
-  `Show`
+- superclasses, default methods, instance contexts, deriving, and user
+  ADT-shaped `Show`
 - broader Prelude/library subset
 - Haskell source desugaring beyond the current executable subset
 - broader IO, including `<-`, `(>>=)`, handles, and effects beyond stdout
@@ -109,8 +111,8 @@ the first built-in instances, including `Eq Char`; guarded RHSs and
 guarded case alternatives desugared to Bool `case`; as-pattern aliases lowered
 as local Core bindings; `IO` actions for `putStrLn`, `print`, `return`, `(>>)`,
 expression-only `do` sequencing; left and right operator sections over the
-supported infix subset desugared to generated Core lambdas; built-in `Show Int`
-and `Show Bool`
+supported infix subset desugared to generated Core lambdas; built-in `Show Int`,
+`Show Bool`, `Show Char`, exact `Show String`, and generated list `Show`
 dictionaries; and primitive `/`.
 Recursive top-level functions, mutually recursive
 top-level groups, singleton self-recursive bindings, and local recursive `let`
@@ -121,7 +123,9 @@ emitting dictionary constructor values, selector functions, and explicit Core
 dictionary arguments. Built-in `Eq Int`, `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, and
 `Num Int` dictionaries cover `(==)`, `(/=)`, `compare`, `(<)`, `(<=)`, `(>)`,
 `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`, and `signum`.
-Built-in `Show Int` and `Show Bool` cover enough `show` support for `print`.
+Built-in `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and
+generated structural list `Show` cover `show` and `print` for the supported
+scalar/string/list executable subset.
 `fromInteger` is part of the executable `Num Int` dictionary, integer literals
 elaborate through it, and ambiguous numeric constraints default to `Int`.
 The current monomorphism-restriction decision is documented for the executable
@@ -141,7 +145,8 @@ defaulting and dictionary elaboration. Unsupported class-constraint positions
 now use a structured placeholder diagnostic for superclass contexts,
 method-specific constraints, instance contexts, and expression type-signature
 constraints, so broader class features remain planned without silent fallback.
-`/` remains checked concrete `Int` division; broader `Show` remains planned.
+`/` remains checked concrete `Int` division; derived and user ADT-shaped
+`Show` remain planned.
 
 ## What Core Evaluates Today
 
@@ -273,13 +278,14 @@ and compiled to native executables through the existing clang toolchain.
     wet-tested default/no-egglog CLI runs.
 14. Built-in Prelude class dictionary coverage. Completed for `Eq Int`,
     `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`,
-    `Show Int`, and `Show Bool` methods,
+    `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and generated
+    structural list `Show` methods,
     including generated built-in dictionaries/selectors, overloaded
     comparison/arithmetic/show method desugaring, Core/STG lowering/evaluation,
     native LLVM execution, and wet-tested default/no-egglog CLI runs.
     `fromInteger`, overloaded integer literals, and numeric defaulting are now
-    covered for the executable `Int` numeric universe. Broader `Show` remains
-    planned.
+    covered for the executable `Int` numeric universe, including numeric-list
+    defaulting for `show [1, 2, 3]`.
 15. Guarded RHS/case alternatives and as-pattern aliases. Completed for
     multi-branch guarded function RHSs, guarded constructor/list/as-pattern case
     alternatives, alias bindings for as-patterns in parameters and case
@@ -290,7 +296,7 @@ and compiled to native executables through the existing clang toolchain.
     typechecker and native API, while a full coverage checker remains planned.
 16. IO printing and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
     `putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing with
-    local `let`, built-in `Show Int`/`Show Bool`, Core/STG output oracles,
+    local `let`, broadened built-in `Show`, Core/STG output oracles,
     source strings and built-in show results as list-of-`Char` output, and
     wet-tested default/no-egglog CLI runs.
 17. Numeric literals and defaulting. Completed for dictionary-backed
@@ -350,8 +356,9 @@ recursive closure/thunk groups, user and built-in type class dictionary
 constructor/selector execution, guarded RHS/as-pattern programs, empty-case
 guard-fallthrough aborts, `putStrLn`/`print` output for `IO ()` programs with
 source string literals as list-of-`Char` values, boxed `Char` values, `Eq Char`
-primitive lowering, scalar `Char` root printing, built-in `Show Int`/`Show Bool`
-results as lists, checked primitives, and invokes clang to produce native
+primitive lowering, scalar `Char` root printing, built-in
+`Show Int`/`Show Bool`/`Show Char`/`Show String`/list results as lists,
+checked primitives, and invokes clang to produce native
 machine-code executables.
 
 ## GHC Compatibility

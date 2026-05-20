@@ -398,6 +398,16 @@
       "notes": "Native execution covers explicit Char cons patterns and string literal patterns over source string values."
     },
     {
+      "name": "prelude.broad-show",
+      "sourceFile": "test/haskell2010/conformance/prelude/broad-show.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Q'\n\"ok\"\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Broader Show coverage for Char, String, generic lists, nested string lists, print, and defaulted numeric list elements."
+    },
+    {
       "name": "io.printing",
       "sourceFile": "test/haskell2010/conformance/io/printing.hs",
       "category": "io",
@@ -506,15 +516,6 @@
       "expectedDiagnosticCategory": "kind mismatch",
       "requiredStage": "typecheck",
       "notes": "Partial type-constructor use must be rejected by kind checking."
-    },
-    {
-      "name": "unsupported.broad-show-string",
-      "sourceFile": "test/haskell2010/conformance/unsupported/broad-show-string.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "show",
-      "requiredStage": "typecheck",
-      "notes": "Only Show Int and Show Bool are currently installed; Show String remains unsupported."
     },
     {
       "name": "unsupported.handle-io",

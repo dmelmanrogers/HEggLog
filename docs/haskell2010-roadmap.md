@@ -339,11 +339,13 @@ Haskell 2010 AST, and class constraints carry their source attribution so
 delayed dictionary failures still render with a concrete source span.
 
 The built-in executable Prelude class slice now supports `Eq Int`, `Eq Bool`,
-`Eq Char`, `Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool`:
+`Eq Char`, `Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, `Show Bool`,
+`Show Char`, exact `Show String`, and generated structural list `Show`:
 `(==)`, `(/=)`, `compare`, `(<)`, `(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`,
 `(-)`, `(*)`, `negate`, `abs`, `signum`, `fromInteger`, and `show` lower
 through generated dictionaries and selectors. Integer literals elaborate through `fromInteger`,
-ambiguous numeric constraints default to the executable `Int` type, and binding
+ambiguous numeric constraints default to the executable `Int` type, structural
+`Show [a]` constraints participate in numeric-list defaulting, and binding
 groups are dependency-sorted before generalization so helper functions can be
 specialized by later bindings. TYPE-019 fixes the current MR decision:
 unsigned nullary value bindings without signatures can default direct standard
@@ -352,7 +354,7 @@ parameters are protected. `/` remains the existing checked `Int` division
 primitive rather than a `Fractional` method.
 Remaining Phase 12 work includes superclasses, default methods, instance
 contexts, method-specific constraints/type variables, coherence diagnostics,
-deriving, broader `Show` instances, and additional numeric classes.
+deriving, user ADT-shaped `Show`, and additional numeric classes.
 
 Deliverables:
 
@@ -364,7 +366,7 @@ Acceptance criteria:
 
 - `Eq` and `Ord` methods work for supported built-in instances
 - executable `Num Int` methods work through dictionaries
-- `Show` works enough for print
+- `Show` works for the supported scalar, string, and list executable subset
 - overloaded numeric literals work for supported numeric types
 - initial dictionary-passing Core validates for user-defined classes
 - native wet tests cover user-defined and built-in typeclass calls
@@ -377,9 +379,9 @@ The typechecker recognizes `IO`, `main :: IO ()`, `putStrLn`, `print`,
 Core/STG reference evaluators model IO output for oracle tests, and the native
 entrypoint executes `IO ()` actions instead of scalar root printing. Source
 string literals and built-in `show` results are represented as list-of-`Char`
-values, and boxed `Char` values, `Eq Char`, scalar `main :: Char`, `Show Int`,
-and `Show Bool` support the current output subset through default/no-egglog wet
-tests. `<-`
+values, and boxed `Char` values, `Eq Char`, scalar `main :: Char`, broadened
+`Show` dictionaries for `Int`/`Bool`/`Char`/`String`/lists support the current
+output subset through default/no-egglog wet tests. `<-`
 binding, `(>>=)`, real-world IO handles, and broader Prelude IO remain planned.
 
 Deliverables:
@@ -680,6 +682,11 @@ Completed immediate tasks:
   output, `reverse`/`length` over strings, `putStrLn` over built-in `show`
   results, explicit `Char` cons patterns, string literal patterns, conformance
   fixtures, default/no-egglog runs, and emit-LLVM wet checks.
+- Haskell 2010 broader `Show`, including exact `Show Char`, exact
+  `Show String`, generated structural `Show a => Show [a]`, nested `[String]`
+  output, `print` through the broadened dictionaries, numeric-list defaulting,
+  Core/STG/native oracles, conformance fixtures, and default/no-egglog wet
+  tests.
 
 ## Non-Negotiable Rules
 
