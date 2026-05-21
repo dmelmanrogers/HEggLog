@@ -11,8 +11,9 @@ documented Haskell 2010 executable subset. Haskell 2010 conformance is tracked
 by a separate dedicated suite, `haskell2010-conformance-test`, whose manifest
 lives at `test/haskell2010/conformance/manifest.json`. That suite compiles
 `.hs` files to native executables, executes artifacts directly, compares exact
-stdout, verifies runtime-error exits, verifies compile-error diagnostics, and
-keeps unsupported Haskell 2010 features visible as explicit cases.
+stdout, verifies runtime-error exits, verifies compile-error diagnostics, links
+manifest-declared C helper files for FFI cases through `clang`, and keeps
+unsupported Haskell 2010 features visible as explicit cases.
 
 This suite complements the existing unit, property, differential, and golden
 tests. Internal tests prove compiler passes and invariants in isolation. Wet
@@ -41,7 +42,8 @@ The Haskell 2010 conformance corpus lives under
 `test/haskell2010/conformance/`. Its authoritative manifest is structured JSON,
 not shell parsing, and records the case name, source file, category, expected
 status, exact expected stdout where applicable, diagnostic category for failing
-cases, required compiler stage, compiler mode, and notes/deviations.
+cases, required compiler stage, compiler mode, optional extra C helper inputs,
+and notes/deviations.
 
 ## Categories
 
@@ -121,6 +123,8 @@ cabal build all
 cabal test e2e-wet-test
 cabal test all
 cabal check
+python3 scripts/validate-haskell2010-conformance.py
+python3 scripts/validate-haskell2010-todo.py
 git diff --check
 ```
 

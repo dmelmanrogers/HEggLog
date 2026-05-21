@@ -119,6 +119,16 @@ contexts, and expression type-signature constraints still have structured
 placeholder diagnostics until their dedicated class-system tasks are
 implemented.
 
+TC-020 adds the supported `Monad` class surface on top of that dictionary
+model. The built-in `Monad` class parameter has kind `* -> *`, so constraint
+and instance-head kind checking can validate higher-kinded arguments such as
+`IO`, `Maybe`, and `[]` while rejecting `Monad Int`. The generated dictionary
+constructor stores polymorphic method fields for `return`, `(>>=)`, `(>>)`, and
+`fail`; selector bindings instantiate those method fields at each use site.
+Built-in dictionaries for `Monad IO`, `Monad Maybe`, and `Monad []` drive
+generic do-notation desugaring, including refutable pattern binds that call
+`fail` instead of relying on a raw no-match case.
+
 TC-016 documents `Read` as a deliberate Haskell 2010 Prelude/typeclass
 deviation. The renamer recognizes `Read` as a Prelude class name so source
 constraints fail as explicit unsupported type-class constraints, but the

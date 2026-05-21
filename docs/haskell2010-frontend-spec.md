@@ -50,6 +50,7 @@ The parser must produce a Haskell 2010 source AST with these categories:
 - types
 - classes and instances
 - fixity declarations
+- structured `foreign import` and `foreign export` declarations
 
 The parser may initially accept a Core-0 subset, but every accepted construct
 must be tracked in `docs/haskell2010-conformance-matrix.md`. Unsupported
@@ -67,8 +68,24 @@ scopes, class methods, instance methods, separated term/constructor/type/type
 variable/class/module namespaces, duplicate and unbound-name diagnostics,
 ambiguous explicit-import diagnostics, module-graph import resolution against
 actual exported definitions, qualified aliases, hiding, `Thing(..)` child
-expansion, and fixity resolution. Complete package search paths and complete
-Prelude module coverage remain later module-system work.
+expansion, fixity resolution, and Haskell 2010 instance import/export
+propagation through module interfaces. It also binds `foreign import` names as
+top-level terms, resolves `foreign export` references to existing top-level
+terms, and makes imported foreign names available through ordinary module
+interfaces. The typechecker validates the current FFI signature boundary
+against generated `Foreign`, `Foreign.C`, and `Foreign.C.Types` interfaces
+and valid imports lower into explicit Core/STG foreign-call or foreign-import
+value IR. The native backend lowers supported `foreign import ccall` scalar
+imports to LLVM external declarations/direct calls or indirect `FunPtr` calls
+with checked integer/Bool/Char marshalling, and now lowers boxed
+`Ptr`/`FunPtr` values, static `&symbol` address imports, pointer
+arguments/results, and `wrapper` callback trampolines for the same ABI slice.
+Complete package search paths, complete Prelude module coverage, floating-point
+ABI work, broader link metadata, automatic GC finalization, and
+`freeHaskellFunPtr`/callback-slot reclamation remain later
+module-system/runtime work; `foreign export ccall` entrypoints and explicit
+`StablePtr`/manual `ForeignPtr` ownership APIs are implemented for the current
+scalar/pointer native ABI slice.
 
 Required namespaces and scopes:
 
