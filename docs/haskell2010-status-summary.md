@@ -80,10 +80,11 @@ implemented:
 
 The authoritative queue is the task tracker, not prose-only roadmap text. The
 next implementation chunk is the remaining source surface implementation work:
-SURFACE-002 and SURFACE-003.
+SURFACE-003.
 SURFACE-001 completed the current source-surface audit and matrix
-reconciliation; the remaining tasks implement user-defined operator calls,
-broader `where` layout placement. DIAG-009 completed supported-subset
+reconciliation; SURFACE-002 completed user-defined operator bindings and infix
+calls; the remaining source-surface task implements broader `where` layout
+placement. DIAG-009 completed supported-subset
 pattern-match diagnostics, TEST-CONF-013 completed source-surface negative
 fixtures, TEST-CONF-014 completed machine-checked source matrix closure, and
 ADT-007 completed record update expressions for the supported record subset.
@@ -453,7 +454,8 @@ initially.
 
 The authoritative queue is maintained in `docs/haskell2010-todo.md` and
 validated against `docs/haskell2010-todo.json`. The current near-term focus is
-source surface implementation closure: SURFACE-002 and SURFACE-003.
+the remaining source surface implementation closure task: SURFACE-003.
+SURFACE-002 user-defined operator bindings and infix calls is complete.
 DIAG-009 pattern-match diagnostics, TEST-CONF-013 source-surface negative
 fixtures, TEST-CONF-014 source matrix closure, and ADT-007 record updates are
 complete and covered by focused tests/conformance fixtures.

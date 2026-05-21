@@ -50,8 +50,10 @@ For the detailed current support matrix, see
 The authoritative queue is the Haskell 2010 task tracker. The immediate
 source-surface chunk is:
 
-1. SURFACE-002 user-defined operator bindings and infix calls.
-2. SURFACE-003 where layout position coverage.
+1. SURFACE-003 where layout position coverage.
+
+SURFACE-002 user-defined operator bindings and infix calls is complete and
+covered by parser/renamer/Core/STG/native tests plus manifest fixtures.
 
 TEST-CONF-014 source matrix closure is complete and now enforced by the
 conformance validator.

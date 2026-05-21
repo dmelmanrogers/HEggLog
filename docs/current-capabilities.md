@@ -250,7 +250,8 @@ Progress is tracked in
 ## Current Next Focus
 
 The next coherent chunk is the remaining source surface implementation work,
-now tracked by stable IDs: SURFACE-002 and SURFACE-003.
+now tracked by stable ID SURFACE-003. SURFACE-002 user-defined operator
+bindings and infix calls is complete.
 SURFACE-001 completed the current source-surface audit and matrix
 reconciliation, DIAG-009 completed supported-subset pattern-match diagnostics,
 TEST-CONF-013 completed source-surface negative fixtures, TEST-CONF-014

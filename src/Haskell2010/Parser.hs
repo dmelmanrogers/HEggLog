@@ -356,12 +356,25 @@ parseForeignImportEntity raw =
         Nothing
 
 functionBinding :: Parser Decl
-functionBinding = do
+functionBinding =
+  try infixFunctionBinding <|> prefixFunctionBinding
+
+prefixFunctionBinding :: Parser Decl
+prefixFunctionBinding = do
   name <- functionName
   patterns <- many patParser
   rhs <- rhsParser
   whereDecls <- optionalWhereDecls
   pure (FunctionBinding name patterns rhs whereDecls)
+
+infixFunctionBinding :: Parser Decl
+infixFunctionBinding = do
+  lhs <- patParser
+  name <- qvarop
+  rhsPat <- patParser
+  rhs <- rhsParser
+  whereDecls <- optionalWhereDecls
+  pure (FunctionBinding name [lhs, rhsPat] rhs whereDecls)
 
 patternBinding :: Parser Decl
 patternBinding = do
@@ -795,9 +808,31 @@ qop =
   backtickName =
     symbol "`" *> (qvarid <|> qconid) <* symbol "`"
 
+qvarop :: Parser Text
+qvarop =
+  choice
+    [ try qualifiedVariableOperator
+    , try backtickVariableName
+    , variableOperator
+    ]
+ where
+  qualifiedVariableOperator = do
+    prefixes <- some (try (conid <* symbol "."))
+    op <- variableOperator
+    pure (Text.intercalate "." (prefixes <> [op]))
+  backtickVariableName =
+    symbol "`" *> qvarid <* symbol "`"
+
+variableOperator :: Parser Text
+variableOperator = do
+  op <- operator
+  if ":" `Text.isPrefixOf` op
+    then fail ("constructor operator " <> Text.unpack op <> " cannot be used as a variable operator")
+    else pure op
+
 functionName :: Parser Text
 functionName =
-  qvarid <|> parens qop
+  qvarid <|> parens qvarop
 
 bindingName :: Parser Text
 bindingName =

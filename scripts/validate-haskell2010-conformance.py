@@ -36,6 +36,7 @@ SOURCE_SURFACE_TABLE_HEADER = (
 SOURCE_SURFACE_MANIFEST_CATEGORIES = {"declarations", "expressions", "patterns"}
 
 SOURCE_SURFACE_ADDITIONAL_FIXTURES = {
+    "test/haskell2010/conformance/negative/constructor-operator-binding.hs",
     "test/haskell2010/conformance/negative/duplicate-function-parameter.hs",
     "test/haskell2010/conformance/negative/duplicate-monad-io.hs",
     "test/haskell2010/conformance/negative/ffi-wrapper-bad-shape.hs",

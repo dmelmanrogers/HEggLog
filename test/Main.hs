@@ -111,6 +111,8 @@ testGroups =
       , pureTest "Haskell 2010 foreign declarations parse structurally" testHaskell2010ForeignDeclarationParsing
       , pureTest "Haskell 2010 record field syntax parses" testHaskell2010RecordFieldSyntaxParsing
       , pureTest "Haskell 2010 record update syntax parses" testHaskell2010RecordUpdateSyntaxParsing
+      , pureTest "Haskell 2010 user-defined operator bindings parse" testHaskell2010UserDefinedOperatorParsing
+      , pureTest "Haskell 2010 constructor operator bindings are rejected" testHaskell2010ConstructorOperatorBindingRejected
       , pureTest "Haskell 2010 malformed layout is rejected" testHaskell2010MalformedLayout
       , pureTest "Haskell 2010 imports after declarations are rejected" testHaskell2010ImportAfterDecl
       ]
@@ -122,6 +124,7 @@ testGroups =
       , pureTest "separates term constructor type and class namespaces" testHaskell2010RenamerNamespaces
       , pureTest "scopes pattern binders over guarded RHS" testHaskell2010RenamerPatternScope
       , pureTest "renames record update labels distinctly from construction" testHaskell2010RenamerRecordUpdate
+      , pureTest "renames user-defined operators" testHaskell2010RenamerUserDefinedOperators
       , pureTest "resolves right-associative fixity" testHaskell2010RenamerRightAssociativeFixity
       , pureTest "resolves operator precedence" testHaskell2010RenamerFixityPrecedence
       , pureTest "rejects chained non-associative operators" testHaskell2010RenamerNonAssociativeFixity
@@ -195,6 +198,7 @@ testGroups =
       , pureTest "typechecks higher-kinded Monad constraints and dictionaries" testHaskell2010Core0Monad
       , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
       , pureTest "desugars operator sections to Core lambdas" testHaskell2010Core0Sections
+      , pureTest "typechecks user-defined operators" testHaskell2010Core0UserDefinedOperators
       , pureTest "typechecks arithmetic sequences" testHaskell2010Core0ArithmeticSequences
       , pureTest "typechecks Enum Bounded and superclass defaulting" testHaskell2010Core0EnumBounded
       , pureTest "typechecks derived Eq instances" testHaskell2010Core0DerivedEq
@@ -241,6 +245,7 @@ testGroups =
       , pureTest "evaluates Monad IO Maybe and list do-notation" testHaskell2010Core0EvalMonad
       , pureTest "evaluates guards and as-patterns" testHaskell2010Core0EvalGuardsAndAsPatterns
       , pureTest "evaluates operator sections" testHaskell2010Core0EvalSections
+      , pureTest "evaluates user-defined operators" testHaskell2010Core0EvalUserDefinedOperators
       , pureTest "evaluates arithmetic sequences" testHaskell2010Core0EvalArithmeticSequences
       , pureTest "evaluates Enum Bounded and superclass defaulting" testHaskell2010Core0EvalEnumBounded
       , pureTest "evaluates derived Eq instances" testHaskell2010Core0EvalDerivedEq
@@ -289,6 +294,7 @@ testGroups =
       , pureTest "preserves IO getLine empty-stdin semantics" testHaskell2010CoreToSTGIOGetLine
       , pureTest "preserves guard and as-pattern semantics" testHaskell2010CoreToSTGGuardsAndAsPatterns
       , pureTest "preserves operator section semantics" testHaskell2010CoreToSTGSections
+      , pureTest "preserves user-defined operator semantics" testHaskell2010CoreToSTGUserDefinedOperators
       , pureTest "preserves arithmetic sequence semantics" testHaskell2010CoreToSTGArithmeticSequences
       , pureTest "preserves Enum Bounded semantics" testHaskell2010CoreToSTGEnumBounded
       , pureTest "preserves derived Eq semantics" testHaskell2010CoreToSTGDerivedEq
@@ -312,6 +318,7 @@ testGroups =
       , pureTest "emits derived Ord LLVM" testHaskell2010NativeDerivedOrd
       , pureTest "emits derived Show LLVM" testHaskell2010NativeDerivedShow
       , pureTest "emits Prelude append LLVM" testHaskell2010NativeAppend
+      , pureTest "emits user-defined operator LLVM" testHaskell2010NativeUserDefinedOperators
       , pureTest "emits IO getLine LLVM" testHaskell2010NativeGetLine
       , pureTest "emits list comprehension LLVM" testHaskell2010NativeListComprehensions
       , ioTest "native static ccall imports link and run" testHaskell2010NativeStaticCCall
@@ -833,6 +840,37 @@ testHaskell2010RecordUpdateSyntaxParsing = do
         expectEqual "record update field order is parsed from source order" ["score", "age"] (map fst updateFields)
     other -> Left ("unexpected record update syntax parse: " <> show other)
 
+testHaskell2010UserDefinedOperatorParsing :: Either String ()
+testHaskell2010UserDefinedOperatorParsing = do
+  parsed <- parseHaskell2010 haskell2010UserDefinedOperatorsSource
+  let bindingShapes =
+        [ (name, length patterns)
+        | H2010.FunctionBinding name patterns _ _ <- H2010.moduleDecls parsed
+        ]
+      fixityNames =
+        concat
+          [ names
+          | H2010.FixityDecl _ names <- H2010.moduleDecls parsed
+          ]
+  assertBool "prefix parenthesized symbolic binding parses" (("<->", 2) `elem` bindingShapes)
+  assertBool "infix symbolic binding parses as binary function" (("<+>", 2) `elem` bindingShapes)
+  assertBool "backtick value-operator binding parses as binary function" (("combine", 2) `elem` bindingShapes)
+  assertBool "local symbolic Prelude-shadowing binding parses" (("++", 2) `elem` bindingShapes)
+  assertBool "symbolic fixity declaration parses" ("<+>" `elem` fixityNames)
+  assertBool "backtick fixity declaration parses" ("combine" `elem` fixityNames)
+
+testHaskell2010ConstructorOperatorBindingRejected :: Either String ()
+testHaskell2010ConstructorOperatorBindingRejected =
+  case
+    H2010Parser.parseSourceModule
+      "<haskell2010-constructor-operator-binding>"
+      "module Bad where\n\
+      \x :*: y = x\n\
+      \main = 1\n"
+    of
+      Left _ -> Right ()
+      Right parsed -> Left ("constructor operator binding parsed unexpectedly: " <> show parsed)
+
 testHaskell2010MalformedLayout :: Either String ()
 testHaskell2010MalformedLayout =
   case
@@ -965,6 +1003,40 @@ testHaskell2010RenamerRecordUpdate = do
         expectEqual "record update field expression argument resolves parameter" paramP scoreArg
         expectEqual "record labels live in term namespace" H2010Names.TermNamespace (H2010Names.nameNamespace updateAge)
     other -> Left ("unexpected renamed record update module: " <> show other)
+
+testHaskell2010RenamerUserDefinedOperators :: Either String ()
+testHaskell2010RenamerUserDefinedOperators = do
+  renamed <- renameHaskell2010 haskell2010UserDefinedOperatorsSource
+  let functionBindings =
+        [ (name, patterns)
+        | H2010Renamed.RFunctionBinding name patterns _ _ <- H2010Renamed.rModuleDecls renamed
+        ]
+      fixityNames =
+        concat
+          [ names
+          | H2010Renamed.RFixityDecl _ names <- H2010Renamed.rModuleDecls renamed
+          ]
+  ltPlusGt <- lookupRenamedFunction "<+>" functionBindings
+  ltMinusGt <- lookupRenamedFunction "<->" functionBindings
+  combineName <- lookupRenamedFunction "combine" functionBindings
+  appendName <- lookupRenamedFunction "++" functionBindings
+  mapM_
+    (expectEqual "user-defined operator namespace" H2010Names.TermNamespace . H2010Names.nameNamespace)
+    [ltPlusGt, ltMinusGt, combineName, appendName]
+  assertBool "local ++ shadows imported Prelude ++" (not (H2010Names.nameExternal appendName))
+  assertBool "symbolic operator fixity resolves to local operator" (ltPlusGt `elem` fixityNames)
+  assertBool "backtick operator fixity resolves to local value name" (combineName `elem` fixityNames)
+ where
+  lookupRenamedFunction occurrence bindings =
+    case
+      [ name
+      | (name, patterns) <- bindings
+      , H2010Names.nameOcc name == occurrence
+      , length patterns == 2
+      ]
+    of
+      [name] -> Right name
+      names -> Left ("expected one renamed binary function " <> Text.unpack occurrence <> ", got: " <> show names)
 
 testHaskell2010RenamerRightAssociativeFixity :: Either String ()
 testHaskell2010RenamerRightAssociativeFixity = do
@@ -2065,6 +2137,22 @@ testHaskell2010Core0Sections = do
  where
   intToInt = H2010Core.funTy H2010Core.intTy H2010Core.intTy
 
+testHaskell2010Core0UserDefinedOperators :: Either String ()
+testHaskell2010Core0UserDefinedOperators = do
+  coreModule <- typecheckHaskell2010 haskell2010UserDefinedOperatorsSource
+  mapM_
+    (\occurrence -> assertBool ("user-defined operator binding emitted: " <> Text.unpack occurrence) (containsBindingOccurrence occurrence coreModule))
+    ["<+>", "<->", "combine", "++"]
+  (ltPlusGtBinder, _) <- lookupCoreBindingOccurrence "<+>" coreModule
+  (combineBinder, _) <- lookupCoreBindingOccurrence "combine" coreModule
+  (appendBinder, _) <- lookupCoreBindingOccurrence "++" coreModule
+  expectEqual "symbolic operator Core type" intBinary (H2010Core.coreBinderType ltPlusGtBinder)
+  expectEqual "backtick operator Core type" intBinary (H2010Core.coreBinderType combineBinder)
+  expectEqual "local append-shadowing Core type" intBinary (H2010Core.coreBinderType appendBinder)
+  expectCoreEvalInt "user-defined operator Core oracle" 537 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+ where
+  intBinary = H2010Core.funTy H2010Core.intTy (H2010Core.funTy H2010Core.intTy H2010Core.intTy)
+
 testHaskell2010Core0ArithmeticSequences :: Either String ()
 testHaskell2010Core0ArithmeticSequences = do
   coreModule <- typecheckHaskell2010 haskell2010ArithmeticSequencesSource
@@ -2954,6 +3042,13 @@ testHaskell2010Core0EvalSections =
     6
     =<< evalHaskell2010Binding "main" haskell2010SectionsSource
 
+testHaskell2010Core0EvalUserDefinedOperators :: Either String ()
+testHaskell2010Core0EvalUserDefinedOperators =
+  expectCoreEvalInt
+    "Core-0 user-defined operator evaluation"
+    537
+    =<< evalHaskell2010Binding "main" haskell2010UserDefinedOperatorsSource
+
 testHaskell2010Core0EvalArithmeticSequences :: Either String ()
 testHaskell2010Core0EvalArithmeticSequences =
   expectCoreEvalIO
@@ -3286,6 +3381,10 @@ testHaskell2010CoreToSTGSections :: Either String ()
 testHaskell2010CoreToSTGSections =
   checkCoreToSTGInt "Core-to-STG operator sections" 6 haskell2010SectionsSource
 
+testHaskell2010CoreToSTGUserDefinedOperators :: Either String ()
+testHaskell2010CoreToSTGUserDefinedOperators =
+  checkCoreToSTGInt "Core-to-STG user-defined operators" 537 haskell2010UserDefinedOperatorsSource
+
 testHaskell2010CoreToSTGArithmeticSequences :: Either String ()
 testHaskell2010CoreToSTGArithmeticSequences =
   checkCoreToSTGIO "Core-to-STG arithmetic sequences" haskell2010ArithmeticSequencesOutput haskell2010ArithmeticSequencesSource
@@ -3427,6 +3526,14 @@ testHaskell2010NativeAppend = do
   llvmText <- compileHaskell2010NativeText haskell2010AppendSource
   assertBool "native Prelude append emits list case dispatch" ("case_data_match" `Text.isInfixOf` llvmText)
   assertBool "native Prelude append keeps String values as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeUserDefinedOperators :: Either String ()
+testHaskell2010NativeUserDefinedOperators = do
+  llvmText <- compileHaskell2010NativeText haskell2010UserDefinedOperatorsSource
+  assertBool "native LLVM emits symbolic operator binding" ("_x3c__x2b__x3e_" `Text.isInfixOf` llvmText)
+  assertBool "native LLVM emits prefix symbolic operator binding" ("_x3c__x2d__x3e_" `Text.isInfixOf` llvmText)
+  assertBool "native LLVM emits backtick value operator binding" ("combine" `Text.isInfixOf` llvmText)
+  assertBool "native LLVM emits local append-shadowing binding" ("_x2b__x2b_" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeGetLine :: Either String ()
 testHaskell2010NativeGetLine = do
@@ -7138,6 +7245,7 @@ haskell2010NativeSuccessExamples =
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
   , ("irrefutable-patterns", haskell2010IrrefutablePatternSource, "7\n")
   , ("sections", haskell2010SectionsSource, "6\n")
+  , ("user-defined-operators", haskell2010UserDefinedOperatorsSource, "537\n")
   , ("arithmetic-sequences", haskell2010ArithmeticSequencesSource, Text.unpack haskell2010ArithmeticSequencesOutput)
   , ("enum-bounded", haskell2010EnumBoundedSource, Text.unpack haskell2010EnumBoundedOutput)
   , ("derived-eq", haskell2010DerivedEqSource, "10\n")
@@ -7175,6 +7283,7 @@ haskell2010NativeExecutableExamples =
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
   , ("irrefutable-patterns", haskell2010IrrefutablePatternSource, "7\n")
   , ("sections", haskell2010SectionsSource, "6\n")
+  , ("user-defined-operators", haskell2010UserDefinedOperatorsSource, "537\n")
   , ("arithmetic-sequences", haskell2010ArithmeticSequencesSource, Text.unpack haskell2010ArithmeticSequencesOutput)
   , ("enum-bounded", haskell2010EnumBoundedSource, Text.unpack haskell2010EnumBoundedOutput)
   , ("derived-eq", haskell2010DerivedEqSource, "10\n")
@@ -7516,6 +7625,27 @@ haskell2010SectionsSource =
   \short :: Bool -> Bool\n\
   \short = (False &&)\n\
   \main = if short ((1 / 0) == 0) then 0 else if over (right 3) then left (right 4) else 0\n"
+
+haskell2010UserDefinedOperatorsSource :: Text
+haskell2010UserDefinedOperatorsSource =
+  "module Main where\n\
+  \infixr 5 <+>\n\
+  \infixl 6 `combine`\n\
+  \infixl 7 ++\n\
+  \\n\
+  \(<->) :: Int -> Int -> Int\n\
+  \(<->) x y = x - y\n\
+  \\n\
+  \(<+>) :: Int -> Int -> Int\n\
+  \x <+> y = x * 10 + y\n\
+  \\n\
+  \combine :: Int -> Int -> Int\n\
+  \x `combine` y = x * 10 + y\n\
+  \\n\
+  \(++) :: Int -> Int -> Int\n\
+  \x ++ y = x * y\n\
+  \\n\
+  \main = (1 <+> 2 <+> 3) + (4 `combine` 5 `combine` 6) + (6 ++ 7) + (10 <-> 4)\n"
 
 haskell2010ArithmeticSequencesSource :: Text
 haskell2010ArithmeticSequencesSource =

@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-21 04:19:05 UTC
+Date/time: 2026-05-21 04:42:51 UTC
 
-Commit hash tested: 6d54d67 with working-tree TEST-CONF-014 changes.
+Commit hash tested: cc3da87 with working-tree SURFACE-002 changes.
 
 Primary conformance command run:
 
@@ -37,14 +37,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 103 |
-| Haskell source files in corpus | 110 |
-| HUnit test cases executed | 135 |
-| Native-success fixtures | 72 |
+| Manifest conformance fixtures | 105 |
+| Haskell source files in corpus | 112 |
+| HUnit test cases executed | 138 |
+| Native-success fixtures | 73 |
 | Native-runtime-error fixtures | 3 |
-| Compile-error fixtures | 22 |
+| Compile-error fixtures | 23 |
 | Unsupported-documented fixtures | 6 |
-| Native subprocess compile/run checks | 107 |
+| Native subprocess compile/run checks | 109 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -62,6 +62,12 @@ for malformed where layout, duplicate binders, impossible patterns, unsupported
 constraint positions, and FFI shape boundaries to stay linked from the closure
 table.
 
+SURFACE-002 is now covered by native and negative conformance fixtures:
+`expressions.user-defined-operators` checks symbolic and backtick value
+operators, local fixity, and Prelude-shadowing `(++)`;
+`negative.constructor-operator-binding` rejects colon-prefixed constructor
+operators in value-binding syntax.
+
 ## Category Summary
 
 | Category | Manifest fixtures | Status |
@@ -69,14 +75,14 @@ table.
 | `adts` | 5 | representative native tests exist, including record labels/selectors and record updates |
 | `declarations` | 6 | representative native tests exist |
 | `egglog` | 1 | optimized/unoptimized native agreement covered |
-| `expressions` | 11 | representative native tests exist |
+| `expressions` | 12 | representative native tests exist, including user-defined infix operators |
 | `ffi` | 5 | static ccall, pointer/address, dynamic/wrapper, foreign export, and StablePtr/ForeignPtr ownership native fixtures link C helpers and run in default and `--no-egglog` modes |
 | `io` | 4 | current line-oriented stdin/stdout IO slice covered, including do-bind, explicit `(>>=)`, `getLine`, and explicit `fail` examples |
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
 | `modules` | 6 | single-module, same-directory import, implicit/explicit/qualified Prelude import, and source-instance import/export tests exist |
-| `negative` | 22 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, duplicate source binders, invalid pattern bindings, impossible case patterns, invalid record updates, duplicate built-in instances, and FFI shape/lifetime boundary failures |
+| `negative` | 23 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
 | `prelude` | 13 | list functions, append, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
 | `recursion` | 1 | top-level recursion representative native test exists |

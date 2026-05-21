@@ -3551,7 +3551,7 @@ inferExpr env expr =
         unify (typedExprType typedFn) (TyFun (typedExprType typedArg) resultTy)
         pure (TApp typedFn typedArg resultTy)
       RInfixApp lhs op rhs ->
-        inferPrimitive env lhs op rhs
+        inferInfixApp env lhs op rhs
       RLambda patterns body ->
         inferLambda env patterns body
       RLet decls body -> do
@@ -4463,6 +4463,26 @@ preludeValueScheme name
   foreignPtrA = TyApp (TyCon foreignPtrTyConName) aTy
   finalizerPtrA = TyApp (TyCon funPtrTyConName) (TyFun ptrA ioUnit)
 
+inferInfixApp :: TypeEnv -> RExpr -> RName -> RExpr -> InferM TypedExpr
+inferInfixApp env lhs op rhs
+  | isBuiltinPrimitiveOperator op =
+      inferPrimitive env lhs op rhs
+  | otherwise =
+      inferExpr env (RApp (RApp (infixOperatorExpr op) lhs) rhs)
+
+isBuiltinPrimitiveOperator :: RName -> Bool
+isBuiltinPrimitiveOperator op =
+  nameExternal op && nameNamespace op == TermNamespace && nameOcc op `Set.member` builtinPrimitiveOperatorOccurrences
+
+builtinPrimitiveOperatorOccurrences :: Set.Set Text
+builtinPrimitiveOperatorOccurrences =
+  Set.fromList ["+", "-", "*", "/", "++", "<", "<=", ">", ">=", "==", "/=", ">>=", ">>", "&&", "||"]
+
+infixOperatorExpr :: RName -> RExpr
+infixOperatorExpr op
+  | nameNamespace op == ConstructorNamespace = RCon op
+  | otherwise = RVar op
+
 inferPrimitive :: TypeEnv -> RExpr -> RName -> RExpr -> InferM TypedExpr
 inferPrimitive env lhs op rhs =
   case nameOcc op of
@@ -4482,7 +4502,7 @@ inferPrimitive env lhs op rhs =
     ">>" -> inferExpr env (RApp (RApp (RVar op) lhs) rhs)
     "&&" -> shortCircuit falseTyped trueDataConName
     "||" -> shortCircuit trueTyped falseDataConName
-    other -> throwTypecheck (UnsupportedCore0 ("operator `" <> other <> "`"))
+    _ -> inferExpr env (RApp (RApp (infixOperatorExpr op) lhs) rhs)
  where
   trueTyped = TCon trueDataConName (Scheme [] [] boolMonoType) [] boolMonoType
   falseTyped = TCon falseDataConName (Scheme [] [] boolMonoType) [] boolMonoType

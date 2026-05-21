@@ -136,6 +136,19 @@
       "notes": "Left and right operator sections desugar to typed Core lambdas, including lazy Boolean section semantics."
     },
     {
+      "name": "expressions.user-defined-operators",
+      "sourceFile": "test/haskell2010/conformance/expressions/user-defined-operators.hs",
+      "category": "expressions",
+      "expectedStatus": "native-success",
+      "expectedStdout": "537\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "User-defined symbolic and backtick operators compile as ordinary functions with local fixity and Prelude-shadowing behavior."
+    },
+    {
       "name": "modules.single-module-main",
       "sourceFile": "test/haskell2010/conformance/modules/single-module-main.hs",
       "category": "modules",
@@ -813,6 +826,15 @@
       "expectedDiagnosticCategory": "parse",
       "requiredStage": "parse",
       "notes": "Malformed where-group layout must fail during Haskell 2010 parsing."
+    },
+    {
+      "name": "negative.constructor-operator-binding",
+      "sourceFile": "test/haskell2010/conformance/negative/constructor-operator-binding.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "parse",
+      "requiredStage": "parse",
+      "notes": "Colon-prefixed constructor operators are rejected in value-operator binding syntax."
     },
     {
       "name": "negative.invalid-pattern-binding",

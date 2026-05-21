@@ -599,13 +599,15 @@ Acceptance criteria:
 
 ### Source Surface Closure
 
-This is the next coherent implementation chunk. The goal is to close the
-remaining source-language surface gaps before broadening the library again:
+This is the current coherent implementation chunk. The goal is to close the
+remaining source-language surface gap before broadening the library again:
 
-1. SURFACE-002 — implement user-defined operator bindings and infix calls beyond
-   the currently supported built-in operator subset.
-2. SURFACE-003 — expand `where` parsing to cover report-shaped line-broken
+1. SURFACE-003 — expand `where` parsing to cover report-shaped line-broken
    layout positions for function bindings and case alternatives.
+
+SURFACE-002 is complete: user-defined symbolic and backtick operator bindings,
+local fixities, non-built-in infix calls, and Prelude-shadowing operators now
+compile through native execution and have manifest-backed fixtures.
 
 TEST-CONF-014 is complete: expression, declaration, and pattern matrix rows now
 have manifest-backed closure entries, and the conformance validator enforces

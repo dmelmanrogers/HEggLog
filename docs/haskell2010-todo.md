@@ -213,8 +213,7 @@ Rules:
 
 ## Next coherent chunk: Source surface closure
 
-1. SURFACE-002 — user-defined operator bindings and infix calls.
-2. SURFACE-003 — where layout position coverage.
+1. SURFACE-003 — where layout position coverage.
 
 ## Following coherent chunk: Prelude, deriving, and typeclass library completion
 
@@ -10610,7 +10609,7 @@ Notes:
 ## SURFACE-002 — user-defined operator bindings and infix calls
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -10660,7 +10659,7 @@ Documentation updates:
 - docs/haskell2010-status-summary.md
 
 Notes:
-- Discovered during SURFACE-001: parser and renamer have operator surface pieces, but the executable typechecker currently only handles the supported built-in operator subset.
+- Complete. User-defined symbolic and backtick value operators now parse as ordinary binary function bindings, constructor-operator binding syntax is rejected at parse time, and non-built-in infix applications typecheck by elaborating through ordinary function application. Local fixity declarations apply through renaming, Core/STG/native execution, and the wet fixture also locks local shadowing of Prelude `(++)` so built-in special-casing cannot steal user-defined operators.
 ## SURFACE-003 — where layout position coverage
 
 Status:
@@ -19700,6 +19699,7 @@ Notes:
 - Complete for current source-surface negative coverage. The manifest now
   includes stable diagnostic-category fixtures for malformed `where` layout,
   duplicate binders in top-level pattern bindings and function equations,
+  constructor-operator misuse in value binding syntax,
   invalid record updates, an impossible `case` pattern/scrutinee combination,
   and a documented unsupported constrained expression signature.
 
@@ -19759,7 +19759,7 @@ Notes:
   manifest fixtures omitted from the closure table. It also requires the
   source-surface negative and unsupported fixtures to remain linked from the
   closure table. Remaining source-surface implementation gaps are explicitly
-  owned by SURFACE-002 and SURFACE-003 instead of being counted as complete
+  owned by SURFACE-003 instead of being counted as complete
   executable support.
 
 ## TEST-CONF-015 — library conformance closure

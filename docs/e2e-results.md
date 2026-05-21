@@ -1,15 +1,15 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after DIAG-009 added compile-time
-pattern-match warning CLI coverage. The suite covers the
-existing `.hg` native compiler baseline and Haskell 2010 executable-subset
+Recorded for the mandatory wet-test suite after SURFACE-002 added
+user-defined operator binding and infix-call native coverage. The suite covers
+the existing `.hg` native compiler baseline and Haskell 2010 executable-subset
 `.hs` programs that compile to native executables, compare lazy runtime
 behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
 optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-21 03:50:05 UTC`
+- Date/time: `2026-05-21 04:42:51 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -18,23 +18,22 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 159
-- Source files: 62
-- Successful source cases: 52
+- HUnit checks: 162
+- Source files: 63
+- Successful source cases: 53
 - Runtime-error source cases: 7
 - Compile-error source cases: 3
-- Native compile/run checks: 114
-- Default Egglog native checks: 63
-- `--no-egglog` native checks: 51
-- Emit-LLVM checks: 33
+- Native compile/run checks: 116
+- Default Egglog native checks: 64
+- `--no-egglog` native checks: 52
+- Emit-LLVM checks: 34
 - Report/interpreter comparisons: 11
 - Failures: 0
 
-This update adds a dedicated Haskell 2010 native case for DIAG-009:
-a successful partial `case` program that emits source-spanned non-exhaustive
-pattern warnings containing `case alternatives` and the missing `False`
-witness. The fixture runs in both default and `--no-egglog` modes and emits LLVM
-that is compiled through clang.
+This update adds a dedicated Haskell 2010 native case for SURFACE-002:
+symbolic and backtick value-operator bindings, local fixity reassociation, and
+local `(++)` shadowing. The fixture runs in both default and `--no-egglog`
+modes and emits LLVM that is compiled through clang.
 
 ## Case Table
 
@@ -137,6 +136,9 @@ that is compiled through clang.
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | native/default | `15` | stdout `15`, stderr empty, exit 0 | pass |
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | native/no-egglog | `15` | stdout `15`, stderr empty, exit 0 | pass |
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | emit-llvm/default | `15` | LLVM compiled through clang, stdout `15`, stderr empty, exit 0 | pass |
+| haskell2010-user-defined-operators | `test/e2e/programs/haskell2010/user-defined-operators.hs` | success | native/default | `537` | stdout `537`, stderr empty, exit 0 | pass |
+| haskell2010-user-defined-operators | `test/e2e/programs/haskell2010/user-defined-operators.hs` | success | native/no-egglog | `537` | stdout `537`, stderr empty, exit 0 | pass |
+| haskell2010-user-defined-operators | `test/e2e/programs/haskell2010/user-defined-operators.hs` | success | emit-llvm/default | `537` | LLVM compiled through clang, stdout `537`, stderr empty, exit 0 | pass |
 | haskell2010-arithmetic-sequences | `test/e2e/programs/haskell2010/arithmetic-sequences.hs` | success | native/default | `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]` | stdout `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]`, stderr empty, exit 0 | pass |
 | haskell2010-arithmetic-sequences | `test/e2e/programs/haskell2010/arithmetic-sequences.hs` | success | native/no-egglog | `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]` | stdout `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]`, stderr empty, exit 0 | pass |
 | haskell2010-arithmetic-sequences | `test/e2e/programs/haskell2010/arithmetic-sequences.hs` | success | emit-llvm/default | `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]` | LLVM compiled through clang, stdout `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]`, stderr empty, exit 0 | pass |
