@@ -91,9 +91,10 @@ fixtures, TEST-CONF-014 completed machine-checked source matrix closure, and
 ADT-007 completed record update expressions for the supported record subset.
 
 The following chunk is Prelude, deriving, and typeclass library completion:
-TC-029, TC-030, PRELUDE-019, PRELUDE-020, and TEST-CONF-015. Those tasks cover
-report-shaped `Show`, `Read`, remaining missing Prelude functions,
-standard-library module expansion, and library conformance closure.
+TC-029, TC-030, PRELUDE-020, and TEST-CONF-015. PRELUDE-019 is complete for
+`($)`, `(.)`, `flip`, `head`, `tail`, `null`, `fst`, and `snd`; the remaining
+tasks cover report-shaped `Show`, `Read`, standard-library module expansion,
+and library conformance closure.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
 through FFI-013 now own floating-point marshalling, link metadata, callback and
@@ -153,8 +154,9 @@ desugared to Bool `case`, explicit Bool and user-constructor `case`, custom
 polymorphic constructors, constructor patterns, nested constructor patterns,
 list and tuple expressions/patterns/types, built-in Prelude data constructors,
 wildcard patterns, literal patterns, short-circuit `&&`/`||`, generated Prelude
-bindings for `id`, `const`, `not`, `otherwise`, `map`, `foldr`, `foldl`,
-`length`, `filter`, `reverse`, and `(++)`; dictionary-backed `Eq`, `Ord`, and `Num` methods for
+bindings for `id`, `const`, `not`, `otherwise`, `($)`, `(.)`, `flip`, `map`,
+`foldr`, `foldl`, `head`, `tail`, `null`, `fst`, `snd`, `length`, `filter`,
+`reverse`, and `(++)`; dictionary-backed `Eq`, `Ord`, and `Num` methods for
 the first built-in instances, including `Eq Char`; guarded RHSs and
 guarded case alternatives desugared to Bool `case`; as-pattern aliases lowered
 as local Core bindings; `IO` actions for `putStrLn`, `getLine`, `print`,
@@ -353,7 +355,8 @@ and compiled to native executables through the existing clang toolchain.
 11. Prelude Bool/list/tuple runtime expansion. Completed for built-in list,
     tuple, unit, `Maybe`, `Either`, and `Ordering` constructors/types,
     short-circuit Bool operators, generated Core Prelude bindings for `id`,
-    `const`, `not`, `otherwise`, `map`, `foldr`, `foldl`, `length`, `filter`,
+    `const`, `not`, `otherwise`, `($)`, `(.)`, `flip`, `map`, `foldr`,
+    `foldl`, `head`, `tail`, `null`, `fst`, `snd`, `length`, `filter`,
     `reverse`, and `(++)`, STG lowering/evaluation, native LLVM execution, and wet-tested
     default/no-egglog CLI runs.
 12. Recursive top-level and local function/data-structure coverage. Completed

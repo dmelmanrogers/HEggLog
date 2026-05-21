@@ -7991,7 +7991,7 @@
     {
       "id": "PRELUDE-019",
       "title": "Prelude function completion",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "PRELUDE-009",
@@ -8016,7 +8016,8 @@
         "docs/current-capabilities.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. The generated Prelude now claims and emits ordinary Core bindings for `($)`, `(.)`, `flip`, `head`, `tail`, `null`, `fst`, and `snd`. `($)`, `(.)`, and `flip` are lazy higher-order wrappers; `head`, `tail`, and `null` case-analyze ordinary lists; `head` and `tail` intentionally preserve empty-list no-match runtime failure; `fst` and `snd` case-analyze ordinary pair tuples and force only the tuple header plus the selected field. No list-fusion rewrites are introduced. Core, STG, LLVM/native, e2e, and conformance fixtures cover successful use plus empty-list `head` native runtime failure. Remaining Prelude functions stay unclaimed and continue under PRELUDE-020, TC-029, TC-030, TEST-CONF-015, or later dedicated library tasks."
     },
     {
       "id": "PRELUDE-020",

@@ -110,8 +110,9 @@ is built alongside them.
 12. Lists, tuples, and Prelude Core. Completed for built-in list, tuple, unit,
     `Maybe`, `Either`, and `Ordering` constructors/types, list and tuple
     expressions/patterns, short-circuit Bool operators, generated Core Prelude
-    bindings for `id`, `const`, `not`, `otherwise`, `map`, `foldr`, `foldl`,
-    `length`, `filter`, `reverse`, and `(++)`, Core/STG/native execution, and wet-tested
+    bindings for `id`, `const`, `not`, `otherwise`, `($)`, `(.)`, `flip`,
+    `map`, `foldr`, `foldl`, `head`, `tail`, `null`, `fst`, `snd`, `length`,
+    `filter`, `reverse`, and `(++)`, Core/STG/native execution, and wet-tested
     default/no-egglog CLI runs.
 13. Recursion. Completed for singleton self-recursive bindings, mutually
     recursive top-level groups, local recursive `let`, fibonacci/factorial

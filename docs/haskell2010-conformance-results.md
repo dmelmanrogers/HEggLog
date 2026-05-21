@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-21 05:47:13 UTC
+Date/time: 2026-05-21 07:17:06 UTC
 
-Commit hash tested: working tree with TC-032 derived `Bounded` changes.
+Commit hash tested: working tree with PRELUDE-019 function-completion changes.
 
 Primary conformance command run:
 
@@ -37,14 +37,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 115 |
-| Haskell source files in corpus | 122 |
-| HUnit test cases executed | 154 |
-| Native-success fixtures | 78 |
-| Native-runtime-error fixtures | 4 |
+| Manifest conformance fixtures | 117 |
+| Haskell source files in corpus | 124 |
+| HUnit test cases executed | 158 |
+| Native-success fixtures | 79 |
+| Native-runtime-error fixtures | 5 |
 | Compile-error fixtures | 27 |
 | Unsupported-documented fixtures | 6 |
-| Native subprocess compile/run checks | 121 |
+| Native subprocess compile/run checks | 125 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -99,6 +99,14 @@ PRELUDE-009 is now covered by native conformance and e2e fixtures.
 polymorphic accumulator/list element types, empty-list behavior, and lazy
 ignored accumulator arguments in default and `--no-egglog` modes.
 
+PRELUDE-019 is now covered by native conformance and e2e fixtures.
+`prelude.functions` checks generated `($)`, `(.)`, `flip`, `head`, `tail`,
+`null`, `fst`, and `snd` through Core/STG/native execution, including function
+composition/application, list selectors, pair selectors, list null checks, and
+String output as `[Char]`. `prelude.head-empty` locks the partial-selector
+boundary by requiring empty-list `head` to compile and fail at native runtime in
+default and `--no-egglog` modes.
+
 ## Category Summary
 
 | Category | Manifest fixtures | Status |
@@ -115,7 +123,7 @@ ignored accumulator arguments in default and `--no-egglog` modes.
 | `modules` | 6 | single-module, same-directory import, implicit/explicit/qualified Prelude import, and source-instance import/export tests exist |
 | `negative` | 27 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid default declarations, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
-| `prelude` | 15 | list functions, append, foldl, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
+| `prelude` | 17 | list functions, append, foldl, function/selector completion, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
 | `typeclasses` | 11 | user dictionary, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, derived Enum, and derived Bounded tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |

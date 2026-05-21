@@ -293,9 +293,9 @@ syntheticImportSpec spec =
 
 unqualifiedOccurrence :: RName -> Text
 unqualifiedOccurrence name =
-  case reverse (Text.splitOn "." (nameOcc name)) of
-    occ : _ -> occ
-    [] -> nameOcc name
+  case Text.splitOn "." (nameOcc name) of
+    parts@(_ : _ : _) | all (not . Text.null) parts -> last parts
+    _ -> nameOcc name
 
 classifiedImportedName :: Text -> [(Namespace, Text)]
 classifiedImportedName occ

@@ -1,7 +1,7 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after TC-032 added derived `Bounded`
-native coverage. The suite covers
+Recorded for the mandatory wet-test suite after PRELUDE-019 added generated
+Prelude function-completion coverage. The suite covers
 the existing `.hg` native compiler baseline and Haskell 2010 executable-subset
 `.hs` programs that compile to native executables, compare lazy runtime
 behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
@@ -9,7 +9,7 @@ optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-21 05:47:13 UTC`
+- Date/time: `2026-05-21 07:17:06 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -18,15 +18,15 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 173
-- Source files: 67
-- Successful source cases: 56
-- Runtime-error source cases: 8
+- HUnit checks: 184
+- Source files: 69
+- Successful source cases: 57
+- Runtime-error source cases: 9
 - Compile-error source cases: 3
-- Native compile/run checks: 124
-- Default Egglog native checks: 68
-- `--no-egglog` native checks: 56
-- Emit-LLVM checks: 37
+- Native compile/run checks: 132
+- Default Egglog native checks: 72
+- `--no-egglog` native checks: 60
+- Emit-LLVM checks: 40
 - Report/interpreter comparisons: 11
 - Failures: 0
 
@@ -125,6 +125,9 @@ modes and emits LLVM compiled through clang.
 | haskell2010-prelude-foldl | `test/e2e/programs/haskell2010/prelude-foldl.hs` | success | native/default | `1234\n-6\nabcd\n2\n7\n5` | stdout `1234\n-6\nabcd\n2\n7\n5`, stderr empty, exit 0 | pass |
 | haskell2010-prelude-foldl | `test/e2e/programs/haskell2010/prelude-foldl.hs` | success | native/no-egglog | `1234\n-6\nabcd\n2\n7\n5` | stdout `1234\n-6\nabcd\n2\n7\n5`, stderr empty, exit 0 | pass |
 | haskell2010-prelude-foldl | `test/e2e/programs/haskell2010/prelude-foldl.hs` | success | emit-llvm/default | `1234\n-6\nabcd\n2\n7\n5` | LLVM compiled through clang, stdout `1234\n-6\nabcd\n2\n7\n5`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-functions | `test/e2e/programs/haskell2010/prelude-functions.hs` | success | native/default | `5\n21\n7\n1\n[2,3]\nTrue\nFalse\n42\nok` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-prelude-functions | `test/e2e/programs/haskell2010/prelude-functions.hs` | success | native/no-egglog | `5\n21\n7\n1\n[2,3]\nTrue\nFalse\n42\nok` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-prelude-functions | `test/e2e/programs/haskell2010/prelude-functions.hs` | success | emit-llvm/default | `5\n21\n7\n1\n[2,3]\nTrue\nFalse\n42\nok` | LLVM compiled through clang, stdout matched, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/default | `20` | stdout `20`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/no-egglog | `20` | stdout `20`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | emit-llvm/default | `20` | LLVM compiled through clang, stdout `20`, stderr empty, exit 0 | pass |
@@ -186,6 +189,8 @@ modes and emits LLVM compiled through clang.
 | haskell2010-division-by-zero | `test/e2e/programs/haskell2010/division-by-zero.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | haskell2010-guard-fallthrough | `test/e2e/programs/haskell2010/guard-fallthrough.hs` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | haskell2010-guard-fallthrough | `test/e2e/programs/haskell2010/guard-fallthrough.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
+| haskell2010-prelude-head-empty | `test/e2e/programs/haskell2010/prelude-head-empty.hs` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
+| haskell2010-prelude-head-empty | `test/e2e/programs/haskell2010/prelude-head-empty.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | open-free-variable | `test/e2e/programs/compile-errors/open-free-variable.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |
 | type-error | `test/e2e/programs/compile-errors/type-error.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |
 | unsupported-recursion | `test/e2e/programs/unsupported/unsupported-recursion.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |

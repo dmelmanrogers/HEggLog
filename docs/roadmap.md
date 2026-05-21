@@ -55,8 +55,9 @@ The next chunk is Prelude, deriving, and typeclass library completion.
 TEST-CONF-014 source matrix closure is complete and now enforced by the
 conformance validator.
 
-The next library chunk is TC-029, TC-030, PRELUDE-019, PRELUDE-020, and
-TEST-CONF-015. Remaining FFI closure is FFI-010 through FFI-013.
+The next library chunk is TC-029, TC-030, PRELUDE-020, and TEST-CONF-015.
+PRELUDE-019 is complete for the current high-value function slice. Remaining
+FFI closure is FFI-010 through FFI-013.
 
 Completed Haskell 2010 roadmap work:
 
@@ -125,8 +126,8 @@ Completed Haskell 2010 roadmap work:
   built-in list, tuple, unit, `Maybe`, `Either`, and `Ordering`
   constructors/types, list and tuple expressions/patterns, short-circuiting
   Bool operators, and generated Core Prelude bindings for `id`, `const`, `not`,
-  `otherwise`, `map`, `foldr`, `foldl`, `length`, `filter`, `reverse`, and
-  `(++)`.
+  `otherwise`, `($)`, `(.)`, `flip`, `map`, `foldr`, `foldl`, `head`, `tail`,
+  `null`, `fst`, `snd`, `length`, `filter`, `reverse`, and `(++)`.
 - Haskell 2010 recursion coverage: implemented for singleton self-recursive
   top-level/local bindings, mutually recursive functions, fibonacci/factorial
   programs, cons-pattern recursive list functions, and default/no-egglog native

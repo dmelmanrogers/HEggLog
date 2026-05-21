@@ -191,6 +191,7 @@ testGroups =
       , pureTest "typechecks broader Show dictionaries" testHaskell2010Core0BroadShow
       , pureTest "typechecks Prelude append" testHaskell2010Core0Append
       , pureTest "typechecks Prelude foldl" testHaskell2010Core0Foldl
+      , pureTest "typechecks Prelude function completion" testHaskell2010Core0PreludeFunctions
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
       , pureTest "typechecks Real and Integral numeric methods" testHaskell2010Core0NumericHierarchy
       , pureTest "documents monomorphism restriction defaulting policy" testHaskell2010MonomorphismRestrictionDefaulting
@@ -245,6 +246,7 @@ testGroups =
       , pureTest "evaluates broader Show dictionaries" testHaskell2010Core0EvalBroadShow
       , pureTest "evaluates Prelude append" testHaskell2010Core0EvalAppend
       , pureTest "evaluates Prelude foldl" testHaskell2010Core0EvalFoldl
+      , pureTest "evaluates Prelude function completion" testHaskell2010Core0EvalPreludeFunctions
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
       , pureTest "evaluates Real and Integral numeric methods" testHaskell2010Core0EvalNumericHierarchy
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
@@ -301,6 +303,7 @@ testGroups =
       , pureTest "preserves broader Show semantics" testHaskell2010CoreToSTGBroadShow
       , pureTest "preserves Prelude append semantics" testHaskell2010CoreToSTGAppend
       , pureTest "preserves Prelude foldl semantics" testHaskell2010CoreToSTGFoldl
+      , pureTest "preserves Prelude function completion semantics" testHaskell2010CoreToSTGPreludeFunctions
       , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
       , pureTest "preserves Real and Integral numeric methods" testHaskell2010CoreToSTGNumericHierarchy
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
@@ -339,6 +342,7 @@ testGroups =
       , pureTest "emits derived Bounded LLVM" testHaskell2010NativeDerivedBounded
       , pureTest "emits Prelude append LLVM" testHaskell2010NativeAppend
       , pureTest "emits Prelude foldl LLVM" testHaskell2010NativeFoldl
+      , pureTest "emits Prelude function completion LLVM" testHaskell2010NativePreludeFunctions
       , pureTest "emits user-defined operator LLVM" testHaskell2010NativeUserDefinedOperators
       , pureTest "emits IO getLine LLVM" testHaskell2010NativeGetLine
       , pureTest "emits list comprehension LLVM" testHaskell2010NativeListComprehensions
@@ -2102,6 +2106,14 @@ testHaskell2010Core0Foldl = do
   assertBool "Prelude foldl binding is emitted" (containsBindingOccurrence "foldl" coreModule)
   expectCoreEvalIO "Prelude foldl Core oracle" haskell2010FoldlOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0PreludeFunctions :: Either String ()
+testHaskell2010Core0PreludeFunctions = do
+  coreModule <- typecheckHaskell2010 haskell2010PreludeFunctionsSource
+  assertBool
+    "Prelude function-completion bindings are emitted"
+    (all (`containsBindingOccurrence` coreModule) ["$", ".", "flip", "head", "tail", "null", "fst", "snd"])
+  expectCoreEvalIO "Prelude function completion Core oracle" haskell2010PreludeFunctionsOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0NumericDefaulting :: Either String ()
 testHaskell2010Core0NumericDefaulting = do
   coreModule <- typecheckHaskell2010 haskell2010NumericDefaultingSource
@@ -3093,6 +3105,13 @@ testHaskell2010Core0EvalFoldl =
     haskell2010FoldlOutput
     =<< evalHaskell2010Binding "main" haskell2010FoldlSource
 
+testHaskell2010Core0EvalPreludeFunctions :: Either String ()
+testHaskell2010Core0EvalPreludeFunctions =
+  expectCoreEvalIO
+    "Core-0 Prelude function completion evaluation"
+    haskell2010PreludeFunctionsOutput
+    =<< evalHaskell2010Binding "main" haskell2010PreludeFunctionsSource
+
 testHaskell2010Core0EvalNumericDefaulting :: Either String ()
 testHaskell2010Core0EvalNumericDefaulting =
   expectCoreEvalIO
@@ -3498,6 +3517,10 @@ testHaskell2010CoreToSTGFoldl :: Either String ()
 testHaskell2010CoreToSTGFoldl =
   checkCoreToSTGIO "Core-to-STG Prelude foldl" haskell2010FoldlOutput haskell2010FoldlSource
 
+testHaskell2010CoreToSTGPreludeFunctions :: Either String ()
+testHaskell2010CoreToSTGPreludeFunctions =
+  checkCoreToSTGIO "Core-to-STG Prelude function completion" haskell2010PreludeFunctionsOutput haskell2010PreludeFunctionsSource
+
 testHaskell2010CoreToSTGNumericDefaulting :: Either String ()
 testHaskell2010CoreToSTGNumericDefaulting =
   checkCoreToSTGIO "Core-to-STG numeric defaulting" "7\n47\n" haskell2010NumericDefaultingSource
@@ -3712,6 +3735,12 @@ testHaskell2010NativeFoldl = do
   llvmText <- compileHaskell2010NativeText haskell2010FoldlSource
   assertBool "native Prelude foldl emits generated binding" ("foldl" `Text.isInfixOf` llvmText)
   assertBool "native Prelude foldl emits list case dispatch" ("case_data_match" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativePreludeFunctions :: Either String ()
+testHaskell2010NativePreludeFunctions = do
+  llvmText <- compileHaskell2010NativeText haskell2010PreludeFunctionsSource
+  assertBool "native Prelude function completion emits case dispatch" ("case_data_match" `Text.isInfixOf` llvmText)
+  assertBool "native Prelude function completion keeps String values as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeUserDefinedOperators :: Either String ()
 testHaskell2010NativeUserDefinedOperators = do
@@ -7429,6 +7458,7 @@ haskell2010NativeSuccessExamples =
   , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
   , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
   , ("prelude-foldl", haskell2010FoldlSource, Text.unpack haskell2010FoldlOutput)
+  , ("prelude-functions", haskell2010PreludeFunctionsSource, Text.unpack haskell2010PreludeFunctionsOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("numeric-hierarchy", haskell2010NumericHierarchySource, Text.unpack haskell2010NumericHierarchyOutput)
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
@@ -7472,6 +7502,7 @@ haskell2010NativeExecutableExamples =
   , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
   , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
   , ("prelude-foldl", haskell2010FoldlSource, Text.unpack haskell2010FoldlOutput)
+  , ("prelude-functions", haskell2010PreludeFunctionsSource, Text.unpack haskell2010PreludeFunctionsOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("numeric-hierarchy", haskell2010NumericHierarchySource, Text.unpack haskell2010NumericHierarchyOutput)
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
@@ -8316,6 +8347,46 @@ haskell2010FoldlOutput =
   \2\n\
   \7\n\
   \5\n"
+
+haskell2010PreludeFunctionsSource :: Text
+haskell2010PreludeFunctionsSource =
+  "module Main where\n\
+  \inc :: Int -> Int\n\
+  \inc x = x + 1\n\
+  \double :: Int -> Int\n\
+  \double x = x * 2\n\
+  \minus :: Int -> Int -> Int\n\
+  \minus x y = x - y\n\
+  \choose :: Bool -> [Int]\n\
+  \choose flag = if flag then [1, 2, 3] else []\n\
+  \emptyInts :: [Int]\n\
+  \emptyInts = []\n\
+  \pair :: (Int, String)\n\
+  \pair = (42, \"ok\")\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print $ inc 4\n\
+  \  print ((inc . double) 10)\n\
+  \  print (flip minus 3 10)\n\
+  \  print (head (choose True))\n\
+  \  print (tail [1, 2, 3])\n\
+  \  print (null emptyInts)\n\
+  \  print (null [False])\n\
+  \  print (fst pair)\n\
+  \  putStrLn (snd pair)\n\
+  \  return ()\n"
+
+haskell2010PreludeFunctionsOutput :: Text
+haskell2010PreludeFunctionsOutput =
+  "5\n\
+  \21\n\
+  \7\n\
+  \1\n\
+  \[2,3]\n\
+  \True\n\
+  \False\n\
+  \42\n\
+  \ok\n"
 
 haskell2010NumericDefaultingSource :: Text
 haskell2010NumericDefaultingSource =

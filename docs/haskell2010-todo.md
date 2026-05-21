@@ -219,9 +219,10 @@ Complete: SURFACE-001, SURFACE-002, and SURFACE-003.
 
 1. TC-029 — report-shaped Show hierarchy.
 2. TC-030 — Read implementation.
-3. PRELUDE-019 — Prelude function completion.
-4. PRELUDE-020 — standard library module expansion.
-5. TEST-CONF-015 — library conformance closure.
+3. PRELUDE-020 — standard library module expansion.
+4. TEST-CONF-015 — library conformance closure.
+
+Completed in this chunk: PRELUDE-019 — Prelude function completion.
 
 ## Remaining FFI closure chunk
 
@@ -13165,7 +13166,10 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Not started. The current `Show` implementation remains the executable
+  `show :: a -> String` subset with scalar, string/list, and derived data/newtype
+  dictionaries. TC-029 still owns the report-shaped `showsPrec`/`showList`
+  hierarchy, precedence-sensitive rendering, and exhaustive escaping.
 
 ## TC-030 — Read implementation
 
@@ -14300,7 +14304,7 @@ Notes:
 ## PRELUDE-019 — Prelude function completion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -14323,8 +14327,12 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Haskell2010/`
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `src/Haskell2010/Renamer.hs`
+- `test/Main.hs`
 - `test/haskell2010/conformance/`
+- `test/e2e/`
 - `docs/haskell2010-conformance-matrix.md`
 - `docs/haskell2010-todo.md`
 
@@ -14347,7 +14355,19 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete. The generated Prelude now claims and emits ordinary Core bindings
+  for `($)`, `(.)`, `flip`, `head`, `tail`, `null`, `fst`, and `snd` in
+  addition to the previously supported list functions. `($)`, `(.)`, and
+  `flip` are lazy higher-order wrappers with no backend shortcut. `head`,
+  `tail`, and `null` case-analyze ordinary lists; `head` and `tail` intentionally
+  preserve partial-selector behavior by omitting the empty-list alternative so
+  forced empty-list use becomes the same no-match runtime failure as other
+  partial pattern matches. `fst` and `snd` case-analyze ordinary pair tuples and
+  force only the tuple header plus the selected field. No list-fusion rewrites
+  are introduced. Core, STG, LLVM/native, e2e, and conformance fixtures cover
+  the successful function slice plus empty-list `head` native runtime failure.
+  Remaining Prelude functions stay unclaimed and continue under PRELUDE-020,
+  TC-029, TC-030, TEST-CONF-015, or later dedicated library tasks.
 
 ## PRELUDE-020 — standard library module expansion
 

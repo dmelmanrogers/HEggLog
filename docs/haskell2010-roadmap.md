@@ -278,7 +278,8 @@ Core validator/evaluator, STG lowering/evaluator, native LLVM path, and wet
 tests now cover built-in list, tuple, unit, `Maybe`, `Either`, and `Ordering`
 constructors; list and tuple expressions/patterns/types; short-circuiting
 `&&`/`||`; and generated Core bindings for `id`, `const`, `not`, `otherwise`,
-`map`, `foldr`, `foldl`, `length`, `filter`, `reverse`, and `(++)`.
+`($)`, `(.)`, `flip`, `map`, `foldr`, `foldl`, `head`, `tail`, `null`, `fst`,
+`snd`, `length`, `filter`, `reverse`, and `(++)`.
 
 Deliverables:
 
@@ -290,7 +291,8 @@ Acceptance criteria:
 
 - list programs compile
 - tuple programs compile
-- `map`, `foldr`, `foldl`, `length`, `filter`, `reverse`, and `(++)` examples compile
+- `map`, `foldr`, `foldl`, `head`, `tail`, `null`, `fst`, `snd`, `length`,
+  `filter`, `reverse`, `(++)`, `($)`, `(.)`, and `flip` examples compile
 - wet tests cover list recursion and tuple destructuring
 
 ### Phase 11 - Recursion
@@ -539,8 +541,8 @@ Acceptance criteria:
 Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
-`haskell2010-conformance-test` Cabal suite. The baseline currently records 103
-fixtures: 72 native-success cases, 3 native-runtime-error cases, 22 compile-error
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 117
+fixtures: 79 native-success cases, 5 native-runtime-error cases, 27 compile-error
 cases, and 6 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
@@ -627,11 +629,9 @@ is to make the standard library and derived-instance behavior look like Haskell
    escaping.
 2. TC-030 — implement `Read`, including `ReadS`, `readsPrec`, `readList`,
    lexical read parsing, standard instances, and derived `Read`.
-3. PRELUDE-019 — fill remaining high-value missing Prelude functions and
-   expand `PRELUDE-018` with corresponding conformance fixtures.
-4. PRELUDE-020 — broaden generated/importable standard-library module layout
+3. PRELUDE-020 — broaden generated/importable standard-library module layout
    beyond `Prelude` where the Haskell 2010 Report requires it.
-5. TEST-CONF-015 — keep every newly claimed class, function, deriving rule, and
+4. TEST-CONF-015 — keep every newly claimed class, function, deriving rule, and
    module backed by manifest-tracked positive and negative fixtures.
 
 ### Remaining FFI Closure
@@ -718,7 +718,8 @@ Completed immediate tasks:
   list, tuple, unit, `Maybe`, `Either`, and `Ordering` constructors/types,
   list and tuple expression/pattern lowering, short-circuiting `&&`/`||`, and
   generated Core Prelude bindings for `id`, `const`, `not`, `otherwise`, `map`,
-  `foldr`, `foldl`, `length`, `filter`, `reverse`, and `(++)`, with Core/STG/native and wet
+  `foldr`, `foldl`, `head`, `tail`, `null`, `fst`, `snd`, `length`, `filter`,
+  `reverse`, `(++)`, `($)`, `(.)`, and `flip`, with Core/STG/native and wet
   coverage.
 - Haskell 2010 recursion coverage for the executable subset, including
   singleton self-recursive Core emission, local recursive `let` bindings,

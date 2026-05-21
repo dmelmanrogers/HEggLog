@@ -385,6 +385,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-numeric-defaulting" "test/e2e/programs/haskell2010/numeric-defaulting.hs" "7\n47" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-numeric-hierarchy" "test/e2e/programs/haskell2010/numeric-hierarchy.hs" "3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-prelude-foldl" "test/e2e/programs/haskell2010/prelude-foldl.hs" "1234\n-6\nabcd\n2\n7\n5" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-prelude-functions" "test/e2e/programs/haskell2010/prelude-functions.hs" "5\n21\n7\n1\n[2,3]\nTrue\nFalse\n42\nok" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-modules" "test/e2e/programs/haskell2010/modules/Main.hs" "20" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-printing" "test/e2e/programs/haskell2010/io-printing.hs" "ok\nanswer\n42\nTrue" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-normal-examples" "test/e2e/programs/haskell2010/io-normal-examples.hs" "hello\nbound\n\"quoted\"\n'X'\n\"plain\"\n[1,2,3]\n[True,False]" [DefaultEgglog, NoEgglog] True
@@ -412,6 +413,7 @@ e2eCases =
   , runtimeErrorCase "haskell2010-division-by-zero" "test/e2e/programs/haskell2010/division-by-zero.hs" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "haskell2010-guard-fallthrough" "test/e2e/programs/haskell2010/guard-fallthrough.hs" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "haskell2010-derived-enum-runtime-error" "test/e2e/programs/haskell2010/derived-enum-runtime-error.hs" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-prelude-head-empty" "test/e2e/programs/haskell2010/prelude-head-empty.hs" [DefaultEgglog, NoEgglog]
   , compileErrorCase "open-free-variable" "test/e2e/programs/compile-errors/open-free-variable.hg" ["free", "unbound", "unknown", "backend"]
   , compileErrorCase "type-error" "test/e2e/programs/compile-errors/type-error.hg" ["type"]
   , compileErrorCase "unsupported-recursion" "test/e2e/programs/unsupported/unsupported-recursion.hg" ["recursive", "recursion", "unbound", "unknown"]

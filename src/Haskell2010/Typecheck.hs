@@ -387,8 +387,10 @@ typecheckModuleToCoreWithWarnings sourceModule = do
       pure (bindings, env, instances, foreignCoreBinds, foreignCoreExports)
   let classes = classInfos finalState
       classesForCore = usedClassInfos classes (substitution finalState) typedBindings typedInstances
+      needsPreludePairSelectors =
+        any ((`elem` ["fst", "snd"]) . nameOcc) preludeValues
       coreTupleArities =
-        if builtinRealClassName `Map.member` classesForCore || builtinIntegralClassName `Map.member` classesForCore
+        if builtinRealClassName `Map.member` classesForCore || builtinIntegralClassName `Map.member` classesForCore || needsPreludePairSelectors
           then Set.insert 2 tupleArities
           else tupleArities
       builtinInstances = builtinInstanceDictionaries classesForCore
@@ -1690,9 +1692,17 @@ supportedPreludeValueOccurrences =
   , "const"
   , "not"
   , "otherwise"
+  , "$"
+  , "."
+  , "flip"
   , "map"
   , "foldr"
   , "foldl"
+  , "head"
+  , "tail"
+  , "null"
+  , "fst"
+  , "snd"
   , "length"
   , "filter"
   , "reverse"
@@ -4918,6 +4928,9 @@ preludeValueScheme name
             "const" -> Just (Scheme [a, b] [] (TyFun aTy (TyFun bTy aTy)))
             "not" -> Just (Scheme [] [] (TyFun boolMonoType boolMonoType))
             "otherwise" -> Just (Scheme [] [] boolMonoType)
+            "$" -> Just (Scheme [a, b] [] (TyFun (TyFun aTy bTy) (TyFun aTy bTy)))
+            "." -> Just (Scheme [a, b, c] [] (TyFun (TyFun bTy cTy) (TyFun (TyFun aTy bTy) (TyFun aTy cTy))))
+            "flip" -> Just (Scheme [a, b, c] [] (TyFun (TyFun aTy (TyFun bTy cTy)) (TyFun bTy (TyFun aTy cTy))))
             "map" -> Just (Scheme [a, b] [] (TyFun (TyFun aTy bTy) (TyFun listA listB)))
             "foldr" ->
               Just
@@ -4933,6 +4946,11 @@ preludeValueScheme name
                     []
                     (TyFun (TyFun bTy (TyFun aTy bTy)) (TyFun bTy (TyFun listA bTy)))
                 )
+            "head" -> Just (Scheme [a] [] (TyFun listA aTy))
+            "tail" -> Just (Scheme [a] [] (TyFun listA listA))
+            "null" -> Just (Scheme [a] [] (TyFun listA boolMonoType))
+            "fst" -> Just (Scheme [a, b] [] (TyFun tupleAB aTy))
+            "snd" -> Just (Scheme [a, b] [] (TyFun tupleAB bTy))
             "length" -> Just (Scheme [a] [] (TyFun listA intMonoType))
             "filter" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun listA listA)))
             "reverse" -> Just (Scheme [a] [] (TyFun listA listA))
@@ -4955,10 +4973,13 @@ preludeValueScheme name
  where
   a = preludeTypeVariable "a" (-1201)
   b = preludeTypeVariable "b" (-1202)
+  c = preludeTypeVariable "c" (-1203)
   aTy = TyVar a
   bTy = TyVar b
+  cTy = TyVar c
   listA = TyList aTy
   listB = TyList bTy
+  tupleAB = TyTuple [aTy, bTy]
   ioUnit = ioMonoType unitMonoType
   ptrA = TyApp (TyCon ptrTyConName) aTy
   ptrUnit = TyApp (TyCon ptrTyConName) unitMonoType
@@ -6683,12 +6704,28 @@ preludeCorePair name =
         )
     "otherwise" ->
       Just (binderFor name boolTy, con trueDataConName boolTy)
+    "$" ->
+      Just (binderFor name dollarTy, dollarRhs)
+    "." ->
+      Just (binderFor name composeTy, composeRhs)
+    "flip" ->
+      Just (binderFor name flipTy, flipRhs)
     "map" ->
       Just (binderFor name mapTy, mapRhs name)
     "foldr" ->
       Just (binderFor name foldrTy, foldrRhs name)
     "foldl" ->
       Just (binderFor name foldlTy, foldlRhs name)
+    "head" ->
+      Just (binderFor name headTy, headRhs)
+    "tail" ->
+      Just (binderFor name tailTy, tailRhs)
+    "null" ->
+      Just (binderFor name nullTy, nullRhs)
+    "fst" ->
+      Just (binderFor name fstTy, fstRhs)
+    "snd" ->
+      Just (binderFor name sndTy, sndRhs)
     "length" ->
       Just (binderFor name lengthTy, lengthRhs name)
     "filter" ->
@@ -6765,12 +6802,15 @@ preludeCorePair name =
  where
   a = preludeTypeVariable "a" (-1201)
   b = preludeTypeVariable "b" (-1202)
+  c = preludeTypeVariable "c" (-1203)
   aTy = CTyVar a
   bTy = CTyVar b
+  cTy = CTyVar c
   showMethodA = preludeTypeVariable "a" (-1331)
   showMethodATy = CTyVar showMethodA
   listA = CTyList aTy
   listB = CTyList bTy
+  tupleAB = CTyTuple [aTy, bTy]
   ioUnitTy = ioTy unitTy
   ptrA = ptrTy aTy
   ptrUnitTy = ptrTy unitTy
@@ -6783,9 +6823,17 @@ preludeCorePair name =
   idTy = CTyForall [a] (CTyFun aTy aTy)
   constTy = CTyForall [a, b] (CTyFun aTy (CTyFun bTy aTy))
   notTy = CTyFun boolTy boolTy
+  dollarTy = CTyForall [a, b] (CTyFun (CTyFun aTy bTy) (CTyFun aTy bTy))
+  composeTy = CTyForall [a, b, c] (CTyFun (CTyFun bTy cTy) (CTyFun (CTyFun aTy bTy) (CTyFun aTy cTy)))
+  flipTy = CTyForall [a, b, c] (CTyFun (CTyFun aTy (CTyFun bTy cTy)) (CTyFun bTy (CTyFun aTy cTy)))
   mapTy = CTyForall [a, b] (CTyFun (CTyFun aTy bTy) (CTyFun listA listB))
   foldrTy = CTyForall [a, b] (CTyFun (CTyFun aTy (CTyFun bTy bTy)) (CTyFun bTy (CTyFun listA bTy)))
   foldlTy = CTyForall [a, b] (CTyFun (CTyFun bTy (CTyFun aTy bTy)) (CTyFun bTy (CTyFun listA bTy)))
+  headTy = CTyForall [a] (CTyFun listA aTy)
+  tailTy = CTyForall [a] (CTyFun listA listA)
+  nullTy = CTyForall [a] (CTyFun listA boolTy)
+  fstTy = CTyForall [a, b] (CTyFun tupleAB aTy)
+  sndTy = CTyForall [a, b] (CTyFun tupleAB bTy)
   lengthTy = CTyForall [a] (CTyFun listA intTy)
   filterTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun listA listA))
   reverseTy = CTyForall [a] (CTyFun listA listA)
@@ -6811,6 +6859,34 @@ preludeCorePair name =
   constY = preludeTermName "$const_y" (-3003)
   notX = preludeTermName "$not_x" (-3004)
   notCase = preludeTermName "$not_case" (-3005)
+  dollarF = preludeTermName "$dollar_f" (-3100)
+  dollarX = preludeTermName "$dollar_x" (-3101)
+  composeF = preludeTermName "$compose_f" (-3102)
+  composeG = preludeTermName "$compose_g" (-3103)
+  composeX = preludeTermName "$compose_x" (-3104)
+  flipF = preludeTermName "$flip_f" (-3105)
+  flipX = preludeTermName "$flip_x" (-3106)
+  flipY = preludeTermName "$flip_y" (-3107)
+  headXs = preludeTermName "$head_xs" (-3110)
+  headY = preludeTermName "$head_y" (-3111)
+  headYs = preludeTermName "$head_ys" (-3112)
+  headCase = preludeTermName "$head_case" (-3113)
+  tailXs = preludeTermName "$tail_xs" (-3114)
+  tailY = preludeTermName "$tail_y" (-3115)
+  tailYs = preludeTermName "$tail_ys" (-3116)
+  tailCase = preludeTermName "$tail_case" (-3117)
+  nullXs = preludeTermName "$null_xs" (-3118)
+  nullY = preludeTermName "$null_y" (-3119)
+  nullYs = preludeTermName "$null_ys" (-3120)
+  nullCase = preludeTermName "$null_case" (-3121)
+  fstPair = preludeTermName "$fst_pair" (-3122)
+  fstX = preludeTermName "$fst_x" (-3123)
+  fstY = preludeTermName "$fst_y" (-3124)
+  fstCase = preludeTermName "$fst_case" (-3125)
+  sndPair = preludeTermName "$snd_pair" (-3126)
+  sndX = preludeTermName "$snd_x" (-3127)
+  sndY = preludeTermName "$snd_y" (-3128)
+  sndCase = preludeTermName "$snd_case" (-3129)
 
   foldrF = preludeTermName "$foldr_f" (-3020)
   foldrZ = preludeTermName "$foldr_z" (-3021)
@@ -6895,6 +6971,105 @@ preludeCorePair name =
     constructorApp listNilDataConName [elementTy] [] (CTyList elementTy)
   cons elementTy headExpr tailExpr =
     constructorApp listConsDataConName [elementTy] [headExpr, tailExpr] (CTyList elementTy)
+
+  dollarRhs =
+    CTypeLam
+      [a, b]
+      (lam dollarF (CTyFun aTy bTy) (lam dollarX aTy (apply (var dollarF (CTyFun aTy bTy)) (var dollarX aTy) bTy)))
+      dollarTy
+
+  composeRhs =
+    CTypeLam
+      [a, b, c]
+      (lam composeF (CTyFun bTy cTy) (lam composeG (CTyFun aTy bTy) (lam composeX aTy body)))
+      composeTy
+   where
+    composedArg =
+      apply (var composeG (CTyFun aTy bTy)) (var composeX aTy) bTy
+    body =
+      apply (var composeF (CTyFun bTy cTy)) composedArg cTy
+
+  flipRhs =
+    CTypeLam
+      [a, b, c]
+      (lam flipF (CTyFun aTy (CTyFun bTy cTy)) (lam flipY bTy (lam flipX aTy body)))
+      flipTy
+   where
+    body =
+      apply
+        (apply (var flipF (CTyFun aTy (CTyFun bTy cTy))) (var flipX aTy) (CTyFun bTy cTy))
+        (var flipY bTy)
+        cTy
+
+  headRhs =
+    CTypeLam [a] (lam headXs listA headBody) headTy
+   where
+    headBody =
+      CCase
+        (var headXs listA)
+        (CoreBinder headCase listA)
+        [ CoreAlt
+            (ConstructorAlt listConsDataConName)
+            [CoreBinder headY aTy, CoreBinder headYs listA]
+            (var headY aTy)
+        ]
+        aTy
+
+  tailRhs =
+    CTypeLam [a] (lam tailXs listA tailBody) tailTy
+   where
+    tailBody =
+      CCase
+        (var tailXs listA)
+        (CoreBinder tailCase listA)
+        [ CoreAlt
+            (ConstructorAlt listConsDataConName)
+            [CoreBinder tailY aTy, CoreBinder tailYs listA]
+            (var tailYs listA)
+        ]
+        listA
+
+  nullRhs =
+    CTypeLam [a] (lam nullXs listA nullBody) nullTy
+   where
+    nullBody =
+      listCase
+        (var nullXs listA)
+        nullCase
+        aTy
+        boolTy
+        (con trueDataConName boolTy)
+        nullY
+        nullYs
+        (con falseDataConName boolTy)
+
+  fstRhs =
+    CTypeLam [a, b] (lam fstPair tupleAB fstBody) fstTy
+   where
+    fstBody =
+      CCase
+        (var fstPair tupleAB)
+        (CoreBinder fstCase tupleAB)
+        [ CoreAlt
+            (ConstructorAlt (tupleDataConName 2))
+            [CoreBinder fstX aTy, CoreBinder fstY bTy]
+            (var fstX aTy)
+        ]
+        aTy
+
+  sndRhs =
+    CTypeLam [a, b] (lam sndPair tupleAB sndBody) sndTy
+   where
+    sndBody =
+      CCase
+        (var sndPair tupleAB)
+        (CoreBinder sndCase tupleAB)
+        [ CoreAlt
+            (ConstructorAlt (tupleDataConName 2))
+            [CoreBinder sndX aTy, CoreBinder sndY bTy]
+            (var sndY bTy)
+        ]
+        bTy
 
   mapRhs functionName =
     CTypeLam [a, b] (lam mapF (CTyFun aTy bTy) (lam mapXs listA mapBody)) mapTy

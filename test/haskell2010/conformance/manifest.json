@@ -493,6 +493,31 @@
       "notes": "Generated Prelude foldl covers left-to-right accumulator order, polymorphic accumulator/list element types, empty-list behavior, and lazy ignored accumulators."
     },
     {
+      "name": "prelude.functions",
+      "sourceFile": "test/haskell2010/conformance/prelude/functions.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "5\n21\n7\n1\n[2,3]\nTrue\nFalse\n42\nok\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Generated Prelude function-completion slice covers ($), (.), flip, head, tail, null, fst, and snd through Core, STG, native, and Char-list String output."
+    },
+    {
+      "name": "prelude.head-empty",
+      "sourceFile": "test/haskell2010/conformance/prelude/head-empty.hs",
+      "category": "prelude",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Generated Prelude head preserves Haskell's partial selector behavior by compiling an empty-list case to a native no-match runtime failure."
+    },
+    {
       "name": "prelude.prelude-classes",
       "sourceFile": "test/haskell2010/conformance/prelude/prelude-classes.hs",
       "category": "prelude",
