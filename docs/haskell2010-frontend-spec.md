@@ -209,12 +209,12 @@ defaulting to executable `Int`, inferred constrained helper schemes, and
 SCC-based binding generalization, and recursive non-variable pattern bindings.
 It also covers import-driven dependency-file loading, export/import filtering,
 whole-program Core flattening, and root `main` native entrypoint selection for
-the executable subset. It exposes structured exhaustiveness warning
-placeholders for partial `case`, function, and lambda patterns through the
-typechecker and native API. The full Haskell 2010 type-class surface, the
-report-compatible `showsPrec`/`showList` hierarchy, a full pattern coverage
-checker, richer pattern diagnostics, broader Prelude, handles, and richer IO
-behavior remain planned. The strict
+the executable subset. It exposes source-spanned non-exhaustive and redundant
+pattern-match warnings for supported partial `case`, function, and lambda
+patterns through the typechecker, native API, and compile CLI. The full Haskell
+2010 type-class surface, the report-compatible `showsPrec`/`showList`
+hierarchy, report-complete pattern coverage/runtime attribution, broader
+Prelude, handles, and richer IO behavior remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

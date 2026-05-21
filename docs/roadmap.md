@@ -47,11 +47,18 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-1. MOD-001 whole-program module graph.
-2. PRELUDE-009 foldl.
-3. IO-011 IO error behavior.
-4. MOD-003 explicit import/export edge cases.
-5. IO-012 stdout/stderr conventions.
+The authoritative queue is the Haskell 2010 task tracker. The immediate
+source-surface chunk is:
+
+1. SURFACE-002 user-defined operator bindings and infix calls.
+2. SURFACE-003 where layout position coverage.
+
+TEST-CONF-014 source matrix closure is complete and now enforced by the
+conformance validator.
+
+The next library chunk is TC-029, TC-030, TC-031, TC-032, TC-033,
+PRELUDE-009, PRELUDE-019, PRELUDE-020, and TEST-CONF-015. Remaining FFI
+closure is FFI-010 through FFI-013.
 
 Completed Haskell 2010 roadmap work:
 

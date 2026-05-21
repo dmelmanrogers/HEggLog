@@ -10,6 +10,8 @@
 - [Haskell 2010 conformance results](haskell2010-conformance-results.md)
 - [Haskell 2010 implementation plan](haskell2010-implementation-plan.md)
 - [Haskell 2010 frontend specification](haskell2010-frontend-spec.md)
+- [Haskell 2010 standard library layout](haskell2010-standard-library-layout.md)
+- [Haskell 2010 FFI design](haskell2010-ffi-design.md)
 - [Haskell 2010 status summary](haskell2010-status-summary.md)
 - [Laziness and STG plan](laziness-and-stg-plan.md)
 - [Egglog Core optimizer plan](egglog-core-optimizer-plan.md)

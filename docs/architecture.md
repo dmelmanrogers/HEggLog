@@ -120,7 +120,7 @@ Responsibilities currently implemented in one module:
 - dictionary generation and dictionary passing
 - Prelude value/class synthesis
 - source-to-Core desugaring
-- source-spanned type errors and warning placeholders
+- source-spanned type errors and supported pattern-match warnings
 
 Architectural status: semantically coherent but now too concentrated. The code
 builds cleanly and is validated by broad tests, but this module is the primary

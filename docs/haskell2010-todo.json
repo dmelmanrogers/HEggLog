@@ -5269,6 +5269,38 @@
       ]
     },
     {
+      "id": "ADT-007",
+      "title": "record update expressions",
+      "status": "complete",
+      "category": "typechecker",
+      "depends_on": [
+        "ADT-005",
+        "CORE-006",
+        "LLVM-008"
+      ],
+      "blocks": [],
+      "milestone": "M8",
+      "acceptance_criteria": [
+        "Record update syntax is represented in parsed and renamed Haskell 2010 ASTs without being confused with record construction.",
+        "The typechecker validates update labels against the scrutinee record type, rejects ambiguous updates, and reports missing-field or non-record diagnostics with source spans.",
+        "Record updates lower to validating Core/STG and execute natively for the supported ADT/newtype record subset while preserving laziness of untouched fields.",
+        "Positive and negative conformance fixtures cover construction, selection, pattern matching, update, ambiguous labels, duplicate update fields, and invalid fields.",
+        "The conformance matrix distinguishes record declarations/selectors/construction/patterns from record updates."
+      ],
+      "required_tests": [
+        "parser tests",
+        "renamer tests",
+        "typechecker negative tests",
+        "Core/STG validation tests",
+        "native wet/conformance tests"
+      ],
+      "docs": [
+        "docs/type-inference.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
       "id": "PAT-001",
       "title": "variable patterns",
       "status": "complete",
@@ -5658,9 +5690,9 @@
       "blocks": [],
       "milestone": "M8",
       "acceptance_criteria": [
-        "Exhaustiveness warning placeholders are implemented as structured typechecker warnings with rendering and source spans where source spans are available.",
+        "Source-spanned exhaustiveness/redundancy warnings are implemented as structured typechecker warnings with rendering and source spans where source spans are available.",
         "Partial case alternatives and partial function/lambda constructor patterns emit warnings; total Bool cases and complete constructor families do not.",
-        "Native compile results expose typecheck warnings without changing successful executable behavior.",
+        "Native compile results and compile CLI rendering expose typecheck warnings without changing successful executable behavior.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -5843,6 +5875,106 @@
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
       ]
+    },
+    {
+      "id": "SURFACE-001",
+      "title": "source surface audit and matrix reconciliation",
+      "status": "complete",
+      "category": "testing",
+      "depends_on": [
+        "FRONT-020",
+        "REN-009",
+        "CORE-017",
+        "PAT-012",
+        "CORE-REC-003",
+        "CORE-REC-004",
+        "TEST-CONF-001"
+      ],
+      "blocks": [],
+      "milestone": "M19",
+      "acceptance_criteria": [
+        "Audit every currently parsed expression, declaration, local declaration, and pattern form against parser, renamer, typechecker, Core/STG lowering, native execution, and conformance matrix status.",
+        "Where implementation already exists, add missing native, Core/STG, or negative fixtures before upgrading matrix rows.",
+        "Where implementation is absent, leave an explicit unsupported-documented fixture or a stable follow-up task ID.",
+        "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
+        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+      ],
+      "required_tests": [
+        "tracker audit script",
+        "conformance manifest review",
+        "targeted source-surface fixtures"
+      ],
+      "docs": [
+        "docs/haskell2010-todo.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-status-summary.md"
+      ],
+      "notes": "Completed by auditing parsed source-surface forms against parser, renamer, typechecker, Core/STG lowering, native execution, conformance matrix status, and manifest coverage. Added native conformance fixtures for where groups, top-level pattern bindings, local fixity plus expression type signatures, and unit/wildcard patterns. Negative source-surface breadth is covered by TEST-CONF-013, source matrix closure is completed by TEST-CONF-014, and record updates are tracked separately by completed ADT-007."
+    },
+    {
+      "id": "SURFACE-002",
+      "title": "user-defined operator bindings and infix calls",
+      "status": "not started",
+      "category": "typechecker",
+      "depends_on": [
+        "FRONT-003",
+        "FRONT-019",
+        "REN-009",
+        "TYPE-007",
+        "CORE-016"
+      ],
+      "blocks": [],
+      "milestone": "M19",
+      "acceptance_criteria": [
+        "Parenthesized symbolic value bindings and backtick value operators resolve as ordinary term binders where Haskell 2010 permits them.",
+        "User-defined infix applications elaborate through ordinary function application when the resolved operator is not a built-in special form.",
+        "Local fixity declarations apply to user-defined symbolic and backtick operators through parser, renamer, typechecker, Core/STG, and native execution.",
+        "Unsupported or malformed operator binding shapes report stable parser, renamer, or typechecker diagnostics instead of falling through to generic unsupported Core forms.",
+        "The Haskell 2010 conformance matrix and manifest distinguish built-in operator support from user-defined operator support."
+      ],
+      "required_tests": [
+        "parser and renamer operator binding tests",
+        "typechecker/Core/STG/native user-defined infix tests",
+        "negative operator binding and fixity diagnostics",
+        "conformance manifest fixtures"
+      ],
+      "docs": [
+        "docs/haskell2010-todo.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-status-summary.md"
+      ],
+      "notes": "Discovered during SURFACE-001: parser and renamer have operator surface pieces, but the executable typechecker currently only handles the supported built-in operator subset."
+    },
+    {
+      "id": "SURFACE-003",
+      "title": "where layout position coverage",
+      "status": "not started",
+      "category": "frontend",
+      "depends_on": [
+        "FRONT-001",
+        "FRONT-020",
+        "REN-009",
+        "CORE-017"
+      ],
+      "blocks": [],
+      "milestone": "M19",
+      "acceptance_criteria": [
+        "Function-binding and case-alternative where groups parse when the where keyword appears on the following layout line in report-shaped source.",
+        "Accepted where groups continue to rename, typecheck, lower through Core/STG, and compile natively for the executable subset.",
+        "Malformed where/layout combinations produce stable parse diagnostics and negative conformance fixtures.",
+        "The conformance matrix explicitly separates implemented where semantics from remaining layout-position gaps."
+      ],
+      "required_tests": [
+        "parser layout tests",
+        "native conformance fixtures for report-shaped where layout",
+        "negative malformed where/layout fixtures"
+      ],
+      "docs": [
+        "docs/haskell2010-todo.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-status-summary.md"
+      ],
+      "notes": "Discovered during SURFACE-001: same-line where groups are covered by native fixtures, but line-broken where placement remains a frontend/layout gap."
     },
     {
       "id": "STG-REC-001",
@@ -6592,7 +6724,7 @@
     {
       "id": "TC-008",
       "title": "overlapping instance rejection per Haskell 2010",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TYPE-016",
@@ -6601,7 +6733,9 @@
       "blocks": [],
       "milestone": "M11",
       "acceptance_criteria": [
-        "overlapping instance rejection per Haskell 2010 is implemented, completed, or explicitly documented according to status `not started`.",
+        "Instance declarations reject exact duplicate instance heads before dictionary generation.",
+        "Instance declarations reject unifiable overlapping user instance heads in the supported single-parameter class subset.",
+        "Instance declarations reject overlaps with built-in dictionaries, including the built-in `Monad IO` instance and structural list dictionaries.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -6893,7 +7027,7 @@
     {
       "id": "TC-018",
       "title": "Enum",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TYPE-016",
@@ -6902,7 +7036,10 @@
       "blocks": [],
       "milestone": "M11",
       "acceptance_criteria": [
-        "Enum is implemented, completed, or explicitly documented according to status `not started`.",
+        "The public `Enum` class surface is exported through the generated Prelude interface with `succ`, `pred`, `toEnum`, `fromEnum`, `enumFrom`, `enumFromThen`, `enumFromTo`, and `enumFromThenTo`.",
+        "Built-in `Enum Int` and `Enum Char` dictionaries typecheck, elaborate to Core, lower through STG, and run natively.",
+        "Arithmetic sequence syntax for `Int` and `Char` shares the same checked helper implementation.",
+        "Derived `Enum` for user declarations remains tracked separately and is not claimed by this task.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -6921,7 +7058,7 @@
     {
       "id": "TC-019",
       "title": "Bounded",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TYPE-016",
@@ -6930,7 +7067,9 @@
       "blocks": [],
       "milestone": "M11",
       "acceptance_criteria": [
-        "Bounded is implemented, completed, or explicitly documented according to status `not started`.",
+        "The public `Bounded` class surface is exported through the generated Prelude interface with `minBound` and `maxBound`.",
+        "Built-in `Bounded Int`, `Bounded Char`, and `Bounded Bool` dictionaries typecheck, elaborate to Core, lower through STG, and run natively.",
+        "Derived `Bounded` for user declarations remains tracked separately and is not claimed by this task.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -7190,6 +7329,163 @@
         "typechecker unit tests",
         "negative type tests",
         "dictionary/Core validation tests",
+        "conformance tests"
+      ],
+      "docs": [
+        "docs/type-inference.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "TC-029",
+      "title": "report-shaped Show hierarchy",
+      "status": "not started",
+      "category": "typechecker",
+      "depends_on": [
+        "TC-015",
+        "TC-025",
+        "PRELUDE-DATA-007"
+      ],
+      "blocks": [],
+      "milestone": "M11",
+      "acceptance_criteria": [
+        "`Show` exposes and uses the Haskell 2010 method shape around `showsPrec`, `show`, `showList`, and `shows` without breaking existing executable `show` and `print` behavior.",
+        "Generated and built-in Show dictionaries implement precedence-sensitive constructor rendering and report-compatible character/string/list escaping for the supported value surface.",
+        "Derived `Show` uses the same method hierarchy instead of a separate string-only path.",
+        "Native and conformance tests cover scalar, list, string, product, record, recursive, and precedence-sensitive output.",
+        "The matrix no longer describes full `showsPrec`/`showList` as future work once this task is complete."
+      ],
+      "required_tests": [
+        "typechecker unit tests",
+        "dictionary/Core validation tests",
+        "native wet tests",
+        "conformance tests"
+      ],
+      "docs": [
+        "docs/type-inference.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "TC-030",
+      "title": "Read implementation",
+      "status": "not started",
+      "category": "typechecker",
+      "depends_on": [
+        "TC-016",
+        "TC-029",
+        "PRELUDE-DATA-007"
+      ],
+      "blocks": [],
+      "milestone": "M11",
+      "acceptance_criteria": [
+        "`Read` is promoted from documented deviation to implemented class support with `ReadS`, `readsPrec`, `readList`, `reads`, and `read` where required by the Report surface.",
+        "Lexical read parsing accepts report-compatible whitespace and token forms for supported scalar, list, tuple, and ADT values.",
+        "Built-in and derived `Read` dictionaries lower through Core/STG/native using the same dictionary model as other classes.",
+        "Invalid and partial reads have documented behavior and conformance fixtures.",
+        "The existing unsupported `Read` fixture is removed or converted only when replacement positive and negative coverage exists."
+      ],
+      "required_tests": [
+        "typechecker unit tests",
+        "parser/lexer read tests",
+        "dictionary/Core validation tests",
+        "native wet tests",
+        "conformance tests"
+      ],
+      "docs": [
+        "docs/type-inference.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "TC-031",
+      "title": "derived Enum",
+      "status": "not started",
+      "category": "typechecker",
+      "depends_on": [
+        "TC-018",
+        "ADT-001"
+      ],
+      "blocks": [],
+      "milestone": "M11",
+      "acceptance_criteria": [
+        "Derived `Enum` is generated for eligible nullary-constructor data declarations with Haskell 2010 constructor ordering semantics.",
+        "Generated dictionaries implement `succ`, `pred`, `toEnum`, `fromEnum`, and enumeration methods with correct bounds/error behavior for the supported runtime.",
+        "Invalid deriving cases, including constructors with fields and unsupported declaration shapes, fail with stable diagnostics.",
+        "Native and conformance fixtures cover positive and negative derived `Enum` cases.",
+        "The matrix distinguishes public built-in `Enum` instances from derived `Enum` until this task is complete."
+      ],
+      "required_tests": [
+        "typechecker unit tests",
+        "negative type tests",
+        "dictionary/Core validation tests",
+        "native wet tests",
+        "conformance tests"
+      ],
+      "docs": [
+        "docs/type-inference.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "TC-032",
+      "title": "derived Bounded",
+      "status": "not started",
+      "category": "typechecker",
+      "depends_on": [
+        "TC-019",
+        "ADT-001"
+      ],
+      "blocks": [],
+      "milestone": "M11",
+      "acceptance_criteria": [
+        "Derived `Bounded` is generated for eligible enumerations, single-constructor product types, and supported newtype shapes according to Haskell 2010 rules.",
+        "Generated dictionaries implement `minBound` and `maxBound` with constructor-order and field-bound semantics where applicable.",
+        "Invalid deriving cases fail with stable diagnostics.",
+        "Native and conformance fixtures cover positive and negative derived `Bounded` cases.",
+        "The matrix distinguishes public built-in `Bounded` instances from derived `Bounded` until this task is complete."
+      ],
+      "required_tests": [
+        "typechecker unit tests",
+        "negative type tests",
+        "dictionary/Core validation tests",
+        "native wet tests",
+        "conformance tests"
+      ],
+      "docs": [
+        "docs/type-inference.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "TC-033",
+      "title": "numeric class hierarchy expansion",
+      "status": "not started",
+      "category": "typechecker",
+      "depends_on": [
+        "TC-017",
+        "TC-021",
+        "TC-022"
+      ],
+      "blocks": [],
+      "milestone": "M11",
+      "acceptance_criteria": [
+        "Broaden the numeric class hierarchy beyond the current executable `Num Int` path, including the standard superclass/method relationships needed for Haskell 2010 numeric code.",
+        "Defaulting follows Haskell 2010 rules for the expanded numeric universe and keeps the current checked-runtime guarantees for bounded executable `Int` behavior.",
+        "Unsupported numeric types or methods have explicit diagnostics rather than silent fallback.",
+        "Core/STG/native and conformance fixtures cover overloaded literals, default declarations, numeric methods, and invalid ambiguity cases.",
+        "Docs clearly separate implemented numeric support from remaining arbitrary-precision or floating behavior."
+      ],
+      "required_tests": [
+        "typechecker unit tests",
+        "numeric defaulting tests",
+        "dictionary/Core validation tests",
+        "native wet tests",
         "conformance tests"
       ],
       "docs": [
@@ -7664,7 +7960,7 @@
     {
       "id": "PRELUDE-018",
       "title": "Prelude conformance tests",
-      "status": "in progress",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "PRELUDE-DATA-003",
@@ -7673,7 +7969,7 @@
       "blocks": [],
       "milestone": "M12",
       "acceptance_criteria": [
-        "Prelude conformance tests is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Prelude conformance tests is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -7684,6 +7980,66 @@
       ],
       "docs": [
         "docs/current-capabilities.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "PRELUDE-019",
+      "title": "Prelude function completion",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "PRELUDE-009",
+        "PRELUDE-018"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Fill high-value missing Prelude functions beyond the currently generated executable subset, starting with `foldl` and then tracking each newly claimed function in the matrix.",
+        "Implemented functions use ordinary Haskell 2010 source/Core/STG/library semantics rather than backend-specific shortcuts where practical.",
+        "Strictness, laziness, error behavior, and list-fusion-sensitive behavior are documented for every supported function.",
+        "Native and conformance fixtures cover each newly claimed Prelude function.",
+        "Remaining Prelude functions stay explicitly unclaimed or receive dedicated task IDs."
+      ],
+      "required_tests": [
+        "library unit tests",
+        "Core/STG preservation tests",
+        "native wet tests",
+        "Prelude conformance tests"
+      ],
+      "docs": [
+        "docs/current-capabilities.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "PRELUDE-020",
+      "title": "standard library module expansion",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "PRELUDE-017",
+        "MOD-003"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Generated/importable standard-library module interfaces expand beyond `Prelude` to the modules required by the Haskell 2010 Report as implementation support lands.",
+        "Module ownership stays explicit: no standard module is silently importable with an empty or fake surface.",
+        "Import, export, child export, fixity, and instance behavior for standard modules follows the same `ModuleInterface` model as user modules.",
+        "Docs and conformance fixtures identify every standard module as implemented, partially implemented, reserved, or unsupported-documented.",
+        "The standard-library layout doc remains synchronized with the generated module interfaces."
+      ],
+      "required_tests": [
+        "standard-library interface unit tests",
+        "module conformance tests",
+        "backlog validator",
+        "matrix review"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
       ]
@@ -8500,7 +8856,8 @@
         "docs/haskell2010-ffi-design.md",
         "docs/haskell2010-frontend-spec.md",
         "docs/haskell2010-conformance-matrix.md"
-      ]
+      ],
+      "notes": "Milestone M15 (FFI). Complete for frontend representation and renaming; supported import declarations now continue through FFI signature typechecking, Core/STG IR, native lowering, and wet tests."
     },
     {
       "id": "FFI-003",
@@ -8528,7 +8885,8 @@
         "docs/haskell2010-ffi-design.md",
         "docs/haskell2010-frontend-spec.md",
         "docs/haskell2010-conformance-matrix.md"
-      ]
+      ],
+      "notes": "Milestone M15 (FFI). Complete for frontend representation, renaming, Core/STG metadata, and native foreign-export entrypoint lowering for the supported ccall ABI slice."
     },
     {
       "id": "FFI-004",
@@ -8543,7 +8901,7 @@
       "acceptance_criteria": [
         "`ccall` and `stdcall` are represented structurally in parsed and renamed foreign declarations.",
         "The FFI typechecker accepts Haskell 2010 `ccall`/`stdcall` declarations and rejects non-Haskell-2010 calling conventions before lowering.",
-        "Runtime ABI lowering for actual calls remains explicitly pending until native ABI marshalling and call lowering are implemented.",
+        "The supported ccall ABI slice links to native runtime lowering; stdcall remains represented and typechecked but target-specific native lowering remains an explicit gap.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -8559,7 +8917,8 @@
         "docs/runtime-spec.md",
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
-      ]
+      ],
+      "notes": "Milestone M15 (FFI). In progress: ccall/stdcall are represented structurally, unsupported conventions are rejected before lowering, and the supported ccall native ABI slice is implemented; stdcall target-specific native lowering remains explicit future work."
     },
     {
       "id": "FFI-005",
@@ -8576,7 +8935,7 @@
         "The typechecker validates marshallable scalar, pointer, type-synonym, and local visible-newtype foreign types.",
         "Static, address, `dynamic`, and `wrapper` import signatures receive shape-specific diagnostics.",
         "`foreign export` declarations validate that the exported binding can instantiate to the declared foreign type.",
-        "Runtime primitive marshalling and ABI conversion remain explicitly pending until native ABI marshalling and call lowering are implemented.",
+        "Runtime primitive marshalling and ABI conversion are implemented for the supported scalar integer/Bool/Char and pointer ABI slice; floating-point and broader Foreign library marshalling remain explicit future work.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -8591,7 +8950,8 @@
         "docs/runtime-spec.md",
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
-      ]
+      ],
+      "notes": "Milestone M15 (FFI). In progress: generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, and export validation are implemented; floating-point and broader Foreign library marshalling remain explicit future work."
     },
     {
       "id": "FFI-006",
@@ -8622,7 +8982,8 @@
         "docs/runtime-spec.md",
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
-      ]
+      ],
+      "notes": "Milestone M15 (FFI). In progress: Core/STG IR is complete for imports and export metadata, scalar/pointer/static-address/dynamic/wrapper/export ccall native runtime integration is implemented and wet-tested, and unsupported FFI entities still fail at explicit boundaries."
     },
     {
       "id": "FFI-007",
@@ -8654,7 +9015,8 @@
         "docs/runtime-spec.md",
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
-      ]
+      ],
+      "notes": "Milestone M15 (FFI). In progress: static scalar/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks, and foreign export ccall entrypoints are implemented; link metadata, floating-point, and callback-slot reclamation remain open."
     },
     {
       "id": "FFI-008",
@@ -8683,12 +9045,13 @@
         "docs/runtime-spec.md",
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
-      ]
+      ],
+      "notes": "Milestone M15 (FFI). In progress: static scalar, pointer/address, dynamic/wrapper, and foreign-export native C-helper wet tests are implemented; floating-point, link metadata, finalizer lifetime, and broader library coverage remain open."
     },
     {
       "id": "FFI-009",
-      "title": "documented deviation if deferred",
-      "status": "documented deviation",
+      "title": "FFI-wide deferral retired",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -8696,19 +9059,143 @@
       "blocks": [],
       "milestone": "M15",
       "acceptance_criteria": [
-        "documented deviation if deferred is implemented, completed, or explicitly documented according to status `documented deviation`.",
+        "The project no longer treats Haskell 2010 FFI as a whole-feature documented deviation.",
+        "Implemented FFI support is tracked by FFI-001 through FFI-008, and remaining gaps are tracked by dedicated follow-up tasks instead of one broad deferral bucket.",
+        "Unsupported FFI behavior remains explicit in the conformance matrix and docs until each follow-up task is implemented.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
+        "documentation/static checks",
+        "conformance matrix review",
+        "unsupported/deviation fixture review"
+      ],
+      "docs": [
+        "docs/haskell2010-ffi-design.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "FFI-010",
+      "title": "floating-point FFI marshalling",
+      "status": "not started",
+      "category": "runtime",
+      "depends_on": [
+        "FFI-005",
+        "FFI-007"
+      ],
+      "blocks": [],
+      "milestone": "M15",
+      "acceptance_criteria": [
+        "Foreign imports and exports validate and marshal `Float`, `Double`, `CFloat`, and `CDouble` according to the supported C ABI.",
+        "Core/STG/LLVM types distinguish floating-point ABI values from boxed runtime values without corrupting existing integer/pointer marshalling.",
+        "Native C-helper fixtures cover direct calls, callbacks, exports, and result marshalling for floating-point values.",
+        "Unsupported floating ABI combinations fail explicitly until implemented.",
+        "Docs and matrix remove floating-point FFI from the remaining-gap list only after native coverage passes."
+      ],
+      "required_tests": [
+        "typechecker tests",
+        "Core/STG validation tests",
+        "LLVM lowering tests",
+        "native C-helper wet tests"
+      ],
+      "docs": [
+        "docs/haskell2010-ffi-design.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "FFI-011",
+      "title": "FFI link metadata",
+      "status": "not started",
+      "category": "runtime",
+      "depends_on": [
+        "FFI-002",
+        "FFI-007",
+        "LLVM-016"
+      ],
+      "blocks": [],
+      "milestone": "M15",
+      "acceptance_criteria": [
+        "Foreign import entity metadata preserves header/library/object requirements needed for portable C linking.",
+        "The CLI/native toolchain accepts and propagates required extra objects or libraries without hardcoding test-only paths.",
+        "Conformance and e2e fixtures cover header-qualified entities and explicit link inputs.",
+        "Missing link dependencies report stable diagnostics.",
+        "Docs describe the supported link model and remaining platform-specific limitations."
+      ],
+      "required_tests": [
+        "parser tests",
+        "toolchain tests",
+        "native C-helper wet tests",
+        "negative link diagnostics"
+      ],
+      "docs": [
+        "docs/haskell2010-ffi-design.md",
+        "docs/llvm-backend-spec.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "FFI-012",
+      "title": "callback and finalizer lifetime completion",
+      "status": "not started",
+      "category": "runtime",
+      "depends_on": [
+        "FFI-006",
+        "FFI-007",
+        "FFI-008"
+      ],
+      "blocks": [],
+      "milestone": "M15",
+      "acceptance_criteria": [
+        "`freeHaskellFunPtr` and callback-slot reclamation are implemented with documented ownership and re-entry behavior.",
+        "Automatic `ForeignPtr` finalizer scheduling is implemented or explicitly scoped against the project runtime ownership model.",
+        "Callback and finalizer lifetimes are safe across nested C-to-Haskell re-entry and explicit `StablePtr` usage.",
+        "Native wet tests cover reclamation, double-free/idempotence, callback-after-free rejection, and finalizer ordering.",
+        "Docs distinguish manual process-lifetime behavior from any automatic lifetime guarantees."
+      ],
+      "required_tests": [
         "runtime unit tests",
-        "native runtime wet tests",
+        "native callback wet tests",
+        "finalizer wet tests",
         "runtime-error conformance tests"
       ],
       "docs": [
+        "docs/haskell2010-ffi-design.md",
         "docs/runtime-spec.md",
-        "docs/laziness-and-stg-plan.md",
-        "docs/haskell2010-conformance-matrix.md"
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "FFI-013",
+      "title": "Foreign library surface completion",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "FFI-005",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M15",
+      "acceptance_criteria": [
+        "The `Foreign`, `Foreign.C`, `Foreign.C.Types`, `Foreign.Ptr`, `Foreign.StablePtr`, `Foreign.ForeignPtr`, `Foreign.Marshal.*`, and `Foreign.Storable` surfaces are tracked module-by-module against the Haskell 2010 libraries.",
+        "Implemented functions and types use generated module interfaces, ordinary import/export rules, and conformance fixtures.",
+        "Unsupported functions remain explicit unsupported-documented cases rather than implicit omissions.",
+        "Docs identify the exact implemented, partial, and pending Foreign module surfaces.",
+        "Library coverage is reflected in the standard-library layout and conformance matrix."
+      ],
+      "required_tests": [
+        "standard-library interface tests",
+        "typechecker tests",
+        "native wet tests",
+        "unsupported conformance fixtures"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-ffi-design.md",
+        "docs/haskell2010-todo.md"
       ]
     },
     {
@@ -9442,7 +9929,7 @@
     {
       "id": "DIAG-009",
       "title": "pattern-match diagnostics",
-      "status": "in progress",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -9451,7 +9938,7 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "pattern-match diagnostics is implemented, completed, or explicitly documented according to status `in progress`.",
+        "pattern-match diagnostics is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10434,6 +10921,102 @@
         "docs/e2e-results.md",
         "docs/haskell2010-conformance-results.md",
         "docs/haskell2010-conformance-matrix.md"
+      ]
+    },
+    {
+      "id": "TEST-CONF-013",
+      "title": "source-surface negative fixtures",
+      "status": "complete",
+      "category": "testing",
+      "depends_on": [
+        "TEST-CONF-007",
+        "SURFACE-001"
+      ],
+      "blocks": [],
+      "milestone": "M19",
+      "acceptance_criteria": [
+        "Negative fixtures cover malformed `where` groups, invalid pattern bindings, invalid record updates, unsupported expression forms, duplicate source binders, and impossible or redundant match surfaces.",
+        "Each negative fixture asserts a stable diagnostic category and fails if the compiler silently accepts the program.",
+        "Unsupported source forms use `unsupported-documented` only when the limitation is explicit in the matrix and tracker.",
+        "All new fixtures are listed in `test/haskell2010/conformance/manifest.json` and validated by the conformance script.",
+        "The Haskell 2010 conformance matrix points to these fixtures from the relevant source-surface rows."
+      ],
+      "required_tests": [
+        "negative conformance tests",
+        "manifest validation",
+        "diagnostic category checks"
+      ],
+      "docs": [
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-conformance-results.md",
+        "docs/haskell2010-todo.md"
+      ],
+      "notes": "Complete for current source-surface negative coverage. The manifest now includes stable diagnostic-category fixtures for malformed where layout, duplicate binders in top-level pattern bindings and function equations, invalid record updates, an impossible case pattern/scrutinee combination, and a documented unsupported constrained expression signature."
+    },
+    {
+      "id": "TEST-CONF-014",
+      "title": "source matrix closure",
+      "status": "complete",
+      "category": "testing",
+      "depends_on": [
+        "SURFACE-001",
+        "TEST-CONF-013"
+      ],
+      "blocks": [],
+      "milestone": "M19",
+      "acceptance_criteria": [
+        "Every expression, declaration, and pattern row in the conformance matrix is backed by an implemented fixture, a compile-error fixture, or an unsupported-documented fixture.",
+        "Rows that are only parser/renamer-supported remain labelled as such and link to the next implementation task rather than being counted as executable support.",
+        "The matrix, manifest, roadmap, status summary, and tracker agree on source-surface status.",
+        "The conformance validator catches missing manifest-to-matrix coverage for source-surface fixtures.",
+        "No broad source-surface work remains only in prose without a task ID."
+      ],
+      "required_tests": [
+        "conformance validator",
+        "matrix review",
+        "manifest review"
+      ],
+      "docs": [
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-conformance-results.md",
+        "docs/haskell2010-todo.md"
+      ],
+      "notes": "Complete. Added a machine-checked Source Surface Matrix Closure table to the conformance matrix covering all declaration, expression, and pattern rows. The conformance validator now rejects missing closure rows, fixture paths not present in the manifest, and declarations/expressions/patterns manifest fixtures omitted from the closure table. It also requires source-surface negative and unsupported fixtures to remain linked from the closure table. Remaining source-surface implementation gaps are explicitly owned by SURFACE-002 and SURFACE-003 instead of being counted as complete executable support."
+    },
+    {
+      "id": "TEST-CONF-015",
+      "title": "library conformance closure",
+      "status": "not started",
+      "category": "testing",
+      "depends_on": [
+        "PRELUDE-018",
+        "TC-029",
+        "TC-030",
+        "TC-031",
+        "TC-032",
+        "TC-033",
+        "PRELUDE-019",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M19",
+      "acceptance_criteria": [
+        "Every newly claimed standard class, derived instance, Prelude function, and standard-library module has manifest-backed positive and negative coverage.",
+        "Unsupported library features remain explicit unsupported-documented cases until implemented.",
+        "The conformance results summary reports library coverage by class/function/module instead of only by broad category.",
+        "Docs, tracker, matrix, and manifest agree on library support boundaries.",
+        "The validator catches manifest cases that are missing from the matrix or docs coverage summary."
+      ],
+      "required_tests": [
+        "conformance suite",
+        "manifest validation",
+        "matrix validation",
+        "native wet tests"
+      ],
+      "docs": [
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-conformance-results.md",
+        "docs/haskell2010-todo.md"
       ]
     },
     {

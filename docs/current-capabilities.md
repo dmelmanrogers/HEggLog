@@ -236,9 +236,9 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 88 manifest-tracked fixtures with
-  67 native-success cases, 2 native-runtime-error cases, 14 compile-error cases,
-  and 5 unsupported-documented cases
+  `haskell2010-conformance-test`; it contains 103 manifest-tracked fixtures with
+  72 native-success cases, 3 native-runtime-error cases, 22 compile-error cases,
+  and 6 unsupported-documented cases
 - Haskell 2010 standard library layout: implemented for the current executable
   subset as a generated/importable `Prelude` module interface; broader standard
   modules remain reserved and documented in
@@ -249,17 +249,18 @@ Progress is tracked in
 
 ## Current Next Focus
 
-The next coherent chunk is source surface closure: reconcile the implemented
-`where` and pattern-binding paths with the conformance matrix, implement record
-update expressions, replace the pattern-coverage warning placeholder with real
-exhaustiveness/redundancy diagnostics, audit the remaining parsed expression
-forms, and add native/negative conformance fixtures for every claim.
+The next coherent chunk is the remaining source surface implementation work,
+now tracked by stable IDs: SURFACE-002 and SURFACE-003.
+SURFACE-001 completed the current source-surface audit and matrix
+reconciliation, DIAG-009 completed supported-subset pattern-match diagnostics,
+TEST-CONF-013 completed source-surface negative fixtures, TEST-CONF-014
+completed machine-checked source matrix closure, and ADT-007 completed record
+update expressions.
 
 The following coherent chunk is Prelude, deriving, and typeclass library
-completion: report-shaped `Show`, `Read` and derived `Read`, derived `Enum` and
-`Bounded`, broader numeric classes/defaulting, high-value missing Prelude
-functions, standard-library module expansion beyond `Prelude`, and library
-conformance fixtures.
+completion: TC-029, TC-030, TC-031, TC-032, TC-033, PRELUDE-009,
+PRELUDE-019, PRELUDE-020, and TEST-CONF-015. Remaining FFI closure is tracked
+separately by FFI-010 through FFI-013.
 
 ## Carry-Forward Infrastructure
 
@@ -308,8 +309,8 @@ Current tests include:
   unsupported-documented cases fail explicitly rather than silently passing
 
 Future Haskell 2010 conformance work should extend this direct executable
-coverage as the full pattern coverage checker, richer pattern diagnostics,
+coverage as report-complete pattern coverage/runtime attribution,
 the report-compatible `showsPrec`/`showList` hierarchy, exhaustive Unicode/string escape fidelity,
-additional string library behavior, and broader IO are implemented. Structured exhaustiveness
-warning placeholders are already exposed through the Haskell 2010 typechecker
-and native compilation result APIs.
+additional string library behavior, and broader IO are implemented. Source-spanned
+non-exhaustive and redundant pattern warnings are already exposed through the
+Haskell 2010 typechecker, native compilation result APIs, and compile CLI.

@@ -2,7 +2,7 @@
 
 HeggLog is building a Haskell 2010 native-code compiler implemented in Haskell. The current `.hg` compiler remains the backend/middle-end substrate and regression baseline. This backlog tracks the work required to compile Haskell 2010 source programs to native executables through LLVM, with Egglog optimization over typed Core.
 
-This document is the authoritative engineering backlog. The matching machine-readable index is `docs/haskell2010-todo.json`, and `scripts/validate-haskell2010-todo.py` fails if the JSON and markdown task IDs drift.
+This document is the authoritative engineering backlog. The matching machine-readable index is `docs/haskell2010-todo.json`, and `scripts/validate-haskell2010-todo.py` fails if JSON and markdown task IDs, titles, statuses, or categories drift.
 
 ## Baseline Status
 
@@ -83,7 +83,7 @@ This document is the authoritative engineering backlog. The matching machine-rea
 
 - Goal: Compile Haskell data declarations, constructors, and pattern matching through Core/STG/native paths.
 - Exit criteria: Maybe, Either, custom ADTs, constructor cases, nested patterns, and pattern-bound variables work.
-- Task IDs included: ADT-001, ADT-002, ADT-003, ADT-004, ADT-005, ADT-006, PAT-001, PAT-002, PAT-003, PAT-004, PAT-005, PAT-006, PAT-007, PAT-008, PAT-009, PAT-010, PAT-011, PAT-012, PAT-013, PAT-014, PAT-015, PAT-016
+- Task IDs included: ADT-001, ADT-002, ADT-003, ADT-004, ADT-005, ADT-006, ADT-007, PAT-001, PAT-002, PAT-003, PAT-004, PAT-005, PAT-006, PAT-007, PAT-008, PAT-009, PAT-010, PAT-011, PAT-012, PAT-013, PAT-014, PAT-015, PAT-016
 - Required wet tests: ADT and pattern native wet tests, including negative pattern diagnostics.
 - Risk level: high
 
@@ -107,7 +107,7 @@ This document is the authoritative engineering backlog. The matching machine-rea
 
 - Goal: Represent, solve, and lower Haskell 2010 classes, instances, constraints, defaults, and deriving where implemented.
 - Exit criteria: Class methods compile through dictionaries; basic instances and numeric literals work; illegal instances fail.
-- Task IDs included: TC-001, TC-002, TC-003, TC-004, TC-005, TC-006, TC-007, TC-008, TC-009, TC-010, TC-011, TC-012, TC-013, TC-014, TC-015, TC-016, TC-017, TC-018, TC-019, TC-020, TC-021, TC-022, TC-023, TC-024, TC-025, TC-026, TC-027, TC-028
+- Task IDs included: TC-001, TC-002, TC-003, TC-004, TC-005, TC-006, TC-007, TC-008, TC-009, TC-010, TC-011, TC-012, TC-013, TC-014, TC-015, TC-016, TC-017, TC-018, TC-019, TC-020, TC-021, TC-022, TC-023, TC-024, TC-025, TC-026, TC-027, TC-028, TC-029, TC-030, TC-031, TC-032, TC-033
 - Required wet tests: Typeclass and dictionary native wet tests plus negative instance tests.
 - Risk level: high
 
@@ -115,7 +115,7 @@ This document is the authoritative engineering backlog. The matching machine-rea
 
 - Goal: Provide a coherent Prelude strategy and enough library behavior for representative Haskell 2010 programs.
 - Exit criteria: Representative Prelude programs compile; implicit import behavior works; deviations are explicit.
-- Task IDs included: PRELUDE-001, PRELUDE-002, PRELUDE-003, PRELUDE-004, PRELUDE-005, PRELUDE-006, PRELUDE-007, PRELUDE-008, PRELUDE-009, PRELUDE-010, PRELUDE-011, PRELUDE-012, PRELUDE-013, PRELUDE-014, PRELUDE-015, PRELUDE-016, PRELUDE-017, PRELUDE-018
+- Task IDs included: PRELUDE-001, PRELUDE-002, PRELUDE-003, PRELUDE-004, PRELUDE-005, PRELUDE-006, PRELUDE-007, PRELUDE-008, PRELUDE-009, PRELUDE-010, PRELUDE-011, PRELUDE-012, PRELUDE-013, PRELUDE-014, PRELUDE-015, PRELUDE-016, PRELUDE-017, PRELUDE-018, PRELUDE-019, PRELUDE-020
 - Required wet tests: Prelude function and implicit-import native wet tests.
 - Risk level: high
 
@@ -135,12 +135,12 @@ This document is the authoritative engineering backlog. The matching machine-rea
 - Required wet tests: Multi-module native and negative import/export tests.
 - Risk level: high
 
-## M15 — FFI or documented deviation
+## M15 — FFI implementation and closure
 
-- Goal: Decide and implement a tested FFI subset or document FFI as a deviation before any full-support claim.
-- Exit criteria: FFI subset works with tests or the project explicitly states FFI is deferred and full Haskell 2010 is not claimed.
-- Task IDs included: FFI-001, FFI-002, FFI-003, FFI-004, FFI-005, FFI-006, FFI-007, FFI-008, FFI-009
-- Required wet tests: FFI native tests if implemented; documented-deviation conformance tests if deferred.
+- Goal: Implement and track the Haskell 2010 FFI surface with explicit remaining gaps rather than a broad deferral.
+- Exit criteria: Supported FFI import/export, marshalling, pointer, callback, and lifetime semantics work with tests; any remaining deviations are narrow task-backed items.
+- Task IDs included: FFI-001, FFI-002, FFI-003, FFI-004, FFI-005, FFI-006, FFI-007, FFI-008, FFI-009, FFI-010, FFI-011, FFI-012, FFI-013
+- Required wet tests: Native C-helper tests plus negative conformance tests for unsupported or invalid FFI shapes.
 - Risk level: medium
 
 ## M16 — Egglog Core optimizer
@@ -171,7 +171,7 @@ This document is the authoritative engineering backlog. The matching machine-rea
 
 - Goal: Close the gap between the conformance matrix, manifest, implementation, and documented deviations.
 - Exit criteria: Every matrix row links to a test or deviation and no undocumented failures remain.
-- Task IDs included: TEST-CONF-001, TEST-CONF-002, TEST-CONF-003, TEST-CONF-004, TEST-CONF-005, TEST-CONF-006, TEST-CONF-007, TEST-CONF-008, TEST-CONF-009, TEST-CONF-010, TEST-CONF-011, TEST-CONF-012
+- Task IDs included: SURFACE-001, SURFACE-002, SURFACE-003, TEST-CONF-001, TEST-CONF-002, TEST-CONF-003, TEST-CONF-004, TEST-CONF-005, TEST-CONF-006, TEST-CONF-007, TEST-CONF-008, TEST-CONF-009, TEST-CONF-010, TEST-CONF-011, TEST-CONF-012, TEST-CONF-013, TEST-CONF-014, TEST-CONF-015
 - Required wet tests: Native wet conformance suite across implemented Haskell 2010 feature areas.
 - Risk level: high
 
@@ -213,51 +213,27 @@ Rules:
 
 ## Next coherent chunk: Source surface closure
 
-1. Where and pattern-binding reconciliation: audit the implemented `where` and
-   non-variable pattern-binding paths against the conformance matrix, add any
-   missing Core/STG/native and negative fixtures, and correct stale matrix rows
-   only after implementation and tests agree.
-2. Record update expressions: implement parser-to-native semantics for record
-   updates over the existing record declaration, selector, complete
-   construction, and pattern infrastructure, including ambiguity and missing
-   field diagnostics.
-3. Full pattern coverage diagnostics: replace the current structured warning
-   placeholder with real exhaustiveness/redundancy analysis for the supported
-   ADT, list, tuple, literal, as-pattern, lazy-pattern, and guarded-pattern
-   subset.
-4. Remaining expression-form audit: verify sections, sequences,
-   comprehensions, guards, `do`, local declarations, and currently parsed
-   expression forms have either executable support, compile-error coverage, or
-   an explicit documented deviation.
-5. Source-surface negative fixtures: add manifest-backed failures for malformed
-   `where` groups, invalid pattern bindings, invalid record updates, impossible
-   or redundant matches, and unsupported source forms that must not silently
-   pass.
-6. Source matrix closure: move each expression, declaration, and pattern row in
-   the conformance matrix to a tested implementation status or a documented
-   deviation backed by a fixture.
+1. SURFACE-002 — user-defined operator bindings and infix calls.
+2. SURFACE-003 — where layout position coverage.
 
 ## Following coherent chunk: Prelude, deriving, and typeclass library completion
 
-1. `Show` follow-up: implement the report-shaped method hierarchy around
-   `showsPrec`, `showList`, precedence-sensitive output, and character/string
-   escaping while preserving the existing executable `show` behavior.
-2. `Read` and derived `Read`: implement `ReadS`, `readsPrec`, `readList`,
-   lexical read parsing, standard instances, deriving, and rejection fixtures.
-3. Derived `Enum` and `Bounded`: generate dictionaries for eligible data and
-   newtype declarations, including constructor-order semantics and invalid
-   deriving diagnostics.
-4. Numeric class expansion: broaden the standard numeric hierarchy and
-   defaulting behavior beyond the current executable `Int` universe without
-   weakening existing checked-runtime guarantees.
-5. Prelude function completion: implement high-value missing Prelude functions
-   such as `foldl` and extend `PRELUDE-018` conformance coverage with native
-   examples and negative cases.
-6. Standard library module layout expansion: grow the generated/importable
-   module boundary beyond `Prelude` where the Haskell 2010 Report requires it,
-   keeping implicit imports and ordinary module imports distinct.
-7. Library conformance closure: add manifest-backed coverage for every newly
-   claimed class, function, derived instance, and standard-library module.
+1. TC-029 — report-shaped Show hierarchy.
+2. TC-030 — Read implementation.
+3. TC-031 — derived Enum.
+4. TC-032 — derived Bounded.
+5. TC-033 — numeric class hierarchy expansion.
+6. PRELUDE-009 — foldl.
+7. PRELUDE-019 — Prelude function completion.
+8. PRELUDE-020 — standard library module expansion.
+9. TEST-CONF-015 — library conformance closure.
+
+## Remaining FFI closure chunk
+
+1. FFI-010 — floating-point FFI marshalling.
+2. FFI-011 — FFI link metadata.
+3. FFI-012 — callback and finalizer lifetime completion.
+4. FFI-013 — Foreign library surface completion.
 
 # Task Backlog
 
@@ -321,7 +297,7 @@ Files likely touched:
 Acceptance criteria:
 - Preserve current `.hg` native compiler path is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -371,7 +347,7 @@ Files likely touched:
 Acceptance criteria:
 - Preserve current Egglog ANF backend regression coverage is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -421,7 +397,7 @@ Files likely touched:
 Acceptance criteria:
 - Preserve current LLVM/native executable pipeline is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -471,7 +447,7 @@ Files likely touched:
 Acceptance criteria:
 - Preserve current e2e wet test suite is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -521,7 +497,7 @@ Files likely touched:
 Acceptance criteria:
 - Keep current `.hg` language docs separated from Haskell 2010 target docs is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -571,7 +547,7 @@ Files likely touched:
 Acceptance criteria:
 - Add compatibility tests ensuring current `.hg` examples still run after Haskell 2010 work is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -644,7 +620,7 @@ Files likely touched:
 Acceptance criteria:
 - Haskell 2010 token model is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -695,7 +671,7 @@ Files likely touched:
 Acceptance criteria:
 - comments and nested comments is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -746,7 +722,7 @@ Files likely touched:
 Acceptance criteria:
 - identifiers/operators/reserved words is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -797,7 +773,7 @@ Files likely touched:
 Acceptance criteria:
 - numeric literal parsing is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -848,7 +824,7 @@ Files likely touched:
 Acceptance criteria:
 - char literal parsing is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -899,7 +875,7 @@ Files likely touched:
 Acceptance criteria:
 - string literal parsing is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -972,7 +948,7 @@ Files likely touched:
 Acceptance criteria:
 - layout rule implementation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1023,7 +999,7 @@ Files likely touched:
 Acceptance criteria:
 - explicit braces/semicolons is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1074,7 +1050,7 @@ Files likely touched:
 Acceptance criteria:
 - module header parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1125,7 +1101,7 @@ Files likely touched:
 Acceptance criteria:
 - import declaration parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1176,7 +1152,7 @@ Files likely touched:
 Acceptance criteria:
 - export list parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1228,7 +1204,7 @@ Files likely touched:
 Acceptance criteria:
 - top-level declaration parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1279,7 +1255,7 @@ Files likely touched:
 Acceptance criteria:
 - type signature parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1330,7 +1306,7 @@ Files likely touched:
 Acceptance criteria:
 - function binding parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1381,7 +1357,7 @@ Files likely touched:
 Acceptance criteria:
 - pattern binding parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1432,7 +1408,7 @@ Files likely touched:
 Acceptance criteria:
 - expression parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1483,7 +1459,7 @@ Files likely touched:
 Acceptance criteria:
 - lambda/application parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1534,7 +1510,7 @@ Files likely touched:
 Acceptance criteria:
 - infix expression parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1585,7 +1561,7 @@ Files likely touched:
 Acceptance criteria:
 - operator section parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1636,7 +1612,7 @@ Files likely touched:
 Acceptance criteria:
 - let/where parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1687,7 +1663,7 @@ Files likely touched:
 Acceptance criteria:
 - if/case parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1738,7 +1714,7 @@ Files likely touched:
 Acceptance criteria:
 - do-notation parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1789,7 +1765,7 @@ Files likely touched:
 Acceptance criteria:
 - list syntax parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1840,7 +1816,7 @@ Files likely touched:
 Acceptance criteria:
 - tuple syntax parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1891,7 +1867,7 @@ Files likely touched:
 Acceptance criteria:
 - arithmetic sequence parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1942,7 +1918,7 @@ Files likely touched:
 Acceptance criteria:
 - list comprehension parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -1993,7 +1969,7 @@ Files likely touched:
 Acceptance criteria:
 - pattern parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -2044,7 +2020,7 @@ Files likely touched:
 Acceptance criteria:
 - guard parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -2095,7 +2071,7 @@ Files likely touched:
 Acceptance criteria:
 - data/newtype/type parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -2146,7 +2122,7 @@ Files likely touched:
 Acceptance criteria:
 - class/instance parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -2197,7 +2173,7 @@ Files likely touched:
 Acceptance criteria:
 - fixity declaration parser is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -2263,7 +2239,7 @@ Files likely touched:
 Acceptance criteria:
 - parser error source spans is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -2314,7 +2290,7 @@ Files likely touched:
 Acceptance criteria:
 - parser golden tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -2365,7 +2341,7 @@ Files likely touched:
 Acceptance criteria:
 - parser negative layout tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -2440,7 +2416,7 @@ Files likely touched:
 Acceptance criteria:
 - unique name representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -2490,7 +2466,7 @@ Files likely touched:
 Acceptance criteria:
 - value namespace is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -2540,7 +2516,7 @@ Files likely touched:
 Acceptance criteria:
 - constructor namespace is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -2590,7 +2566,7 @@ Files likely touched:
 Acceptance criteria:
 - type constructor namespace is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -2640,7 +2616,7 @@ Files likely touched:
 Acceptance criteria:
 - class namespace is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -2690,7 +2666,7 @@ Files likely touched:
 Acceptance criteria:
 - module namespace is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -2739,7 +2715,7 @@ Files likely touched:
 Acceptance criteria:
 - local lexical scope is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -2789,7 +2765,7 @@ Files likely touched:
 Acceptance criteria:
 - lambda binder scope is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -2839,7 +2815,7 @@ Files likely touched:
 Acceptance criteria:
 - let/where scope is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -2889,7 +2865,7 @@ Files likely touched:
 Acceptance criteria:
 - pattern binder scope is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -2938,7 +2914,7 @@ Files likely touched:
 Acceptance criteria:
 - top-level binding scope is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -2988,7 +2964,7 @@ Files likely touched:
 Acceptance criteria:
 - duplicate binding detection is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -3038,7 +3014,7 @@ Files likely touched:
 Acceptance criteria:
 - unbound name diagnostics is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -3088,7 +3064,7 @@ Files likely touched:
 Acceptance criteria:
 - qualified names is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -3151,7 +3127,7 @@ Files likely touched:
 Acceptance criteria:
 - import resolution, single-directory whole-program mode is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -3201,7 +3177,7 @@ Files likely touched:
 Acceptance criteria:
 - export list filtering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -3251,7 +3227,7 @@ Files likely touched:
 Acceptance criteria:
 - qualified imports is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -3301,7 +3277,7 @@ Files likely touched:
 Acceptance criteria:
 - hiding imports is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -3351,7 +3327,7 @@ Files likely touched:
 Acceptance criteria:
 - import aliases is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -3401,7 +3377,7 @@ Files likely touched:
 Acceptance criteria:
 - module graph construction is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -3451,7 +3427,7 @@ Files likely touched:
 Acceptance criteria:
 - module cycle detection is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -3500,7 +3476,7 @@ Files likely touched:
 Acceptance criteria:
 - fixity declaration collection is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -3550,7 +3526,7 @@ Files likely touched:
 Acceptance criteria:
 - infix reassociation using fixities is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -3600,7 +3576,7 @@ Files likely touched:
 Acceptance criteria:
 - renamer tests for shadowing is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -3650,7 +3626,7 @@ Files likely touched:
 Acceptance criteria:
 - renamer tests for imports/exports is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - renamer unit tests
@@ -3699,7 +3675,7 @@ Files likely touched:
 Acceptance criteria:
 - Core name/binder model is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -3769,7 +3745,7 @@ Files likely touched:
 Acceptance criteria:
 - Core type representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -3856,7 +3832,7 @@ Files likely touched:
 Acceptance criteria:
 - Core expression representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -3906,7 +3882,7 @@ Files likely touched:
 Acceptance criteria:
 - Core literal representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -3956,7 +3932,7 @@ Files likely touched:
 Acceptance criteria:
 - Core let/letrec is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4021,7 +3997,7 @@ Files likely touched:
 Acceptance criteria:
 - Core case/alternatives is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4071,7 +4047,7 @@ Files likely touched:
 Acceptance criteria:
 - Core constructors is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4121,7 +4097,7 @@ Files likely touched:
 Acceptance criteria:
 - Core primitive operations is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4198,7 +4174,7 @@ Files likely touched:
 Acceptance criteria:
 - Core dictionaries placeholder is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4267,7 +4243,7 @@ Files likely touched:
 Acceptance criteria:
 - Core validator is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4317,7 +4293,7 @@ Files likely touched:
 Acceptance criteria:
 - Core pretty-printer is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4367,7 +4343,7 @@ Files likely touched:
 Acceptance criteria:
 - Core free variable analysis is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4417,7 +4393,7 @@ Files likely touched:
 Acceptance criteria:
 - Core substitution/capture avoidance is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4467,7 +4443,7 @@ Files likely touched:
 Acceptance criteria:
 - Core alpha-equivalence helper is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4517,7 +4493,7 @@ Files likely touched:
 Acceptance criteria:
 - Core evaluator/reference semantics, if required is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4567,7 +4543,7 @@ Files likely touched:
 Acceptance criteria:
 - desugar variables/literals/lambda/app is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4617,7 +4593,7 @@ Files likely touched:
 Acceptance criteria:
 - desugar let/where is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4667,7 +4643,7 @@ Files likely touched:
 Acceptance criteria:
 - desugar if to case is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4717,7 +4693,7 @@ Files likely touched:
 Acceptance criteria:
 - desugar simple case is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4767,7 +4743,7 @@ Files likely touched:
 Acceptance criteria:
 - desugar guards is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4817,7 +4793,7 @@ Files likely touched:
 Acceptance criteria:
 - desugar sections is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4867,7 +4843,7 @@ Files likely touched:
 Acceptance criteria:
 - desugar list/tuple syntax placeholders is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4917,7 +4893,7 @@ Files likely touched:
 Acceptance criteria:
 - Core golden tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -4967,7 +4943,7 @@ Files likely touched:
 Acceptance criteria:
 - Core validation negative tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -5016,7 +4992,7 @@ Files likely touched:
 Acceptance criteria:
 - type variable representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5066,7 +5042,7 @@ Files likely touched:
 Acceptance criteria:
 - type schemes is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5115,7 +5091,7 @@ Files likely touched:
 Acceptance criteria:
 - unification is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5165,7 +5141,7 @@ Files likely touched:
 Acceptance criteria:
 - occurs check is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5215,7 +5191,7 @@ Files likely touched:
 Acceptance criteria:
 - generalization is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5265,7 +5241,7 @@ Files likely touched:
 Acceptance criteria:
 - instantiation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5331,7 +5307,7 @@ Files likely touched:
 Acceptance criteria:
 - expression inference is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5381,7 +5357,7 @@ Files likely touched:
 Acceptance criteria:
 - top-level type signatures is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5431,7 +5407,7 @@ Files likely touched:
 Acceptance criteria:
 - let-polymorphism is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5481,7 +5457,7 @@ Files likely touched:
 Acceptance criteria:
 - recursive binding typing is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5531,7 +5507,7 @@ Files likely touched:
 Acceptance criteria:
 - kind representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5581,7 +5557,7 @@ Files likely touched:
 Acceptance criteria:
 - kind inference/checking is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5631,7 +5607,7 @@ Files likely touched:
 Acceptance criteria:
 - type synonym expansion is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5681,7 +5657,7 @@ Files likely touched:
 Acceptance criteria:
 - newtype typing is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5736,7 +5712,7 @@ Files likely touched:
 Acceptance criteria:
 - ADT constructor typing is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5815,7 +5791,7 @@ Acceptance criteria:
 - The current executable slice validates the supported single-argument class constraint arity before kind checking, scheme construction, defaulting, and dictionary elaboration.
 - Constraint arguments are normalized through kind checking, type synonym expansion, substitution, generalization, and Core dictionary type construction.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5866,7 +5842,7 @@ Acceptance criteria:
 - Unsupported class-constraint contexts are represented by a structured typechecker diagnostic rather than ad hoc placeholder strings.
 - Superclass contexts, method-specific constraints, instance contexts, and expression type-signature constraints report the structured placeholder while preserving parsed/renamed constraint details.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5916,7 +5892,7 @@ Files likely touched:
 Acceptance criteria:
 - numeric literal defaulting is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -5968,7 +5944,7 @@ Acceptance criteria:
 - Unsigned nullary value bindings without explicit signatures are documented and tested as eligible for standard-class defaulting before generalization.
 - Explicitly signed bindings and functions with value parameters are documented as protected from that defaulting pass; full Haskell 2010 monomorphism-restriction coverage is deferred until broader pattern-binding and class-library support exists.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -6036,7 +6012,7 @@ Acceptance criteria:
 - Delayed class-constraint dictionary failures retain the originating expression/type span rather than losing attribution during Core elaboration.
 - The CLI conformance manifest checks a negative type-error fixture for a concrete source-span prefix.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -6088,7 +6064,7 @@ Acceptance criteria:
 - Generated custom type-class dictionary inference programs typecheck, emit validating Core, and retain dictionary constructor metadata.
 - Generated signature-mismatch programs fail with structured inference/type errors rather than emitting Core.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -6138,7 +6114,7 @@ Files likely touched:
 Acceptance criteria:
 - negative type tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -6208,7 +6184,7 @@ Files likely touched:
 Acceptance criteria:
 - STG syntax is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -6259,7 +6235,7 @@ Files likely touched:
 Acceptance criteria:
 - STG value/atom representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -6310,7 +6286,7 @@ Files likely touched:
 Acceptance criteria:
 - STG closures is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -6361,7 +6337,7 @@ Files likely touched:
 Acceptance criteria:
 - STG thunks is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -6412,7 +6388,7 @@ Files likely touched:
 Acceptance criteria:
 - STG constructors is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -6473,7 +6449,7 @@ Files likely touched:
 Acceptance criteria:
 - STG let/letrec is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -6524,7 +6500,7 @@ Files likely touched:
 Acceptance criteria:
 - STG case is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -6575,7 +6551,7 @@ Files likely touched:
 Acceptance criteria:
 - STG primitive operations is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -6626,7 +6602,7 @@ Files likely touched:
 Acceptance criteria:
 - STG update flags is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -6694,7 +6670,7 @@ Files likely touched:
 Acceptance criteria:
 - Core-to-STG lowering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -6745,7 +6721,7 @@ Files likely touched:
 Acceptance criteria:
 - STG validator is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -6796,7 +6772,7 @@ Files likely touched:
 Acceptance criteria:
 - STG pretty-printer is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -6847,7 +6823,7 @@ Files likely touched:
 Acceptance criteria:
 - STG interpreter/reference evaluator is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -6898,7 +6874,7 @@ Files likely touched:
 Acceptance criteria:
 - laziness test: `const 1 (1 div 0)` is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -6949,7 +6925,7 @@ Files likely touched:
 Acceptance criteria:
 - laziness test: unused let is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -7000,7 +6976,7 @@ Files likely touched:
 Acceptance criteria:
 - case forces scrutinee test is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -7051,7 +7027,7 @@ Files likely touched:
 Acceptance criteria:
 - sharing test is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -7102,7 +7078,7 @@ Files likely touched:
 Acceptance criteria:
 - letrec test is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -7153,7 +7129,7 @@ Files likely touched:
 Acceptance criteria:
 - black-hole behavior test/documented deviation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -7201,7 +7177,7 @@ Files likely touched:
 Acceptance criteria:
 - runtime source layout is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7265,7 +7241,7 @@ Files likely touched:
 Acceptance criteria:
 - closure header design is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7312,7 +7288,7 @@ Files likely touched:
 Acceptance criteria:
 - function closure layout is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7359,7 +7335,7 @@ Files likely touched:
 Acceptance criteria:
 - thunk closure layout is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7406,7 +7382,7 @@ Files likely touched:
 Acceptance criteria:
 - constructor closure layout is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7453,7 +7429,7 @@ Files likely touched:
 Acceptance criteria:
 - indirection/update closure layout is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7500,7 +7476,7 @@ Files likely touched:
 Acceptance criteria:
 - black-hole marker is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7547,7 +7523,7 @@ Files likely touched:
 Acceptance criteria:
 - heap allocation API is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7596,7 +7572,7 @@ Acceptance criteria:
 - Strict `.hg` closure allocation routes through `hegglog_alloc_process_lifetime`; Haskell 2010 STG heap allocation routes through `hegglog_hs_alloc_process_lifetime`.
 - Allocation failure is checked inside the runtime allocation helper and aborts; generated programs do not free or collect heap objects before process exit.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7643,7 +7619,7 @@ Files likely touched:
 Acceptance criteria:
 - enter closure is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7690,7 +7666,7 @@ Files likely touched:
 Acceptance criteria:
 - force thunk is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7737,7 +7713,7 @@ Files likely touched:
 Acceptance criteria:
 - update thunk is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7784,7 +7760,7 @@ Files likely touched:
 Acceptance criteria:
 - case dispatch support is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7831,7 +7807,7 @@ Files likely touched:
 Acceptance criteria:
 - checked arithmetic runtime helpers is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7878,7 +7854,7 @@ Files likely touched:
 Acceptance criteria:
 - checked division runtime helpers is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7925,7 +7901,7 @@ Files likely touched:
 Acceptance criteria:
 - runtime error API is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -7985,7 +7961,7 @@ Files likely touched:
 Acceptance criteria:
 - print/IO primitive hooks is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -8032,7 +8008,7 @@ Files likely touched:
 Acceptance criteria:
 - runtime build integration is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -8081,7 +8057,7 @@ Acceptance criteria:
 - The leak policy explicitly states that generated native programs may retain runtime allocations until process exit and currently emit no `free`, finalizers, reference counting, tracing GC, or sweep phase.
 - Native LLVM shape tests assert direct `malloc` calls stay inside allocation helpers for both the strict `.hg` and Haskell 2010 STG backends.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -8128,7 +8104,7 @@ Files likely touched:
 Acceptance criteria:
 - runtime unit tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -8175,7 +8151,7 @@ Files likely touched:
 Acceptance criteria:
 - native runtime wet tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -8226,7 +8202,7 @@ Files likely touched:
 Acceptance criteria:
 - STG-to-LLVM module boundary is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -8285,7 +8261,7 @@ Files likely touched:
 Acceptance criteria:
 - runtime symbol declarations is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -8336,7 +8312,7 @@ Files likely touched:
 Acceptance criteria:
 - closure allocation lowering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -8387,7 +8363,7 @@ Files likely touched:
 Acceptance criteria:
 - function entry lowering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -8438,7 +8414,7 @@ Files likely touched:
 Acceptance criteria:
 - thunk entry lowering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -8489,7 +8465,7 @@ Files likely touched:
 Acceptance criteria:
 - enter/apply convention lowering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -8540,7 +8516,7 @@ Files likely touched:
 Acceptance criteria:
 - update lowering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -8596,7 +8572,7 @@ Files likely touched:
 Acceptance criteria:
 - constructor allocation lowering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -8647,7 +8623,7 @@ Files likely touched:
 Acceptance criteria:
 - constructor tag dispatch is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -8698,7 +8674,7 @@ Files likely touched:
 Acceptance criteria:
 - case lowering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -8749,7 +8725,7 @@ Files likely touched:
 Acceptance criteria:
 - primitive arithmetic lowering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -8800,7 +8776,7 @@ Files likely touched:
 Acceptance criteria:
 - primitive comparison lowering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -8851,7 +8827,7 @@ Files likely touched:
 Acceptance criteria:
 - runtime error lowering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -8902,7 +8878,7 @@ Files likely touched:
 Acceptance criteria:
 - module entrypoint lowering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -8966,7 +8942,7 @@ Files likely touched:
 Acceptance criteria:
 - Haskell `main` entrypoint bridge is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -9017,7 +8993,7 @@ Files likely touched:
 Acceptance criteria:
 - runtime linking through clang is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -9068,7 +9044,7 @@ Files likely touched:
 Acceptance criteria:
 - LLVM validation tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -9119,7 +9095,7 @@ Files likely touched:
 Acceptance criteria:
 - native wet tests for lazy programs is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - LLVM validation tests
@@ -9196,7 +9172,7 @@ Files likely touched:
 Acceptance criteria:
 - data declaration representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -9246,7 +9222,7 @@ Files likely touched:
 Acceptance criteria:
 - constructor metadata is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -9296,7 +9272,7 @@ Files likely touched:
 Acceptance criteria:
 - polymorphic ADTs is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -9346,7 +9322,7 @@ Files likely touched:
 Acceptance criteria:
 - newtype representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Implementation notes:
 - `newtype` constructors are represented distinctly in Core metadata as `CoreNewtypeConstructor`.
@@ -9404,7 +9380,7 @@ Files likely touched:
 Acceptance criteria:
 - record field labels is implemented, completed, and covered for the supported executable subset.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -9454,7 +9430,7 @@ Files likely touched:
 Acceptance criteria:
 - constructor runtime layout is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -9469,6 +9445,64 @@ Documentation updates:
 
 Notes:
 - Milestone M8 (ADTs and pattern matching). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+
+## ADT-007 — record update expressions
+
+Status:
+- complete
+
+Category:
+- typechecker
+
+Depends on:
+- ADT-005
+- CORE-006
+- LLVM-008
+
+Blocks:
+- none
+
+Scope:
+- Record update syntax is represented in parsed and renamed Haskell 2010 ASTs without being confused with record construction.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- Record update syntax is represented in parsed and renamed Haskell 2010 ASTs without being confused with record construction.
+- The typechecker validates update labels against the scrutinee record type, rejects ambiguous updates, and reports missing-field or non-record diagnostics with source spans.
+- Record updates lower to validating Core/STG and execute natively for the supported ADT/newtype record subset while preserving laziness of untouched fields.
+- Positive and negative conformance fixtures cover construction, selection, pattern matching, update, ambiguous labels, duplicate update fields, and invalid fields.
+- The conformance matrix distinguishes record declarations/selectors/construction/patterns from record updates.
+
+Required tests:
+- parser tests
+- renamer tests
+- typechecker negative tests
+- Core/STG validation tests
+- native wet/conformance tests
+
+Documentation updates:
+- `docs/type-inference.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Implemented as a distinct source and renamed AST form, parsed as postfix record-update syntax after atomic expressions while keeping constructor record syntax separate.
+- Typechecking resolves labels through record selectors, rejects duplicate labels, rejects labels drawn from multiple datatypes, reports concrete wrong-record/non-record scrutinees at the update span, and lowers valid updates to typed Core cases that reconstruct only constructors containing all updated labels.
+- Runtime constructors in the datatype that do not provide all updated labels intentionally have no generated case alternative, so they fail at runtime as required by Haskell 2010. Untouched fields are forwarded via case binders to preserve laziness.
+- Covered by parser tests plus native, runtime-error, and negative conformance fixtures in the manifest and reflected in the conformance matrix.
 
 ## PAT-001 — variable patterns
 
@@ -9505,7 +9539,7 @@ Files likely touched:
 Acceptance criteria:
 - variable patterns is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -9556,7 +9590,7 @@ Files likely touched:
 Acceptance criteria:
 - wildcard patterns is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -9607,7 +9641,7 @@ Files likely touched:
 Acceptance criteria:
 - literal patterns is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -9669,7 +9703,7 @@ Files likely touched:
 Acceptance criteria:
 - constructor patterns is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -9720,7 +9754,7 @@ Files likely touched:
 Acceptance criteria:
 - tuple patterns is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -9771,7 +9805,7 @@ Files likely touched:
 Acceptance criteria:
 - list patterns is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -9822,7 +9856,7 @@ Files likely touched:
 Acceptance criteria:
 - as-patterns is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -9878,7 +9912,7 @@ Files likely touched:
 Acceptance criteria:
 - irrefutable/lazy patterns are implemented for the executable Haskell 2010 subset and validated through Core, STG, native, and conformance tests.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -9930,7 +9964,7 @@ Files likely touched:
 Acceptance criteria:
 - nested patterns is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -9981,7 +10015,7 @@ Files likely touched:
 Acceptance criteria:
 - pattern guards is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -10032,7 +10066,7 @@ Files likely touched:
 Acceptance criteria:
 - function equation pattern compilation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -10083,7 +10117,7 @@ Files likely touched:
 Acceptance criteria:
 - pattern binding compilation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -10134,7 +10168,7 @@ Files likely touched:
 Acceptance criteria:
 - pattern-match failure behavior is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -10189,11 +10223,11 @@ Files likely touched:
 - `docs/haskell2010-todo.json`
 
 Acceptance criteria:
-- Exhaustiveness warning placeholders are implemented as structured typechecker warnings with rendering and source spans where source spans are available.
+- Source-spanned exhaustiveness/redundancy warnings are implemented as structured typechecker warnings with rendering and source spans where source spans are available.
 - Partial `case` alternatives and partial function/lambda constructor patterns emit warnings; total Bool cases and complete constructor families do not.
-- Native compile results expose typecheck warnings without changing successful executable behavior.
+- Native compile results and compile CLI rendering expose typecheck warnings without changing successful executable behavior.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Haskell 2010 typechecker warning API tests
@@ -10245,7 +10279,7 @@ Files likely touched:
 Acceptance criteria:
 - pattern compiler to Core case is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -10296,7 +10330,7 @@ Files likely touched:
 Acceptance criteria:
 - ADT/pattern native wet tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -10346,7 +10380,7 @@ Files likely touched:
 Acceptance criteria:
 - top-level recursive functions is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -10396,7 +10430,7 @@ Files likely touched:
 Acceptance criteria:
 - mutually recursive top-level bindings is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -10446,7 +10480,7 @@ Files likely touched:
 Acceptance criteria:
 - recursive local let/where is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core validator tests
@@ -10500,7 +10534,7 @@ Acceptance criteria:
 - Pattern-bound selector names participate in recursive SCC analysis and emit Core recursive groups where dependencies require them.
 - Recursive pattern binding behavior is checked through Core evaluation, STG lowering/evaluation, and native LLVM/executable tests.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Haskell 2010 recursive pattern binding typechecker test
@@ -10517,6 +10551,167 @@ Documentation updates:
 Notes:
 - Milestone M9 (Recursion and letrec). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
 
+## SURFACE-001 — source surface audit and matrix reconciliation
+
+Status:
+- complete
+
+Category:
+- testing
+
+Depends on:
+- FRONT-020
+- REN-009
+- CORE-017
+- PAT-012
+- CORE-REC-003
+- CORE-REC-004
+- TEST-CONF-001
+
+Blocks:
+- none
+
+Scope:
+- Audit every currently parsed expression, declaration, local declaration, and pattern form against parser, renamer, typechecker, Core/STG lowering, native execution, and conformance matrix status.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- Audit every currently parsed expression, declaration, local declaration, and pattern form against parser, renamer, typechecker, Core/STG lowering, native execution, and conformance matrix status.
+- Where implementation already exists, add missing native, Core/STG, or negative fixtures before upgrading matrix rows.
+- Where implementation is absent, leave an explicit unsupported-documented fixture or a stable follow-up task ID.
+- All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
+
+Required tests:
+- tracker audit script
+- conformance manifest review
+- targeted source-surface fixtures
+
+Documentation updates:
+- `docs/haskell2010-todo.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-status-summary.md`
+
+Notes:
+- Completed by auditing parsed source-surface forms against parser, renamer, typechecker, Core/STG lowering, native execution, conformance matrix status, and manifest coverage. Added native conformance fixtures for where groups, top-level pattern bindings, local fixity plus expression type signatures, and unit/wildcard patterns. Negative source-surface breadth is covered by TEST-CONF-013, source matrix closure is completed by TEST-CONF-014, and record updates are tracked separately by completed ADT-007.
+
+## SURFACE-002 — user-defined operator bindings and infix calls
+
+Status:
+- not started
+
+Category:
+- typechecker
+
+Depends on:
+- FRONT-003
+- FRONT-019
+- REN-009
+- TYPE-007
+- CORE-016
+
+Blocks:
+- none
+
+Scope:
+- Parenthesized symbolic value bindings and backtick value operators resolve as ordinary term binders where Haskell 2010 permits them.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- Parenthesized symbolic value bindings and backtick value operators resolve as ordinary term binders where Haskell 2010 permits them.
+- User-defined infix applications elaborate through ordinary function application when the resolved operator is not a built-in special form.
+- Local fixity declarations apply to user-defined symbolic and backtick operators through parser, renamer, typechecker, Core/STG, and native execution.
+- Unsupported or malformed operator binding shapes report stable parser, renamer, or typechecker diagnostics instead of falling through to generic unsupported Core forms.
+- The Haskell 2010 conformance matrix and manifest distinguish built-in operator support from user-defined operator support.
+
+Required tests:
+- parser and renamer operator binding tests
+- typechecker/Core/STG/native user-defined infix tests
+- negative operator binding and fixity diagnostics
+- conformance manifest fixtures
+
+Documentation updates:
+- docs/haskell2010-todo.md
+- docs/haskell2010-conformance-matrix.md
+- docs/haskell2010-status-summary.md
+
+Notes:
+- Discovered during SURFACE-001: parser and renamer have operator surface pieces, but the executable typechecker currently only handles the supported built-in operator subset.
+## SURFACE-003 — where layout position coverage
+
+Status:
+- not started
+
+Category:
+- frontend
+
+Depends on:
+- FRONT-001
+- FRONT-020
+- REN-009
+- CORE-017
+
+Blocks:
+- none
+
+Scope:
+- Function-binding and case-alternative where groups parse when the where keyword appears on the following layout line in report-shaped source.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- Function-binding and case-alternative where groups parse when the where keyword appears on the following layout line in report-shaped source.
+- Accepted where groups continue to rename, typecheck, lower through Core/STG, and compile natively for the executable subset.
+- Malformed where/layout combinations produce stable parse diagnostics and negative conformance fixtures.
+- The conformance matrix explicitly separates implemented where semantics from remaining layout-position gaps.
+
+Required tests:
+- parser layout tests
+- native conformance fixtures for report-shaped where layout
+- negative malformed where/layout fixtures
+
+Documentation updates:
+- docs/haskell2010-todo.md
+- docs/haskell2010-conformance-matrix.md
+- docs/haskell2010-status-summary.md
+
+Notes:
+- Discovered during SURFACE-001: same-line where groups are covered by native fixtures, but line-broken where placement remains a frontend/layout gap.
 ## STG-REC-001 — recursive closure allocation
 
 Status:
@@ -10551,7 +10746,7 @@ Files likely touched:
 Acceptance criteria:
 - recursive closure allocation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -10601,7 +10796,7 @@ Files likely touched:
 Acceptance criteria:
 - recursive thunk semantics is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - STG validator tests
@@ -10649,7 +10844,7 @@ Files likely touched:
 Acceptance criteria:
 - recursive thunk black-hole behavior is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -10698,7 +10893,7 @@ Files likely touched:
 Acceptance criteria:
 - factorial native wet test is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -10748,7 +10943,7 @@ Files likely touched:
 Acceptance criteria:
 - fibonacci native wet test is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -10798,7 +10993,7 @@ Files likely touched:
 Acceptance criteria:
 - recursive list length native wet test is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -10848,7 +11043,7 @@ Files likely touched:
 Acceptance criteria:
 - mutual recursion native wet test is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -10899,7 +11094,7 @@ Files likely touched:
 Acceptance criteria:
 - unit type is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -10948,7 +11143,7 @@ Files likely touched:
 Acceptance criteria:
 - tuples through required arities is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -11014,7 +11209,7 @@ Files likely touched:
 Acceptance criteria:
 - list constructors is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -11063,7 +11258,7 @@ Files likely touched:
 Acceptance criteria:
 - list syntax desugaring is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -11112,7 +11307,7 @@ Files likely touched:
 Acceptance criteria:
 - tuple syntax desugaring is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -11162,7 +11357,7 @@ Files likely touched:
 Acceptance criteria:
 - `Char` literals, `Char` literal cases, `Eq Char`, and scalar `main :: Char` are implemented in Core/STG/native execution for the current executable subset.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -11277,7 +11472,7 @@ Files likely touched:
 Acceptance criteria:
 - arithmetic sequences is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -11326,7 +11521,7 @@ Files likely touched:
 Acceptance criteria:
 - list comprehensions is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -11375,7 +11570,7 @@ Files likely touched:
 Acceptance criteria:
 - list native wet tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -11424,7 +11619,7 @@ Files likely touched:
 Acceptance criteria:
 - tuple native wet tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -11526,7 +11721,7 @@ Files likely touched:
 Acceptance criteria:
 - class declaration representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -11576,7 +11771,7 @@ Files likely touched:
 Acceptance criteria:
 - instance declaration representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -11626,7 +11821,7 @@ Files likely touched:
 Acceptance criteria:
 - superclass representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -11676,7 +11871,7 @@ Files likely touched:
 Acceptance criteria:
 - method signatures is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -11726,7 +11921,7 @@ Files likely touched:
 Acceptance criteria:
 - default methods is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -11776,7 +11971,7 @@ Files likely touched:
 Acceptance criteria:
 - constraint solver is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -11826,7 +12021,7 @@ Files likely touched:
 Acceptance criteria:
 - instance resolution is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -11876,7 +12071,7 @@ Files likely touched:
 Acceptance criteria:
 - overlapping instance rejection per Haskell 2010 is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -11926,7 +12121,7 @@ Files likely touched:
 Acceptance criteria:
 - dictionary type representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -11976,7 +12171,7 @@ Files likely touched:
 Acceptance criteria:
 - dictionary value generation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12026,7 +12221,7 @@ Files likely touched:
 Acceptance criteria:
 - method selection lowering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12076,7 +12271,7 @@ Files likely touched:
 Acceptance criteria:
 - constraint passing in Core is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12143,7 +12338,7 @@ Files likely touched:
 Acceptance criteria:
 - Eq is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12193,7 +12388,7 @@ Files likely touched:
 Acceptance criteria:
 - Ord is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12265,7 +12460,7 @@ Notes:
 ## TC-016 — Read, if implemented or documented deviation
 
 Status:
-- complete
+- documented deviation
 
 Category:
 - typechecker
@@ -12296,7 +12491,7 @@ Files likely touched:
 Acceptance criteria:
 - Read is explicitly documented as a Haskell 2010 Prelude/typeclass deviation according to status `documented deviation`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12346,7 +12541,7 @@ Files likely touched:
 Acceptance criteria:
 - Num is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12396,7 +12591,7 @@ Files likely touched:
 Acceptance criteria:
 - Enum is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12446,7 +12641,7 @@ Files likely touched:
 Acceptance criteria:
 - Bounded is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12508,7 +12703,7 @@ Files likely touched:
 Acceptance criteria:
 - Monad is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12558,7 +12753,7 @@ Files likely touched:
 Acceptance criteria:
 - numeric literal overloading is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12608,7 +12803,7 @@ Files likely touched:
 Acceptance criteria:
 - defaulting is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12658,7 +12853,7 @@ Files likely touched:
 Acceptance criteria:
 - derived Eq is implemented for the supported executable subset and represented in unit, native, and conformance coverage.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12708,7 +12903,7 @@ Files likely touched:
 Acceptance criteria:
 - derived Ord is implemented for the supported executable subset and represented in unit, native, and conformance coverage.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12758,7 +12953,7 @@ Files likely touched:
 Acceptance criteria:
 - derived `Show` is implemented for the supported executable subset and represented in unit, native, and conformance coverage.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12808,7 +13003,7 @@ Files likely touched:
 Acceptance criteria:
 - class negative tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12858,7 +13053,7 @@ Files likely touched:
 Acceptance criteria:
 - dictionary Core validation tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12908,7 +13103,7 @@ Files likely touched:
 Acceptance criteria:
 - typeclass native wet tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12924,10 +13119,277 @@ Documentation updates:
 Notes:
 - Milestone M11 (Type classes and dictionaries). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
 
+## TC-029 — report-shaped Show hierarchy
+
+Status:
+- not started
+
+Category:
+- typechecker
+
+Depends on:
+- TC-015
+- TC-025
+- PRELUDE-DATA-007
+
+Blocks:
+- none
+
+Scope:
+- `Show` exposes and uses the Haskell 2010 method shape around `showsPrec`, `show`, `showList`, and `shows` without breaking existing executable `show` and `print` behavior.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- `Show` exposes and uses the Haskell 2010 method shape around `showsPrec`, `show`, `showList`, and `shows` without breaking existing executable `show` and `print` behavior.
+- Generated and built-in Show dictionaries implement precedence-sensitive constructor rendering and report-compatible character/string/list escaping for the supported value surface.
+- Derived `Show` uses the same method hierarchy instead of a separate string-only path.
+- Native and conformance tests cover scalar, list, string, product, record, recursive, and precedence-sensitive output.
+- The matrix no longer describes full `showsPrec`/`showList` as future work once this task is complete.
+
+Required tests:
+- typechecker unit tests
+- dictionary/Core validation tests
+- native wet tests
+- conformance tests
+
+Documentation updates:
+- `docs/type-inference.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+
+## TC-030 — Read implementation
+
+Status:
+- not started
+
+Category:
+- typechecker
+
+Depends on:
+- TC-016
+- TC-029
+- PRELUDE-DATA-007
+
+Blocks:
+- none
+
+Scope:
+- `Read` is promoted from documented deviation to implemented class support with `ReadS`, `readsPrec`, `readList`, `reads`, and `read` where required by the Report surface.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- `Read` is promoted from documented deviation to implemented class support with `ReadS`, `readsPrec`, `readList`, `reads`, and `read` where required by the Report surface.
+- Lexical read parsing accepts report-compatible whitespace and token forms for supported scalar, list, tuple, and ADT values.
+- Built-in and derived `Read` dictionaries lower through Core/STG/native using the same dictionary model as other classes.
+- Invalid and partial reads have documented behavior and conformance fixtures.
+- The existing unsupported `Read` fixture is removed or converted only when replacement positive and negative coverage exists.
+
+Required tests:
+- typechecker unit tests
+- parser/lexer read tests
+- dictionary/Core validation tests
+- native wet tests
+- conformance tests
+
+Documentation updates:
+- `docs/type-inference.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+
+## TC-031 — derived Enum
+
+Status:
+- not started
+
+Category:
+- typechecker
+
+Depends on:
+- TC-018
+- ADT-001
+
+Blocks:
+- none
+
+Scope:
+- Derived `Enum` is generated for eligible nullary-constructor data declarations with Haskell 2010 constructor ordering semantics.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- Derived `Enum` is generated for eligible nullary-constructor data declarations with Haskell 2010 constructor ordering semantics.
+- Generated dictionaries implement `succ`, `pred`, `toEnum`, `fromEnum`, and enumeration methods with correct bounds/error behavior for the supported runtime.
+- Invalid deriving cases, including constructors with fields and unsupported declaration shapes, fail with stable diagnostics.
+- Native and conformance fixtures cover positive and negative derived `Enum` cases.
+- The matrix distinguishes public built-in `Enum` instances from derived `Enum` until this task is complete.
+
+Required tests:
+- typechecker unit tests
+- negative type tests
+- dictionary/Core validation tests
+- native wet tests
+- conformance tests
+
+Documentation updates:
+- `docs/type-inference.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+
+## TC-032 — derived Bounded
+
+Status:
+- not started
+
+Category:
+- typechecker
+
+Depends on:
+- TC-019
+- ADT-001
+
+Blocks:
+- none
+
+Scope:
+- Derived `Bounded` is generated for eligible enumerations, single-constructor product types, and supported newtype shapes according to Haskell 2010 rules.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- Derived `Bounded` is generated for eligible enumerations, single-constructor product types, and supported newtype shapes according to Haskell 2010 rules.
+- Generated dictionaries implement `minBound` and `maxBound` with constructor-order and field-bound semantics where applicable.
+- Invalid deriving cases fail with stable diagnostics.
+- Native and conformance fixtures cover positive and negative derived `Bounded` cases.
+- The matrix distinguishes public built-in `Bounded` instances from derived `Bounded` until this task is complete.
+
+Required tests:
+- typechecker unit tests
+- negative type tests
+- dictionary/Core validation tests
+- native wet tests
+- conformance tests
+
+Documentation updates:
+- `docs/type-inference.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+
+## TC-033 — numeric class hierarchy expansion
+
+Status:
+- not started
+
+Category:
+- typechecker
+
+Depends on:
+- TC-017
+- TC-021
+- TC-022
+
+Blocks:
+- none
+
+Scope:
+- Broaden the numeric class hierarchy beyond the current executable `Num Int` path, including the standard superclass/method relationships needed for Haskell 2010 numeric code.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- Broaden the numeric class hierarchy beyond the current executable `Num Int` path, including the standard superclass/method relationships needed for Haskell 2010 numeric code.
+- Defaulting follows Haskell 2010 rules for the expanded numeric universe and keeps the current checked-runtime guarantees for bounded executable `Int` behavior.
+- Unsupported numeric types or methods have explicit diagnostics rather than silent fallback.
+- Core/STG/native and conformance fixtures cover overloaded literals, default declarations, numeric methods, and invalid ambiguity cases.
+- Docs clearly separate implemented numeric support from remaining arbitrary-precision or floating behavior.
+
+Required tests:
+- typechecker unit tests
+- numeric defaulting tests
+- dictionary/Core validation tests
+- native wet tests
+- conformance tests
+
+Documentation updates:
+- `docs/type-inference.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+
 ## PRELUDE-001 — Prelude module strategy
 
 Status:
-- in progress
+- complete
 
 Category:
 - libraries
@@ -12958,7 +13420,7 @@ Files likely touched:
 Acceptance criteria:
 - Prelude module strategy is implemented, completed, or explicitly documented according to status `in progress`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13012,7 +13474,7 @@ Acceptance criteria:
   of the same entity, and `qualified` imports are handled by the same import
   filtering rules used for ordinary modules.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13065,7 +13527,7 @@ Files likely touched:
 Acceptance criteria:
 - Bool is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13114,7 +13576,7 @@ Files likely touched:
 Acceptance criteria:
 - Maybe is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13163,7 +13625,7 @@ Files likely touched:
 Acceptance criteria:
 - Either is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13212,7 +13674,7 @@ Files likely touched:
 Acceptance criteria:
 - Ordering is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13261,7 +13723,7 @@ Files likely touched:
 Acceptance criteria:
 - list functions: map is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13310,7 +13772,7 @@ Files likely touched:
 Acceptance criteria:
 - foldr is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13359,7 +13821,7 @@ Files likely touched:
 Acceptance criteria:
 - foldl is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13408,7 +13870,7 @@ Files likely touched:
 Acceptance criteria:
 - length is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13457,7 +13919,7 @@ Files likely touched:
 Acceptance criteria:
 - filter is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13506,7 +13968,7 @@ Files likely touched:
 Acceptance criteria:
 - reverse is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13524,7 +13986,7 @@ Notes:
 ## PRELUDE-013 — append
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -13555,7 +14017,7 @@ Files likely touched:
 Acceptance criteria:
 - append is implemented for supported list and string programs and represented in unit, native, conformance, and wet-test coverage.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13604,7 +14066,7 @@ Files likely touched:
 Acceptance criteria:
 - function combinators: id, const, ., $ is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13653,7 +14115,7 @@ Files likely touched:
 Acceptance criteria:
 - boolean operators with short-circuit semantics is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13702,7 +14164,7 @@ Files likely touched:
 Acceptance criteria:
 - numeric functions is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13720,7 +14182,7 @@ Notes:
 ## PRELUDE-017 — standard library module layout
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -13757,7 +14219,7 @@ Acceptance criteria:
 - Reserved Haskell 2010 standard modules are documented without being silently
   exposed as empty importable modules.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13779,7 +14241,7 @@ Notes:
 ## PRELUDE-018 — Prelude conformance tests
 
 Status:
-- in progress
+- complete
 
 Category:
 - libraries
@@ -13808,9 +14270,9 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- Prelude conformance tests is implemented, completed, or explicitly documented according to status `in progress`.
+- Prelude conformance tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13824,6 +14286,110 @@ Documentation updates:
 
 Notes:
 - Milestone M12 (Prelude and libraries). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+
+## PRELUDE-019 — Prelude function completion
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- PRELUDE-009
+- PRELUDE-018
+
+Blocks:
+- none
+
+Scope:
+- Fill high-value missing Prelude functions beyond the currently generated executable subset, starting with `foldl` and then tracking each newly claimed function in the matrix.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- Fill high-value missing Prelude functions beyond the currently generated executable subset, starting with `foldl` and then tracking each newly claimed function in the matrix.
+- Implemented functions use ordinary Haskell 2010 source/Core/STG/library semantics rather than backend-specific shortcuts where practical.
+- Strictness, laziness, error behavior, and list-fusion-sensitive behavior are documented for every supported function.
+- Native and conformance fixtures cover each newly claimed Prelude function.
+- Remaining Prelude functions stay explicitly unclaimed or receive dedicated task IDs.
+
+Required tests:
+- library unit tests
+- Core/STG preservation tests
+- native wet tests
+- Prelude conformance tests
+
+Documentation updates:
+- `docs/current-capabilities.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+
+## PRELUDE-020 — standard library module expansion
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- PRELUDE-017
+- MOD-003
+
+Blocks:
+- none
+
+Scope:
+- Generated/importable standard-library module interfaces expand beyond `Prelude` to the modules required by the Haskell 2010 Report as implementation support lands.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- Generated/importable standard-library module interfaces expand beyond `Prelude` to the modules required by the Haskell 2010 Report as implementation support lands.
+- Module ownership stays explicit: no standard module is silently importable with an empty or fake surface.
+- Import, export, child export, fixity, and instance behavior for standard modules follows the same `ModuleInterface` model as user modules.
+- Docs and conformance fixtures identify every standard module as implemented, partially implemented, reserved, or unsupported-documented.
+- The standard-library layout doc remains synchronized with the generated module interfaces.
+
+Required tests:
+- standard-library interface unit tests
+- module conformance tests
+- backlog validator
+- matrix review
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
 
 ## IO-001 — IO type representation
 
@@ -13859,7 +14425,7 @@ Files likely touched:
 Acceptance criteria:
 - IO type representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13908,7 +14474,7 @@ Files likely touched:
 Acceptance criteria:
 - runtime IO action representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -13957,7 +14523,7 @@ Files likely touched:
 Acceptance criteria:
 - `main :: IO ()` is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -14006,7 +14572,7 @@ Files likely touched:
 Acceptance criteria:
 - putStrLn is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -14055,7 +14621,7 @@ Files likely touched:
 Acceptance criteria:
 - print is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -14104,7 +14670,7 @@ Files likely touched:
 Acceptance criteria:
 - getLine is implemented for the supported native IO subset, including repeated line reads, do-bind use, append/length composition over returned strings, Core/STG empty-stdin oracle coverage, conformance coverage, and default/no-egglog wet tests with stdin.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -14153,7 +14719,7 @@ Files likely touched:
 Acceptance criteria:
 - return is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -14204,7 +14770,7 @@ Acceptance criteria:
 - Do-notation `<-` bind statements typecheck, lower, evaluate, and compile natively for normal stdout examples.
 - Core and STG evaluator IO values preserve the returned action result while accumulating stdout output.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -14253,7 +14819,7 @@ Files likely touched:
 Acceptance criteria:
 - (>>) is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -14302,7 +14868,7 @@ Files likely touched:
 Acceptance criteria:
 - do-notation desugaring is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -14351,7 +14917,7 @@ Files likely touched:
 Acceptance criteria:
 - IO error behavior is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -14400,7 +14966,7 @@ Files likely touched:
 Acceptance criteria:
 - stdout/stderr conventions is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -14449,7 +15015,7 @@ Files likely touched:
 Acceptance criteria:
 - IO native wet tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -14498,7 +15064,7 @@ Files likely touched:
 Acceptance criteria:
 - IO conformance tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - library unit tests
@@ -14547,7 +15113,7 @@ Files likely touched:
 Acceptance criteria:
 - whole-program module graph is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - module graph tests
@@ -14596,7 +15162,7 @@ Files likely touched:
 Acceptance criteria:
 - module file discovery is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - module graph tests
@@ -14645,7 +15211,7 @@ Files likely touched:
 Acceptance criteria:
 - import search path is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - module graph tests
@@ -14694,7 +15260,7 @@ Files likely touched:
 Acceptance criteria:
 - export list semantics is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - module graph tests
@@ -14743,7 +15309,7 @@ Files likely touched:
 Acceptance criteria:
 - qualified import semantics is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - module graph tests
@@ -14792,7 +15358,7 @@ Files likely touched:
 Acceptance criteria:
 - hiding import semantics is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - module graph tests
@@ -14841,7 +15407,7 @@ Files likely touched:
 Acceptance criteria:
 - import aliases is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - module graph tests
@@ -14890,7 +15456,7 @@ Files likely touched:
 Acceptance criteria:
 - abstract datatype export behavior is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - module graph tests
@@ -14947,7 +15513,7 @@ Acceptance criteria:
   through the loaded import graph, so imported source-instance dictionaries are
   emitted only when an import chain reaches the declaring module.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - module graph tests
@@ -15004,7 +15570,7 @@ Acceptance criteria:
 - Explicit `Prelude` imports, including `qualified`, `()`, and `hiding`, suppress
   the implicit import and participate in ordinary cumulative import semantics.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - module graph tests
@@ -15055,7 +15621,7 @@ Files likely touched:
 Acceptance criteria:
 - separate compilation decision/documentation is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - module graph tests
@@ -15104,7 +15670,7 @@ Files likely touched:
 Acceptance criteria:
 - interface file future plan is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - module graph tests
@@ -15153,7 +15719,7 @@ Files likely touched:
 Acceptance criteria:
 - multi-module native wet tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - module graph tests
@@ -15202,7 +15768,7 @@ Files likely touched:
 Acceptance criteria:
 - module negative tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - module graph tests
@@ -15249,7 +15815,7 @@ Acceptance criteria:
 - Haskell 2010 FFI is documented as a full implementation target, not a permanent deviation or reduced product slice.
 - The design records the Report-required declaration forms, calling conventions, safety, entities, foreign types, standard-library surface, IR boundaries, runtime obligations, LLVM/linking obligations, and conformance test strategy.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - documentation/static checks
@@ -15276,7 +15842,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver foreign import parser for FFI or documented deviation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver foreign import parser for Haskell 2010 FFI while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -15298,7 +15864,7 @@ Acceptance criteria:
 - `foreign import` binds a top-level term during renaming, participates in duplicate-name checks, and can be exported/imported through module interfaces.
 - Supported `foreign import ccall` declarations lower through explicit Core/STG foreign IR and native LLVM ABI lowering rather than being dropped.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -15349,7 +15915,7 @@ Acceptance criteria:
 - `foreign export` resolves an existing top-level term during renaming and reports a normal unbound-name diagnostic when it references a missing binding.
 - Supported `foreign export ccall` declarations are preserved as Core/STG module metadata and lower to native C-callable entrypoints rather than being dropped.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -15362,7 +15928,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). Complete for frontend representation and renaming; FFI signature typechecking now lives in the later FFI typechecking task, while Core/STG/LLVM lowering, runtime, and native behavior remain later FFI tasks.
+- Milestone M15 (FFI). Complete for frontend representation, renaming, Core/STG metadata, and native foreign-export entrypoint lowering for the supported ccall ABI slice.
 
 ## FFI-004 — C calling convention representation
 
@@ -15379,7 +15945,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver C calling convention representation for FFI or documented deviation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver C calling convention representation for Haskell 2010 FFI while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -15399,9 +15965,9 @@ Files likely touched:
 Acceptance criteria:
 - `ccall` and `stdcall` are represented structurally in parsed and renamed foreign declarations.
 - The FFI typechecker accepts Haskell 2010 `ccall`/`stdcall` declarations and rejects non-Haskell-2010 calling conventions before lowering.
-- Runtime ABI lowering for actual calls remains explicitly pending until native ABI marshalling and call lowering are implemented.
+- The supported ccall ABI slice links to native runtime lowering; stdcall remains represented and typechecked but target-specific native lowering remains an explicit gap.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - parser unit tests
@@ -15417,7 +15983,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). Complete for frontend representation and typechecker gating of calling-convention names; runtime ABI lowering remains pending.
+- Milestone M15 (FFI). In progress: ccall/stdcall are represented structurally, unsupported conventions are rejected before lowering, and the supported ccall native ABI slice is implemented; stdcall target-specific native lowering remains explicit future work.
 
 ## FFI-005 — primitive marshalling
 
@@ -15434,7 +16000,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver primitive marshalling for FFI or documented deviation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver primitive marshalling for Haskell 2010 FFI while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -15455,9 +16021,9 @@ Acceptance criteria:
 - The typechecker validates marshallable scalar, pointer, type-synonym, and local visible-newtype foreign types.
 - Static, address, `dynamic`, and `wrapper` import signatures receive shape-specific diagnostics.
 - `foreign export` declarations validate that the exported binding can instantiate to the declared foreign type.
-- Runtime primitive marshalling and ABI conversion remain explicitly pending until native ABI marshalling and call lowering are implemented.
+- Runtime primitive marshalling and ABI conversion are implemented for the supported scalar integer/Bool/Char and pointer ABI slice; floating-point and broader Foreign library marshalling remain explicit future work.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - typechecker unit tests
@@ -15472,7 +16038,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). Complete for generated library surfaces, source-level marshallable type validation, and explicit Core/STG import IR boundaries; runtime marshalling remains pending.
+- Milestone M15 (FFI). In progress: generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, and export validation are implemented; floating-point and broader Foreign library marshalling remain explicit future work.
 
 ## FFI-006 — runtime integration
 
@@ -15489,7 +16055,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver runtime integration for FFI or documented deviation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver runtime integration for Haskell 2010 FFI while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -15511,7 +16077,7 @@ Acceptance criteria:
 - Supported `foreign import ccall` nodes lower to native LLVM declarations/direct calls or indirect `FunPtr` calls with scalar integer/Bool/Char marshalling, `Ptr`/`FunPtr` pointer marshalling, static `&symbol` address boxing, `wrapper` callback trampolines, and `IO` sequencing.
 - Explicit `StablePtr` ownership and manual `ForeignPtr` finalizer APIs are implemented and wet-tested; automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, broader callback lifetime management, and floating-point marshalling remain pending.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -15524,7 +16090,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: Core/STG IR is complete for imports and export metadata, scalar/pointer/static-address/`dynamic`/`wrapper`/export `ccall` native runtime integration is implemented and wet-tested, and unsupported FFI entities still fail at explicit boundaries.
+- Milestone M15 (FFI). In progress: Core/STG IR is complete for imports and export metadata, scalar/pointer/static-address/dynamic/wrapper/export ccall native runtime integration is implemented and wet-tested, and unsupported FFI entities still fail at explicit boundaries.
 
 ## FFI-007 — LLVM external declaration lowering
 
@@ -15541,7 +16107,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver LLVM external declaration lowering for FFI or documented deviation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver LLVM external declaration lowering for Haskell 2010 FFI while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -15564,7 +16130,7 @@ Acceptance criteria:
 - Unsupported FFI entities still report explicit native ABI diagnostics instead of being silently dropped.
 - Broader link metadata, floating-point marshalling, automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, and broader callback lifetime APIs remain pending.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -15577,7 +16143,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: static scalar/pointer `ccall` declarations/direct calls, address imports, `dynamic` imports, `wrapper` callbacks, and `foreign export ccall` entrypoints are implemented; broader FFI external lowering remains open.
+- Milestone M15 (FFI). In progress: static scalar/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks, and foreign export ccall entrypoints are implemented; link metadata, floating-point, and callback-slot reclamation remain open.
 
 ## FFI-008 — FFI native tests
 
@@ -15594,7 +16160,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver FFI native tests for FFI or documented deviation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver FFI native tests for Haskell 2010 FFI while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -15614,7 +16180,7 @@ Acceptance criteria:
 - Dynamic/wrapper native tests cover indirect `FunPtr` calls, multiple live wrapped callbacks, C-to-Haskell callback re-entry, callback `IO`, and result marshalling.
 - Foreign export native tests cover C helpers calling exported pure and `IO` Haskell functions; remaining FFI forms add native tests as each ABI feature lands.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - runtime unit tests
@@ -15627,12 +16193,12 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: static scalar, pointer/address, dynamic/wrapper, and foreign-export native C-helper wet tests are implemented; native-library coverage remains open.
+- Milestone M15 (FFI). In progress: static scalar, pointer/address, dynamic/wrapper, and foreign-export native C-helper wet tests are implemented; floating-point, link metadata, finalizer lifetime, and broader library coverage remain open.
 
-## FFI-009 — documented deviation if deferred
+## FFI-009 — FFI-wide deferral retired
 
 Status:
-- documented deviation
+- complete
 
 Category:
 - runtime
@@ -15644,37 +16210,250 @@ Blocks:
 - none
 
 Scope:
-- Deliver documented deviation if deferred for FFI or documented deviation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- The project no longer treats Haskell 2010 FFI as a whole-feature documented deviation.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
 - Do not claim full Haskell 2010 or GHC compatibility from this task alone.
 - Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Haskell2010/STG/LLVM.hs`
-- `src/Haskell2010/Native.hs`
-- `src/Backend/LLVM/Toolchain.hs`
-- `docs/runtime-spec.md`
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
 
 Acceptance criteria:
-- documented deviation if deferred is implemented, completed, or explicitly documented according to status `documented deviation`.
+- The project no longer treats Haskell 2010 FFI as a whole-feature documented deviation.
+- Implemented FFI support is tracked by FFI-001 through FFI-008, and remaining gaps are tracked by dedicated follow-up tasks instead of one broad deferral bucket.
+- Unsupported FFI behavior remains explicit in the conformance matrix and docs until each follow-up task is implemented.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
+
+Required tests:
+- documentation/static checks
+- conformance matrix review
+- unsupported/deviation fixture review
+
+Documentation updates:
+- `docs/haskell2010-ffi-design.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+
+## FFI-010 — floating-point FFI marshalling
+
+Status:
+- not started
+
+Category:
+- runtime
+
+Depends on:
+- FFI-005
+- FFI-007
+
+Blocks:
+- none
+
+Scope:
+- Foreign imports and exports validate and marshal `Float`, `Double`, `CFloat`, and `CDouble` according to the supported C ABI.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- Foreign imports and exports validate and marshal `Float`, `Double`, `CFloat`, and `CDouble` according to the supported C ABI.
+- Core/STG/LLVM types distinguish floating-point ABI values from boxed runtime values without corrupting existing integer/pointer marshalling.
+- Native C-helper fixtures cover direct calls, callbacks, exports, and result marshalling for floating-point values.
+- Unsupported floating ABI combinations fail explicitly until implemented.
+- Docs and matrix remove floating-point FFI from the remaining-gap list only after native coverage passes.
+
+Required tests:
+- typechecker tests
+- Core/STG validation tests
+- LLVM lowering tests
+- native C-helper wet tests
+
+Documentation updates:
+- `docs/haskell2010-ffi-design.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+
+## FFI-011 — FFI link metadata
+
+Status:
+- not started
+
+Category:
+- runtime
+
+Depends on:
+- FFI-002
+- FFI-007
+- LLVM-016
+
+Blocks:
+- none
+
+Scope:
+- Foreign import entity metadata preserves header/library/object requirements needed for portable C linking.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- Foreign import entity metadata preserves header/library/object requirements needed for portable C linking.
+- The CLI/native toolchain accepts and propagates required extra objects or libraries without hardcoding test-only paths.
+- Conformance and e2e fixtures cover header-qualified entities and explicit link inputs.
+- Missing link dependencies report stable diagnostics.
+- Docs describe the supported link model and remaining platform-specific limitations.
+
+Required tests:
+- parser tests
+- toolchain tests
+- native C-helper wet tests
+- negative link diagnostics
+
+Documentation updates:
+- `docs/haskell2010-ffi-design.md`
+- `docs/llvm-backend-spec.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+
+## FFI-012 — callback and finalizer lifetime completion
+
+Status:
+- not started
+
+Category:
+- runtime
+
+Depends on:
+- FFI-006
+- FFI-007
+- FFI-008
+
+Blocks:
+- none
+
+Scope:
+- `freeHaskellFunPtr` and callback-slot reclamation are implemented with documented ownership and re-entry behavior.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- `freeHaskellFunPtr` and callback-slot reclamation are implemented with documented ownership and re-entry behavior.
+- Automatic `ForeignPtr` finalizer scheduling is implemented or explicitly scoped against the project runtime ownership model.
+- Callback and finalizer lifetimes are safe across nested C-to-Haskell re-entry and explicit `StablePtr` usage.
+- Native wet tests cover reclamation, double-free/idempotence, callback-after-free rejection, and finalizer ordering.
+- Docs distinguish manual process-lifetime behavior from any automatic lifetime guarantees.
 
 Required tests:
 - runtime unit tests
-- native runtime wet tests
+- native callback wet tests
+- finalizer wet tests
 - runtime-error conformance tests
 
 Documentation updates:
+- `docs/haskell2010-ffi-design.md`
 - `docs/runtime-spec.md`
-- `docs/laziness-and-stg-plan.md`
-- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M15 (FFI or documented deviation). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+
+## FFI-013 — Foreign library surface completion
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- FFI-005
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- The `Foreign`, `Foreign.C`, `Foreign.C.Types`, `Foreign.Ptr`, `Foreign.StablePtr`, `Foreign.ForeignPtr`, `Foreign.Marshal.*`, and `Foreign.Storable` surfaces are tracked module-by-module against the Haskell 2010 libraries.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- The `Foreign`, `Foreign.C`, `Foreign.C.Types`, `Foreign.Ptr`, `Foreign.StablePtr`, `Foreign.ForeignPtr`, `Foreign.Marshal.*`, and `Foreign.Storable` surfaces are tracked module-by-module against the Haskell 2010 libraries.
+- Implemented functions and types use generated module interfaces, ordinary import/export rules, and conformance fixtures.
+- Unsupported functions remain explicit unsupported-documented cases rather than implicit omissions.
+- Docs identify the exact implemented, partial, and pending Foreign module surfaces.
+- Library coverage is reflected in the standard-library layout and conformance matrix.
+
+Required tests:
+- standard-library interface tests
+- typechecker tests
+- native wet tests
+- unsupported conformance fixtures
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-ffi-design.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
 
 ## EGG-CORE-001 — Core Egglog schema
 
@@ -15709,7 +16488,7 @@ Files likely touched:
 Acceptance criteria:
 - Core Egglog schema is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -15757,7 +16536,7 @@ Files likely touched:
 Acceptance criteria:
 - Core-to-Egglog encoder is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -15805,7 +16584,7 @@ Files likely touched:
 Acceptance criteria:
 - Egglog-to-Core extractor is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -15853,7 +16632,7 @@ Files likely touched:
 Acceptance criteria:
 - Core type preservation checks is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -15901,7 +16680,7 @@ Files likely touched:
 Acceptance criteria:
 - Core totality facts is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -15949,7 +16728,7 @@ Files likely touched:
 Acceptance criteria:
 - no-error facts is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -15997,7 +16776,7 @@ Files likely touched:
 Acceptance criteria:
 - known constant facts is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -16045,7 +16824,7 @@ Files likely touched:
 Acceptance criteria:
 - known constructor facts is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -16093,7 +16872,7 @@ Files likely touched:
 Acceptance criteria:
 - demand facts is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -16141,7 +16920,7 @@ Files likely touched:
 Acceptance criteria:
 - strictness facts is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -16189,7 +16968,7 @@ Files likely touched:
 Acceptance criteria:
 - dictionary-known facts is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -16237,7 +17016,7 @@ Files likely touched:
 Acceptance criteria:
 - safe constant folding is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -16285,7 +17064,7 @@ Files likely touched:
 Acceptance criteria:
 - case-of-known-constructor is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -16333,7 +17112,7 @@ Files likely touched:
 Acceptance criteria:
 - constructor projection is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -16381,7 +17160,7 @@ Files likely touched:
 Acceptance criteria:
 - dictionary simplification is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -16429,7 +17208,7 @@ Files likely touched:
 Acceptance criteria:
 - bottom-preserving boolean simplification is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -16477,7 +17256,7 @@ Files likely touched:
 Acceptance criteria:
 - guarded arithmetic identities is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -16525,7 +17304,7 @@ Files likely touched:
 Acceptance criteria:
 - provenance/explanations is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -16573,7 +17352,7 @@ Files likely touched:
 Acceptance criteria:
 - optimized vs unoptimized native wet tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -16621,7 +17400,7 @@ Files likely touched:
 Acceptance criteria:
 - no unsafe bottom-erasing rewrite tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - Core Egglog unit tests
@@ -16672,7 +17451,7 @@ Files likely touched:
 Acceptance criteria:
 - common source span representation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -16722,7 +17501,7 @@ Files likely touched:
 Acceptance criteria:
 - lexer diagnostics is implemented, completed, or explicitly documented according to status `in progress`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -16772,7 +17551,7 @@ Files likely touched:
 Acceptance criteria:
 - layout diagnostics is implemented, completed, or explicitly documented according to status `in progress`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -16822,7 +17601,7 @@ Files likely touched:
 Acceptance criteria:
 - parser diagnostics is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -16872,7 +17651,7 @@ Files likely touched:
 Acceptance criteria:
 - renamer diagnostics is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -16922,7 +17701,7 @@ Files likely touched:
 Acceptance criteria:
 - typechecker diagnostics is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -16972,7 +17751,7 @@ Files likely touched:
 Acceptance criteria:
 - kind diagnostics is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -17022,7 +17801,7 @@ Files likely touched:
 Acceptance criteria:
 - class/instance diagnostics is implemented, completed, or explicitly documented according to status `in progress`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -17039,7 +17818,7 @@ Notes:
 ## DIAG-009 — pattern-match diagnostics
 
 Status:
-- in progress
+- complete
 
 Category:
 - diagnostics
@@ -17070,9 +17849,9 @@ Files likely touched:
 - `test/golden/`
 
 Acceptance criteria:
-- pattern-match diagnostics is implemented, completed, or explicitly documented according to status `in progress`.
+- pattern-match diagnostics is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -17084,7 +17863,13 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M17 (Diagnostics). Complete for the current executable subset:
+  supported non-exhaustive `case`, function, and lambda patterns emit
+  source-spanned warnings with missing witnesses where finite constructor
+  coverage can identify them, supported duplicate/unreachable alternatives emit
+  redundant-pattern warnings, native compile results preserve warnings, and the
+  compile CLI renders warnings to stderr. Broader report-complete coverage and
+  lazy runtime source attribution remain tracked outside this task.
 
 ## DIAG-010 — module/import diagnostics
 
@@ -17122,7 +17907,7 @@ Files likely touched:
 Acceptance criteria:
 - module/import diagnostics is implemented, completed, or explicitly documented according to status `in progress`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -17172,7 +17957,7 @@ Files likely touched:
 Acceptance criteria:
 - Core validation diagnostics is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -17222,7 +18007,7 @@ Files likely touched:
 Acceptance criteria:
 - backend diagnostics is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -17272,7 +18057,7 @@ Files likely touched:
 Acceptance criteria:
 - runtime source attribution is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -17322,7 +18107,7 @@ Files likely touched:
 Acceptance criteria:
 - nested runtime spans is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -17387,7 +18172,7 @@ Files likely touched:
 Acceptance criteria:
 - CLI diagnostic renderer is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -17437,7 +18222,7 @@ Files likely touched:
 Acceptance criteria:
 - diagnostic golden tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
@@ -17485,7 +18270,7 @@ Files likely touched:
 Acceptance criteria:
 - command model is implemented, completed, or explicitly documented according to status `in progress`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -17534,7 +18319,7 @@ Files likely touched:
 Acceptance criteria:
 - `hegglog check` is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -17583,7 +18368,7 @@ Files likely touched:
 Acceptance criteria:
 - `hegglog run` is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -17643,7 +18428,7 @@ Files likely touched:
 Acceptance criteria:
 - `hegglog compile` is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -17692,7 +18477,7 @@ Files likely touched:
 Acceptance criteria:
 - `hegglog report` is implemented, completed, or explicitly documented according to status `in progress`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -17741,7 +18526,7 @@ Files likely touched:
 Acceptance criteria:
 - `hegglog emit-core` is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -17790,7 +18575,7 @@ Files likely touched:
 Acceptance criteria:
 - `hegglog emit-stg` is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -17839,7 +18624,7 @@ Files likely touched:
 Acceptance criteria:
 - `hegglog emit-llvm` is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -17888,7 +18673,7 @@ Files likely touched:
 Acceptance criteria:
 - `--no-egglog` is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -17937,7 +18722,7 @@ Files likely touched:
 Acceptance criteria:
 - `--strict-egglog` is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -17986,7 +18771,7 @@ Files likely touched:
 Acceptance criteria:
 - `--keep-intermediates` is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -18035,7 +18820,7 @@ Files likely touched:
 Acceptance criteria:
 - dump flags is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -18084,7 +18869,7 @@ Files likely touched:
 Acceptance criteria:
 - stdout/stderr policy is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -18133,7 +18918,7 @@ Files likely touched:
 Acceptance criteria:
 - exit-code policy is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -18182,7 +18967,7 @@ Files likely touched:
 Acceptance criteria:
 - CLI wet tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -18231,7 +19016,7 @@ Files likely touched:
 Acceptance criteria:
 - help text tests is implemented, completed, or explicitly documented according to status `in progress`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CLI unit tests
@@ -18297,7 +19082,7 @@ Files likely touched:
 Acceptance criteria:
 - conformance manifest is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -18347,7 +19132,7 @@ Files likely touched:
 Acceptance criteria:
 - parser conformance tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -18397,7 +19182,7 @@ Files likely touched:
 Acceptance criteria:
 - renamer conformance tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -18447,7 +19232,7 @@ Files likely touched:
 Acceptance criteria:
 - typechecker conformance tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -18497,7 +19282,7 @@ Files likely touched:
 Acceptance criteria:
 - desugaring/Core conformance tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -18547,7 +19332,7 @@ Files likely touched:
 Acceptance criteria:
 - native wet conformance tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -18597,7 +19382,7 @@ Files likely touched:
 Acceptance criteria:
 - negative conformance tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -18647,7 +19432,7 @@ Files likely touched:
 Acceptance criteria:
 - documented deviation tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -18697,7 +19482,7 @@ Files likely touched:
 Acceptance criteria:
 - matrix auto/check script is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -18747,7 +19532,7 @@ Files likely touched:
 Acceptance criteria:
 - conformance results doc is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -18797,7 +19582,7 @@ Files likely touched:
 Acceptance criteria:
 - CI conformance job is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -18847,7 +19632,7 @@ Files likely touched:
 Acceptance criteria:
 - report coverage by Haskell 2010 section is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - validation script tests
@@ -18862,6 +19647,178 @@ Documentation updates:
 
 Notes:
 - Milestone M19 (Haskell 2010 conformance suite closure). Complete for the current executable-subset/report-section matrix: every manifest fixture is represented in the conformance matrix and unsupported Haskell 2010 areas remain explicit documented-deviation cases.
+
+## TEST-CONF-013 — source-surface negative fixtures
+
+Status:
+- complete
+
+Category:
+- testing
+
+Depends on:
+- TEST-CONF-007
+- SURFACE-001
+
+Blocks:
+- none
+
+Scope:
+- Negative fixtures cover malformed `where` groups, invalid pattern bindings, invalid record updates, unsupported expression forms, duplicate source binders, and impossible or redundant match surfaces.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- Negative fixtures cover malformed `where` groups, invalid pattern bindings, invalid record updates, unsupported expression forms, duplicate source binders, and impossible or redundant match surfaces.
+- Each negative fixture asserts a stable diagnostic category and fails if the compiler silently accepts the program.
+- Unsupported source forms use `unsupported-documented` only when the limitation is explicit in the matrix and tracker.
+- All new fixtures are listed in `test/haskell2010/conformance/manifest.json` and validated by the conformance script.
+- The Haskell 2010 conformance matrix points to these fixtures from the relevant source-surface rows.
+
+Required tests:
+- negative conformance tests
+- manifest validation
+- diagnostic category checks
+
+Documentation updates:
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-conformance-results.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Complete for current source-surface negative coverage. The manifest now
+  includes stable diagnostic-category fixtures for malformed `where` layout,
+  duplicate binders in top-level pattern bindings and function equations,
+  invalid record updates, an impossible `case` pattern/scrutinee combination,
+  and a documented unsupported constrained expression signature.
+
+## TEST-CONF-014 — source matrix closure
+
+Status:
+- complete
+
+Category:
+- testing
+
+Depends on:
+- SURFACE-001
+- TEST-CONF-013
+
+Blocks:
+- none
+
+Scope:
+- Every expression, declaration, and pattern row in the conformance matrix is backed by an implemented fixture, a compile-error fixture, or an unsupported-documented fixture.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+- `docs/haskell2010-conformance-results.md`
+- `scripts/validate-haskell2010-conformance.py`
+
+Acceptance criteria:
+- Every expression, declaration, and pattern row in the conformance matrix is backed by an implemented fixture, a compile-error fixture, or an unsupported-documented fixture.
+- Rows that are only parser/renamer-supported remain labelled as such and link to the next implementation task rather than being counted as executable support.
+- The matrix, manifest, roadmap, status summary, and tracker agree on source-surface status.
+- The conformance validator catches missing manifest-to-matrix coverage for source-surface fixtures.
+- No broad source-surface work remains only in prose without a task ID.
+
+Required tests:
+- conformance validator
+- matrix review
+- manifest review
+
+Documentation updates:
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-conformance-results.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Complete. Added a machine-checked Source Surface Matrix Closure table to
+  the conformance matrix covering all declaration, expression, and pattern
+  rows. The conformance validator now rejects missing closure rows, fixture
+  paths not present in the manifest, and `declarations`/`expressions`/`patterns`
+  manifest fixtures omitted from the closure table. It also requires the
+  source-surface negative and unsupported fixtures to remain linked from the
+  closure table. Remaining source-surface implementation gaps are explicitly
+  owned by SURFACE-002 and SURFACE-003 instead of being counted as complete
+  executable support.
+
+## TEST-CONF-015 — library conformance closure
+
+Status:
+- not started
+
+Category:
+- testing
+
+Depends on:
+- PRELUDE-018
+- TC-029
+- TC-030
+- TC-031
+- TC-032
+- TC-033
+- PRELUDE-019
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Every newly claimed standard class, derived instance, Prelude function, and standard-library module has manifest-backed positive and negative coverage.
+
+Non-goals:
+- Do not weaken existing .hg behavior or tests.
+- Do not claim full Haskell 2010 or GHC compatibility from this task alone.
+- Do not make unrelated architecture or formatting churn.
+- Do not change runtime semantics unless this task explicitly owns runtime behavior.
+- Do not add optimizer rewrites outside documented safety rules.
+
+Files likely touched:
+- `src/Haskell2010/`
+- `test/haskell2010/conformance/`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Acceptance criteria:
+- Every newly claimed standard class, derived instance, Prelude function, and standard-library module has manifest-backed positive and negative coverage.
+- Unsupported library features remain explicit unsupported-documented cases until implemented.
+- The conformance results summary reports library coverage by class/function/module instead of only by broad category.
+- Docs, tracker, matrix, and manifest agree on library support boundaries.
+- The validator catches manifest cases that are missing from the matrix or docs coverage summary.
+
+Required tests:
+- conformance suite
+- manifest validation
+- matrix validation
+- native wet tests
+
+Documentation updates:
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-conformance-results.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
 
 ## DOC-001 — Backlog and roadmap consistency policy
 
@@ -18897,7 +19854,7 @@ Files likely touched:
 Acceptance criteria:
 - Backlog and roadmap consistency policy is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - backlog validator
@@ -18947,7 +19904,7 @@ Files likely touched:
 Acceptance criteria:
 - Conformance matrix task-link discipline is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - backlog validator
@@ -18997,7 +19954,7 @@ Files likely touched:
 Acceptance criteria:
 - Design document completion audit is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - backlog validator
@@ -19047,7 +20004,7 @@ Files likely touched:
 Acceptance criteria:
 - Examples and tutorial documentation plan is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - backlog validator
@@ -19097,7 +20054,7 @@ Files likely touched:
 Acceptance criteria:
 - CI matrix is implemented, completed, or explicitly documented according to status `in progress`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CI matrix run
@@ -19146,7 +20103,7 @@ Files likely touched:
 Acceptance criteria:
 - clang/LLVM toolchain installation docs is implemented, completed, or explicitly documented according to status `in progress`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CI matrix run
@@ -19195,7 +20152,7 @@ Files likely touched:
 Acceptance criteria:
 - release workflow is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CI matrix run
@@ -19244,7 +20201,7 @@ Files likely touched:
 Acceptance criteria:
 - installation instructions is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CI matrix run
@@ -19293,7 +20250,7 @@ Files likely touched:
 Acceptance criteria:
 - docs index is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CI matrix run
@@ -19342,7 +20299,7 @@ Files likely touched:
 Acceptance criteria:
 - examples gallery is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CI matrix run
@@ -19391,7 +20348,7 @@ Files likely touched:
 Acceptance criteria:
 - standard library packaging is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CI matrix run
@@ -19440,7 +20397,7 @@ Files likely touched:
 Acceptance criteria:
 - runtime build integration is implemented, completed, or explicitly documented according to status `in progress`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CI matrix run
@@ -19489,7 +20446,7 @@ Files likely touched:
 Acceptance criteria:
 - formatting/linting is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CI matrix run
@@ -19538,7 +20495,7 @@ Files likely touched:
 Acceptance criteria:
 - coverage reporting is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CI matrix run
@@ -19587,7 +20544,7 @@ Files likely touched:
 Acceptance criteria:
 - benchmark suite is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CI matrix run
@@ -19636,7 +20593,7 @@ Files likely touched:
 Acceptance criteria:
 - release checklist is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CI matrix run
@@ -19685,7 +20642,7 @@ Files likely touched:
 Acceptance criteria:
 - versioning policy is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CI matrix run
@@ -19734,7 +20691,7 @@ Files likely touched:
 Acceptance criteria:
 - changelog is implemented, completed, or explicitly documented according to status `not started`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
+- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - CI matrix run

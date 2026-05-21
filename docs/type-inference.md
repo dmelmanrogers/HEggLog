@@ -205,8 +205,21 @@ exactly once, and record patterns desugar through the existing positional
 constructor-pattern path with omitted fields treated as wildcards. Selector
 bindings are emitted as ordinary Core functions: data selectors lower to cases
 over the labelled constructors, while single-field newtype selectors lower to
-typed coercions. Record update syntax and partial construction semantics remain
-future surface work.
+typed coercions.
+
+ADT-007 adds record update expressions as a distinct parsed and renamed AST
+form, separate from record construction. The typechecker resolves every update
+label through the record-selector table, requires all update labels to belong to
+one datatype, rejects duplicate labels, and reports concrete non-record or
+wrong-record scrutinees at the update source span. Valid updates lower to a
+Core case over the scrutinee with alternatives only for constructors that
+contain all updated labels. Each alternative reconstructs the original
+constructor with new expressions for updated labels and reused field binders for
+untouched labels, preserving laziness of untouched fields. Constructors in the
+same datatype that do not contain every updated label are intentionally omitted,
+so reaching one at runtime is the Haskell 2010 record-update error. Single-field
+newtype record updates lower through the existing newtype coercion path. Partial
+record construction semantics remain future surface work.
 
 The existing optional monomorphic lambda parameter inference is carry-forward
 infrastructure and a useful implementation reference, but it is not Haskell

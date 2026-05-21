@@ -50,37 +50,53 @@ generic expression and bind-statement `do` sequencing with local `let`, and
 built-in `Show Int`/`Show Bool` dictionaries.
 The current `Show` slice also includes exact `Show Char`, exact `Show String`,
 and generated structural list dictionaries.
-The typechecker now also exposes structured exhaustiveness warning
-placeholders for partial `case`, function, and lambda patterns through
-`typecheckModuleToCoreWithWarnings`, and native compilation carries those
-warnings in `Haskell2010LLVMResult`.
+The implemented FFI slice includes structured `foreign import`/`foreign export`
+declarations, generated `Foreign`/`Foreign.C`/`Foreign.C.Types` interfaces,
+marshallable scalar/pointer/synonym/local-newtype validation, static `ccall`,
+address, `dynamic`, `wrapper`, foreign-export, `StablePtr`, and manual
+`ForeignPtr` native wet coverage for the supported ABI surface.
+The typechecker now also exposes source-spanned non-exhaustive and redundant
+pattern-match warnings for supported `case`, function, and lambda patterns
+through `typecheckModuleToCoreWithWarnings`; native compilation carries those
+warnings in `Haskell2010LLVMResult`, and the compile CLI renders them to stderr.
 The following Haskell 2010 requirements are planned but not
 implemented:
 
-- a full pattern coverage checker and richer pattern-match diagnostics
-- instance contexts, derived `Read`, and the full `showsPrec`/`showList` hierarchy
-- broader Prelude/library subset
-- Haskell source desugaring beyond the current executable subset
+- report-complete pattern coverage and runtime source attribution beyond the
+  current executable-subset diagnostics
+- remaining source-surface implementation closure
+- instance contexts, derived `Read`/`Enum`/`Bounded`, and the full
+  `showsPrec`/`showList` hierarchy
+- broader numeric hierarchy/defaulting and Prelude/library subset
+- standard-library module expansion beyond the currently generated interfaces
+- Haskell source desugaring and negative fixtures beyond the current executable subset
 - broader IO, including handles, rich recoverable IO errors, and effects beyond line-oriented stdin/stdout
+- remaining FFI closure for floating-point marshalling, link metadata,
+  callback/finalizer lifetimes, and broader `Foreign.*` modules
 - full Haskell 2010 conformance suite breadth beyond the current
   manifest-backed executable subset
 
 ## Current Next Focus
 
-The next implementation chunk is source surface closure. It should reconcile
-the current `where` and pattern-binding implementation paths with the
-conformance matrix, implement record update expressions, replace the current
-pattern-coverage warning placeholder with real exhaustiveness/redundancy
-analysis, sweep parsed expression forms for executable or explicit-deviation
-coverage, and add manifest-backed negative fixtures for bad source-surface
-programs.
+The authoritative queue is the task tracker, not prose-only roadmap text. The
+next implementation chunk is the remaining source surface implementation work:
+SURFACE-002 and SURFACE-003.
+SURFACE-001 completed the current source-surface audit and matrix
+reconciliation; the remaining tasks implement user-defined operator calls,
+broader `where` layout placement. DIAG-009 completed supported-subset
+pattern-match diagnostics, TEST-CONF-013 completed source-surface negative
+fixtures, TEST-CONF-014 completed machine-checked source matrix closure, and
+ADT-007 completed record update expressions for the supported record subset.
 
-The following chunk is Prelude, deriving, and typeclass library completion. It
-should broaden `Show` to the report-shaped `showsPrec`/`showList` hierarchy,
-implement `Read` and derived `Read`, implement derived `Enum` and `Bounded`,
-broaden numeric classes/defaulting beyond the current executable `Int` path,
-fill high-value missing Prelude functions, and expand the generated standard
-library module boundary beyond `Prelude` where Haskell 2010 requires it.
+The following chunk is Prelude, deriving, and typeclass library completion:
+TC-029, TC-030, TC-031, TC-032, TC-033, PRELUDE-009, PRELUDE-019,
+PRELUDE-020, and TEST-CONF-015. Those tasks cover report-shaped `Show`, `Read`,
+derived `Enum`/`Bounded`, broader numeric classes/defaulting, missing Prelude
+functions, standard-library module expansion, and library conformance closure.
+
+Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
+through FFI-013 now own floating-point marshalling, link metadata, callback and
+finalizer lifetime completion, and broader `Foreign.*` library surface.
 
 ## What Is Parsed Today
 
@@ -298,8 +314,9 @@ Record field labels are implemented for the executable ADT subset. The parser
 and renamer preserve labelled constructor declarations, complete record
 construction, and record patterns; the typechecker emits selector functions as
 Core bindings; and the native wet path includes a record selector/construction
-example. Record updates and partial record construction are still tracked as
-future surface semantics.
+example. Record updates are now parsed, renamed, typechecked, lowered through
+Core/STG, and covered by native plus negative conformance fixtures; partial
+record construction is still tracked as future surface semantics.
 
 Lowered STG runs through the in-process STG evaluator as the semantic check.
 The current executable Haskell 2010 subset is also emitted as boxed lazy STG LLVM
@@ -355,8 +372,9 @@ and compiled to native executables through the existing clang toolchain.
     alternatives, Core/STG no-matching-alternative behavior for guard
     fallthrough, native empty-case lowering, and wet-tested default/no-egglog
     CLI runs. Irrefutable/lazy patterns are implemented for the executable
-    subset; structured exhaustiveness warning placeholders are exposed by the
-    typechecker and native API, while a full coverage checker remains planned.
+    subset; source-spanned non-exhaustive/redundant pattern-match warnings are
+    exposed by the typechecker, native API, and compile CLI for the supported
+    finite executable subset.
 16. IO printing/input and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
     `putStrLn`, `getLine`, `print`, `return`, `(>>)`, `(>>=)`, expression and bind-statement
     `do` sequencing with local `let`, broadened built-in `Show`, Core/STG output/result oracles,
@@ -433,11 +451,12 @@ initially.
 
 ## Next Immediate Implementation Focus
 
-The authoritative queue is maintained in `docs/haskell2010-roadmap.md` and
-`docs/haskell2010-todo.md`. The current near-term focus is completing the
-remaining standard Prelude/module/IO surface around the existing executable
-subset, starting with broader whole-program module graph behavior, `foldl`, IO
-error behavior, and fuller import/export edge cases.
+The authoritative queue is maintained in `docs/haskell2010-todo.md` and
+validated against `docs/haskell2010-todo.json`. The current near-term focus is
+source surface implementation closure: SURFACE-002 and SURFACE-003.
+DIAG-009 pattern-match diagnostics, TEST-CONF-013 source-surface negative
+fixtures, TEST-CONF-014 source matrix closure, and ADT-007 record updates are
+complete and covered by focused tests/conformance fixtures.
 Already-completed typeclass expansion work, including
 superclass dictionaries, default methods, overlap rejection, public
 `Enum`/`Bounded`, numeric defaulting, the supported `Monad` class surface, and

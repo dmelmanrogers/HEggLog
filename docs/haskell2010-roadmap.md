@@ -251,9 +251,10 @@ patterns, tuple patterns, and list patterns are covered by Core, STG, native,
 and wet tests. Guarded RHSs, guarded case alternatives, as-pattern aliases, and
 guard-fallthrough no-match behavior are also implemented and wet-tested.
 Irrefutable/lazy pattern semantics are implemented for the executable subset;
-structured exhaustiveness warning placeholders are exposed by the typechecker
-and native API. A full Haskell 2010 coverage checker and richer pattern-match
-diagnostics remain later work.
+source-spanned non-exhaustive and redundant pattern-match warnings are exposed
+by the typechecker, native API, and compile CLI for the supported finite
+constructor/literal/list/tuple executable subset. Broader report-complete
+pattern coverage and runtime source attribution remain later work.
 
 Deliverables:
 
@@ -462,8 +463,8 @@ Deliverables:
 
 - list comprehensions, arithmetic sequences, and remaining where/declaration
   forms
-- record updates and partial record construction semantics beyond the current
-  implemented record labels/selectors/construction/pattern subset
+- record updates over the implemented record labels/selectors/construction/
+  pattern subset; partial record construction semantics remain later work
 - `newtype`, type synonyms, deriving, and default declarations
 - structured foreign declaration frontend support, FFI signature typechecking,
   explicit Core/STG foreign-import IR, native ABI marshalling/lowering, and
@@ -533,9 +534,9 @@ Acceptance criteria:
 Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
-`haskell2010-conformance-test` Cabal suite. The baseline currently records 88
-fixtures: 67 native-success cases, 2 native-runtime-error cases, 14 compile-error
-cases, and 5 unsupported-documented cases. The suite invokes the built
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 103
+fixtures: 72 native-success cases, 3 native-runtime-error cases, 22 compile-error
+cases, and 6 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
 runtime-error exits, checks compile-error diagnostics, links manifest-declared
@@ -601,21 +602,14 @@ Acceptance criteria:
 This is the next coherent implementation chunk. The goal is to close the
 remaining source-language surface gaps before broadening the library again:
 
-1. Audit `where` groups and non-variable pattern bindings end to end against
-   the parser, renamer, typechecker, Core/STG lowering, native backend, and
-   conformance matrix. Some implementation paths already exist, so this task is
-   a correctness and matrix-reconciliation pass, not a restart.
-2. Implement record update expressions over the existing record declaration,
-   selector, complete construction, and record-pattern infrastructure.
-3. Replace the structured pattern-coverage warning placeholder with real
-   exhaustiveness and redundancy diagnostics for the supported pattern subset.
-4. Sweep remaining expression forms, including sections, arithmetic sequences,
-   list comprehensions, guarded forms, `do`, local declarations, and parsed but
-   not fully executable forms.
-5. Add native, compile-error, and unsupported-documented fixtures so each
-   source-surface claim is represented in the conformance manifest.
-6. Update the conformance matrix only after implementation and tests establish
-   the true status for each source row.
+1. SURFACE-002 — implement user-defined operator bindings and infix calls beyond
+   the currently supported built-in operator subset.
+2. SURFACE-003 — expand `where` parsing to cover report-shaped line-broken
+   layout positions for function bindings and case alternatives.
+
+TEST-CONF-014 is complete: expression, declaration, and pattern matrix rows now
+have manifest-backed closure entries, and the conformance validator enforces
+that source-surface fixtures stay represented in the matrix.
 
 ### Prelude, Deriving, And Typeclass Library Completion
 
@@ -623,20 +617,33 @@ This is the following chunk once the source surface has been closed. The goal
 is to make the standard library and derived-instance behavior look like Haskell
 2010 rather than a narrow executable subset:
 
-1. Expand `Show` from the current executable `show` behavior to the Report
-   method shape: `showsPrec`, `showList`, precedence handling, and escaping.
-2. Implement `Read`, including `ReadS`, `readsPrec`, `readList`, lexical read
-   parsing, standard instances, and derived `Read`.
-3. Implement derived `Enum` and `Bounded` for eligible declarations, including
-   constructor ordering and invalid deriving diagnostics.
-4. Broaden the numeric class hierarchy and defaulting rules beyond the current
-   executable `Int` path.
-5. Fill high-value missing Prelude functions, including `foldl`, and expand
-   `PRELUDE-018` with corresponding conformance fixtures.
-6. Broaden generated/importable standard-library module layout beyond
-   `Prelude` where the Haskell 2010 Report requires it.
-7. Keep every newly claimed class, function, deriving rule, and module backed
-   by manifest-tracked positive and negative fixtures.
+1. TC-029 — expand `Show` from the current executable `show` behavior to the
+   Report method shape: `showsPrec`, `showList`, precedence handling, and
+   escaping.
+2. TC-030 — implement `Read`, including `ReadS`, `readsPrec`, `readList`,
+   lexical read parsing, standard instances, and derived `Read`.
+3. TC-031 and TC-032 — implement derived `Enum` and `Bounded` for eligible
+   declarations, including constructor ordering and invalid deriving
+   diagnostics.
+4. TC-033 — broaden the numeric class hierarchy and defaulting rules beyond
+   the current executable `Int` path.
+5. PRELUDE-009 and PRELUDE-019 — fill missing Prelude functions, starting with
+   `foldl`, and expand `PRELUDE-018` with corresponding conformance fixtures.
+6. PRELUDE-020 — broaden generated/importable standard-library module layout
+   beyond `Prelude` where the Haskell 2010 Report requires it.
+7. TEST-CONF-015 — keep every newly claimed class, function, deriving rule, and
+   module backed by manifest-tracked positive and negative fixtures.
+
+### Remaining FFI Closure
+
+The FFI is no longer tracked as a whole-feature documented deviation. The
+current scalar/pointer/static/dynamic/wrapper/export/stable-pointer slice is
+implemented, and the remaining work is now split into dedicated tasks:
+
+1. FFI-010 — floating-point FFI marshalling.
+2. FFI-011 — FFI link metadata.
+3. FFI-012 — callback and finalizer lifetime completion.
+4. FFI-013 — Foreign library surface completion.
 
 Completed immediate tasks:
 

@@ -1,7 +1,7 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after IO-006 added executable
-`getLine` stdin support. The suite covers the
+Recorded for the mandatory wet-test suite after DIAG-009 added compile-time
+pattern-match warning CLI coverage. The suite covers the
 existing `.hg` native compiler baseline and Haskell 2010 executable-subset
 `.hs` programs that compile to native executables, compare lazy runtime
 behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
@@ -9,7 +9,7 @@ optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-20 06:30:18 UTC`
+- Date/time: `2026-05-21 03:50:05 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -18,23 +18,23 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 150
-- Source files: 61
-- Successful source cases: 50
+- HUnit checks: 159
+- Source files: 62
+- Successful source cases: 52
 - Runtime-error source cases: 7
 - Compile-error source cases: 3
-- Native compile/run checks: 108
-- Default Egglog native checks: 60
-- `--no-egglog` native checks: 48
-- Emit-LLVM checks: 30
-- Report/interpreter comparisons: 12
+- Native compile/run checks: 114
+- Default Egglog native checks: 63
+- `--no-egglog` native checks: 51
+- Emit-LLVM checks: 33
+- Report/interpreter comparisons: 11
 - Failures: 0
 
-This update adds a dedicated Haskell 2010 native case for IO `getLine`:
-two sequential stdin reads, returned `String = [Char]` values, append-based
-output formatting, `length`, `putStrLn`, `print`, and do-bind sequencing. The
-fixture runs in both default and `--no-egglog` modes and emits LLVM that is
-compiled through clang.
+This update adds a dedicated Haskell 2010 native case for DIAG-009:
+a successful partial `case` program that emits source-spanned non-exhaustive
+pattern warnings containing `case alternatives` and the missing `False`
+witness. The fixture runs in both default and `--no-egglog` modes and emits LLVM
+that is compiled through clang.
 
 ## Case Table
 
@@ -143,6 +143,9 @@ compiled through clang.
 | haskell2010-list-comprehensions | `test/e2e/programs/haskell2010/list-comprehensions.hs` | success | native/default | `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]` | stdout `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]`, stderr empty, exit 0 | pass |
 | haskell2010-list-comprehensions | `test/e2e/programs/haskell2010/list-comprehensions.hs` | success | native/no-egglog | `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]` | stdout `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]`, stderr empty, exit 0 | pass |
 | haskell2010-list-comprehensions | `test/e2e/programs/haskell2010/list-comprehensions.hs` | success | emit-llvm/default | `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]` | LLVM compiled through clang, stdout `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]`, stderr empty, exit 0 | pass |
+| haskell2010-pattern-diagnostics | `test/e2e/programs/haskell2010/pattern-diagnostics.hs` | success | native/default | `7` | compile stderr contained `non-exhaustive pattern match`, `case alternatives`, and `False`; stdout `7`, run stderr empty, exit 0 | pass |
+| haskell2010-pattern-diagnostics | `test/e2e/programs/haskell2010/pattern-diagnostics.hs` | success | native/no-egglog | `7` | compile stderr contained `non-exhaustive pattern match`, `case alternatives`, and `False`; stdout `7`, run stderr empty, exit 0 | pass |
+| haskell2010-pattern-diagnostics | `test/e2e/programs/haskell2010/pattern-diagnostics.hs` | success | emit-llvm/default | `7` | compile stderr contained `non-exhaustive pattern match`, `case alternatives`, and `False`; LLVM compiled through clang, stdout `7`, run stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/no-egglog | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | emit-llvm/default | `7` | LLVM compiled through clang, stdout `7`, stderr empty, exit 0 | pass |

@@ -122,7 +122,13 @@ The Haskell 2010 target will need additional diagnostic classes:
 
 Current status: Haskell 2010 parser, renamer, typechecker, class/instance, and
 runtime no-matching-alternative errors exist for the executable subset, and
-guard fallthrough is covered by Core/STG/native tests. Rich source-spanned
-pattern-match diagnostics and runtime source attribution through lazy
-evaluation remain planned. The existing located `.hg` parser/typechecker and
-LLVM unsupported-source diagnostics are the carry-forward baseline.
+guard fallthrough is covered by Core/STG/native tests. The Haskell 2010
+typechecker now emits source-spanned warnings for supported non-exhaustive
+`case`, function, and lambda pattern matches, including finite constructor
+witnesses such as `False` or `Nothing` where the checker can identify them. It
+also emits source-spanned redundant-alternative warnings for supported
+unreachable alternatives. Native compilation carries those warnings through
+`Haskell2010LLVMResult`, and the CLI renders them to stderr before emit/build/run
+output. Runtime source attribution through lazy evaluation remains planned. The
+existing located `.hg` parser/typechecker and LLVM unsupported-source
+diagnostics are the carry-forward baseline.
