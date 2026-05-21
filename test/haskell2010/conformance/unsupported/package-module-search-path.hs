@@ -1,5 +1,5 @@
 module Main where
 
-import Data.List (map)
+import Data.Char (isSpace)
 
 main = 0

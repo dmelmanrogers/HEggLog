@@ -239,12 +239,13 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 117 manifest-tracked fixtures with
-  79 native-success cases, 5 native-runtime-error cases, 27 compile-error cases,
+  `haskell2010-conformance-test`; it contains 118 manifest-tracked fixtures with
+  80 native-success cases, 5 native-runtime-error cases, 27 compile-error cases,
   and 6 unsupported-documented cases
 - Haskell 2010 standard library layout: implemented for the current executable
-  subset as a generated/importable `Prelude` module interface; broader standard
-  modules remain reserved and documented in
+  subset as generated/importable `Prelude`, `Control.Monad`, `Data.Int`,
+  `Data.List`, `Data.Maybe`, `Data.Word`, `System.IO`, and implemented
+  `Foreign.*` module interfaces; broader standard modules remain reserved and documented in
   [haskell2010-standard-library-layout.md](haskell2010-standard-library-layout.md)
 
 Progress is tracked in
@@ -262,8 +263,8 @@ source matrix closure, and ADT-007 completed record
 update expressions.
 
 The following coherent chunk is Prelude, deriving, and typeclass library
-completion: TC-029, TC-030, PRELUDE-020, and TEST-CONF-015. PRELUDE-019 is
-complete for the current high-value function slice.
+completion: TC-029, TC-030, and TEST-CONF-015. PRELUDE-019 and PRELUDE-020 are
+complete for the current high-value function and standard-module interface slices.
 Remaining FFI closure is tracked separately by FFI-010 through FFI-013.
 
 ## Carry-Forward Infrastructure

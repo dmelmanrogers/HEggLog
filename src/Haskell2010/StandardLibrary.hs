@@ -33,11 +33,19 @@ standardLibraryModuleInterfaces :: Map.Map S.ModuleName ModuleInterface
 standardLibraryModuleInterfaces =
   Map.fromList
     [ (standardPreludeModuleName, standardPreludeInterface)
+    , (controlMonadModuleName, controlMonadInterface)
+    , (dataIntModuleName, dataIntInterface)
+    , (dataListModuleName, dataListInterface)
+    , (dataMaybeModuleName, dataMaybeInterface)
+    , (dataWordModuleName, dataWordInterface)
+    , (systemIOModuleName, systemIOInterface)
     , (foreignModuleName, foreignInterface)
-    , (foreignStablePtrModuleName, foreignStablePtrInterface)
-    , (foreignForeignPtrModuleName, foreignForeignPtrInterface)
     , (foreignCModuleName, foreignCInterface)
+    , (foreignCStringModuleName, foreignCStringInterface)
     , (foreignCTypesModuleName, foreignCTypesInterface)
+    , (foreignForeignPtrModuleName, foreignForeignPtrInterface)
+    , (foreignPtrModuleName, foreignPtrInterface)
+    , (foreignStablePtrModuleName, foreignStablePtrInterface)
     ]
 
 standardPreludeInterface :: ModuleInterface
@@ -204,9 +212,37 @@ standardLibraryExternalUnique namespace occurrence =
   orderedOccurrences =
     List.nub [occ | (candidateNamespace, occ) <- standardLibraryNames, candidateNamespace == namespace]
 
+controlMonadModuleName :: S.ModuleName
+controlMonadModuleName =
+  S.ModuleName ["Control", "Monad"]
+
+dataIntModuleName :: S.ModuleName
+dataIntModuleName =
+  S.ModuleName ["Data", "Int"]
+
+dataListModuleName :: S.ModuleName
+dataListModuleName =
+  S.ModuleName ["Data", "List"]
+
+dataMaybeModuleName :: S.ModuleName
+dataMaybeModuleName =
+  S.ModuleName ["Data", "Maybe"]
+
+dataWordModuleName :: S.ModuleName
+dataWordModuleName =
+  S.ModuleName ["Data", "Word"]
+
+systemIOModuleName :: S.ModuleName
+systemIOModuleName =
+  S.ModuleName ["System", "IO"]
+
 foreignModuleName :: S.ModuleName
 foreignModuleName =
   S.ModuleName ["Foreign"]
+
+foreignPtrModuleName :: S.ModuleName
+foreignPtrModuleName =
+  S.ModuleName ["Foreign", "Ptr"]
 
 foreignStablePtrModuleName :: S.ModuleName
 foreignStablePtrModuleName =
@@ -220,13 +256,57 @@ foreignCModuleName :: S.ModuleName
 foreignCModuleName =
   S.ModuleName ["Foreign", "C"]
 
+foreignCStringModuleName :: S.ModuleName
+foreignCStringModuleName =
+  S.ModuleName ["Foreign", "C", "String"]
+
 foreignCTypesModuleName :: S.ModuleName
 foreignCTypesModuleName =
   S.ModuleName ["Foreign", "C", "Types"]
 
+controlMonadInterface :: ModuleInterface
+controlMonadInterface =
+  standardLibraryInterfaceWith
+    controlMonadModuleName
+    controlMonadNames
+    [((ClassNamespace, "Monad"), fmap (TermNamespace,) [">>=", ">>", "return", "fail"])]
+    (standardLibraryFixitiesFor controlMonadNames)
+
+dataIntInterface :: ModuleInterface
+dataIntInterface =
+  standardLibraryInterface dataIntModuleName dataIntNames
+
+dataListInterface :: ModuleInterface
+dataListInterface =
+  standardLibraryInterfaceWith
+    dataListModuleName
+    dataListNames
+    []
+    (standardLibraryFixitiesFor dataListNames)
+
+dataMaybeInterface :: ModuleInterface
+dataMaybeInterface =
+  standardLibraryInterfaceWith
+    dataMaybeModuleName
+    dataMaybeNames
+    [((TypeNamespace, "Maybe"), fmap (ConstructorNamespace,) ["Nothing", "Just"])]
+    Map.empty
+
+dataWordInterface :: ModuleInterface
+dataWordInterface =
+  standardLibraryInterface dataWordModuleName dataWordNames
+
+systemIOInterface :: ModuleInterface
+systemIOInterface =
+  standardLibraryInterface systemIOModuleName systemIONames
+
 foreignInterface :: ModuleInterface
 foreignInterface =
   standardLibraryInterface foreignModuleName foreignNames
+
+foreignPtrInterface :: ModuleInterface
+foreignPtrInterface =
+  standardLibraryInterface foreignPtrModuleName foreignPtrNames
 
 foreignStablePtrInterface :: ModuleInterface
 foreignStablePtrInterface =
@@ -240,23 +320,92 @@ foreignCInterface :: ModuleInterface
 foreignCInterface =
   standardLibraryInterface foreignCModuleName foreignCNames
 
+foreignCStringInterface :: ModuleInterface
+foreignCStringInterface =
+  standardLibraryInterface foreignCStringModuleName foreignCStringNames
+
 foreignCTypesInterface :: ModuleInterface
 foreignCTypesInterface =
   standardLibraryInterface foreignCTypesModuleName foreignCTypesNames
 
 standardLibraryInterface :: S.ModuleName -> [(Namespace, Text)] -> ModuleInterface
 standardLibraryInterface moduleName names =
+  standardLibraryInterfaceWith moduleName names [] Map.empty
+
+standardLibraryInterfaceWith ::
+  S.ModuleName ->
+  [(Namespace, Text)] ->
+  [((Namespace, Text), [(Namespace, Text)])] ->
+  Map.Map Text S.Fixity ->
+  ModuleInterface
+standardLibraryInterfaceWith moduleName names children fixities =
   ModuleInterface
     { interfaceModuleName = moduleName
     , interfaceExports = [standardLibraryExternalName namespace occurrence | (namespace, occurrence) <- names]
-    , interfaceChildren = Map.empty
-    , interfaceFixities = Map.empty
+    , interfaceChildren = standardLibraryChildren children
+    , interfaceFixities = fixities
     , interfaceInstances = []
     }
 
+standardLibraryChildren :: [((Namespace, Text), [(Namespace, Text)])] -> Map.Map RName [RName]
+standardLibraryChildren children =
+  Map.fromList
+    [
+      ( standardLibraryExternalName parentNamespace parentOccurrence
+      , fmap (uncurry standardLibraryExternalName) childNames
+      )
+    | ((parentNamespace, parentOccurrence), childNames) <- children
+    ]
+
+standardLibraryFixitiesFor :: [(Namespace, Text)] -> Map.Map Text S.Fixity
+standardLibraryFixitiesFor names =
+  Map.filterWithKey (\occurrence _ -> occurrence `elem` termOccurrences) standardPreludeFixities
+ where
+  termOccurrences = [occurrence | (TermNamespace, occurrence) <- names]
+
 standardLibraryNames :: [(Namespace, Text)]
 standardLibraryNames =
-  standardPreludeNames <> foreignNames <> foreignCNames <> foreignCTypesNames
+  standardPreludeNames
+    <> foreignNames
+    <> foreignCNames
+    <> foreignCStringNames
+    <> foreignCTypesNames
+    <> foreignPtrNames
+    <> controlMonadNames
+    <> dataIntNames
+    <> dataListNames
+    <> dataMaybeNames
+    <> dataWordNames
+    <> systemIONames
+
+controlMonadNames :: [(Namespace, Text)]
+controlMonadNames =
+  (ClassNamespace, "Monad")
+    : fmap (TermNamespace,) [">>=", ">>", "return", "fail"]
+
+dataIntNames :: [(Namespace, Text)]
+dataIntNames =
+  fmap (TypeNamespace,) ["Int8", "Int16", "Int32", "Int64"]
+
+dataListNames :: [(Namespace, Text)]
+dataListNames =
+  fmap
+    (TermNamespace,)
+    ["++", "head", "tail", "null", "length", "map", "reverse", "foldl", "foldr", "filter"]
+
+dataMaybeNames :: [(Namespace, Text)]
+dataMaybeNames =
+  (TypeNamespace, "Maybe")
+    : fmap (ConstructorNamespace,) ["Nothing", "Just"]
+
+dataWordNames :: [(Namespace, Text)]
+dataWordNames =
+  fmap (TypeNamespace,) ["Word8", "Word16", "Word32", "Word64"]
+
+systemIONames :: [(Namespace, Text)]
+systemIONames =
+  (TypeNamespace, "IO")
+    : fmap (TermNamespace,) ["putStrLn", "getLine", "print"]
 
 foreignNames :: [(Namespace, Text)]
 foreignNames =
@@ -264,18 +413,11 @@ foreignNames =
 
 foreignTypeNames :: [(Namespace, Text)]
 foreignTypeNames =
-  fmap (TypeNamespace,)
-    [ "Int8"
-    , "Int16"
-    , "Int32"
-    , "Int64"
-    , "Word8"
-    , "Word16"
-    , "Word32"
-    , "Word64"
-    , "Ptr"
-    , "FunPtr"
-    ]
+  dataIntNames <> dataWordNames <> foreignPtrNames
+
+foreignPtrNames :: [(Namespace, Text)]
+foreignPtrNames =
+  fmap (TypeNamespace,) ["Ptr", "FunPtr"]
 
 foreignStablePtrNames :: [(Namespace, Text)]
 foreignStablePtrNames =
@@ -304,7 +446,11 @@ foreignForeignPtrNames =
 
 foreignCNames :: [(Namespace, Text)]
 foreignCNames =
-  fmap (TypeNamespace,) ("CString" : "CWString" : foreignCTypeOccurrences)
+  foreignCStringNames <> foreignCTypesNames
+
+foreignCStringNames :: [(Namespace, Text)]
+foreignCStringNames =
+  fmap (TypeNamespace,) ["CString", "CWString"]
 
 foreignCTypesNames :: [(Namespace, Text)]
 foreignCTypesNames =

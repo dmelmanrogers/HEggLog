@@ -232,6 +232,19 @@
       "notes": "Instances cross empty export lists and empty import lists through a transitive import chain."
     },
     {
+      "name": "modules.standard-library-modules",
+      "sourceFile": "test/haskell2010/conformance/modules/standard-library-modules.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "9\n4\nTrue\nstdlib\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Implemented generated standard-library modules import through ModuleInterface with explicit export lists, child exports, fixities, and ordinary Prelude-backed semantics."
+    },
+    {
       "name": "declarations.top-level-function",
       "sourceFile": "test/haskell2010/conformance/declarations/top-level-function.hs",
       "category": "declarations",
@@ -1228,7 +1241,7 @@
       "expectedStatus": "unsupported-documented",
       "expectedDiagnosticCategory": "could not read",
       "requiredStage": "module-graph",
-      "notes": "Package and library module search paths are not implemented; imports only load same-directory files."
+      "notes": "Package and unimplemented library module search paths are not implemented; imports only load generated standard-library interfaces or same-directory files."
     }
   ]
 }

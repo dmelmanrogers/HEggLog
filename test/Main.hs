@@ -137,6 +137,7 @@ testGroups =
       , pureTest "honors qualified Prelude imports" testHaskell2010RenamerQualifiedPrelude
       , pureTest "combines cumulative Prelude imports" testHaskell2010RenamerCumulativePreludeImports
       , pureTest "exposes Prelude through standard library interface" testHaskell2010StandardLibraryPreludeInterface
+      , pureTest "exposes implemented Haskell 2010 standard library modules" testHaskell2010StandardLibraryExpandedInterfaces
       , pureTest "renames Haskell 2010 foreign declarations" testHaskell2010RenamerForeignDeclarations
       , pureTest "resolves module graph imports through exports" testHaskell2010RenamerModuleGraphExports
       , pureTest "exports and imports instances through module interfaces" testHaskell2010RenamerModuleGraphInstances
@@ -247,6 +248,7 @@ testGroups =
       , pureTest "evaluates Prelude append" testHaskell2010Core0EvalAppend
       , pureTest "evaluates Prelude foldl" testHaskell2010Core0EvalFoldl
       , pureTest "evaluates Prelude function completion" testHaskell2010Core0EvalPreludeFunctions
+      , pureTest "evaluates standard library module imports" testHaskell2010Core0EvalStandardLibraryModules
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
       , pureTest "evaluates Real and Integral numeric methods" testHaskell2010Core0EvalNumericHierarchy
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
@@ -304,6 +306,7 @@ testGroups =
       , pureTest "preserves Prelude append semantics" testHaskell2010CoreToSTGAppend
       , pureTest "preserves Prelude foldl semantics" testHaskell2010CoreToSTGFoldl
       , pureTest "preserves Prelude function completion semantics" testHaskell2010CoreToSTGPreludeFunctions
+      , pureTest "preserves standard library module import semantics" testHaskell2010CoreToSTGStandardLibraryModules
       , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
       , pureTest "preserves Real and Integral numeric methods" testHaskell2010CoreToSTGNumericHierarchy
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
@@ -1266,28 +1269,110 @@ testHaskell2010StandardLibraryPreludeInterface =
         "standard Prelude module name"
         H2010StandardLibrary.standardPreludeModuleName
         (H2010ModuleInterface.interfaceModuleName interface)
-      assertBool "standard Prelude exports map" (exportsName H2010Names.TermNamespace "map" interface)
-      assertBool "standard Prelude exports IO type" (exportsName H2010Names.TypeNamespace "IO" interface)
-      assertBool "standard Prelude exports Monad class" (exportsName H2010Names.ClassNamespace "Monad" interface)
-      assertBool "standard Prelude exposes Maybe Just child" (exportsChild H2010Names.TypeNamespace "Maybe" H2010Names.ConstructorNamespace "Just" interface)
-      assertBool "standard Prelude exposes Monad return child" (exportsChild H2010Names.ClassNamespace "Monad" H2010Names.TermNamespace "return" interface)
-      expectEqual "standard Prelude bind fixity" (Just (H2010.Fixity H2010.InfixL 1)) (Map.lookup ">>=" (H2010ModuleInterface.interfaceFixities interface))
-      expectEqual "standard Prelude interface does not expose generated built-in instances" [] (H2010ModuleInterface.interfaceInstances interface)
- where
-  exportsName namespace occurrence interface =
-    any
-      (\name -> H2010Names.nameNamespace name == namespace && H2010Names.nameOcc name == occurrence)
-      (H2010ModuleInterface.interfaceExports interface)
+      assertBool "standard Prelude exports map" (interfaceExportsName H2010Names.TermNamespace "map" interface)
+      assertBool "standard Prelude exports IO type" (interfaceExportsName H2010Names.TypeNamespace "IO" interface)
+      assertBool
+        "standard Prelude exports Monad class"
+        (interfaceExportsName H2010Names.ClassNamespace "Monad" interface)
+      assertBool
+        "standard Prelude exposes Maybe Just child"
+        (interfaceExportsChild H2010Names.TypeNamespace "Maybe" H2010Names.ConstructorNamespace "Just" interface)
+      assertBool
+        "standard Prelude exposes Monad return child"
+        (interfaceExportsChild H2010Names.ClassNamespace "Monad" H2010Names.TermNamespace "return" interface)
+      expectEqual
+        "standard Prelude bind fixity"
+        (Just (H2010.Fixity H2010.InfixL 1))
+        (Map.lookup ">>=" (H2010ModuleInterface.interfaceFixities interface))
+      expectEqual
+        "standard Prelude interface does not expose generated built-in instances"
+        []
+        (H2010ModuleInterface.interfaceInstances interface)
 
-  exportsChild parentNamespace parentOcc childNamespace childOcc interface =
-    or
-      [ any
-          (\child -> H2010Names.nameNamespace child == childNamespace && H2010Names.nameOcc child == childOcc)
-          (Map.findWithDefault [] parent (H2010ModuleInterface.interfaceChildren interface))
-      | parent <- H2010ModuleInterface.interfaceExports interface
-      , H2010Names.nameNamespace parent == parentNamespace
-      , H2010Names.nameOcc parent == parentOcc
-      ]
+testHaskell2010StandardLibraryExpandedInterfaces :: Either String ()
+testHaskell2010StandardLibraryExpandedInterfaces = do
+  dataList <- requireInterface (H2010.ModuleName ["Data", "List"])
+  assertBool "Data.List exports map" (interfaceExportsName H2010Names.TermNamespace "map" dataList)
+  assertBool "Data.List exports head" (interfaceExportsName H2010Names.TermNamespace "head" dataList)
+  assertBool "Data.List exports ++" (interfaceExportsName H2010Names.TermNamespace "++" dataList)
+  expectEqual
+    "Data.List ++ fixity"
+    (Just (H2010.Fixity H2010.InfixR 5))
+    (Map.lookup "++" (H2010ModuleInterface.interfaceFixities dataList))
+
+  dataMaybe <- requireInterface (H2010.ModuleName ["Data", "Maybe"])
+  assertBool "Data.Maybe exports Maybe" (interfaceExportsName H2010Names.TypeNamespace "Maybe" dataMaybe)
+  assertBool "Data.Maybe exports Just" (interfaceExportsName H2010Names.ConstructorNamespace "Just" dataMaybe)
+  assertBool
+    "Data.Maybe exposes Maybe constructors"
+    (interfaceExportsChild H2010Names.TypeNamespace "Maybe" H2010Names.ConstructorNamespace "Nothing" dataMaybe)
+
+  controlMonad <- requireInterface (H2010.ModuleName ["Control", "Monad"])
+  assertBool "Control.Monad exports Monad" (interfaceExportsName H2010Names.ClassNamespace "Monad" controlMonad)
+  assertBool "Control.Monad exports return" (interfaceExportsName H2010Names.TermNamespace "return" controlMonad)
+  assertBool
+    "Control.Monad exposes Monad bind child"
+    (interfaceExportsChild H2010Names.ClassNamespace "Monad" H2010Names.TermNamespace ">>=" controlMonad)
+  expectEqual
+    "Control.Monad bind fixity"
+    (Just (H2010.Fixity H2010.InfixL 1))
+    (Map.lookup ">>=" (H2010ModuleInterface.interfaceFixities controlMonad))
+
+  systemIO <- requireInterface (H2010.ModuleName ["System", "IO"])
+  assertBool "System.IO exports IO" (interfaceExportsName H2010Names.TypeNamespace "IO" systemIO)
+  assertBool "System.IO exports putStrLn" (interfaceExportsName H2010Names.TermNamespace "putStrLn" systemIO)
+  assertBool "System.IO exports getLine" (interfaceExportsName H2010Names.TermNamespace "getLine" systemIO)
+  assertBool "System.IO exports print" (interfaceExportsName H2010Names.TermNamespace "print" systemIO)
+
+  dataInt <- requireInterface (H2010.ModuleName ["Data", "Int"])
+  dataWord <- requireInterface (H2010.ModuleName ["Data", "Word"])
+  assertBool "Data.Int exports Int8" (interfaceExportsName H2010Names.TypeNamespace "Int8" dataInt)
+  assertBool "Data.Word exports Word64" (interfaceExportsName H2010Names.TypeNamespace "Word64" dataWord)
+
+  foreignPtr <- requireInterface (H2010.ModuleName ["Foreign", "Ptr"])
+  foreignCString <- requireInterface (H2010.ModuleName ["Foreign", "C", "String"])
+  assertBool "Foreign.Ptr exports Ptr" (interfaceExportsName H2010Names.TypeNamespace "Ptr" foreignPtr)
+  assertBool "Foreign.Ptr exports FunPtr" (interfaceExportsName H2010Names.TypeNamespace "FunPtr" foreignPtr)
+  assertBool "Foreign.C.String exports CString" (interfaceExportsName H2010Names.TypeNamespace "CString" foreignCString)
+
+  expectEqual
+    "Data.Char stays reserved until functions are implemented"
+    Nothing
+    (Map.lookup (H2010.ModuleName ["Data", "Char"]) H2010StandardLibrary.standardLibraryModuleInterfaces)
+  expectEqual
+    "Numeric stays reserved until numeric formatting is implemented"
+    Nothing
+    (Map.lookup (H2010.ModuleName ["Numeric"]) H2010StandardLibrary.standardLibraryModuleInterfaces)
+  _ <- typecheckHaskell2010 haskell2010StandardLibraryModulesSource
+  Right ()
+ where
+  requireInterface moduleName =
+    case Map.lookup moduleName H2010StandardLibrary.standardLibraryModuleInterfaces of
+      Nothing -> Left ("standard library does not expose " <> show moduleName)
+      Just interface -> Right interface
+
+interfaceExportsName :: H2010Names.Namespace -> Text -> H2010ModuleInterface.ModuleInterface -> Bool
+interfaceExportsName namespace occurrence interface =
+  any
+    (\name -> H2010Names.nameNamespace name == namespace && H2010Names.nameOcc name == occurrence)
+    (H2010ModuleInterface.interfaceExports interface)
+
+interfaceExportsChild ::
+  H2010Names.Namespace ->
+  Text ->
+  H2010Names.Namespace ->
+  Text ->
+  H2010ModuleInterface.ModuleInterface ->
+  Bool
+interfaceExportsChild parentNamespace parentOcc childNamespace childOcc interface =
+  or
+    [ any
+        (\child -> H2010Names.nameNamespace child == childNamespace && H2010Names.nameOcc child == childOcc)
+        (Map.findWithDefault [] parent (H2010ModuleInterface.interfaceChildren interface))
+    | parent <- H2010ModuleInterface.interfaceExports interface
+    , H2010Names.nameNamespace parent == parentNamespace
+    , H2010Names.nameOcc parent == parentOcc
+    ]
 
 testHaskell2010RenamerForeignDeclarations :: Either String ()
 testHaskell2010RenamerForeignDeclarations = do
@@ -3112,6 +3197,13 @@ testHaskell2010Core0EvalPreludeFunctions =
     haskell2010PreludeFunctionsOutput
     =<< evalHaskell2010Binding "main" haskell2010PreludeFunctionsSource
 
+testHaskell2010Core0EvalStandardLibraryModules :: Either String ()
+testHaskell2010Core0EvalStandardLibraryModules =
+  expectCoreEvalIO
+    "Core-0 standard library module import evaluation"
+    haskell2010StandardLibraryModulesOutput
+    =<< evalHaskell2010Binding "main" haskell2010StandardLibraryModulesSource
+
 testHaskell2010Core0EvalNumericDefaulting :: Either String ()
 testHaskell2010Core0EvalNumericDefaulting =
   expectCoreEvalIO
@@ -3520,6 +3612,13 @@ testHaskell2010CoreToSTGFoldl =
 testHaskell2010CoreToSTGPreludeFunctions :: Either String ()
 testHaskell2010CoreToSTGPreludeFunctions =
   checkCoreToSTGIO "Core-to-STG Prelude function completion" haskell2010PreludeFunctionsOutput haskell2010PreludeFunctionsSource
+
+testHaskell2010CoreToSTGStandardLibraryModules :: Either String ()
+testHaskell2010CoreToSTGStandardLibraryModules =
+  checkCoreToSTGIO
+    "Core-to-STG standard library module imports"
+    haskell2010StandardLibraryModulesOutput
+    haskell2010StandardLibraryModulesSource
 
 testHaskell2010CoreToSTGNumericDefaulting :: Either String ()
 testHaskell2010CoreToSTGNumericDefaulting =
@@ -7459,6 +7558,7 @@ haskell2010NativeSuccessExamples =
   , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
   , ("prelude-foldl", haskell2010FoldlSource, Text.unpack haskell2010FoldlOutput)
   , ("prelude-functions", haskell2010PreludeFunctionsSource, Text.unpack haskell2010PreludeFunctionsOutput)
+  , ("standard-library-modules", haskell2010StandardLibraryModulesSource, Text.unpack haskell2010StandardLibraryModulesOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("numeric-hierarchy", haskell2010NumericHierarchySource, Text.unpack haskell2010NumericHierarchyOutput)
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
@@ -7503,6 +7603,7 @@ haskell2010NativeExecutableExamples =
   , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
   , ("prelude-foldl", haskell2010FoldlSource, Text.unpack haskell2010FoldlOutput)
   , ("prelude-functions", haskell2010PreludeFunctionsSource, Text.unpack haskell2010PreludeFunctionsOutput)
+  , ("standard-library-modules", haskell2010StandardLibraryModulesSource, Text.unpack haskell2010StandardLibraryModulesOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("numeric-hierarchy", haskell2010NumericHierarchySource, Text.unpack haskell2010NumericHierarchyOutput)
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
@@ -8387,6 +8488,36 @@ haskell2010PreludeFunctionsOutput =
   \False\n\
   \42\n\
   \ok\n"
+
+haskell2010StandardLibraryModulesSource :: Text
+haskell2010StandardLibraryModulesSource =
+  "module Main where\n\
+  \import Data.List ((++), foldl, head, map, null)\n\
+  \import Data.Maybe (Maybe(..))\n\
+  \import Control.Monad (return)\n\
+  \import System.IO (IO, putStrLn, print)\n\
+  \emptyInts :: [Int]\n\
+  \emptyInts = []\n\
+  \sumList :: [Int] -> Int\n\
+  \sumList xs = foldl (+) 0 xs\n\
+  \describe :: Maybe Int -> Int\n\
+  \describe value = case value of\n\
+  \  Just found -> found\n\
+  \  Nothing -> 0\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (sumList (map (+ 1) [1, 2, 3]))\n\
+  \  print (describe (Just (head ([4] ++ [5]))))\n\
+  \  print (null emptyInts)\n\
+  \  putStrLn \"stdlib\"\n\
+  \  return ()\n"
+
+haskell2010StandardLibraryModulesOutput :: Text
+haskell2010StandardLibraryModulesOutput =
+  "9\n\
+  \4\n\
+  \True\n\
+  \stdlib\n"
 
 haskell2010NumericDefaultingSource :: Text
 haskell2010NumericDefaultingSource =

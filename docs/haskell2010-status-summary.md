@@ -69,7 +69,8 @@ implemented:
   `showsPrec`/`showList` hierarchy
 - Fractional/Floating classes, arbitrary-precision `Integer`, full
   `Ratio`/`Rational` behavior, and broader Prelude/library subset
-- standard-library module expansion beyond the currently generated interfaces
+- remaining standard-library value surfaces beyond the currently generated
+  partial module interfaces
 - Haskell source desugaring and negative fixtures beyond the current executable subset
 - broader IO, including handles, rich recoverable IO errors, and effects beyond line-oriented stdin/stdout
 - remaining FFI closure for floating-point marshalling, link metadata,
@@ -91,10 +92,11 @@ fixtures, TEST-CONF-014 completed machine-checked source matrix closure, and
 ADT-007 completed record update expressions for the supported record subset.
 
 The following chunk is Prelude, deriving, and typeclass library completion:
-TC-029, TC-030, PRELUDE-020, and TEST-CONF-015. PRELUDE-019 is complete for
-`($)`, `(.)`, `flip`, `head`, `tail`, `null`, `fst`, and `snd`; the remaining
-tasks cover report-shaped `Show`, `Read`, standard-library module expansion,
-and library conformance closure.
+TC-029, TC-030, and TEST-CONF-015. PRELUDE-019 is complete for `($)`, `(.)`,
+`flip`, `head`, `tail`, `null`, `fst`, and `snd`; PRELUDE-020 is complete for
+generated/importable standard-library module interfaces that have real support.
+The remaining tasks cover report-shaped `Show`, `Read`, and library
+conformance closure.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
 through FFI-013 now own floating-point marshalling, link metadata, callback and

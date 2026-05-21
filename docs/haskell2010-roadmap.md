@@ -541,8 +541,8 @@ Acceptance criteria:
 Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
-`haskell2010-conformance-test` Cabal suite. The baseline currently records 117
-fixtures: 79 native-success cases, 5 native-runtime-error cases, 27 compile-error
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 118
+fixtures: 80 native-success cases, 5 native-runtime-error cases, 27 compile-error
 cases, and 6 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
@@ -629,9 +629,7 @@ is to make the standard library and derived-instance behavior look like Haskell
    escaping.
 2. TC-030 — implement `Read`, including `ReadS`, `readsPrec`, `readList`,
    lexical read parsing, standard instances, and derived `Read`.
-3. PRELUDE-020 — broaden generated/importable standard-library module layout
-   beyond `Prelude` where the Haskell 2010 Report requires it.
-4. TEST-CONF-015 — keep every newly claimed class, function, deriving rule, and
+3. TEST-CONF-015 — keep every newly claimed class, function, deriving rule, and
    module backed by manifest-tracked positive and negative fixtures.
 
 ### Remaining FFI Closure
@@ -656,6 +654,10 @@ Completed immediate tasks:
   `Haskell2010.StandardLibrary` module, generated/importable `Prelude`
   interface, shared `ModuleInterface` data model, and instance-export boundary
   used by MOD-009.
+- PRELUDE-020 standard library module expansion, including generated/importable
+  interfaces for `Control.Monad`, `Data.Int`, `Data.List`, `Data.Maybe`,
+  `Data.Word`, `System.IO`, and implemented `Foreign.*` module slices, with
+  reserved Report modules kept unimportable until real support exists.
 - PRELUDE-002/MOD-010 implicit Prelude import behavior, including synthetic
   `import Prelude` insertion only when no explicit `Prelude` import exists,
   explicit Prelude import-list/hiding/qualified filtering, and native

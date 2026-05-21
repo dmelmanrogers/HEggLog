@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-21 07:17:06 UTC
+Date/time: 2026-05-21 07:44:13 UTC
 
-Commit hash tested: working tree with PRELUDE-019 function-completion changes.
+Commit hash tested: working tree with PRELUDE-020 standard-library module expansion changes.
 
 Primary conformance command run:
 
@@ -37,14 +37,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 117 |
-| Haskell source files in corpus | 124 |
-| HUnit test cases executed | 158 |
-| Native-success fixtures | 79 |
+| Manifest conformance fixtures | 118 |
+| Haskell source files in corpus | 125 |
+| HUnit test cases executed | 160 |
+| Native-success fixtures | 80 |
 | Native-runtime-error fixtures | 5 |
 | Compile-error fixtures | 27 |
 | Unsupported-documented fixtures | 6 |
-| Native subprocess compile/run checks | 125 |
+| Native subprocess compile/run checks | 127 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -107,6 +107,14 @@ String output as `[Char]`. `prelude.head-empty` locks the partial-selector
 boundary by requiring empty-list `head` to compile and fail at native runtime in
 default and `--no-egglog` modes.
 
+PRELUDE-020 is now covered by native conformance and e2e fixtures.
+`modules.standard-library-modules` checks generated/importable interfaces for
+`Data.List`, `Data.Maybe`, `Control.Monad`, and `System.IO` with explicit
+import lists, `Maybe(..)` child exports, imported fixities, ordinary
+Prelude-backed semantics, and default plus `--no-egglog` native execution. The
+unsupported package/search-path fixture now imports reserved `Data.Char` so
+unimplemented standard-library modules continue to fail explicitly.
+
 ## Category Summary
 
 | Category | Manifest fixtures | Status |
@@ -120,7 +128,7 @@ default and `--no-egglog` modes.
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
-| `modules` | 6 | single-module, same-directory import, implicit/explicit/qualified Prelude import, and source-instance import/export tests exist |
+| `modules` | 7 | single-module, same-directory import, implicit/explicit/qualified Prelude import, source-instance import/export, and generated standard-library module imports exist |
 | `negative` | 27 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid default declarations, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
 | `prelude` | 17 | list functions, append, foldl, function/selector completion, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, and list comprehensions covered |

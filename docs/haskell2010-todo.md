@@ -219,10 +219,10 @@ Complete: SURFACE-001, SURFACE-002, and SURFACE-003.
 
 1. TC-029 — report-shaped Show hierarchy.
 2. TC-030 — Read implementation.
-3. PRELUDE-020 — standard library module expansion.
-4. TEST-CONF-015 — library conformance closure.
+3. TEST-CONF-015 — library conformance closure.
 
-Completed in this chunk: PRELUDE-019 — Prelude function completion.
+Completed in this chunk: PRELUDE-019 — Prelude function completion;
+PRELUDE-020 — standard library module expansion.
 
 ## Remaining FFI closure chunk
 
@@ -13142,8 +13142,12 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Haskell2010/`
+- `src/Haskell2010/StandardLibrary.hs`
+- `test/Main.hs`
+- `test/e2e/programs/haskell2010/`
 - `test/haskell2010/conformance/`
+- `test/haskell2010/conformance/manifest.json`
+- `docs/haskell2010-standard-library-layout.md`
 - `docs/haskell2010-conformance-matrix.md`
 - `docs/haskell2010-todo.md`
 
@@ -13223,7 +13227,19 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete. `Haskell2010.StandardLibrary` now exposes generated/importable
+  interfaces for `Prelude`, `Control.Monad`, `Data.Int`, `Data.List`,
+  `Data.Maybe`, `Data.Word`, `System.IO`, and the implemented `Foreign`,
+  `Foreign.C`, `Foreign.C.String`, `Foreign.C.Types`, `Foreign.ForeignPtr`,
+  `Foreign.Ptr`, and `Foreign.StablePtr` slices. The generated modules use the
+  shared `ModuleInterface` export, child-export, fixity, and instance slots;
+  no reserved module is importable as an empty placeholder. Native e2e and
+  conformance fixtures cover explicit imports from `Data.List`, `Data.Maybe`,
+  `Control.Monad`, and `System.IO`; the old unsupported package/search-path
+  fixture now targets reserved `Data.Char` so unsupported standard-library
+  modules still fail explicitly. The standard-library layout doc identifies
+  every Haskell 2010 Libraries module as implemented, partial, reserved, or
+  owned by a follow-up task.
 
 ## TC-031 — derived Enum
 
@@ -14372,7 +14388,7 @@ Notes:
 ## PRELUDE-020 — standard library module expansion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries

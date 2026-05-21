@@ -55,8 +55,10 @@ The next chunk is Prelude, deriving, and typeclass library completion.
 TEST-CONF-014 source matrix closure is complete and now enforced by the
 conformance validator.
 
-The next library chunk is TC-029, TC-030, PRELUDE-020, and TEST-CONF-015.
-PRELUDE-019 is complete for the current high-value function slice. Remaining
+The next library chunk is TC-029, TC-030, and TEST-CONF-015.
+PRELUDE-019 is complete for the current high-value function slice, and
+PRELUDE-020 is complete for the current generated standard-library module
+interface slice. Remaining
 FFI closure is FFI-010 through FFI-013.
 
 Completed Haskell 2010 roadmap work:
@@ -69,6 +71,11 @@ Completed Haskell 2010 roadmap work:
   `Haskell2010.StandardLibrary` module, generated/importable `Prelude`
   interface, shared `ModuleInterface` data model, and instance-export boundary
   used by MOD-009.
+- PRELUDE-020 standard library module expansion: implemented with generated
+  importable interfaces for `Control.Monad`, `Data.Int`, `Data.List`,
+  `Data.Maybe`, `Data.Word`, `System.IO`, and implemented `Foreign.*` module
+  slices, while keeping reserved Report modules unimportable until they have
+  real support.
 - PRELUDE-002/MOD-010 implicit Prelude import behavior: implemented with
   synthetic `import Prelude` insertion only when no explicit `Prelude` import
   exists, explicit Prelude import-list/hiding/qualified filtering, and native
