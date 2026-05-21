@@ -4,6 +4,7 @@ import Backend.Compile
 import Backend.LLVM.Toolchain
 import CLI.Compile (CompileCLIOptions (..), CompileOutputMode (..), parseCompileFlags)
 import CLI.Report (compileReport, renderCompileError, renderFullReport)
+import Control.Monad (unless)
 import Control.Exception (IOException, try)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -15,9 +16,11 @@ import Haskell2010.Native
   , haskell2010LLVMText
   , haskell2010OptimizationStatus
   , haskell2010UseEgglog
+  , haskell2010Warnings
   , renderHaskell2010LLVMError
   , renderHaskell2010OptimizationStatus
   )
+import Haskell2010.Typecheck (renderTypecheckWarning)
 import System.Directory (createDirectoryIfMissing)
 import System.Environment (getArgs)
 import System.Exit (ExitCode (..), exitFailure)
@@ -93,6 +96,7 @@ readSourceFile path = do
 data CompiledLLVMOutput = CompiledLLVMOutput
   { compiledLLVMText :: Text
   , compiledStatus :: Text
+  , compiledWarnings :: [Text]
   }
   deriving stock (Show, Eq)
 
@@ -107,6 +111,7 @@ compileSourceToLLVM options path source
             CompiledLLVMOutput
               { compiledLLVMText = haskell2010LLVMText result
               , compiledStatus = renderHaskell2010OptimizationStatus (haskell2010OptimizationStatus result)
+              , compiledWarnings = map renderTypecheckWarning (haskell2010Warnings result)
               }
   | otherwise =
       case compileToLLVM options path source of
@@ -117,6 +122,7 @@ compileSourceToLLVM options path source
             CompiledLLVMOutput
               { compiledLLVMText = llvmText result
               , compiledStatus = renderLLVMOptimizationStatus (llvmOptimizationStatus result)
+              , compiledWarnings = []
               }
  where
   haskellOptions =
@@ -141,6 +147,7 @@ compilePathToLLVM options path
               CompiledLLVMOutput
                 { compiledLLVMText = haskell2010LLVMText compiled
                 , compiledStatus = renderHaskell2010OptimizationStatus (haskell2010OptimizationStatus compiled)
+                , compiledWarnings = map renderTypecheckWarning (haskell2010Warnings compiled)
                 }
   | otherwise =
       readSourceFile path >>= \case
@@ -160,7 +167,8 @@ fileExtension path =
     _ -> ""
 
 handleCompileOutput :: CompileCLIOptions -> CompiledLLVMOutput -> IO ()
-handleCompileOutput cliOptions result =
+handleCompileOutput cliOptions result = do
+  emitCompileWarnings result
   case cliOutputMode cliOptions of
     EmitLLVM maybePath ->
       emitLLVMOutput maybePath result
@@ -172,6 +180,11 @@ handleCompileOutput cliOptions result =
     BuildAndRunExecutable outputPath -> do
       buildNativeOutput outputPath result
       runGeneratedExecutable outputPath
+
+emitCompileWarnings :: CompiledLLVMOutput -> IO ()
+emitCompileWarnings result =
+  unless (null (compiledWarnings result)) $
+    Text.IO.hPutStr stderr (Text.unlines (compiledWarnings result))
 
 emitLLVMOutput :: Maybe FilePath -> CompiledLLVMOutput -> IO ()
 emitLLVMOutput maybePath result =

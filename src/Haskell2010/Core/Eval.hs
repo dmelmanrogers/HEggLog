@@ -9,6 +9,7 @@ module Haskell2010.Core.Eval
   )
 where
 
+import Data.Char (chr, ord)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -26,6 +27,7 @@ import Runtime.Int
   , ltHInt
   , mkHIntLiteral
   , mulHInt
+  , remHInt
   , renderHInt
   , renderIntError
   , subHInt
@@ -36,7 +38,10 @@ data CoreValue
   | CoreBool Bool
   | CoreChar Char
   | CoreString Text
-  | CoreIO [Text]
+  | CoreIO [Text] CoreValue
+  | CorePointer (Maybe CoreValue)
+  | CoreStablePtr CoreValue
+  | CoreForeignPtr CoreValue
   | CoreClosure Env CoreBinder CoreExpr
   | CoreTypeClosure Env [RName] CoreExpr
   | CoreConstructor RName [CoreThunk]
@@ -53,6 +58,7 @@ data CoreEvalError
   | CoreEvalDivisionByZero
   | CoreEvalIntError IntError
   | CoreEvalNoMatchingAlternative CoreValue
+  | CoreEvalUnsupportedForeign Text
   deriving stock (Show)
 
 type Env = Map.Map RName CoreThunk
@@ -153,6 +159,11 @@ evalExpr coreEnv env = \case
     evalExpr coreEnv env expression
   CPrimOp op arguments _ ->
     traverse (evalExpr coreEnv env) arguments >>= evalPrimitive coreEnv op
+  CForeignCall foreignImport arguments _ -> do
+    _ <- traverse (evalExpr coreEnv env) arguments
+    Left (CoreEvalUnsupportedForeign ("foreign call `" <> renderRName (coreForeignImportName foreignImport) <> "` requires native FFI ABI support"))
+  CForeignImportValue foreignImport _ ->
+    Left (CoreEvalUnsupportedForeign ("foreign import `" <> renderRName (coreForeignImportName foreignImport) <> "` requires native FFI ABI support"))
 
 evalDataConstructor ::
   CoreValidate.CoreValidationEnv ->
@@ -185,7 +196,7 @@ evalLiteral = \case
   LChar value ->
     Right (CoreChar value)
   LString value ->
-    Right (CoreString value)
+    Right (coreStringList value)
 
 force :: CoreValidate.CoreValidationEnv -> CoreThunk -> Either CoreEvalError CoreValue
 force coreEnv = \case
@@ -286,24 +297,74 @@ evalPrimitive coreEnv op values =
           Left CoreEvalDivisionByZero
     (PrimDiv, [CoreInt lhs, CoreInt rhs]) ->
       checkedIntValue (divHInt lhs rhs)
+    (PrimRem, [CoreInt _, CoreInt rhs])
+      | hintToInteger rhs == 0 ->
+          Left CoreEvalDivisionByZero
+    (PrimRem, [CoreInt lhs, CoreInt rhs]) ->
+      checkedIntValue (remHInt lhs rhs)
     (PrimEq, [lhs, rhs]) ->
       CoreBool <$> valueEquals lhs rhs
     (PrimLt, [CoreInt lhs, CoreInt rhs]) ->
       Right (CoreBool (ltHInt lhs rhs))
     (PrimNegate, [CoreInt value]) ->
       checkedIntValue (subHInt zero value)
+    (PrimCharToInt, [CoreChar value]) ->
+      checkedIntValue (mkHIntLiteral (fromIntegral (ord value)))
+    (PrimIntToChar, [CoreInt value]) ->
+      case hintToInteger value of
+        code
+          | 0 <= code && code <= 0x10FFFF -> Right (CoreChar (chr (fromIntegral code)))
+          | otherwise -> Left (CoreEvalTypeError ("invalid Char code point " <> Text.pack (show code)))
     (PrimShowInt, [CoreInt value]) ->
-      Right (CoreString (renderHInt value))
+      Right (coreStringList (renderHInt value))
     (PrimShowBool, [CoreBool True]) ->
-      Right (CoreString "True")
+      Right (coreStringList "True")
     (PrimShowBool, [CoreBool False]) ->
-      Right (CoreString "False")
+      Right (coreStringList "False")
     (PrimPutStrLn, [value]) ->
-      CoreIO . (: []) . (<> "\n") <$> coreStringText coreEnv value
-    (PrimIOThen, [CoreIO first, CoreIO second]) ->
-      Right (CoreIO (first <> second))
-    (PrimIOReturn, [_]) ->
-      Right (CoreIO [])
+      (\text -> CoreIO [text <> "\n"] (CoreData unitDataConName [])) <$> coreStringText coreEnv value
+    (PrimGetLine, []) ->
+      Right (CoreIO [] (coreStringList ""))
+    (PrimIOThen, [CoreIO first _, CoreIO second result]) ->
+      Right (CoreIO (first <> second) result)
+    (PrimIOBind, [CoreIO first value, CoreClosure closureEnv binder body]) -> do
+      second <- evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated value) closureEnv) body
+      case second of
+        CoreIO secondChunks result ->
+          Right (CoreIO (first <> secondChunks) result)
+        other ->
+          Left (CoreEvalTypeError ("expected Core IO action from bind continuation, got " <> renderCoreValue other))
+    (PrimIOReturn, [value]) ->
+      Right (CoreIO [] value)
+    (PrimIOFail, [value]) ->
+      coreStringText coreEnv value >>= \message -> Left (CoreEvalTypeError ("IO fail: " <> message))
+    (PrimNewStablePtr, [value]) ->
+      Right (CoreIO [] (CoreStablePtr value))
+    (PrimDeRefStablePtr, [CoreStablePtr value]) ->
+      Right (CoreIO [] value)
+    (PrimFreeStablePtr, [CoreStablePtr _]) ->
+      Right (CoreIO [] (CoreData unitDataConName []))
+    (PrimCastStablePtrToPtr, [CoreStablePtr value]) ->
+      Right (CorePointer (Just value))
+    (PrimCastPtrToStablePtr, [CorePointer (Just value)]) ->
+      Right (CoreStablePtr value)
+    (PrimNewForeignPtr, [_finalizer, pointer]) ->
+      Right (CoreIO [] (CoreForeignPtr pointer))
+    (PrimNewForeignPtr_, [pointer]) ->
+      Right (CoreIO [] (CoreForeignPtr pointer))
+    (PrimAddForeignPtrFinalizer, [_finalizer, CoreForeignPtr _]) ->
+      Right (CoreIO [] (CoreData unitDataConName []))
+    (PrimFinalizeForeignPtr, [CoreForeignPtr _]) ->
+      Right (CoreIO [] (CoreData unitDataConName []))
+    (PrimWithForeignPtr, [CoreForeignPtr pointer, CoreClosure closureEnv binder body]) -> do
+      action <- evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated pointer) closureEnv) body
+      case action of
+        CoreIO chunks result ->
+          Right (CoreIO chunks result)
+        other ->
+          Left (CoreEvalTypeError ("expected Core IO action from withForeignPtr continuation, got " <> renderCoreValue other))
+    (PrimTouchForeignPtr, [CoreForeignPtr _]) ->
+      Right (CoreIO [] (CoreData unitDataConName []))
     _ ->
       Left (CoreEvalTypeError ("invalid Core primitive operands for " <> renderCorePrimOpName op))
  where
@@ -332,6 +393,15 @@ coreStringText coreEnv = \case
           other -> Left (CoreEvalTypeError ("expected Char in String list, got " <> renderCoreValue other))
   other ->
     Left (CoreEvalTypeError ("expected String, got " <> renderCoreValue other))
+
+coreStringList :: Text -> CoreValue
+coreStringList =
+  Text.foldr cons nil
+ where
+  nil =
+    CoreData listNilDataConName []
+  cons char tailValue =
+    CoreData listConsDataConName [Evaluated (CoreChar char), Evaluated tailValue]
 
 valueEquals :: CoreValue -> CoreValue -> Either CoreEvalError Bool
 valueEquals lhs rhs =
@@ -362,8 +432,14 @@ renderCoreValue = \case
     Text.pack (show value)
   CoreString value ->
     Text.pack (show (Text.unpack value))
-  CoreIO chunks ->
+  CoreIO chunks _ ->
     "<Core IO " <> Text.pack (show (Text.unpack (Text.concat chunks))) <> ">"
+  CorePointer {} ->
+    "<Core Ptr>"
+  CoreStablePtr {} ->
+    "<Core StablePtr>"
+  CoreForeignPtr {} ->
+    "<Core ForeignPtr>"
   CoreClosure {} ->
     "<Core function>"
   CoreTypeClosure {} ->
@@ -402,6 +478,8 @@ renderCoreEvalError = \case
     renderIntError err
   CoreEvalNoMatchingAlternative value ->
     "no Core case alternative matched " <> renderCoreValue value
+  CoreEvalUnsupportedForeign message ->
+    message
 
 renderCorePrimOpName :: CorePrimOp -> Text
 renderCorePrimOpName = \case
@@ -409,11 +487,28 @@ renderCorePrimOpName = \case
   PrimSub -> "-"
   PrimMul -> "*"
   PrimDiv -> "/"
+  PrimRem -> "rem"
   PrimEq -> "=="
   PrimLt -> "<"
   PrimNegate -> "negate#"
+  PrimCharToInt -> "charToInt#"
+  PrimIntToChar -> "intToChar#"
   PrimShowInt -> "showInt#"
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"
+  PrimGetLine -> "getLine#"
   PrimIOThen -> "thenIO#"
+  PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"
+  PrimIOFail -> "failIO#"
+  PrimNewStablePtr -> "newStablePtr#"
+  PrimDeRefStablePtr -> "deRefStablePtr#"
+  PrimFreeStablePtr -> "freeStablePtr#"
+  PrimCastStablePtrToPtr -> "castStablePtrToPtr#"
+  PrimCastPtrToStablePtr -> "castPtrToStablePtr#"
+  PrimNewForeignPtr -> "newForeignPtr#"
+  PrimNewForeignPtr_ -> "newForeignPtr_#"
+  PrimAddForeignPtrFinalizer -> "addForeignPtrFinalizer#"
+  PrimFinalizeForeignPtr -> "finalizeForeignPtr#"
+  PrimWithForeignPtr -> "withForeignPtr#"
+  PrimTouchForeignPtr -> "touchForeignPtr#"

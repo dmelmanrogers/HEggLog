@@ -37,6 +37,8 @@ data E2ECase = E2ECase
   , egglogModes :: [EgglogMode]
   , alsoEmitLLVM :: Bool
   , includeReport :: Bool
+  , stdinText :: Text
+  , expectedCompileWarnings :: [Text]
   }
   deriving stock (Show, Eq)
 
@@ -112,8 +114,9 @@ runNativeCase hegglog e2eCase mode =
     case expected e2eCase of
       ExpectSuccess expectedStdout -> do
         assertExitSuccess ("native compile " <> showCommand hegglog args) compileResult
+        assertCompileWarnings e2eCase compileResult
         assertExecutableExists outputPath
-        runResult <- runCommand outputPath []
+        runResult <- runCommandWithInput outputPath [] (stdinText e2eCase)
         assertExitSuccess ("native run " <> outputPath) runResult
         assertEqual "native stdout" (Text.unpack expectedStdout <> "\n") (resultStdout runResult)
         assertEqual "native stderr" "" (resultStderr runResult)
@@ -140,6 +143,7 @@ runEmitLLVMCase hegglog clang e2eCase =
         args = ["compile", sourcePath e2eCase, "--emit-llvm", "-o", llvmPath]
     emitResult <- runCommand hegglog args
     assertExitSuccess ("emit LLVM " <> showCommand hegglog args) emitResult
+    assertCompileWarnings e2eCase emitResult
     llvmExists <- doesFileExist llvmPath
     assertBool ("LLVM output should exist: " <> llvmPath) llvmExists
     llvmText <- Text.IO.readFile llvmPath
@@ -149,7 +153,7 @@ runEmitLLVMCase hegglog clang e2eCase =
     clangResult <- runCommand clang [llvmPath, "-o", exePath]
     assertExitSuccess ("clang emitted LLVM " <> showCommand clang [llvmPath, "-o", exePath]) clangResult
     assertExecutableExists exePath
-    runResult <- runCommand exePath []
+    runResult <- runCommandWithInput exePath [] (stdinText e2eCase)
     case expected e2eCase of
       ExpectSuccess expectedStdout -> do
         assertExitSuccess ("run emitted LLVM artifact " <> exePath) runResult
@@ -171,8 +175,12 @@ runReportCase hegglog e2eCase =
       assertFailure "report cases should be successful programs"
 
 runCommand :: FilePath -> [String] -> IO CommandResult
-runCommand command args = do
-  (code, stdoutText, stderrText) <- readProcessWithExitCode command args ""
+runCommand command args =
+  runCommandWithInput command args ""
+
+runCommandWithInput :: FilePath -> [String] -> Text -> IO CommandResult
+runCommandWithInput command args stdinText' = do
+  (code, stdoutText, stderrText) <- readProcessWithExitCode command args (Text.unpack stdinText')
   pure
     CommandResult
       { resultExitCode = code
@@ -223,6 +231,19 @@ assertAnyCategory categories output =
   lowerOutput = toLower <$> output
   lowerCategories = Text.unpack . Text.toLower <$> categories
 
+assertCompileWarnings :: E2ECase -> CommandResult -> Assertion
+assertCompileWarnings e2eCase result =
+  mapM_ assertWarning (expectedCompileWarnings e2eCase)
+ where
+  assertWarning warning =
+    assertBool
+      ( "compile warning should contain "
+          <> show warning
+          <> "\nstderr:\n"
+          <> resultStderr result
+      )
+      (Text.unpack warning `isInfixOf` resultStderr result)
+
 assertReportResult :: String -> IO String
 assertReportResult output =
   case [drop (length resultPrefix) line | line <- lines output, resultPrefix `isPrefixOf` line] of
@@ -271,6 +292,8 @@ successCase name path expectedStdout modes emitLLVM =
     , egglogModes = modes
     , alsoEmitLLVM = emitLLVM
     , includeReport = True
+    , stdinText = ""
+    , expectedCompileWarnings = []
     }
 
 nativeOnlySuccessCase :: Text -> FilePath -> Text -> [EgglogMode] -> Bool -> E2ECase
@@ -282,7 +305,17 @@ nativeOnlySuccessCase name path expectedStdout modes emitLLVM =
     , egglogModes = modes
     , alsoEmitLLVM = emitLLVM
     , includeReport = False
+    , stdinText = ""
+    , expectedCompileWarnings = []
     }
+
+nativeOnlySuccessCaseWithInput :: Text -> FilePath -> Text -> Text -> [EgglogMode] -> Bool -> E2ECase
+nativeOnlySuccessCaseWithInput name path input expectedStdout modes emitLLVM =
+  (nativeOnlySuccessCase name path expectedStdout modes emitLLVM) {stdinText = input}
+
+nativeOnlySuccessCaseWithCompileWarnings :: Text -> FilePath -> Text -> [EgglogMode] -> Bool -> [Text] -> E2ECase
+nativeOnlySuccessCaseWithCompileWarnings name path expectedStdout modes emitLLVM warnings =
+  (nativeOnlySuccessCase name path expectedStdout modes emitLLVM) {expectedCompileWarnings = warnings}
 
 runtimeErrorCase :: Text -> FilePath -> [EgglogMode] -> E2ECase
 runtimeErrorCase name path modes =
@@ -293,6 +326,8 @@ runtimeErrorCase name path modes =
     , egglogModes = modes
     , alsoEmitLLVM = False
     , includeReport = False
+    , stdinText = ""
+    , expectedCompileWarnings = []
     }
 
 compileErrorCase :: Text -> FilePath -> [Text] -> E2ECase
@@ -304,6 +339,8 @@ compileErrorCase name path categories =
     , egglogModes = [DefaultEgglog]
     , alsoEmitLLVM = False
     , includeReport = False
+    , stdinText = ""
+    , expectedCompileWarnings = []
     }
 
 e2eCases :: [E2ECase]
@@ -328,6 +365,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-egglog-known-constructor" "test/e2e/programs/haskell2010/egglog-known-constructor.hs" "7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-tuple-case" "test/e2e/programs/haskell2010/tuple-case.hs" "3" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-prelude-lists" "test/e2e/programs/haskell2010/prelude-lists.hs" "321" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-prelude-append" "test/e2e/programs/haskell2010/prelude-append.hs" "[1,2,3,4]\nhegglog\n[1,2,3]\n[True,False]\nhey\nheglog" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-prelude-maybe-ordering" "test/e2e/programs/haskell2010/prelude-maybe-ordering.hs" "5" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-short-circuit" "test/e2e/programs/haskell2010/short-circuit.hs" "7" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-guarded-self-recursion" "test/e2e/programs/haskell2010/guarded-self-recursion.hs" "1" [DefaultEgglog, NoEgglog] False
@@ -337,11 +375,33 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-recursive-list" "test/e2e/programs/haskell2010/recursive-list.hs" "10" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-typeclass-dictionary" "test/e2e/programs/haskell2010/typeclass-dictionary.hs" "1" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-prelude-classes" "test/e2e/programs/haskell2010/prelude-classes.hs" "6" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-char-runtime" "test/e2e/programs/haskell2010/char-runtime.hs" "1" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-char-main" "test/e2e/programs/haskell2010/char-main.hs" "Z" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-string-char-list" "test/e2e/programs/haskell2010/string-char-list.hs" "5" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-string-output" "test/e2e/programs/haskell2010/string-output.hs" "native\nok\n7" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-string-show-output" "test/e2e/programs/haskell2010/string-show-output.hs" "42\nFalse" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-string-char-patterns" "test/e2e/programs/haskell2010/string-char-patterns.hs" "6" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-broad-show" "test/e2e/programs/haskell2010/broad-show.hs" "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Q'\n\"ok\"" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-numeric-defaulting" "test/e2e/programs/haskell2010/numeric-defaulting.hs" "7\n47" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-numeric-hierarchy" "test/e2e/programs/haskell2010/numeric-hierarchy.hs" "3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-prelude-foldl" "test/e2e/programs/haskell2010/prelude-foldl.hs" "1234\n-6\nabcd\n2\n7\n5" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-prelude-functions" "test/e2e/programs/haskell2010/prelude-functions.hs" "5\n21\n7\n1\n[2,3]\nTrue\nFalse\n42\nok" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-standard-library-modules" "test/e2e/programs/haskell2010/standard-library-modules.hs" "9\n9\n5\nTrue\nstdlib" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-modules" "test/e2e/programs/haskell2010/modules/Main.hs" "20" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-printing" "test/e2e/programs/haskell2010/io-printing.hs" "ok\nanswer\n42\nTrue" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-io-normal-examples" "test/e2e/programs/haskell2010/io-normal-examples.hs" "hello\nbound\n\"quoted\"\n'X'\n\"plain\"\n[1,2,3]\n[True,False]" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCaseWithInput "haskell2010-io-getline" "test/e2e/programs/haskell2010/io-getline.hs" "hegg\nlog\nunused\n" "first=hegg\nsecond=log\n7" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-monad" "test/e2e/programs/haskell2010/monad.hs" "monad\n[11,21,12,22]\n[1,3]\n7\nmaybe fail" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-monad-explicit-fail" "test/e2e/programs/haskell2010/monad-explicit-fail.hs" "[]\nmaybe explicit fail\n7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-guards-as-patterns" "test/e2e/programs/haskell2010/guards-as-patterns.hs" "15" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-sections" "test/e2e/programs/haskell2010/sections.hs" "6" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-user-defined-operators" "test/e2e/programs/haskell2010/user-defined-operators.hs" "537" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-where-layout" "test/e2e/programs/haskell2010/where-layout.hs" "14" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-arithmetic-sequences" "test/e2e/programs/haskell2010/arithmetic-sequences.hs" "[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-derived-enum" "test/e2e/programs/haskell2010/derived-enum.hs" "0\n2\n2\n1\nWest\n[1,2,3]\n[3,2,1,0]\n[1,2,3]\n[0,2]\n[3,2,1,0]\n[1,2,3]\n[3,2,1,0]\n0" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-derived-bounded" "test/e2e/programs/haskell2010/derived-bounded.hs" "0\n3\nPair (False) (North)\nPair (True) (West)\nRecord { low = (False), high = (North) }\nRecord { low = (True), high = (West) }\nFlag (False)\nFlag (True)" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-list-comprehensions" "test/e2e/programs/haskell2010/list-comprehensions.hs" "[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCaseWithCompileWarnings "haskell2010-pattern-diagnostics" "test/e2e/programs/haskell2010/pattern-diagnostics.hs" "7" [DefaultEgglog, NoEgglog] True ["non-exhaustive pattern match", "case alternatives", "False"]
   , nativeOnlySuccessCase "haskell2010-adt-box" "test/e2e/programs/haskell2010/adt-box.hs" "7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-adt-maybe" "test/e2e/programs/haskell2010/adt-maybe.hs" "4" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-adt-nested" "test/e2e/programs/haskell2010/adt-nested.hs" "3" [DefaultEgglog, NoEgglog] False
@@ -353,6 +413,8 @@ e2eCases =
   , runtimeErrorCase "division-overflow" "test/e2e/programs/runtime-errors/division-overflow.hg" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "haskell2010-division-by-zero" "test/e2e/programs/haskell2010/division-by-zero.hs" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "haskell2010-guard-fallthrough" "test/e2e/programs/haskell2010/guard-fallthrough.hs" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-derived-enum-runtime-error" "test/e2e/programs/haskell2010/derived-enum-runtime-error.hs" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-prelude-head-empty" "test/e2e/programs/haskell2010/prelude-head-empty.hs" [DefaultEgglog, NoEgglog]
   , compileErrorCase "open-free-variable" "test/e2e/programs/compile-errors/open-free-variable.hg" ["free", "unbound", "unknown", "backend"]
   , compileErrorCase "type-error" "test/e2e/programs/compile-errors/type-error.hg" ["type"]
   , compileErrorCase "unsupported-recursion" "test/e2e/programs/unsupported/unsupported-recursion.hg" ["recursive", "recursion", "unbound", "unknown"]

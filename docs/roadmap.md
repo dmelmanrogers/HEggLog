@@ -40,19 +40,52 @@ For the detailed current support matrix, see
 - [Haskell 2010 conformance matrix](haskell2010-conformance-matrix.md)
 - [Haskell 2010 implementation plan](haskell2010-implementation-plan.md)
 - [Haskell 2010 frontend specification](haskell2010-frontend-spec.md)
+- [Haskell 2010 standard library layout](haskell2010-standard-library-layout.md)
+- [Haskell 2010 FFI design](haskell2010-ffi-design.md)
 - [Laziness and STG plan](laziness-and-stg-plan.md)
 - [Egglog Core optimizer plan](egglog-core-optimizer-plan.md)
 
 ## Immediate Next Tasks
 
-1. `Char` runtime representation across native/runtime execution.
-2. Haskell 2010 conformance matrix expansion for the broader executable
-   surface.
-3. Broader `Show`/`String` interoperability, including `Show Char`,
-   `Show String`, escapes, and additional string/list library behavior.
+The authoritative queue is the Haskell 2010 task tracker. The source-surface
+chunk is complete: SURFACE-001, SURFACE-002, and SURFACE-003 are implemented
+and covered by parser/renamer/Core/STG/native tests plus manifest fixtures.
+The next chunk is Prelude, deriving, and typeclass library completion.
+
+TEST-CONF-014 source matrix closure is complete and now enforced by the
+conformance validator.
+
+The next library chunk is TC-029, TC-030, and TEST-CONF-015.
+PRELUDE-019 is complete for the current high-value function slice, and
+PRELUDE-020 is complete for the current generated standard-library module
+interface slice. TEST-CONF-015 must reconcile Chapter 9 Prelude and the Part
+II Haskell 2010 Libraries module inventory against the tracker before any
+additional standard-library surface is treated as supported. Remaining FFI
+closure is FFI-010 through FFI-013.
 
 Completed Haskell 2010 roadmap work:
 
+- MOD-009 instance import/export behavior: implemented with source instance
+  propagation through `ModuleInterface`, empty export-list and `import M ()`
+  visibility, transitive import-chain dictionary availability, native
+  conformance coverage, and a negative missing-instance import fixture.
+- PRELUDE-017 standard library module layout: implemented with a dedicated
+  `Haskell2010.StandardLibrary` module, generated/importable `Prelude`
+  interface, shared `ModuleInterface` data model, and instance-export boundary
+  used by MOD-009.
+- PRELUDE-020 standard library module expansion: implemented with generated
+  importable interfaces for `Control.Monad`, `Data.Int`, `Data.List`,
+  `Data.Maybe`, `Data.Word`, `System.IO`, and implemented `Foreign.*` module
+  slices, including real `Functor(fmap)` support for `[]`, `Maybe`, and `IO`,
+  while keeping reserved Report modules unimportable until they have real
+  support.
+- PRELUDE-002/MOD-010 implicit Prelude import behavior: implemented with
+  synthetic `import Prelude` insertion only when no explicit `Prelude` import
+  exists, explicit Prelude import-list/hiding/qualified filtering, and native
+  conformance coverage for implicit, explicit, and qualified Prelude imports.
+- TC-020 Monad class surface: implemented for the supported executable subset
+  with higher-kinded `Monad`, dictionaries for `IO`/`Maybe`/`[]`, generic
+  `do` desugaring, refutable do-bind `fail`, and native conformance coverage.
 - Haskell 2010 parser/layout MVP: implemented as an isolated `Haskell2010`
   frontend AST, lexer, layout parser, parser, and parser tests.
 - Haskell 2010 renamer MVP: implemented as an isolated unique-name pass with
@@ -103,7 +136,8 @@ Completed Haskell 2010 roadmap work:
   built-in list, tuple, unit, `Maybe`, `Either`, and `Ordering`
   constructors/types, list and tuple expressions/patterns, short-circuiting
   Bool operators, and generated Core Prelude bindings for `id`, `const`, `not`,
-  `otherwise`, `map`, `foldr`, `length`, `filter`, and `reverse`.
+  `otherwise`, `($)`, `(.)`, `flip`, `map`, `foldr`, `foldl`, `head`, `tail`,
+  `null`, `fst`, `snd`, `length`, `filter`, `reverse`, and `(++)`.
 - Haskell 2010 recursion coverage: implemented for singleton self-recursive
   top-level/local bindings, mutually recursive functions, fibonacci/factorial
   programs, cons-pattern recursive list functions, and default/no-egglog native
@@ -113,13 +147,28 @@ Completed Haskell 2010 roadmap work:
   constrained functions, generated dictionary constructors/selectors, Core
   dictionary arguments, STG/native lowering, and default/no-egglog wet tests.
 - Haskell 2010 built-in Prelude class dictionaries: implemented for `Eq Int`,
-  `Eq Bool`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and
-  `Show Bool` methods, including overloaded comparison/arithmetic/show method
+  `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, executable `Num Int`,
+  executable `Real Int`, executable `Integral Int`, `Show Int`, `Show Bool`,
+  `Show Char`, exact `Show String`, and generated
+  structural list `Show` methods, including overloaded comparison/arithmetic/show method
   desugaring, Core/STG/native lowering, and default/no-egglog wet tests.
 - Haskell 2010 numeric literals/defaulting: implemented for dictionary-backed
   `fromInteger`, overloaded integer literals, executable `Int` numeric
   defaulting, inferred constrained helper schemes, SCC-based binding
   generalization, Core/STG/native lowering, and default/no-egglog wet tests.
+- Haskell 2010 `Char` runtime representation: implemented for boxed native
+  `Char` values, literal `Char` case dispatch, built-in `Eq Char`, scalar
+  `main :: Char` printing, Core/STG/native oracles, conformance fixtures, and
+  default/no-egglog wet tests.
+- Haskell 2010 `String = [Char]` source/runtime alignment: implemented for
+  source string expressions and string literal patterns as ordinary list
+  constructors, Core/STG evaluator list values, built-in `show` results as
+  lists, native LLVM without per-literal string globals, conformance fixtures,
+  and default/no-egglog wet tests.
+- Haskell 2010 string literal native wet tests: implemented direct source
+  string output, `reverse`/`length` over strings, `putStrLn` over built-in
+  `show` results, explicit `Char` cons patterns, string literal patterns,
+  conformance fixtures, default/no-egglog runs, and emit-LLVM wet checks.
 - Haskell 2010 modules/whole-program compilation: implemented for import-driven
   dependency-file loading, module graph cycle/name diagnostics, actual
   exported-name import resolution, export/import filtering, hiding, qualified
@@ -134,9 +183,28 @@ Completed Haskell 2010 roadmap work:
   diagnostics remain planned.
 - Haskell 2010 IO printing slice: implemented `IO` typechecking and native
   `main :: IO ()` entrypoint execution, `putStrLn`, `print`, `return`, `(>>)`,
-  expression-only `do` sequencing with local `let`, built-in `Show Int` and
-  `Show Bool` dictionaries, Core/STG IO reference values, native string
-  literal objects for output, and default/no-egglog wet tests.
+  `(>>=)`, expression and bind-statement `do` sequencing with local `let`, broadened built-in
+  `Show` dictionaries, Core/STG IO output/result reference values, source strings and
+  built-in show results as list-of-`Char` values, and default/no-egglog wet
+  tests.
+- Haskell 2010 arithmetic sequences: implemented executable `Int` and `Char`
+  sequence forms plus derived-enumeration ranges, including bounded
+  ascending/descending ranges and lazily consumed open ranges, through Core,
+  STG, LLVM, conformance, and wet tests.
+- Haskell 2010 derived `Enum`: implemented generated `Enum` dictionaries for
+  nullary-constructor data declarations, declaration-order constructor indices,
+  `succ`/`pred`/`toEnum` bounds errors, `fromEnum`, range methods, negative
+  invalid-deriving diagnostics, conformance fixtures, and default/no-egglog wet
+  tests.
+- Haskell 2010 derived `Bounded`: implemented generated `Bounded`
+  dictionaries for all-nullary enumerations and single-constructor products,
+  records, and newtypes, with field-wise bounds, invalid mixed-constructor
+  diagnostics, conformance fixtures, and default/no-egglog wet tests.
+- Haskell 2010 list comprehensions: implemented executable list
+  comprehensions with generator scoping, Bool guards, `let` qualifiers,
+  nested generators, tuple/list/constructor/literal/refutable pattern
+  filtering, and native wet tests over `Int`, `Char`, `String`, `Maybe`, and
+  tuple-shaped examples.
 
 ## Non-Negotiable Project Direction
 

@@ -110,22 +110,46 @@ checked for recursive cycles, and expanded structurally before Core conversion.
 Class constraints now use an explicit class-head-plus-arguments representation;
 the current executable slice validates single-argument constraint arity before
 kind checking and dictionary elaboration, and constraint arguments participate in
-type synonym expansion and substitution like other source types. Unsupported
-constraint positions have a structured placeholder diagnostic: superclass
-contexts, method-specific constraints, instance contexts, and expression
-type-signature constraints are parsed and then rejected deliberately until their
-dedicated class-system tasks are implemented.
+type synonym expansion and substitution like other source types. Superclass
+contexts on single-parameter classes are represented in dictionary types as
+leading superclass fields, default class methods are used to fill omitted
+instance methods, and dictionary resolution can project superclass dictionaries
+from local and instance dictionaries. Method-specific constraints, instance
+contexts, and expression type-signature constraints still have structured
+placeholder diagnostics until their dedicated class-system tasks are
+implemented.
+
+TC-020 adds the supported `Monad` class surface on top of that dictionary
+model. The built-in `Monad` class parameter has kind `* -> *`, so constraint
+and instance-head kind checking can validate higher-kinded arguments such as
+`IO`, `Maybe`, and `[]` while rejecting `Monad Int`. The generated dictionary
+constructor stores polymorphic method fields for `return`, `(>>=)`, `(>>)`, and
+`fail`; selector bindings instantiate those method fields at each use site.
+Built-in dictionaries for `Monad IO`, `Monad Maybe`, and `Monad []` drive
+generic do-notation desugaring, including refutable pattern binds that call
+`fail` instead of relying on a raw no-match case.
+
+TC-016 documents `Read` as a deliberate Haskell 2010 Prelude/typeclass
+deviation. The renamer recognizes `Read` as a Prelude class name so source
+constraints fail as explicit unsupported type-class constraints, but the
+typechecker does not install `Read` class metadata, dictionaries, methods, or
+standard instances. This avoids a partial implementation of `readsPrec`,
+`readList`, `read`, `reads`, and lexical read behavior before the compiler has
+the parser-combinator and derived-instance infrastructure needed to make `Read`
+coherent.
 
 TYPE-019 records the monomorphism-restriction decision for the executable
 subset: unsigned nullary value bindings without explicit signatures are eligible
 for standard-class defaulting before generalization, while explicitly signed
 bindings and functions with value parameters keep their result metavariables
 protected from this defaulting pass. This matches the current executable
-`Int`-defaulting behavior for numeric/simple class constraints without claiming
-complete Haskell 2010 monomorphism-restriction coverage for every pattern
-binding and class-library form. Full MR conformance should be revisited when
-broader pattern bindings, superclass solving, and Prelude class coverage are in
-place.
+`Int`-defaulting behavior for numeric/simple class constraints, now including
+standard-class compatibility with `Enum`/`Bounded` and with the supported
+`Real`/`Integral` hierarchy when a `Num` constraint is present, without
+claiming complete Haskell 2010 monomorphism-restriction coverage for every
+pattern binding and class-library form. Full MR conformance should be revisited
+when broader pattern bindings, Fractional/Floating classes, arbitrary-precision
+`Integer`, and full `Ratio`/`Rational` behavior are in place.
 
 TYPE-020 preserves source attribution for Haskell 2010 typecheck failures.
 Parsed declarations, expressions, patterns, statements, alternatives,
@@ -151,6 +175,49 @@ Core coercions, and Core-to-STG lowering erases the wrapper to the single field
 representation before native code generation. Remaining class, deriving, and
 broader surface work is tracked separately.
 
+TC-023 adds derived `Eq` for the supported Haskell 2010 executable subset.
+Derived instances are represented as ordinary dictionary bindings, including
+polymorphic type lambdas and context dictionary arguments when constructor
+fields require them. The generated methods compare constructors structurally,
+short-circuit field equality with `&&`, define `(/=)` in terms of `(==)`, and
+support recursive data, `newtype`, `String` fields, and list-backed contexts
+through a generated structural `Eq [a]` dictionary.
+
+TC-024 adds derived `Ord` for the same executable deriving surface. Generated
+instances carry the required `Eq` superclass dictionary, compare constructors in
+declaration order, compare product fields lexicographically with `compare`, and
+derive the relational, `max`, and `min` methods from the generated comparison.
+Structural `Ord [a]` is available for list and `String` fields, and superclass
+projection now lowers through reusable Core selector bindings rather than
+duplicating local projection cases.
+
+TC-025 adds derived `Show` for the same executable deriving surface. Generated
+instances synthesize ordinary `show :: a -> String` dictionary methods for
+nullary constructors, product constructors, records, recursive data, `newtype`,
+`String` fields, list-backed contexts, and parameterized declarations. Because
+the current `Show` class intentionally exposes only `show` and not the full
+Haskell 2010 `showsPrec`/`showList` hierarchy, product fields are conservatively
+parenthesized until that method hierarchy is introduced.
+
+TC-031 adds derived `Enum` for nullary-constructor data declarations. Generated
+dictionaries number constructors in declaration order, synthesize `succ`,
+`pred`, `toEnum`, `fromEnum`, and the report-shaped range methods, and reject
+constructors with fields as invalid deriving targets. Arithmetic-sequence
+syntax now elaborates through the resolved `Enum` methods, so user-derived
+enumerations share the same dictionary path as built-in `Int` and `Char`
+ranges.
+
+TC-032 adds derived `Bounded` for the Haskell 2010 shapes supported by the
+current deriving pipeline. All-nullary data declarations synthesize
+`minBound` as the first constructor and `maxBound` as the last constructor.
+Single-constructor products, records, and newtypes synthesize constructor
+applications whose fields are populated by field-wise `minBound`/`maxBound`
+calls, so parameterized products acquire ordinary `Bounded` field constraints.
+Mixed or multi-constructor declarations with fields are rejected with a stable
+diagnostic. Generated derived methods are marked as compiler-generated for
+pattern-coverage purposes so user-facing exhaustiveness warnings are not
+polluted by internal dictionary bindings.
+
 ADT-005 adds the supported record-label subset. Record declarations introduce
 field selector names in the term namespace, record construction is typechecked
 against the constructor's labelled fields and currently requires every field
@@ -158,8 +225,21 @@ exactly once, and record patterns desugar through the existing positional
 constructor-pattern path with omitted fields treated as wildcards. Selector
 bindings are emitted as ordinary Core functions: data selectors lower to cases
 over the labelled constructors, while single-field newtype selectors lower to
-typed coercions. Record update syntax and partial construction semantics remain
-future surface work.
+typed coercions.
+
+ADT-007 adds record update expressions as a distinct parsed and renamed AST
+form, separate from record construction. The typechecker resolves every update
+label through the record-selector table, requires all update labels to belong to
+one datatype, rejects duplicate labels, and reports concrete non-record or
+wrong-record scrutinees at the update source span. Valid updates lower to a
+Core case over the scrutinee with alternatives only for constructors that
+contain all updated labels. Each alternative reconstructs the original
+constructor with new expressions for updated labels and reused field binders for
+untouched labels, preserving laziness of untouched fields. Constructors in the
+same datatype that do not contain every updated label are intentionally omitted,
+so reaching one at runtime is the Haskell 2010 record-update error. Single-field
+newtype record updates lower through the existing newtype coercion path. Partial
+record construction semantics remain future surface work.
 
 The existing optional monomorphic lambda parameter inference is carry-forward
 infrastructure and a useful implementation reference, but it is not Haskell

@@ -5,8 +5,10 @@ module Backend.LLVM.Toolchain
   , NativeBuildResult (..)
   , NativeRunResult (..)
   , buildNativeExecutable
+  , buildNativeExecutableWithObjects
   , findLLVMTools
   , runNativeExecutable
+  , runNativeExecutableWithInput
   , renderLLVMTools
   , runLLVMText
   , validateLLVMText
@@ -95,6 +97,10 @@ validateLLVMText tools llvmText =
 
 buildNativeExecutable :: LLVMTools -> Text.Text -> FilePath -> IO NativeBuildResult
 buildNativeExecutable tools llvmText outputPath =
+  buildNativeExecutableWithObjects tools llvmText [] outputPath
+
+buildNativeExecutableWithObjects :: LLVMTools -> Text.Text -> [FilePath] -> FilePath -> IO NativeBuildResult
+buildNativeExecutableWithObjects tools llvmText extraInputs outputPath =
   case llvmClang tools of
     Nothing ->
       pure (NativeBuildToolchainMissing ("clang unavailable: " <> renderLLVMTools tools))
@@ -106,7 +112,7 @@ buildNativeExecutable tools llvmText outputPath =
           Left err -> NativeBuildIOError (show err)
  where
   runClang clangPath llvmPath = do
-    let args = [llvmPath, "-o", outputPath]
+    let args = llvmPath : extraInputs <> ["-o", outputPath]
     (code, stdoutText, stderrText) <- readProcessWithExitCode clangPath args ""
     pure $
       case code of
@@ -114,8 +120,12 @@ buildNativeExecutable tools llvmText outputPath =
         ExitFailure {} -> NativeBuildFailed clangPath args code stdoutText stderrText
 
 runNativeExecutable :: FilePath -> IO NativeRunResult
-runNativeExecutable path = do
-  result <- try (readProcessWithExitCode (nativeExecutableCommand path) [] "") :: IO (Either IOException (ExitCode, String, String))
+runNativeExecutable path =
+  runNativeExecutableWithInput path ""
+
+runNativeExecutableWithInput :: FilePath -> String -> IO NativeRunResult
+runNativeExecutableWithInput path stdinText = do
+  result <- try (readProcessWithExitCode (nativeExecutableCommand path) [] stdinText) :: IO (Either IOException (ExitCode, String, String))
   pure $
     case result of
       Left err ->

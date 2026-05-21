@@ -10,7 +10,7 @@ import Haskell2010.Core.Syntax
 import Haskell2010.Names (RName)
 
 freeVarsModule :: CoreModule -> Set.Set RName
-freeVarsModule (CoreModule _ _ binds) =
+freeVarsModule (CoreModule _ _ binds _foreignExports) =
   Set.unions (map freeVarsBind binds) `Set.difference` boundNames binds
 
 freeVarsBind :: CoreBind -> Set.Set RName
@@ -47,6 +47,10 @@ freeVarsExpr = \case
     freeVarsExpr expression
   CPrimOp _ arguments _ ->
     Set.unions (map freeVarsExpr arguments)
+  CForeignCall _ arguments _ ->
+    Set.unions (map freeVarsExpr arguments)
+  CForeignImportValue {} ->
+    Set.empty
 
 freeVarsAlt :: CoreBinder -> CoreAlt -> Set.Set RName
 freeVarsAlt caseBinder (CoreAlt _ binders body) =

@@ -19,6 +19,7 @@ import qualified Data.Text.IO as Text.IO
 import Haskell2010.Parser (parseSourceModule)
 import Haskell2010.Pretty (renderModuleName)
 import Haskell2010.Renamed
+import qualified Haskell2010.StandardLibrary as StandardLibrary
 import Haskell2010.Syntax
 import System.FilePath ((<.>), (</>), joinPath, normalise, takeDirectory)
 import Text.Megaparsec (errorBundlePretty)
@@ -180,31 +181,42 @@ moduleNamePath rootDirectory (ModuleName parts) =
   rootDirectory </> joinPath (map Text.unpack parts) <.> "hs"
 
 isBuiltinModule :: ModuleName -> Bool
-isBuiltinModule (ModuleName parts) =
-  parts == ["Prelude"]
+isBuiltinModule moduleName =
+  Map.member moduleName StandardLibrary.standardLibraryModuleInterfaces
 
 cyclePath :: ModuleName -> [ModuleName] -> [ModuleName]
 cyclePath repeated active =
   repeated : (takeWhile (/= repeated) active <> [repeated])
 
 wholeProgramModule :: [RHsModule] -> RHsModule
-wholeProgramModule [] =
-  RHsModule
-    { rModuleName = Nothing
-    , rModuleExports = Nothing
-    , rModuleImports = []
-    , rModuleFixities = Map.empty
-    , rModuleDecls = []
-    }
 wholeProgramModule modules =
-  let root = last modules
-   in RHsModule
-        { rModuleName = rModuleName root
-        , rModuleExports = rModuleExports root
-        , rModuleImports = concatMap rModuleImports modules
-        , rModuleFixities = Map.unions (map rModuleFixities modules)
-        , rModuleDecls = concatMap rModuleDecls modules
+  case modules of
+    [] ->
+      RHsModule
+        { rModuleName = Nothing
+        , rModuleExports = Nothing
+        , rModuleImports = []
+        , rModuleFixities = Map.empty
+        , rModuleDecls = []
         }
+    root : rest ->
+      let finalRoot = lastModule root rest
+       in RHsModule
+            { rModuleName = rModuleName finalRoot
+            , rModuleExports = rModuleExports finalRoot
+            , rModuleImports = concatMap rModuleImports modules
+            , rModuleFixities = Map.unions (map rModuleFixities modules)
+            -- Haskell 2010 imports all instances along the transitive import
+            -- chain. Keeping every dependency declaration in the flattened
+            -- module makes instance dictionaries available to typechecking and
+            -- later lowering even when the declaring module exports no names.
+            , rModuleDecls = concatMap rModuleDecls modules
+            }
+ where
+  lastModule latest [] =
+    latest
+  lastModule _ (next : rest) =
+    lastModule next rest
 
 renderModuleGraphError :: ModuleGraphError -> Text
 renderModuleGraphError = \case

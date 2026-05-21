@@ -50,11 +50,12 @@ Core, STG, LLVM, and native execution pipeline. Recursive non-variable pattern
 bindings also lower into lazy selector bindings that participate in the normal
 Core recursive binding model.
 
-The Haskell 2010 typechecker also exposes structured exhaustiveness warning
-placeholders for partial `case`, function, and lambda patterns through
-`typecheckModuleToCoreWithWarnings`; native compilation preserves those
-warnings in `Haskell2010LLVMResult`. This is not yet a full Haskell 2010
-coverage checker.
+The Haskell 2010 typechecker also exposes source-spanned non-exhaustive and
+redundant pattern-match warnings for supported `case`, function, and lambda
+patterns through `typecheckModuleToCoreWithWarnings`; native compilation
+preserves those warnings in `Haskell2010LLVMResult`, and the compile CLI renders
+them to stderr. This is not yet a report-complete Haskell 2010 coverage checker
+or runtime source-attribution system.
 
 The success criterion is documented in
 [`haskell2010-roadmap.md`](haskell2010-roadmap.md): `hegglog compile Main.hs -o

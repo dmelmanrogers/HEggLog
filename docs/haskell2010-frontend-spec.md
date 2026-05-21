@@ -50,6 +50,7 @@ The parser must produce a Haskell 2010 source AST with these categories:
 - types
 - classes and instances
 - fixity declarations
+- structured `foreign import` and `foreign export` declarations
 
 The parser may initially accept a Core-0 subset, but every accepted construct
 must be tracked in `docs/haskell2010-conformance-matrix.md`. Unsupported
@@ -67,8 +68,24 @@ scopes, class methods, instance methods, separated term/constructor/type/type
 variable/class/module namespaces, duplicate and unbound-name diagnostics,
 ambiguous explicit-import diagnostics, module-graph import resolution against
 actual exported definitions, qualified aliases, hiding, `Thing(..)` child
-expansion, and fixity resolution. Complete package search paths and complete
-Prelude module coverage remain later module-system work.
+expansion, fixity resolution, and Haskell 2010 instance import/export
+propagation through module interfaces. It also binds `foreign import` names as
+top-level terms, resolves `foreign export` references to existing top-level
+terms, and makes imported foreign names available through ordinary module
+interfaces. The typechecker validates the current FFI signature boundary
+against generated `Foreign`, `Foreign.C`, and `Foreign.C.Types` interfaces
+and valid imports lower into explicit Core/STG foreign-call or foreign-import
+value IR. The native backend lowers supported `foreign import ccall` scalar
+imports to LLVM external declarations/direct calls or indirect `FunPtr` calls
+with checked integer/Bool/Char marshalling, and now lowers boxed
+`Ptr`/`FunPtr` values, static `&symbol` address imports, pointer
+arguments/results, and `wrapper` callback trampolines for the same ABI slice.
+Complete package search paths, complete Prelude module coverage, floating-point
+ABI work, broader link metadata, automatic GC finalization, and
+`freeHaskellFunPtr`/callback-slot reclamation remain later
+module-system/runtime work; `foreign export ccall` entrypoints and explicit
+`StablePtr`/manual `ForeignPtr` ownership APIs are implemented for the current
+scalar/pointer native ABI slice.
 
 Required namespaces and scopes:
 
@@ -121,21 +138,25 @@ Current initial Haskell 2010 class capabilities:
   typechecker diagnostics, including delayed class-constraint dictionary errors
 - instance lookup
 - dictionary-passing elaboration
-- generated built-in dictionaries for `Eq Int`, `Eq Bool`, `Ord Int`,
-  `Ord Bool`, executable `Num Int`, `Show Int`, and `Show Bool`
+- generated built-in dictionaries for `Eq Int`, `Eq Bool`, `Eq Char`,
+  `Ord Int`, `Ord Bool`, executable `Num Int`, executable `Real Int`,
+  executable `Integral Int`, `Show Int`, `Show Bool`, `Show Char`, exact
+  `Show String`, and structural list `Show`
 - dictionary-backed built-in methods: `(==)`, `(/=)`, `compare`, `(<)`,
   `(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`,
-  `signum`, `fromInteger`, and `show`
+  `signum`, `fromInteger`, `toRational`, `quot`, `rem`, `div`, `mod`,
+  `quotRem`, `divMod`, `toInteger`, and `show`
 - overloaded integer literals through `fromInteger`
 - numeric defaulting to executable `Int` for ambiguous standard-class numeric
-  constraints in the supported `Eq`/`Ord`/`Num`/`Show` slice
+  constraints in the supported `Eq`/`Ord`/`Num`/`Real`/`Integral`/`Show` slice
 - executable-subset monomorphism/defaulting policy for unsigned nullary value
   bindings without signatures
 
 Remaining planned Haskell 2010 capabilities:
 
-- superclasses, default methods, deriving, and instance contexts
-- broader `Show`, additional numeric classes, and fuller Prelude hierarchy
+- instance contexts, method-specific constraints, and remaining deriving classes
+- full `showsPrec`/`showList`, Fractional/Floating and full Ratio numeric
+  behavior, and fuller Prelude hierarchy
 - kind checking for type constructors and classes
 
 The typechecker emits typed Core or rejects the program. It must not accept a
@@ -174,27 +195,32 @@ application, local `let`, `if`, Bool and user-constructor `case`, custom
 `data` declarations, polymorphic constructors, nested/list/tuple constructor
 patterns, list and tuple expressions/types, built-in `Maybe`, `Either`, and
 `Ordering`, generated Core Prelude bindings for `id`, `const`, `not`,
-`otherwise`, `map`, `foldr`, `length`, `filter`, and `reverse`, short-circuit
+`otherwise`, `($)`, `(.)`, `flip`, `map`, `foldr`, `foldl`, `head`, `tail`,
+`null`, `fst`, `snd`, `length`, `filter`, `reverse`, and `(++)`, short-circuit
 Bool operators, recursive top-level/local binding groups, primitive `/`, and
-dictionary-backed `Eq`/`Ord`/`Num` methods, guarded RHSs, guarded case
+dictionary-backed `Eq`/`Ord`/`Num`/`Real`/`Integral` methods, boxed `Char`
+literals and cases, guarded RHSs, guarded case
 alternatives, as-pattern aliases, and guard-fallthrough no-match behavior. It
 also covers the initial type
 class dictionary slice: user-defined single-parameter classes, concrete
 context-free instances, explicit constrained functions, generated dictionary
 constructors/selectors, dictionary-passed method calls, and built-in `Eq Int`,
-`Eq Bool`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and
-`Show Bool` dictionaries. It also covers `IO`, `main :: IO ()`, `putStrLn`,
-`print`, `return`, `(>>)`, and expression-only `do` sequencing with local
-`let`. It also covers `fromInteger`, overloaded integer literals, numeric
+`Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`,
+executable `Real Int`, executable `Integral Int`, `Show Int`, `Show Bool`,
+`Show Char`, exact `Show String`, and structural list `Show` dictionaries. It
+also covers `IO`, `main :: IO ()`, `putStrLn`,
+`print`, `return`, `(>>)`, `(>>=)`, expression `do`, and `<-` bind-statement
+sequencing with local `let`. It also covers `fromInteger`, overloaded integer literals, numeric
 defaulting to executable `Int`, inferred constrained helper schemes, and
 SCC-based binding generalization, and recursive non-variable pattern bindings.
 It also covers import-driven dependency-file loading, export/import filtering,
 whole-program Core flattening, and root `main` native entrypoint selection for
-the executable subset. It exposes structured exhaustiveness warning
-placeholders for partial `case`, function, and lambda patterns through the
-typechecker and native API. Full Haskell 2010 type classes, broader `Show`, a
-full pattern coverage checker, richer pattern diagnostics, broader Prelude, and
-broader IO remain planned. The strict
+the executable subset. It exposes source-spanned non-exhaustive and redundant
+pattern-match warnings for supported partial `case`, function, and lambda
+patterns through the typechecker, native API, and compile CLI. The full Haskell
+2010 type-class surface, the report-compatible `showsPrec`/`showList`
+hierarchy, report-complete pattern coverage/runtime attribution, broader
+Prelude, handles, and richer IO behavior remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

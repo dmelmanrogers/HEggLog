@@ -34,18 +34,18 @@ import Syntax.Span (SourceSpan, sourceSpan)
 import Text.Megaparsec
   ( MonadParsec (lookAhead, try)
   , ParseErrorBundle
-  , anySingle
+  , SourcePos
   , choice
   , getSourcePos
-  , manyTill
   , option
   , parse
   , sepBy
   , sepBy1
   , sepEndBy
   , sepEndBy1
+  , sourceColumn
+  , sourceLine
   )
-import qualified Text.Megaparsec.Char as C
 
 data ModuleItem
   = ModuleImport ImportDecl
@@ -224,19 +224,21 @@ typeSynonymDecl = do
 
 classDecl :: Parser Decl
 classDecl = do
+  start <- getSourcePos
   reserved "class"
   context <- optional (try (contextParser <* symbol "=>"))
   className <- qconid
   typeVariable <- varid
-  decls <- optionalWhereDecls
+  decls <- optionalWhereDeclsFrom start
   pure (ClassDecl (fromMaybe [] context) className typeVariable decls)
 
 instanceDecl :: Parser Decl
 instanceDecl = do
+  start <- getSourcePos
   reserved "instance"
   context <- optional (try (contextParser <* symbol "=>"))
   instanceType <- typeParser
-  decls <- optionalWhereDecls
+  decls <- optionalWhereDeclsFrom start
   pure (InstanceDecl (fromMaybe [] context) instanceType decls)
 
 defaultDecl :: Parser Decl
@@ -247,25 +249,146 @@ defaultDecl = do
 foreignDecl :: Parser Decl
 foreignDecl = do
   reserved "foreign"
-  rest <- Text.strip . Text.pack <$> manyTill anySingle (lookAhead endOfForeignDecl)
-  pure (ForeignDecl ("foreign " <> rest))
+  ForeignDecl <$> (foreignImportDecl <|> foreignExportDecl)
+
+foreignImportDecl :: Parser ForeignDeclInfo
+foreignImportDecl = do
+  reserved "import"
+  callConv <- foreignCallConv
+  safety <- option ForeignSafe (try foreignSafety)
+  entity <- option defaultForeignImportEntity (try foreignImportEntitySpec)
+  name <- bindingName
+  void (symbol "::")
+  ForeignImportDecl . ForeignImport callConv safety entity name <$> typeParser
+
+foreignExportDecl :: Parser ForeignDeclInfo
+foreignExportDecl = do
+  reserved "export"
+  callConv <- foreignCallConv
+  entity <- option defaultForeignExportEntity (try foreignExportEntitySpec)
+  name <- bindingName
+  void (symbol "::")
+  ForeignExportDecl . ForeignExport callConv entity name <$> typeParser
+
+foreignCallConv :: Parser ForeignCallConv
+foreignCallConv =
+  callConvFromText <$> varid
  where
-  endOfForeignDecl =
-    void C.eol <|> eof
+  callConvFromText = \case
+    "ccall" -> ForeignCCall
+    "stdcall" -> ForeignStdCall
+    "cplusplus" -> ForeignCPlusPlus
+    "jvm" -> ForeignJvm
+    "dotnet" -> ForeignDotNet
+    other -> ForeignOtherCallConv other
+
+foreignSafety :: Parser ForeignSafety
+foreignSafety = do
+  token <- varid
+  case token of
+    "safe" -> pure ForeignSafe
+    "unsafe" -> pure ForeignUnsafe
+    other -> fail ("unknown foreign import safety " <> Text.unpack other)
+
+foreignImportEntitySpec :: Parser ForeignImportEntity
+foreignImportEntitySpec = do
+  raw <- stringLiteral
+  pure
+    ForeignImportEntity
+      { foreignImportEntityRaw = Just raw
+      , foreignImportEntityKind = parseForeignImportEntity raw
+      }
+
+foreignExportEntitySpec :: Parser ForeignExportEntity
+foreignExportEntitySpec = do
+  raw <- stringLiteral
+  pure
+    ForeignExportEntity
+      { foreignExportEntityRaw = Just raw
+      , foreignExportEntitySymbol = if Text.null raw then Nothing else Just raw
+      }
+
+defaultForeignImportEntity :: ForeignImportEntity
+defaultForeignImportEntity =
+  ForeignImportEntity
+    { foreignImportEntityRaw = Nothing
+    , foreignImportEntityKind = ForeignImportDefault
+    }
+
+defaultForeignExportEntity :: ForeignExportEntity
+defaultForeignExportEntity =
+  ForeignExportEntity
+    { foreignExportEntityRaw = Nothing
+    , foreignExportEntitySymbol = Nothing
+    }
+
+parseForeignImportEntity :: Text -> ForeignImportEntityKind
+parseForeignImportEntity raw =
+  case Text.words raw of
+    [] ->
+      ForeignImportUnknown raw
+    ["dynamic"] ->
+      ForeignImportDynamic
+    ["wrapper"] ->
+      ForeignImportWrapper
+    "static" : rest ->
+      parseStaticImportEntity raw rest
+    rest ->
+      parseStaticImportEntity raw rest
+ where
+  parseStaticImportEntity rawText tokens =
+    case tokens of
+      [] ->
+        ForeignImportUnknown rawText
+      headerToken : symbolTokens
+        | Just header <- parseHeader headerToken ->
+            parseImportSymbol rawText (Just header) (Text.unwords symbolTokens)
+      symbolTokens ->
+        parseImportSymbol rawText Nothing (Text.unwords symbolTokens)
+
+  parseImportSymbol rawText header symbolText
+    | Text.null symbolText =
+        ForeignImportUnknown rawText
+    | Just ffiSymbol <- Text.stripPrefix "&" symbolText =
+        if Text.null ffiSymbol then ForeignImportUnknown rawText else ForeignImportAddress header ffiSymbol
+    | otherwise =
+        ForeignImportStatic header symbolText
+
+  parseHeader token
+    | "[" `Text.isPrefixOf` token && "]" `Text.isSuffixOf` token =
+        Just (Text.dropEnd 1 (Text.drop 1 token))
+    | otherwise =
+        Nothing
 
 functionBinding :: Parser Decl
-functionBinding = do
+functionBinding =
+  try infixFunctionBinding <|> prefixFunctionBinding
+
+prefixFunctionBinding :: Parser Decl
+prefixFunctionBinding = do
+  start <- getSourcePos
   name <- functionName
   patterns <- many patParser
   rhs <- rhsParser
-  whereDecls <- optionalWhereDecls
+  whereDecls <- optionalWhereDeclsFrom start
   pure (FunctionBinding name patterns rhs whereDecls)
+
+infixFunctionBinding :: Parser Decl
+infixFunctionBinding = do
+  start <- getSourcePos
+  lhs <- patParser
+  name <- qvarop
+  rhsPat <- patParser
+  rhs <- rhsParser
+  whereDecls <- optionalWhereDeclsFrom start
+  pure (FunctionBinding name [lhs, rhsPat] rhs whereDecls)
 
 patternBinding :: Parser Decl
 patternBinding = do
+  start <- getSourcePos
   pat <- patParser
   rhs <- rhsParser
-  whereDecls <- optionalWhereDecls
+  whereDecls <- optionalWhereDeclsFrom start
   pure (PatternBinding pat rhs whereDecls)
 
 rhsParser :: Parser Rhs
@@ -338,8 +461,18 @@ infixExpr = withSpan setExprSpan $ do
 
 appExpr :: Parser Expr
 appExpr = withSpan setExprSpan $ do
-  atoms <- some atomExpr
+  atoms <- some postfixExpr
   pure (foldl1 App atoms)
+
+postfixExpr :: Parser Expr
+postfixExpr = withSpan setExprSpan $ do
+  base <- atomExpr
+  updates <- many (try recordUpdateSuffix)
+  pure (foldl RecordUpdate base updates)
+
+recordUpdateSuffix :: Parser [(Text, Expr)]
+recordUpdateSuffix =
+  bracesComma1 recordExprField
 
 atomExpr :: Parser Expr
 atomExpr =
@@ -358,12 +491,13 @@ recordConExpr = withSpan setExprSpan $ do
   constructor <- qconid
   fields <- bracesComma recordExprField
   pure (RecordCon constructor fields)
- where
-  recordExprField = do
-    name <- qvarid
-    void (symbol "=")
-    expr <- exprParser
-    pure (name, expr)
+
+recordExprField :: Parser (Text, Expr)
+recordExprField = do
+  name <- qvarid
+  void (symbol "=")
+  expr <- exprParser
+  pure (name, expr)
 
 literalExpr :: Parser Expr
 literalExpr =
@@ -379,10 +513,15 @@ parenExpr = withSpan setExprSpan $ do
   void (symbol "(")
   choice
     [ Unit <$ symbol ")"
+    , try operatorVariable
     , try rightSection
     , parenOrTupleOrLeftSection
     ]
  where
+  operatorVariable = do
+    op <- qop
+    void (symbol ")")
+    pure (Var op)
   rightSection = do
     op <- qop
     expr <- exprParser
@@ -461,9 +600,10 @@ stmtParser =
 
 altParser :: Parser Alt
 altParser = withSpan setAltSpan $ do
+  start <- getSourcePos
   pat <- patParser
   rhs <- altRhsParser
-  Alt pat rhs <$> optionalWhereDecls
+  Alt pat rhs <$> optionalWhereDeclsFrom start
 
 altRhsParser :: Parser Rhs
 altRhsParser =
@@ -593,6 +733,7 @@ typeAtom =
   withSpan setHsTypeSpan $
     choice
     [ try parenType
+    , try (TyCon "[]" <$ symbol "[]")
     , TyList <$> (symbol "[" *> typeParser <* symbol "]")
     , TyCon <$> qconid
     , TyVar <$> varid
@@ -639,9 +780,21 @@ typeHead :: Parser (Text, [Text])
 typeHead =
   (,) <$> qconid <*> many varid
 
-optionalWhereDecls :: Parser [Decl]
-optionalWhereDecls =
-  option [] (reserved "where" *> layoutBlock declParser)
+optionalWhereDeclsFrom :: SourcePos -> Parser [Decl]
+optionalWhereDeclsFrom reference =
+  option [] $ do
+    try (scn *> lookAhead (reserved "where"))
+    wherePos <- getSourcePos
+    validateWhereIndent reference wherePos
+    reserved "where"
+    layoutBlock declParser
+
+validateWhereIndent :: SourcePos -> SourcePos -> Parser ()
+validateWhereIndent reference wherePos
+  | sourceLine wherePos == sourceLine reference || sourceColumn wherePos > sourceColumn reference =
+      pure ()
+  | otherwise =
+      fail "where keyword must be indented beyond the declaration or case alternative it belongs to"
 
 qvarid :: Parser Text
 qvarid =
@@ -676,9 +829,31 @@ qop =
   backtickName =
     symbol "`" *> (qvarid <|> qconid) <* symbol "`"
 
+qvarop :: Parser Text
+qvarop =
+  choice
+    [ try qualifiedVariableOperator
+    , try backtickVariableName
+    , variableOperator
+    ]
+ where
+  qualifiedVariableOperator = do
+    prefixes <- some (try (conid <* symbol "."))
+    op <- variableOperator
+    pure (Text.intercalate "." (prefixes <> [op]))
+  backtickVariableName =
+    symbol "`" *> qvarid <* symbol "`"
+
+variableOperator :: Parser Text
+variableOperator = do
+  op <- operator
+  if ":" `Text.isPrefixOf` op
+    then fail ("constructor operator " <> Text.unpack op <> " cannot be used as a variable operator")
+    else pure op
+
 functionName :: Parser Text
 functionName =
-  qvarid <|> parens qop
+  qvarid <|> parens qvarop
 
 bindingName :: Parser Text
 bindingName =

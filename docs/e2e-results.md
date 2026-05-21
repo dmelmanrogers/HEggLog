@@ -1,15 +1,15 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after the Haskell 2010 module graph
-and Core Egglog known-constructor optimizer expansion. The suite covers the
-existing `.hg` native compiler baseline and Haskell 2010 executable-subset
+Recorded for the mandatory wet-test suite after the PRELUDE-020 audit tightened
+generated standard-library module interface coverage. The suite covers
+the existing `.hg` native compiler baseline and Haskell 2010 executable-subset
 `.hs` programs that compile to native executables, compare lazy runtime
 behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
 optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-18`
+- Date/time: `2026-05-21 08:14:15 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -18,17 +18,23 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 111
-- Source files: 47
-- Successful source cases: 37
-- Runtime-error source cases: 7
+- HUnit checks: 187
+- Source files: 70
+- Successful source cases: 58
+- Runtime-error source cases: 9
 - Compile-error source cases: 3
-- Native compile/run checks: 82
-- Default Egglog native checks: 47
-- `--no-egglog` native checks: 35
-- Emit-LLVM checks: 17
-- Report/interpreter comparisons: 12
+- Native compile/run checks: 134
+- Default Egglog native checks: 73
+- `--no-egglog` native checks: 61
+- Emit-LLVM checks: 41
+- Report/interpreter comparisons: 11
 - Failures: 0
+
+This update adds a dedicated Haskell 2010 native case for PRELUDE-020:
+`haskell2010-standard-library-modules` imports generated `Data.List`,
+`Data.Maybe`, `Control.Monad`, and `System.IO` interfaces with explicit import
+lists, including `Functor(fmap)` execution for `[]`, `Maybe`, and `IO`, and
+emits LLVM compiled through clang.
 
 ## Case Table
 
@@ -86,6 +92,9 @@ Summary:
 | haskell2010-prelude-lists | `test/e2e/programs/haskell2010/prelude-lists.hs` | success | native/default | `321` | stdout `321`, stderr empty, exit 0 | pass |
 | haskell2010-prelude-lists | `test/e2e/programs/haskell2010/prelude-lists.hs` | success | native/no-egglog | `321` | stdout `321`, stderr empty, exit 0 | pass |
 | haskell2010-prelude-lists | `test/e2e/programs/haskell2010/prelude-lists.hs` | success | emit-llvm/default | `321` | LLVM compiled through clang, stdout `321`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-append | `test/e2e/programs/haskell2010/prelude-append.hs` | success | native/default | `[1,2,3,4]\nhegglog\n[1,2,3]\n[True,False]\nhey\nheglog` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-prelude-append | `test/e2e/programs/haskell2010/prelude-append.hs` | success | native/no-egglog | `[1,2,3,4]\nhegglog\n[1,2,3]\n[True,False]\nhey\nheglog` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-prelude-append | `test/e2e/programs/haskell2010/prelude-append.hs` | success | emit-llvm/default | `[1,2,3,4]\nhegglog\n[1,2,3]\n[True,False]\nhey\nheglog` | LLVM compiled through clang, stdout matched, stderr empty, exit 0 | pass |
 | haskell2010-prelude-maybe-ordering | `test/e2e/programs/haskell2010/prelude-maybe-ordering.hs` | success | native/default | `5` | stdout `5`, stderr empty, exit 0 | pass |
 | haskell2010-prelude-maybe-ordering | `test/e2e/programs/haskell2010/prelude-maybe-ordering.hs` | success | native/no-egglog | `5` | stdout `5`, stderr empty, exit 0 | pass |
 | haskell2010-short-circuit | `test/e2e/programs/haskell2010/short-circuit.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
@@ -110,6 +119,18 @@ Summary:
 | haskell2010-numeric-defaulting | `test/e2e/programs/haskell2010/numeric-defaulting.hs` | success | native/default | `7\n47` | stdout `7\n47`, stderr empty, exit 0 | pass |
 | haskell2010-numeric-defaulting | `test/e2e/programs/haskell2010/numeric-defaulting.hs` | success | native/no-egglog | `7\n47` | stdout `7\n47`, stderr empty, exit 0 | pass |
 | haskell2010-numeric-defaulting | `test/e2e/programs/haskell2010/numeric-defaulting.hs` | success | emit-llvm/default | `7\n47` | LLVM compiled through clang, stdout `7\n47`, stderr empty, exit 0 | pass |
+| haskell2010-numeric-hierarchy | `test/e2e/programs/haskell2010/numeric-hierarchy.hs` | success | native/default | `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7` | stdout `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7`, stderr empty, exit 0 | pass |
+| haskell2010-numeric-hierarchy | `test/e2e/programs/haskell2010/numeric-hierarchy.hs` | success | native/no-egglog | `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7` | stdout `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7`, stderr empty, exit 0 | pass |
+| haskell2010-numeric-hierarchy | `test/e2e/programs/haskell2010/numeric-hierarchy.hs` | success | emit-llvm/default | `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7` | LLVM compiled through clang, stdout `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-foldl | `test/e2e/programs/haskell2010/prelude-foldl.hs` | success | native/default | `1234\n-6\nabcd\n2\n7\n5` | stdout `1234\n-6\nabcd\n2\n7\n5`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-foldl | `test/e2e/programs/haskell2010/prelude-foldl.hs` | success | native/no-egglog | `1234\n-6\nabcd\n2\n7\n5` | stdout `1234\n-6\nabcd\n2\n7\n5`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-foldl | `test/e2e/programs/haskell2010/prelude-foldl.hs` | success | emit-llvm/default | `1234\n-6\nabcd\n2\n7\n5` | LLVM compiled through clang, stdout `1234\n-6\nabcd\n2\n7\n5`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-functions | `test/e2e/programs/haskell2010/prelude-functions.hs` | success | native/default | `5\n21\n7\n1\n[2,3]\nTrue\nFalse\n42\nok` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-prelude-functions | `test/e2e/programs/haskell2010/prelude-functions.hs` | success | native/no-egglog | `5\n21\n7\n1\n[2,3]\nTrue\nFalse\n42\nok` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-prelude-functions | `test/e2e/programs/haskell2010/prelude-functions.hs` | success | emit-llvm/default | `5\n21\n7\n1\n[2,3]\nTrue\nFalse\n42\nok` | LLVM compiled through clang, stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-standard-library-modules | `test/e2e/programs/haskell2010/standard-library-modules.hs` | success | native/default | `9\n9\n5\nTrue\nstdlib` | stdout `9\n9\n5\nTrue\nstdlib`, stderr empty, exit 0 | pass |
+| haskell2010-standard-library-modules | `test/e2e/programs/haskell2010/standard-library-modules.hs` | success | native/no-egglog | `9\n9\n5\nTrue\nstdlib` | stdout `9\n9\n5\nTrue\nstdlib`, stderr empty, exit 0 | pass |
+| haskell2010-standard-library-modules | `test/e2e/programs/haskell2010/standard-library-modules.hs` | success | emit-llvm/default | `9\n9\n5\nTrue\nstdlib` | LLVM compiled through clang, stdout `9\n9\n5\nTrue\nstdlib`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/default | `20` | stdout `20`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/no-egglog | `20` | stdout `20`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | emit-llvm/default | `20` | LLVM compiled through clang, stdout `20`, stderr empty, exit 0 | pass |
@@ -119,9 +140,38 @@ Summary:
 | haskell2010-io-printing | `test/e2e/programs/haskell2010/io-printing.hs` | success | native/default | `ok\nanswer\n42\nTrue` | stdout `ok\nanswer\n42\nTrue`, stderr empty, exit 0 | pass |
 | haskell2010-io-printing | `test/e2e/programs/haskell2010/io-printing.hs` | success | native/no-egglog | `ok\nanswer\n42\nTrue` | stdout `ok\nanswer\n42\nTrue`, stderr empty, exit 0 | pass |
 | haskell2010-io-printing | `test/e2e/programs/haskell2010/io-printing.hs` | success | emit-llvm/default | `ok\nanswer\n42\nTrue` | LLVM compiled through clang, stdout `ok\nanswer\n42\nTrue`, stderr empty, exit 0 | pass |
+| haskell2010-io-normal-examples | `test/e2e/programs/haskell2010/io-normal-examples.hs` | success | native/default | `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]` | stdout `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]`, stderr empty, exit 0 | pass |
+| haskell2010-io-normal-examples | `test/e2e/programs/haskell2010/io-normal-examples.hs` | success | native/no-egglog | `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]` | stdout `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]`, stderr empty, exit 0 | pass |
+| haskell2010-io-normal-examples | `test/e2e/programs/haskell2010/io-normal-examples.hs` | success | emit-llvm/default | `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]` | LLVM compiled through clang, stdout `hello\nbound\n"quoted"\n'X'\n"plain"\n[1,2,3]\n[True,False]`, stderr empty, exit 0 | pass |
+| haskell2010-io-getline | `test/e2e/programs/haskell2010/io-getline.hs` | success | native/default | `first=hegg\nsecond=log\n7` | stdout matched with stdin `hegg\nlog\nunused\n`, stderr empty, exit 0 | pass |
+| haskell2010-io-getline | `test/e2e/programs/haskell2010/io-getline.hs` | success | native/no-egglog | `first=hegg\nsecond=log\n7` | stdout matched with stdin `hegg\nlog\nunused\n`, stderr empty, exit 0 | pass |
+| haskell2010-io-getline | `test/e2e/programs/haskell2010/io-getline.hs` | success | emit-llvm/default | `first=hegg\nsecond=log\n7` | LLVM compiled through clang, stdout matched with stdin `hegg\nlog\nunused\n`, stderr empty, exit 0 | pass |
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | native/default | `15` | stdout `15`, stderr empty, exit 0 | pass |
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | native/no-egglog | `15` | stdout `15`, stderr empty, exit 0 | pass |
 | haskell2010-guards-as-patterns | `test/e2e/programs/haskell2010/guards-as-patterns.hs` | success | emit-llvm/default | `15` | LLVM compiled through clang, stdout `15`, stderr empty, exit 0 | pass |
+| haskell2010-user-defined-operators | `test/e2e/programs/haskell2010/user-defined-operators.hs` | success | native/default | `537` | stdout `537`, stderr empty, exit 0 | pass |
+| haskell2010-user-defined-operators | `test/e2e/programs/haskell2010/user-defined-operators.hs` | success | native/no-egglog | `537` | stdout `537`, stderr empty, exit 0 | pass |
+| haskell2010-user-defined-operators | `test/e2e/programs/haskell2010/user-defined-operators.hs` | success | emit-llvm/default | `537` | LLVM compiled through clang, stdout `537`, stderr empty, exit 0 | pass |
+| haskell2010-where-layout | `test/e2e/programs/haskell2010/where-layout.hs` | success | native/default | `14` | stdout `14`, stderr empty, exit 0 | pass |
+| haskell2010-where-layout | `test/e2e/programs/haskell2010/where-layout.hs` | success | native/no-egglog | `14` | stdout `14`, stderr empty, exit 0 | pass |
+| haskell2010-where-layout | `test/e2e/programs/haskell2010/where-layout.hs` | success | emit-llvm/default | `14` | LLVM compiled through clang, stdout `14`, stderr empty, exit 0 | pass |
+| haskell2010-arithmetic-sequences | `test/e2e/programs/haskell2010/arithmetic-sequences.hs` | success | native/default | `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]` | stdout `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]`, stderr empty, exit 0 | pass |
+| haskell2010-arithmetic-sequences | `test/e2e/programs/haskell2010/arithmetic-sequences.hs` | success | native/no-egglog | `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]` | stdout `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]`, stderr empty, exit 0 | pass |
+| haskell2010-arithmetic-sequences | `test/e2e/programs/haskell2010/arithmetic-sequences.hs` | success | emit-llvm/default | `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]` | LLVM compiled through clang, stdout `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]`, stderr empty, exit 0 | pass |
+| haskell2010-derived-enum | `test/e2e/programs/haskell2010/derived-enum.hs` | success | native/default | `0\n2\n2\n1\nWest\n[1,2,3]\n[3,2,1,0]\n[1,2,3]\n[0,2]\n[3,2,1,0]\n[1,2,3]\n[3,2,1,0]\n0` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-derived-enum | `test/e2e/programs/haskell2010/derived-enum.hs` | success | native/no-egglog | `0\n2\n2\n1\nWest\n[1,2,3]\n[3,2,1,0]\n[1,2,3]\n[0,2]\n[3,2,1,0]\n[1,2,3]\n[3,2,1,0]\n0` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-derived-enum | `test/e2e/programs/haskell2010/derived-enum.hs` | success | emit-llvm/default | `0\n2\n2\n1\nWest\n[1,2,3]\n[3,2,1,0]\n[1,2,3]\n[0,2]\n[3,2,1,0]\n[1,2,3]\n[3,2,1,0]\n0` | LLVM compiled through clang, stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-derived-bounded | `test/e2e/programs/haskell2010/derived-bounded.hs` | success | native/default | `0\n3\nPair (False) (North)\nPair (True) (West)\nRecord { low = (False), high = (North) }\nRecord { low = (True), high = (West) }\nFlag (False)\nFlag (True)` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-derived-bounded | `test/e2e/programs/haskell2010/derived-bounded.hs` | success | native/no-egglog | `0\n3\nPair (False) (North)\nPair (True) (West)\nRecord { low = (False), high = (North) }\nRecord { low = (True), high = (West) }\nFlag (False)\nFlag (True)` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-derived-bounded | `test/e2e/programs/haskell2010/derived-bounded.hs` | success | emit-llvm/default | `0\n3\nPair (False) (North)\nPair (True) (West)\nRecord { low = (False), high = (North) }\nRecord { low = (True), high = (West) }\nFlag (False)\nFlag (True)` | LLVM compiled through clang, stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-derived-enum-runtime-error | `test/e2e/programs/haskell2010/derived-enum-runtime-error.hs` | runtime-error | native/default | non-zero exit | runtime error forced by `fromEnum (succ West)` | pass |
+| haskell2010-derived-enum-runtime-error | `test/e2e/programs/haskell2010/derived-enum-runtime-error.hs` | runtime-error | native/no-egglog | non-zero exit | runtime error forced by `fromEnum (succ West)` | pass |
+| haskell2010-list-comprehensions | `test/e2e/programs/haskell2010/list-comprehensions.hs` | success | native/default | `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]` | stdout `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]`, stderr empty, exit 0 | pass |
+| haskell2010-list-comprehensions | `test/e2e/programs/haskell2010/list-comprehensions.hs` | success | native/no-egglog | `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]` | stdout `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]`, stderr empty, exit 0 | pass |
+| haskell2010-list-comprehensions | `test/e2e/programs/haskell2010/list-comprehensions.hs` | success | emit-llvm/default | `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]` | LLVM compiled through clang, stdout `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]`, stderr empty, exit 0 | pass |
+| haskell2010-pattern-diagnostics | `test/e2e/programs/haskell2010/pattern-diagnostics.hs` | success | native/default | `7` | compile stderr contained `non-exhaustive pattern match`, `case alternatives`, and `False`; stdout `7`, run stderr empty, exit 0 | pass |
+| haskell2010-pattern-diagnostics | `test/e2e/programs/haskell2010/pattern-diagnostics.hs` | success | native/no-egglog | `7` | compile stderr contained `non-exhaustive pattern match`, `case alternatives`, and `False`; stdout `7`, run stderr empty, exit 0 | pass |
+| haskell2010-pattern-diagnostics | `test/e2e/programs/haskell2010/pattern-diagnostics.hs` | success | emit-llvm/default | `7` | compile stderr contained `non-exhaustive pattern match`, `case alternatives`, and `False`; LLVM compiled through clang, stdout `7`, run stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/default | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | native/no-egglog | `7` | stdout `7`, stderr empty, exit 0 | pass |
 | haskell2010-adt-box | `test/e2e/programs/haskell2010/adt-box.hs` | success | emit-llvm/default | `7` | LLVM compiled through clang, stdout `7`, stderr empty, exit 0 | pass |
@@ -142,6 +192,8 @@ Summary:
 | haskell2010-division-by-zero | `test/e2e/programs/haskell2010/division-by-zero.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | haskell2010-guard-fallthrough | `test/e2e/programs/haskell2010/guard-fallthrough.hs` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | haskell2010-guard-fallthrough | `test/e2e/programs/haskell2010/guard-fallthrough.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
+| haskell2010-prelude-head-empty | `test/e2e/programs/haskell2010/prelude-head-empty.hs` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
+| haskell2010-prelude-head-empty | `test/e2e/programs/haskell2010/prelude-head-empty.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | open-free-variable | `test/e2e/programs/compile-errors/open-free-variable.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |
 | type-error | `test/e2e/programs/compile-errors/type-error.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |
 | unsupported-recursion | `test/e2e/programs/unsupported/unsupported-recursion.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |

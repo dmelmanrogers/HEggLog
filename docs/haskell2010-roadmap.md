@@ -251,9 +251,10 @@ patterns, tuple patterns, and list patterns are covered by Core, STG, native,
 and wet tests. Guarded RHSs, guarded case alternatives, as-pattern aliases, and
 guard-fallthrough no-match behavior are also implemented and wet-tested.
 Irrefutable/lazy pattern semantics are implemented for the executable subset;
-structured exhaustiveness warning placeholders are exposed by the typechecker
-and native API. A full Haskell 2010 coverage checker and richer pattern-match
-diagnostics remain later work.
+source-spanned non-exhaustive and redundant pattern-match warnings are exposed
+by the typechecker, native API, and compile CLI for the supported finite
+constructor/literal/list/tuple executable subset. Broader report-complete
+pattern coverage and runtime source attribution remain later work.
 
 Deliverables:
 
@@ -277,7 +278,8 @@ Core validator/evaluator, STG lowering/evaluator, native LLVM path, and wet
 tests now cover built-in list, tuple, unit, `Maybe`, `Either`, and `Ordering`
 constructors; list and tuple expressions/patterns/types; short-circuiting
 `&&`/`||`; and generated Core bindings for `id`, `const`, `not`, `otherwise`,
-`map`, `foldr`, `length`, `filter`, and `reverse`.
+`($)`, `(.)`, `flip`, `map`, `foldr`, `foldl`, `head`, `tail`, `null`, `fst`,
+`snd`, `length`, `filter`, `reverse`, and `(++)`.
 
 Deliverables:
 
@@ -289,7 +291,8 @@ Acceptance criteria:
 
 - list programs compile
 - tuple programs compile
-- `map`, `foldr`, `length`, `filter`, and `reverse` examples compile
+- `map`, `foldr`, `foldl`, `head`, `tail`, `null`, `fst`, `snd`, `length`,
+  `filter`, `reverse`, `(++)`, `($)`, `(.)`, and `flip` examples compile
 - wet tests cover list recursion and tuple destructuring
 
 ### Phase 11 - Recursion
@@ -339,20 +342,27 @@ Haskell 2010 AST, and class constraints carry their source attribution so
 delayed dictionary failures still render with a concrete source span.
 
 The built-in executable Prelude class slice now supports `Eq Int`, `Eq Bool`,
-`Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, and `Show Bool`: `(==)`, `(/=)`,
-`compare`, `(<)`, `(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`,
-`negate`, `abs`, `signum`, `fromInteger`, and `show` lower through generated
-dictionaries and selectors. Integer literals elaborate through `fromInteger`,
-ambiguous numeric constraints default to the executable `Int` type, and binding
+`Eq Char`, `Ord Int`, `Ord Bool`, `Num Int`, `Real Int`, `Integral Int`,
+`Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and generated
+structural list `Show`:
+`(==)`, `(/=)`, `compare`, `(<)`, `(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`,
+`(-)`, `(*)`, `negate`, `abs`, `signum`, `fromInteger`, `toRational`,
+`quot`, `rem`, `div`, `mod`, `quotRem`, `divMod`, `toInteger`, and `show` lower
+through generated dictionaries and selectors. Integer literals elaborate through `fromInteger`,
+ambiguous numeric constraints default to the executable `Int` type, structural
+`Show [a]` constraints participate in numeric-list defaulting, `Real` and
+`Integral` constraints participate in the supported standard-class defaulting
+universe, and binding
 groups are dependency-sorted before generalization so helper functions can be
 specialized by later bindings. TYPE-019 fixes the current MR decision:
 unsigned nullary value bindings without signatures can default direct standard
 constraints before generalization; signed bindings and functions with value
 parameters are protected. `/` remains the existing checked `Int` division
 primitive rather than a `Fractional` method.
-Remaining Phase 12 work includes superclasses, default methods, instance
-contexts, method-specific constraints/type variables, coherence diagnostics,
-deriving, broader `Show` instances, and additional numeric classes.
+Remaining Phase 12 work includes instance contexts, method-specific
+constraints/type variables, coherence diagnostics, derived `Read`,
+the full `showsPrec`/`showList` hierarchy, Fractional/Floating classes,
+arbitrary-precision `Integer`, and full `Ratio`/`Rational` behavior.
 
 Deliverables:
 
@@ -363,33 +373,39 @@ Deliverables:
 Acceptance criteria:
 
 - `Eq` and `Ord` methods work for supported built-in instances
-- executable `Num Int` methods work through dictionaries
-- `Show` works enough for print
+- executable `Num Int`, `Real Int`, and `Integral Int` methods work through dictionaries
+- `Show` works for the supported scalar, string, and list executable subset
 - overloaded numeric literals work for supported numeric types
 - initial dictionary-passing Core validates for user-defined classes
 - native wet tests cover user-defined and built-in typeclass calls
 
 ### Phase 13 - IO and `main`
 
-Status: the first IO printing slice is implemented for the executable subset.
-The typechecker recognizes `IO`, `main :: IO ()`, `putStrLn`, `print`,
-`return`, `(>>)`, and expression-only `do` sequencing with local `let`.
-Core/STG reference evaluators model IO output for oracle tests, and the native
-entrypoint executes `IO ()` actions instead of scalar root printing. Native
-string literal objects, list-of-`Char` traversal, `Show Int`, and `Show Bool`
-support `putStrLn` and `print` through default/no-egglog wet tests. `<-`
-binding, `(>>=)`, real-world IO handles, and broader Prelude IO remain planned.
+Status: the first IO printing/input slice is implemented for the executable subset.
+The typechecker recognizes `IO`, `main :: IO ()`, `putStrLn`, `getLine`, `print`,
+`return`, `(>>)`, `(>>=)`, expression `do`, `<-` bind statements, and local
+`let`. Core/STG reference evaluators model IO output plus returned action
+values for oracle tests, and the native entrypoint executes `IO ()` actions
+instead of scalar root printing. Source
+string literals and built-in `show` results are represented as list-of-`Char`
+values, and boxed `Char` values, `Eq Char`, scalar `main :: Char`, broadened
+`Show` dictionaries for `Int`/`Bool`/`Char`/`String`/lists support the current
+IO subset through default/no-egglog wet tests. Native `getLine` reads stdin
+line-by-line, strips line terminators, and returns ordinary `[Char]` strings.
+Real-world IO handles, rich IO errors, `fail`, and broader Prelude IO remain
+planned.
 
 Deliverables:
 
 - `main :: IO ()`
-- `print`, `putStrLn`, and do-notation desugaring
+- `print`, `putStrLn`, `getLine`, and do-notation desugaring
 - representation for `return`, `(>>=)`, and `(>>)`
 
 Acceptance criteria:
 
 - `main = print 42` compiles and runs
 - `main = putStrLn "hello"` compiles and runs
+- `main = getLine >>= putStrLn` compiles and reads stdin in native executables
 - do notation compiles
 - native executable entrypoint uses Haskell `main`
 
@@ -454,10 +470,21 @@ Deliverables:
 
 - list comprehensions, arithmetic sequences, and remaining where/declaration
   forms
-- record updates and partial record construction semantics beyond the current
-  implemented record labels/selectors/construction/pattern subset
+- record updates over the implemented record labels/selectors/construction/
+  pattern subset; partial record construction semantics remain later work
 - `newtype`, type synonyms, deriving, and default declarations
-- foreign declarations documented as implemented, deferred, or deviating
+- structured foreign declaration frontend support, FFI signature typechecking,
+  explicit Core/STG foreign-import IR, native ABI marshalling/lowering, and
+  conformance closure; scalar/pointer `foreign import ccall` now has native
+  LLVM declaration/call lowering and C-helper wet coverage, `Ptr`/`FunPtr`
+  address/pointer ABI support now covers static `&symbol`, pointer arguments,
+  and pointer results, `dynamic` imports lower to indirect `FunPtr` calls, and
+  `wrapper` imports generate C-callable callback trampolines. `foreign export
+  ccall` now emits C-callable native entrypoints for supported scalar/pointer
+  pure and `IO` functions, and explicit `StablePtr`/manual `ForeignPtr`
+  ownership APIs are implemented and wet-tested. Floating-point ABI, broader
+  link metadata, automatic GC finalization, and `freeHaskellFunPtr`/callback-slot
+  reclamation remain open
 
 Acceptance criteria:
 
@@ -514,13 +541,14 @@ Acceptance criteria:
 Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
-`haskell2010-conformance-test` Cabal suite. The baseline currently records 46
-fixtures: 32 native-success cases, 1 native-runtime-error case, 5 compile-error
-cases, and 8 unsupported-documented cases. The suite invokes the built
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 118
+fixtures: 80 native-success cases, 5 native-runtime-error cases, 27 compile-error
+cases, and 6 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
-runtime-error exits, checks compile-error diagnostics, and fails if documented
-unsupported cases silently pass.
+runtime-error exits, checks compile-error diagnostics, links manifest-declared
+C helper files for FFI fixtures, and fails if documented unsupported cases
+silently pass.
 
 Full Phase 19 remains open until the corpus covers every Haskell 2010 Report
 feature area deeply enough to support a conformance claim. The current baseline
@@ -574,19 +602,86 @@ Acceptance criteria:
 - Documentation team: roadmap, specs, status reports, examples, and documented
   deviations.
 
-## Immediate Next Five Tasks
+## Immediate Next Chunks
 
-1. `Char` runtime representation across native/runtime execution.
-2. Haskell 2010 conformance matrix expansion for the broader executable
-   surface.
-3. Broader `Show`/`String` interoperability, including `Show Char`,
-   `Show String`, escapes, and additional string/list library behavior.
-4. Superclass, default method, and instance-context support for type classes.
-5. Broader IO and Monad support, including `<-`, `(>>=)`, `fail`, and handles.
+### Source Surface Closure
+
+This chunk is complete. SURFACE-003 added report-shaped line-broken `where`
+layout coverage for function bindings and case alternatives, including native
+positive fixtures and stable parse-error fixtures for misindented `where`
+keywords.
+SURFACE-002 is complete: user-defined symbolic and backtick operator bindings,
+local fixities, non-built-in infix calls, and Prelude-shadowing operators now
+compile through native execution and have manifest-backed fixtures.
+
+TEST-CONF-014 is complete: expression, declaration, and pattern matrix rows now
+have manifest-backed closure entries, and the conformance validator enforces
+that source-surface fixtures stay represented in the matrix.
+
+### Prelude, Deriving, And Typeclass Library Completion
+
+This is the following chunk once the source surface has been closed. The goal
+is to make the standard library and derived-instance behavior look like Haskell
+2010 rather than a narrow executable subset:
+
+1. TC-029 — expand `Show` from the current executable `show` behavior to the
+   Report method shape: `showsPrec`, `showList`, precedence handling, and
+   escaping.
+2. TC-030 — implement `Read`, including `ReadS`, `readsPrec`, `readList`,
+   lexical read parsing, standard instances, and derived `Read`.
+3. TEST-CONF-015 — keep every newly claimed class, function, deriving rule, and
+   module backed by manifest-tracked positive and negative fixtures, and run a
+   Report-facing reconciliation against Chapter 9 Prelude plus the Part II
+   library module inventory before any additional standard-library surface is
+   treated as supported.
+
+This chunk must not treat the current generated library modules as the end
+state. They are importable checkpoints on the path to the full Haskell 2010
+Report surface, and unsupported Report modules or values must stay explicit in
+the tracker, conformance matrix, and generated module boundary.
+
+### Remaining FFI Closure
+
+The FFI is no longer tracked as a whole-feature documented deviation. The
+current scalar/pointer/static/dynamic/wrapper/export/stable-pointer slice is
+implemented, and the remaining work is now split into dedicated tasks:
+
+1. FFI-010 — floating-point FFI marshalling.
+2. FFI-011 — FFI link metadata.
+3. FFI-012 — callback and finalizer lifetime completion.
+4. FFI-013 — Foreign library surface completion.
 
 Completed immediate tasks:
 
+- MOD-009 instance import/export behavior, including `ModuleInterface`
+  instance propagation, `import M ()`/empty-export instance visibility,
+  transitive import-chain instance movement, Core dictionary availability,
+  native conformance coverage, and a negative fixture proving class/type imports
+  alone do not make unrelated instances visible.
+- PRELUDE-017 standard library module layout, including a dedicated
+  `Haskell2010.StandardLibrary` module, generated/importable `Prelude`
+  interface, shared `ModuleInterface` data model, and instance-export boundary
+  used by MOD-009.
+- PRELUDE-020 standard library module expansion, including generated/importable
+  interfaces for `Control.Monad`, `Data.Int`, `Data.List`, `Data.Maybe`,
+  `Data.Word`, `System.IO`, and implemented `Foreign.*` module slices, with
+  `Control.Monad` exposing real `Functor(fmap)` support for `[]`, `Maybe`, and
+  `IO`, and reserved Report modules kept unimportable until real support exists.
+- PRELUDE-002/MOD-010 implicit Prelude import behavior, including synthetic
+  `import Prelude` insertion only when no explicit `Prelude` import exists,
+  explicit Prelude import-list/hiding/qualified filtering, and native
+  conformance coverage for implicit, explicit, and qualified Prelude imports.
 - Commit roadmap pivot.
+- TC-023 derived Eq, including generated `Eq` dictionaries for supported data/newtype declarations and structural list `Eq`.
+- TC-024 derived Ord, including generated `Ord` dictionaries, `Eq` superclass dictionaries, and structural list/string ordering.
+- TC-025 derived Show, including generated `Show` dictionaries for supported data/newtype declarations, records, recursive data, `String` fields, and list-backed contexts.
+- TC-031 derived Enum, including generated `Enum` dictionaries for nullary-constructor data declarations, declaration-order constructor indices, `succ`/`pred`/`toEnum` bounds errors, and range-method support.
+- TC-032 derived Bounded, including generated `Bounded` dictionaries for all-nullary enumerations and single-constructor products, records, and newtypes with field-wise bounds and invalid mixed-constructor diagnostics.
+- PRELUDE-013 append, including generated `(++)` over lists/strings, parenthesized operator variables, and operator sections.
+- IO-006 getLine, including generated `getLine :: IO String`, native stdin line reads, stdin-aware wet tests, and single-entry IO thunks to avoid sharing effects.
+- TC-020 Monad class surface, including higher-kinded `Monad`, built-in
+  `IO`/`Maybe`/`[]` dictionaries, generic `do` desugaring, refutable
+  do-bind `fail`, and native conformance coverage.
 - Haskell 2010 parser/layout MVP.
 - Haskell 2010 renamer MVP.
 - Haskell 2010 typed Core MVP, including Core syntax, Core types, validator,
@@ -634,7 +729,8 @@ Completed immediate tasks:
   list, tuple, unit, `Maybe`, `Either`, and `Ordering` constructors/types,
   list and tuple expression/pattern lowering, short-circuiting `&&`/`||`, and
   generated Core Prelude bindings for `id`, `const`, `not`, `otherwise`, `map`,
-  `foldr`, `length`, `filter`, and `reverse`, with Core/STG/native and wet
+  `foldr`, `foldl`, `head`, `tail`, `null`, `fst`, `snd`, `length`, `filter`,
+  `reverse`, `(++)`, `($)`, `(.)`, and `flip`, with Core/STG/native and wet
   coverage.
 - Haskell 2010 recursion coverage for the executable subset, including
   singleton self-recursive Core emission, local recursive `let` bindings,
@@ -647,7 +743,8 @@ Completed immediate tasks:
   Core/STG preservation tests, native LLVM execution, and default/no-egglog
   native wet tests.
 - Haskell 2010 built-in Prelude class dictionary coverage for `Eq Int`,
-  `Eq Bool`, `Ord Int`, `Ord Bool`, and executable `Num Int` methods, including
+  `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, executable `Num Int`,
+  executable `Real Int`, and executable `Integral Int` methods, including
   generated built-in dictionaries/selectors, overloaded comparison/arithmetic
   operator desugaring, Core/STG preservation tests, native LLVM execution, and
   default/no-egglog native wet tests.
@@ -656,17 +753,54 @@ Completed immediate tasks:
   case alternatives, alias bindings for as-patterns in parameters and case
   alternatives, Core/STG guard-fallthrough no-matching-alternative behavior,
   native empty-case lowering, and default/no-egglog native wet tests.
-- Haskell 2010 IO printing slice, including `IO` typechecking, `main :: IO ()`
-  native entrypoint execution, `putStrLn`, `print`, `return`, `(>>)`,
-  expression-only `do` sequencing with local `let`, built-in `Show Int` and
-  `Show Bool` dictionaries, Core/STG IO output oracles, native string literal
-  and list-of-`Char` output, and default/no-egglog native wet tests.
+- Haskell 2010 IO printing/input slice, including `IO` typechecking, `main :: IO ()`
+  native entrypoint execution, `putStrLn`, `getLine`, `print`, `return`, `(>>)`, `(>>=)`,
+  expression and bind-statement `do` sequencing with local `let`, built-in `Show Int` and
+  `Show Bool` dictionaries, Core/STG IO output/result oracles, list-of-`Char` output,
+  native stdin line input, and default/no-egglog native wet tests.
 - Haskell 2010 module graph and whole-program compilation for the executable
   subset, including dependency-file loading from imports, cycle/name-mismatch
   diagnostics, actual exported-name import resolution, explicit export/import
   filtering, qualified aliases, hiding, `Thing(..)` children, whole-program
   Core flattening, root `main` entrypoint selection, and default/no-egglog
   native wet tests.
+- Haskell 2010 `Char` runtime representation, including boxed native `Char`
+  objects, literal `Char` case dispatch, built-in `Eq Char`, scalar
+  `main :: Char` printing, Core/STG/native oracles, conformance fixtures, and
+  default/no-egglog native wet tests.
+- Haskell 2010 `String = [Char]` source/runtime alignment, including source
+  string expressions and string literal patterns desugared to ordinary list
+  constructors, Core/STG evaluator list values, built-in `show` results as
+  lists, native LLVM without per-literal string globals, conformance fixtures,
+  and default/no-egglog wet tests.
+- Haskell 2010 string literal native wet tests, including direct source string
+  output, `reverse`/`length` over strings, `putStrLn` over built-in `show`
+  results, explicit `Char` cons patterns, string literal patterns, conformance
+  fixtures, default/no-egglog runs, and emit-LLVM wet checks.
+- Haskell 2010 broader `Show`, including exact `Show Char`, exact
+  `Show String`, generated structural `Show a => Show [a]`, nested `[String]`
+  output, `print` through the broadened dictionaries, numeric-list defaulting,
+  Core/STG/native oracles, conformance fixtures, and default/no-egglog wet
+  tests.
+- Haskell 2010 arithmetic sequences for the executable subset, including
+  `[a..]`, `[a,b..]`, `[a..z]`, and `[a,b..z]` over `Int` and `Char`,
+  ascending/descending bounded behavior, lazily consumed open ranges,
+  Core/STG/native oracles, conformance fixtures, and default/no-egglog wet
+  tests.
+- Haskell 2010 list comprehensions for the executable subset, including
+  generator scoping, Bool guards, `let` qualifiers, nested generators,
+  tuple/list/constructor/literal/refutable pattern filtering, accumulator-tail
+  Core lowering, Core/STG/native oracles, conformance fixtures, and
+  default/no-egglog wet tests.
+- Haskell 2010 typeclass expansion for the executable subset, including
+  superclass dictionary fields/projection, default class methods,
+  overlapping-instance rejection, public `Enum` and `Bounded` Prelude classes,
+  Core/STG/native oracles, conformance fixtures, and default/no-egglog wet
+  tests.
+- TC-016 `Read` decision as a documented deviation: the renamer recognizes
+  `Read` as a Prelude class name for explicit unsupported diagnostics, while
+  dictionaries, methods, standard instances, lexical read parsing, and derived
+  `Read` remain future work.
 
 ## Non-Negotiable Rules
 

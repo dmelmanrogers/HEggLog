@@ -1,5 +1,6 @@
 dist-newstyle/
 .stack-work/
+.DS_Store
 *.hi
 *.o
 *.dyn_hi

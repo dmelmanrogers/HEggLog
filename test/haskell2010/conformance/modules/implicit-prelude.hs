@@ -1,4 +1,5 @@
 module Main where
 
 main :: IO ()
-main = print "hello"
+main =
+  putStrLn "implicit"

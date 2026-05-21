@@ -151,8 +151,12 @@ Current behavior:
   value)`.
 - In the Haskell 2010 path, `main :: IO ()` roots execute the compiled IO
   action instead of scalar root printing. The implemented IO subset supports
-  `putStrLn`, `print` through `Show Int`/`Show Bool`, `return`, `(>>)`, and
-  expression-only `do` sequencing.
+  `putStrLn`, `print` through the supported `Show` scalar/string/list subset,
+  `return`, `(>>)`, `(>>=)`, expression `do`, local `let`, and `<-`
+  bind-statement sequencing. Core and STG evaluator IO values accumulate stdout
+  chunks while carrying the returned action result; native LLVM represents this
+  by forcing the first action, entering the bind continuation with that result,
+  and forcing the returned action.
 
 The interpreter/report mode prints values through Haskell renderers:
 
@@ -252,8 +256,8 @@ memory leak in an otherwise collecting runtime.
 Owned by generated process-lifetime allocation helpers:
 
 - Strict `.hg` closure-converted local closures.
-- Haskell 2010 boxed `Int`, `Bool`, `Char`, `String`, function, thunk, and data
-  objects.
+- Haskell 2010 boxed `Int`, `Bool`, `Char`, list-of-`Char` `String`, function,
+  thunk, and data objects.
 - Haskell 2010 closure/thunk environment arrays.
 - Haskell 2010 boxed constructor field arrays.
 - Haskell 2010 runtime string buffers produced while implementing `Show Int`.

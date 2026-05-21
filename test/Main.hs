@@ -36,15 +36,18 @@ import qualified Haskell2010.Core.Subst as H2010CoreSubst
 import qualified Haskell2010.Core.Syntax as H2010Core
 import qualified Haskell2010.Core.Validate as H2010CoreValidate
 import qualified Haskell2010.ModuleGraph as H2010ModuleGraph
+import qualified Haskell2010.ModuleInterface as H2010ModuleInterface
 import qualified Haskell2010.Names as H2010Names
 import qualified Haskell2010.Native as H2010Native
 import qualified Haskell2010.Parser as H2010Parser
 import qualified Haskell2010.Renamed as H2010Renamed
 import qualified Haskell2010.Renamer as H2010Renamer
 import qualified Haskell2010.STG.Eval as H2010STGEval
+import qualified Haskell2010.STG.LLVM as H2010STGLLVM
 import qualified Haskell2010.STG.Lower as H2010STGLower
 import qualified Haskell2010.STG.Syntax as H2010STG
 import qualified Haskell2010.STG.Validate as H2010STGValidate
+import qualified Haskell2010.StandardLibrary as H2010StandardLibrary
 import qualified Haskell2010.Syntax as H2010
 import qualified Haskell2010.Typecheck as H2010Typecheck
 import IR.ANF
@@ -104,8 +107,14 @@ testGroups =
       , pureTest "top-level function program parses" testTopLevelFunctionParsing
       , pureTest "Haskell 2010 module header, imports, and declarations parse" testHaskell2010ModuleParsing
       , pureTest "Haskell 2010 layout blocks parse" testHaskell2010LayoutParsing
+      , pureTest "Haskell 2010 line-broken where layout parses" testHaskell2010WhereLayoutParsing
+      , pureTest "Haskell 2010 misindented where keyword is rejected" testHaskell2010MisindentedWhereKeyword
       , pureTest "Haskell 2010 expression surface forms parse" testHaskell2010ExpressionSurfaceParsing
+      , pureTest "Haskell 2010 foreign declarations parse structurally" testHaskell2010ForeignDeclarationParsing
       , pureTest "Haskell 2010 record field syntax parses" testHaskell2010RecordFieldSyntaxParsing
+      , pureTest "Haskell 2010 record update syntax parses" testHaskell2010RecordUpdateSyntaxParsing
+      , pureTest "Haskell 2010 user-defined operator bindings parse" testHaskell2010UserDefinedOperatorParsing
+      , pureTest "Haskell 2010 constructor operator bindings are rejected" testHaskell2010ConstructorOperatorBindingRejected
       , pureTest "Haskell 2010 malformed layout is rejected" testHaskell2010MalformedLayout
       , pureTest "Haskell 2010 imports after declarations are rejected" testHaskell2010ImportAfterDecl
       ]
@@ -116,12 +125,22 @@ testGroups =
       , pureTest "rejects unbound variables" testHaskell2010RenamerUnboundVariable
       , pureTest "separates term constructor type and class namespaces" testHaskell2010RenamerNamespaces
       , pureTest "scopes pattern binders over guarded RHS" testHaskell2010RenamerPatternScope
+      , pureTest "renames record update labels distinctly from construction" testHaskell2010RenamerRecordUpdate
+      , pureTest "renames user-defined operators" testHaskell2010RenamerUserDefinedOperators
       , pureTest "resolves right-associative fixity" testHaskell2010RenamerRightAssociativeFixity
       , pureTest "resolves operator precedence" testHaskell2010RenamerFixityPrecedence
       , pureTest "rejects chained non-associative operators" testHaskell2010RenamerNonAssociativeFixity
       , pureTest "detects ambiguous explicit imports" testHaskell2010RenamerAmbiguousImport
       , pureTest "resolves qualified explicit imports" testHaskell2010RenamerQualifiedImport
+      , pureTest "applies implicit Prelude imports" testHaskell2010RenamerImplicitPrelude
+      , pureTest "honors explicit Prelude import specs" testHaskell2010RenamerExplicitPreludeSpecs
+      , pureTest "honors qualified Prelude imports" testHaskell2010RenamerQualifiedPrelude
+      , pureTest "combines cumulative Prelude imports" testHaskell2010RenamerCumulativePreludeImports
+      , pureTest "exposes Prelude through standard library interface" testHaskell2010StandardLibraryPreludeInterface
+      , pureTest "exposes implemented Haskell 2010 standard library modules" testHaskell2010StandardLibraryExpandedInterfaces
+      , pureTest "renames Haskell 2010 foreign declarations" testHaskell2010RenamerForeignDeclarations
       , pureTest "resolves module graph imports through exports" testHaskell2010RenamerModuleGraphExports
+      , pureTest "exports and imports instances through module interfaces" testHaskell2010RenamerModuleGraphInstances
       , ioTest "detects module graph import cycles" testHaskell2010ModuleGraphCycle
       ]
   , TestGroup
@@ -141,6 +160,7 @@ testGroups =
       [ pureTest "represents type constructor kinds" testHaskell2010KindRepresentation
       , pureTest "infers higher-kinded type constructors" testHaskell2010KindChecksHigherKindedConstructors
       , pureTest "rejects kind-mismatched source types" testHaskell2010KindRejectsMismatch
+      , pureTest "checks higher-kinded class constraint arguments" testHaskell2010KindChecksMonadConstraint
       , pureTest "expands type synonyms" testHaskell2010TypeSynonymExpansion
       , pureTest "infers higher-kinded type synonym parameters" testHaskell2010TypeSynonymKindInference
       , pureTest "rejects recursive type synonyms" testHaskell2010TypeSynonymRejectsCycles
@@ -154,7 +174,7 @@ testGroups =
       , pureTest "forces irrefutable patterns only through demanded binders" testHaskell2010IrrefutablePatternDemand
       , pureTest "represents class constraints structurally" testHaskell2010ConstraintRepresentation
       , pureTest "rejects invalid class constraint arity" testHaskell2010ConstraintRejectsInvalidArity
-      , pureTest "rejects unsupported class constraint contexts deliberately" testHaskell2010ClassConstraintPlaceholders
+      , pureTest "handles supported and unsupported class constraint contexts deliberately" testHaskell2010ClassConstraintPlaceholders
       , pureTest "typechecks explicit polymorphic identity" testHaskell2010Core0Identity
       , pureTest "typechecks explicit polymorphic const" testHaskell2010Core0Const
       , pureTest "generalizes local let polymorphism" testHaskell2010Core0PolymorphicLet
@@ -167,16 +187,41 @@ testGroups =
       , pureTest "typechecks recursive pattern bindings" testHaskell2010RecursivePatternBindings
       , pureTest "typechecks type class dictionaries" testHaskell2010Core0TypeClassDictionaries
       , pureTest "typechecks Prelude class dictionaries" testHaskell2010Core0PreludeClassDictionaries
+      , pureTest "typechecks Char runtime representation" testHaskell2010Core0CharRuntime
+      , pureTest "typechecks String as Char lists" testHaskell2010Core0StringCharList
+      , pureTest "typechecks broader Show dictionaries" testHaskell2010Core0BroadShow
+      , pureTest "typechecks Prelude append" testHaskell2010Core0Append
+      , pureTest "typechecks Prelude foldl" testHaskell2010Core0Foldl
+      , pureTest "typechecks Prelude function completion" testHaskell2010Core0PreludeFunctions
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
+      , pureTest "typechecks Real and Integral numeric methods" testHaskell2010Core0NumericHierarchy
       , pureTest "documents monomorphism restriction defaulting policy" testHaskell2010MonomorphismRestrictionDefaulting
       , pureTest "typechecks multi-module imports" testHaskell2010Core0MultiModuleImports
+      , pureTest "typechecks transitive instance imports" testHaskell2010Core0ModuleInstanceImports
       , pureTest "typechecks IO printing" testHaskell2010Core0IOPrinting
+      , pureTest "typechecks normal IO examples" testHaskell2010Core0IONormalExamples
+      , pureTest "typechecks IO getLine" testHaskell2010Core0IOGetLine
+      , pureTest "typechecks higher-kinded Monad constraints and dictionaries" testHaskell2010Core0Monad
       , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
       , pureTest "desugars operator sections to Core lambdas" testHaskell2010Core0Sections
+      , pureTest "typechecks user-defined operators" testHaskell2010Core0UserDefinedOperators
+      , pureTest "typechecks arithmetic sequences" testHaskell2010Core0ArithmeticSequences
+      , pureTest "typechecks Enum Bounded and superclass defaulting" testHaskell2010Core0EnumBounded
+      , pureTest "typechecks derived Eq instances" testHaskell2010Core0DerivedEq
+      , pureTest "typechecks derived Ord instances" testHaskell2010Core0DerivedOrd
+      , pureTest "typechecks derived Show instances" testHaskell2010Core0DerivedShow
+      , pureTest "typechecks derived Enum instances" testHaskell2010Core0DerivedEnum
+      , pureTest "typechecks derived Bounded instances" testHaskell2010Core0DerivedBounded
+      , pureTest "typechecks list comprehensions" testHaskell2010Core0ListComprehensions
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
+      , pureTest "rejects invalid derived Enum instances" testHaskell2010Core0RejectsInvalidDerivedEnum
+      , pureTest "rejects invalid derived Bounded instances" testHaskell2010Core0RejectsInvalidDerivedBounded
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       , pureTest "renders Haskell 2010 type errors with source spans" testHaskell2010TypeErrorDiagnosticsWithSpans
-      , pureTest "records Haskell 2010 exhaustiveness warning placeholders" testHaskell2010ExhaustivenessWarningPlaceholders
+      , pureTest "typechecks Haskell 2010 FFI signatures before lowering" testHaskell2010ForeignTypechecking
+      , pureTest "typechecks StablePtr ForeignPtr and finalizer APIs" testHaskell2010ForeignPtrStablePtrTypechecking
+      , pureTest "rejects invalid Haskell 2010 FFI signature shapes" testHaskell2010RejectsInvalidForeignTypechecking
+      , pureTest "records Haskell 2010 pattern-match diagnostics" testHaskell2010PatternMatchDiagnostics
       , ioTest "property-checks generated Haskell 2010 inference programs" $
           checkProperty propHaskell2010InferenceValidPrograms
       , ioTest "property-checks generated Haskell 2010 dictionary inference programs" $
@@ -197,11 +242,33 @@ testGroups =
       , pureTest "evaluates recursive functions and list recursion" testHaskell2010Core0EvalRecursion
       , pureTest "evaluates type class dictionary calls" testHaskell2010Core0EvalTypeClassDictionaries
       , pureTest "evaluates Prelude class dictionary calls" testHaskell2010Core0EvalPreludeClassDictionaries
+      , pureTest "evaluates Char equality and literal cases" testHaskell2010Core0EvalCharRuntime
+      , pureTest "evaluates String as Char lists" testHaskell2010Core0EvalStringCharList
+      , pureTest "evaluates broader Show dictionaries" testHaskell2010Core0EvalBroadShow
+      , pureTest "evaluates Prelude append" testHaskell2010Core0EvalAppend
+      , pureTest "evaluates Prelude foldl" testHaskell2010Core0EvalFoldl
+      , pureTest "evaluates Prelude function completion" testHaskell2010Core0EvalPreludeFunctions
+      , pureTest "evaluates standard library module imports" testHaskell2010Core0EvalStandardLibraryModules
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
+      , pureTest "evaluates Real and Integral numeric methods" testHaskell2010Core0EvalNumericHierarchy
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
+      , pureTest "evaluates transitive instance imports" testHaskell2010Core0EvalModuleInstanceImports
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
+      , pureTest "evaluates normal IO examples" testHaskell2010Core0EvalIONormalExamples
+      , pureTest "evaluates IO getLine with empty interpreter stdin" testHaskell2010Core0EvalIOGetLine
+      , pureTest "evaluates Monad IO Maybe and list do-notation" testHaskell2010Core0EvalMonad
       , pureTest "evaluates guards and as-patterns" testHaskell2010Core0EvalGuardsAndAsPatterns
       , pureTest "evaluates operator sections" testHaskell2010Core0EvalSections
+      , pureTest "evaluates user-defined operators" testHaskell2010Core0EvalUserDefinedOperators
+      , pureTest "evaluates arithmetic sequences" testHaskell2010Core0EvalArithmeticSequences
+      , pureTest "evaluates Enum Bounded and superclass defaulting" testHaskell2010Core0EvalEnumBounded
+      , pureTest "evaluates derived Eq instances" testHaskell2010Core0EvalDerivedEq
+      , pureTest "evaluates derived Ord instances" testHaskell2010Core0EvalDerivedOrd
+      , pureTest "evaluates derived Show instances" testHaskell2010Core0EvalDerivedShow
+      , pureTest "evaluates derived Enum instances" testHaskell2010Core0EvalDerivedEnum
+      , pureTest "reports derived Enum bounds errors" testHaskell2010Core0EvalDerivedEnumRuntimeError
+      , pureTest "evaluates derived Bounded instances" testHaskell2010Core0EvalDerivedBounded
+      , pureTest "evaluates list comprehensions" testHaskell2010Core0EvalListComprehensions
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
       , pureTest "reports forced division by zero" testHaskell2010Core0EvalDivisionByZero
@@ -233,11 +300,30 @@ testGroups =
       , pureTest "preserves recursive function semantics" testHaskell2010CoreToSTGRecursion
       , pureTest "preserves type class dictionary semantics" testHaskell2010CoreToSTGTypeClassDictionaries
       , pureTest "preserves Prelude class dictionary semantics" testHaskell2010CoreToSTGPreludeClassDictionaries
+      , pureTest "preserves Char runtime semantics" testHaskell2010CoreToSTGCharRuntime
+      , pureTest "preserves String as Char lists" testHaskell2010CoreToSTGStringCharList
+      , pureTest "preserves broader Show semantics" testHaskell2010CoreToSTGBroadShow
+      , pureTest "preserves Prelude append semantics" testHaskell2010CoreToSTGAppend
+      , pureTest "preserves Prelude foldl semantics" testHaskell2010CoreToSTGFoldl
+      , pureTest "preserves Prelude function completion semantics" testHaskell2010CoreToSTGPreludeFunctions
+      , pureTest "preserves standard library module import semantics" testHaskell2010CoreToSTGStandardLibraryModules
       , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
+      , pureTest "preserves Real and Integral numeric methods" testHaskell2010CoreToSTGNumericHierarchy
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
       , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
+      , pureTest "preserves normal IO example semantics" testHaskell2010CoreToSTGIONormalExamples
+      , pureTest "preserves IO getLine empty-stdin semantics" testHaskell2010CoreToSTGIOGetLine
       , pureTest "preserves guard and as-pattern semantics" testHaskell2010CoreToSTGGuardsAndAsPatterns
       , pureTest "preserves operator section semantics" testHaskell2010CoreToSTGSections
+      , pureTest "preserves user-defined operator semantics" testHaskell2010CoreToSTGUserDefinedOperators
+      , pureTest "preserves arithmetic sequence semantics" testHaskell2010CoreToSTGArithmeticSequences
+      , pureTest "preserves Enum Bounded semantics" testHaskell2010CoreToSTGEnumBounded
+      , pureTest "preserves derived Eq semantics" testHaskell2010CoreToSTGDerivedEq
+      , pureTest "preserves derived Ord semantics" testHaskell2010CoreToSTGDerivedOrd
+      , pureTest "preserves derived Show semantics" testHaskell2010CoreToSTGDerivedShow
+      , pureTest "preserves derived Enum semantics" testHaskell2010CoreToSTGDerivedEnum
+      , pureTest "preserves derived Bounded semantics" testHaskell2010CoreToSTGDerivedBounded
+      , pureTest "preserves list comprehension semantics" testHaskell2010CoreToSTGListComprehensions
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves guard fallthrough errors" testHaskell2010CoreToSTGGuardFallthrough
       , pureTest "preserves curried partial application" testHaskell2010CoreToSTGPartialApplication
@@ -247,8 +333,30 @@ testGroups =
       "Haskell 2010 Native Output"
       [ pureTest "emits boxed lazy STG runtime LLVM" testHaskell2010NativeLLVMShape
       , pureTest "erases newtype constructor allocation in native LLVM" testHaskell2010NativeNewtypeErasure
+      , pureTest "emits Char runtime LLVM" testHaskell2010NativeCharRuntime
+      , pureTest "emits String as Char lists in native LLVM" testHaskell2010NativeStringCharList
+      , pureTest "emits arithmetic sequence LLVM" testHaskell2010NativeArithmeticSequences
+      , pureTest "emits numeric hierarchy LLVM" testHaskell2010NativeNumericHierarchy
+      , pureTest "emits Enum Bounded LLVM" testHaskell2010NativeEnumBounded
+      , pureTest "emits derived Eq LLVM" testHaskell2010NativeDerivedEq
+      , pureTest "emits derived Ord LLVM" testHaskell2010NativeDerivedOrd
+      , pureTest "emits derived Show LLVM" testHaskell2010NativeDerivedShow
+      , pureTest "emits derived Enum LLVM" testHaskell2010NativeDerivedEnum
+      , pureTest "emits derived Bounded LLVM" testHaskell2010NativeDerivedBounded
+      , pureTest "emits Prelude append LLVM" testHaskell2010NativeAppend
+      , pureTest "emits Prelude foldl LLVM" testHaskell2010NativeFoldl
+      , pureTest "emits Prelude function completion LLVM" testHaskell2010NativePreludeFunctions
+      , pureTest "emits user-defined operator LLVM" testHaskell2010NativeUserDefinedOperators
+      , pureTest "emits IO getLine LLVM" testHaskell2010NativeGetLine
+      , pureTest "emits list comprehension LLVM" testHaskell2010NativeListComprehensions
+      , ioTest "native static ccall imports link and run" testHaskell2010NativeStaticCCall
+      , ioTest "native pointer and address imports link and run" testHaskell2010NativePointerAddressCCall
+      , ioTest "native dynamic and wrapper imports link and run" testHaskell2010NativeDynamicWrapperCCall
+      , ioTest "native foreign exports link and run" testHaskell2010NativeForeignExportCCall
+      , ioTest "native StablePtr ForeignPtr finalizers link and run" testHaskell2010NativeStableForeignPtrFinalizers
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
       , ioTest "native executable preserves lazy Core-0 semantics" testHaskell2010NativeExecutableExecution
+      , ioTest "native getLine reads stdin" testHaskell2010NativeGetLineExecution
       , ioTest "native runtime errors fail when forced" testHaskell2010NativeRuntimeError
       ]
   , TestGroup
@@ -676,6 +784,38 @@ testHaskell2010LayoutParsing = do
     H2010.Unguarded body -> containsDo body
     H2010.Guarded branches -> any (containsDo . snd) branches
 
+testHaskell2010WhereLayoutParsing :: Either String ()
+testHaskell2010WhereLayoutParsing = do
+  parsed <- parseHaskell2010 haskell2010WhereLayoutSource
+  expectEqual "line-broken function where declarations" (Just 2) (functionWhereDeclCount "f" parsed)
+  expectEqual "line-broken case-alt where declarations" [2, 0] (caseAltWhereDeclCounts "g" parsed)
+ where
+  functionWhereDeclCount name parsed =
+    case [length whereDecls | H2010.FunctionBinding functionName _ _ whereDecls <- H2010.moduleDecls parsed, functionName == name] of
+      [count] -> Just count
+      _ -> Nothing
+  caseAltWhereDeclCounts name parsed =
+    concat
+      [ [length whereDecls | H2010.Alt _ _ whereDecls <- alts]
+      | H2010.FunctionBinding functionName _ (H2010.Unguarded (H2010.Case _ alts)) _ <- H2010.moduleDecls parsed
+      , functionName == name
+      ]
+
+testHaskell2010MisindentedWhereKeyword :: Either String ()
+testHaskell2010MisindentedWhereKeyword =
+  case
+    H2010Parser.parseSourceModule
+      "<haskell2010-misindented-where-keyword>"
+      "module Bad where\n\
+      \\n\
+      \main =\n\
+      \  x\n\
+      \where\n\
+      \  x = 1\n"
+    of
+      Left _ -> Right ()
+      Right parsed -> Left ("misindented where keyword parsed unexpectedly: " <> show parsed)
+
 testHaskell2010ExpressionSurfaceParsing :: Either String ()
 testHaskell2010ExpressionSurfaceParsing = do
   parsed <-
@@ -687,7 +827,7 @@ testHaskell2010ExpressionSurfaceParsing = do
       \literals = ('x', \"hello\")\n\
       \numbers = (0x10, 0o7)\n\
       \collections = ([1, 2, 3], [1, 3..9], [x | x <- xs])\n\
-      \sections = ((1 +), (+ 1))\n\
+      \sections = ((++), (1 +), (+ 1))\n\
       \typed = (pure 0 :: IO Int)\n\
       \branch = \\x -> if x then [] else [1]\n\
       \patterns (Just x) _ (a, b) [c] (h : t) name@value ~lazy 'x' = x\n"
@@ -699,6 +839,36 @@ testHaskell2010ExpressionSurfaceParsing = do
   isForeignDecl = \case
     H2010.ForeignDecl {} -> True
     _ -> False
+
+testHaskell2010ForeignDeclarationParsing :: Either String ()
+testHaskell2010ForeignDeclarationParsing = do
+  parsed <-
+    parseHaskell2010
+      "module ForeignSurface where\n\
+      \foreign import ccall unsafe \"static [stdlib.h] abs\" c_abs :: Int -> IO Int\n\
+      \foreign import ccall safe \"[errno.h] &errno\" c_errno :: Ptr Int\n\
+      \foreign import ccall \"dynamic\" mkFun :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
+      \foreign import ccall \"wrapper\" wrapFun :: (Int -> IO Int) -> IO (FunPtr (Int -> IO Int))\n\
+      \foreign export ccall \"hs_identity\" identity :: Int -> Int\n\
+      \identity x = x\n"
+  case H2010.moduleDecls parsed of
+    [ H2010.ForeignDecl (H2010.ForeignImportDecl cAbs)
+      , H2010.ForeignDecl (H2010.ForeignImportDecl cErrno)
+      , H2010.ForeignDecl (H2010.ForeignImportDecl dynamicImport)
+      , H2010.ForeignDecl (H2010.ForeignImportDecl wrapperImport)
+      , H2010.ForeignDecl (H2010.ForeignExportDecl exported)
+      , H2010.FunctionBinding "identity" _ _ []
+      ] -> do
+        expectEqual "ccall import convention" H2010.ForeignCCall (H2010.foreignImportCallConv cAbs)
+        expectEqual "unsafe import safety" H2010.ForeignUnsafe (H2010.foreignImportSafety cAbs)
+        expectEqual "static import entity" (H2010.ForeignImportStatic (Just "stdlib.h") "abs") (H2010.foreignImportEntityKind (H2010.foreignImportEntity cAbs))
+        expectEqual "foreign import binds parsed name" "c_abs" (H2010.foreignImportName cAbs)
+        expectEqual "address import entity" (H2010.ForeignImportAddress (Just "errno.h") "errno") (H2010.foreignImportEntityKind (H2010.foreignImportEntity cErrno))
+        expectEqual "dynamic import entity" H2010.ForeignImportDynamic (H2010.foreignImportEntityKind (H2010.foreignImportEntity dynamicImport))
+        expectEqual "wrapper import entity" H2010.ForeignImportWrapper (H2010.foreignImportEntityKind (H2010.foreignImportEntity wrapperImport))
+        expectEqual "export entity symbol" (Just "hs_identity") (H2010.foreignExportEntitySymbol (H2010.foreignExportEntity exported))
+        expectEqual "foreign export references parsed name" "identity" (H2010.foreignExportName exported)
+    other -> Left ("unexpected Haskell 2010 foreign declarations: " <> show other)
 
 testHaskell2010RecordFieldSyntaxParsing :: Either String ()
 testHaskell2010RecordFieldSyntaxParsing = do
@@ -715,6 +885,51 @@ testHaskell2010RecordFieldSyntaxParsing = do
         expectEqual "record construction field order is parsed from source order" ["score", "age"] (map fst exprFields)
         expectEqual "record pattern fields are parsed" ["age"] (map fst patFields)
     other -> Left ("unexpected record field syntax parse: " <> show other)
+
+testHaskell2010RecordUpdateSyntaxParsing :: Either String ()
+testHaskell2010RecordUpdateSyntaxParsing = do
+  parsed <-
+    parseHaskell2010
+      "module Records where\n\
+      \data Person = Person { age, score :: Int }\n\
+      \update p = p { score = 3, age = age p }\n"
+  case H2010.moduleDecls parsed of
+    [ H2010.DataDecl "Person" [] [H2010.RecordConDecl "Person" [H2010.ConField ["age", "score"] _]] []
+      , H2010.FunctionBinding "update" [H2010.PVar "p"] (H2010.Unguarded (H2010.RecordUpdate (H2010.Var "p") updateFields)) []
+      ] ->
+        expectEqual "record update field order is parsed from source order" ["score", "age"] (map fst updateFields)
+    other -> Left ("unexpected record update syntax parse: " <> show other)
+
+testHaskell2010UserDefinedOperatorParsing :: Either String ()
+testHaskell2010UserDefinedOperatorParsing = do
+  parsed <- parseHaskell2010 haskell2010UserDefinedOperatorsSource
+  let bindingShapes =
+        [ (name, length patterns)
+        | H2010.FunctionBinding name patterns _ _ <- H2010.moduleDecls parsed
+        ]
+      fixityNames =
+        concat
+          [ names
+          | H2010.FixityDecl _ names <- H2010.moduleDecls parsed
+          ]
+  assertBool "prefix parenthesized symbolic binding parses" (("<->", 2) `elem` bindingShapes)
+  assertBool "infix symbolic binding parses as binary function" (("<+>", 2) `elem` bindingShapes)
+  assertBool "backtick value-operator binding parses as binary function" (("combine", 2) `elem` bindingShapes)
+  assertBool "local symbolic Prelude-shadowing binding parses" (("++", 2) `elem` bindingShapes)
+  assertBool "symbolic fixity declaration parses" ("<+>" `elem` fixityNames)
+  assertBool "backtick fixity declaration parses" ("combine" `elem` fixityNames)
+
+testHaskell2010ConstructorOperatorBindingRejected :: Either String ()
+testHaskell2010ConstructorOperatorBindingRejected =
+  case
+    H2010Parser.parseSourceModule
+      "<haskell2010-constructor-operator-binding>"
+      "module Bad where\n\
+      \x :*: y = x\n\
+      \main = 1\n"
+    of
+      Left _ -> Right ()
+      Right parsed -> Left ("constructor operator binding parsed unexpectedly: " <> show parsed)
 
 testHaskell2010MalformedLayout :: Either String ()
 testHaskell2010MalformedLayout =
@@ -831,6 +1046,58 @@ testHaskell2010RenamerPatternScope = do
         expectEqual "body x resolves to pattern binder" patX bodyX
     other -> Left ("unexpected renamed pattern module: " <> show other)
 
+testHaskell2010RenamerRecordUpdate :: Either String ()
+testHaskell2010RenamerRecordUpdate = do
+  renamed <-
+    renameHaskell2010
+      "module Records where\n\
+      \data Person = Person { age, score :: Int }\n\
+      \update p = p { age = score p }\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [ H2010Renamed.RDataDecl _ [] [H2010Renamed.RRecordConDecl _ [H2010Renamed.RConField [ageLabel, scoreLabel] _]] []
+      , H2010Renamed.RFunctionBinding _ [H2010Renamed.RPVar paramP] (H2010Renamed.RUnguarded (H2010Renamed.RRecordUpdate (H2010Renamed.RVar updateP) [(updateAge, H2010Renamed.RApp (H2010Renamed.RVar scoreUse) (H2010Renamed.RVar scoreArg))])) []
+      ] -> do
+        expectEqual "record update scrutinee resolves to parameter" paramP updateP
+        expectEqual "record update label resolves to selector" ageLabel updateAge
+        expectEqual "record update field expression resolves selector" scoreLabel scoreUse
+        expectEqual "record update field expression argument resolves parameter" paramP scoreArg
+        expectEqual "record labels live in term namespace" H2010Names.TermNamespace (H2010Names.nameNamespace updateAge)
+    other -> Left ("unexpected renamed record update module: " <> show other)
+
+testHaskell2010RenamerUserDefinedOperators :: Either String ()
+testHaskell2010RenamerUserDefinedOperators = do
+  renamed <- renameHaskell2010 haskell2010UserDefinedOperatorsSource
+  let functionBindings =
+        [ (name, patterns)
+        | H2010Renamed.RFunctionBinding name patterns _ _ <- H2010Renamed.rModuleDecls renamed
+        ]
+      fixityNames =
+        concat
+          [ names
+          | H2010Renamed.RFixityDecl _ names <- H2010Renamed.rModuleDecls renamed
+          ]
+  ltPlusGt <- lookupRenamedFunction "<+>" functionBindings
+  ltMinusGt <- lookupRenamedFunction "<->" functionBindings
+  combineName <- lookupRenamedFunction "combine" functionBindings
+  appendName <- lookupRenamedFunction "++" functionBindings
+  mapM_
+    (expectEqual "user-defined operator namespace" H2010Names.TermNamespace . H2010Names.nameNamespace)
+    [ltPlusGt, ltMinusGt, combineName, appendName]
+  assertBool "local ++ shadows imported Prelude ++" (not (H2010Names.nameExternal appendName))
+  assertBool "symbolic operator fixity resolves to local operator" (ltPlusGt `elem` fixityNames)
+  assertBool "backtick operator fixity resolves to local value name" (combineName `elem` fixityNames)
+ where
+  lookupRenamedFunction occurrence bindings =
+    case
+      [ name
+      | (name, patterns) <- bindings
+      , H2010Names.nameOcc name == occurrence
+      , length patterns == 2
+      ]
+    of
+      [name] -> Right name
+      names -> Left ("expected one renamed binary function " <> Text.unpack occurrence <> ", got: " <> show names)
+
 testHaskell2010RenamerRightAssociativeFixity :: Either String ()
 testHaskell2010RenamerRightAssociativeFixity = do
   renamed <-
@@ -901,6 +1168,282 @@ testHaskell2010RenamerQualifiedImport = do
       assertBool "qualified import is external" (H2010Names.nameExternal importedX)
     other -> Left ("unexpected qualified import module: " <> show other)
 
+testHaskell2010RenamerImplicitPrelude :: Either String ()
+testHaskell2010RenamerImplicitPrelude = do
+  renamed <-
+    renameHaskell2010
+      "module Implicit where\n\
+      \x = map\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar mapName)) []] -> do
+      expectEqual "implicit Prelude occurrence" "map" (H2010Names.nameOcc mapName)
+      assertBool "implicit Prelude name is external" (H2010Names.nameExternal mapName)
+    other -> Left ("unexpected implicit Prelude module: " <> show other)
+
+testHaskell2010RenamerExplicitPreludeSpecs :: Either String ()
+testHaskell2010RenamerExplicitPreludeSpecs = do
+  renamed <-
+    renameHaskell2010
+      "module Explicit where\n\
+      \import Prelude (map)\n\
+      \x = map\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar mapName)) []] -> do
+      expectEqual "explicit Prelude occurrence" "map" (H2010Names.nameOcc mapName)
+      assertBool "explicit Prelude name is external" (H2010Names.nameExternal mapName)
+    other -> Left ("unexpected explicit Prelude module: " <> show other)
+  expectRenameError
+    "explicit Prelude import suppresses omitted names"
+    (H2010Renamer.UnboundName H2010Names.TermNamespace "foldr")
+    "module Explicit where\n\
+    \import Prelude (map)\n\
+    \y = foldr\n"
+  expectRenameError
+    "empty Prelude import suppresses implicit Prelude"
+    (H2010Renamer.UnboundName H2010Names.TermNamespace "map")
+    "module Empty where\n\
+    \import Prelude ()\n\
+    \y = map\n"
+  expectRenameError
+    "Prelude hiding suppresses hidden name"
+    (H2010Renamer.UnboundName H2010Names.TermNamespace "map")
+    "module Hide where\n\
+    \import Prelude hiding (map)\n\
+    \y = map\n"
+
+testHaskell2010RenamerQualifiedPrelude :: Either String ()
+testHaskell2010RenamerQualifiedPrelude = do
+  renamed <-
+    renameHaskell2010
+      "module QualifiedPrelude where\n\
+      \import qualified Prelude\n\
+      \x = Prelude.map\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar mapName)) []] -> do
+      expectEqual "qualified Prelude occurrence" "map" (H2010Names.nameOcc mapName)
+      assertBool "qualified Prelude name is external" (H2010Names.nameExternal mapName)
+    other -> Left ("unexpected qualified Prelude module: " <> show other)
+  expectRenameError
+    "qualified Prelude import does not bind unqualified names"
+    (H2010Renamer.UnboundName H2010Names.TermNamespace "map")
+    "module QualifiedPrelude where\n\
+    \import qualified Prelude\n\
+    \x = map\n"
+
+testHaskell2010RenamerCumulativePreludeImports :: Either String ()
+testHaskell2010RenamerCumulativePreludeImports = do
+  renamed <-
+    renameHaskell2010
+      "module CumulativePrelude where\n\
+      \import Prelude (map)\n\
+      \import Prelude (foldr)\n\
+      \x = map\n\
+      \y = foldr\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [ H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar mapName)) []
+      , H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar foldrName)) []
+      ] -> do
+        expectEqual "cumulative Prelude map" "map" (H2010Names.nameOcc mapName)
+        expectEqual "cumulative Prelude foldr" "foldr" (H2010Names.nameOcc foldrName)
+        assertBool "cumulative Prelude map is external" (H2010Names.nameExternal mapName)
+        assertBool "cumulative Prelude foldr is external" (H2010Names.nameExternal foldrName)
+    other -> Left ("unexpected cumulative Prelude module: " <> show other)
+  duplicateRenamed <-
+    renameHaskell2010
+      "module DuplicatePrelude where\n\
+      \import Prelude (map)\n\
+      \import Prelude (map)\n\
+      \x = map\n"
+  case H2010Renamed.rModuleDecls duplicateRenamed of
+    [H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar mapName)) []] ->
+      expectEqual "duplicate Prelude imports resolve once" "map" (H2010Names.nameOcc mapName)
+    other -> Left ("unexpected duplicate Prelude module: " <> show other)
+
+testHaskell2010StandardLibraryPreludeInterface :: Either String ()
+testHaskell2010StandardLibraryPreludeInterface =
+  case Map.lookup H2010StandardLibrary.standardPreludeModuleName H2010StandardLibrary.standardLibraryModuleInterfaces of
+    Nothing ->
+      Left "standard library does not expose Prelude"
+    Just interface -> do
+      expectEqual
+        "standard Prelude module name"
+        H2010StandardLibrary.standardPreludeModuleName
+        (H2010ModuleInterface.interfaceModuleName interface)
+      assertBool "standard Prelude exports map" (interfaceExportsName H2010Names.TermNamespace "map" interface)
+      assertBool "standard Prelude exports IO type" (interfaceExportsName H2010Names.TypeNamespace "IO" interface)
+      assertBool
+        "standard Prelude exports Monad class"
+        (interfaceExportsName H2010Names.ClassNamespace "Monad" interface)
+      assertBool
+        "standard Prelude exports Functor class"
+        (interfaceExportsName H2010Names.ClassNamespace "Functor" interface)
+      assertBool
+        "standard Prelude exposes Functor fmap child"
+        (interfaceExportsChild H2010Names.ClassNamespace "Functor" H2010Names.TermNamespace "fmap" interface)
+      assertBool
+        "standard Prelude exposes Maybe Just child"
+        (interfaceExportsChild H2010Names.TypeNamespace "Maybe" H2010Names.ConstructorNamespace "Just" interface)
+      assertBool
+        "standard Prelude exposes Monad return child"
+        (interfaceExportsChild H2010Names.ClassNamespace "Monad" H2010Names.TermNamespace "return" interface)
+      expectEqual
+        "standard Prelude bind fixity"
+        (Just (H2010.Fixity H2010.InfixL 1))
+        (Map.lookup ">>=" (H2010ModuleInterface.interfaceFixities interface))
+      expectEqual
+        "standard Prelude interface does not expose generated built-in instances"
+        []
+        (H2010ModuleInterface.interfaceInstances interface)
+
+testHaskell2010StandardLibraryExpandedInterfaces :: Either String ()
+testHaskell2010StandardLibraryExpandedInterfaces = do
+  dataList <- requireInterface (H2010.ModuleName ["Data", "List"])
+  assertBool "Data.List exports map" (interfaceExportsName H2010Names.TermNamespace "map" dataList)
+  assertBool "Data.List exports head" (interfaceExportsName H2010Names.TermNamespace "head" dataList)
+  assertBool "Data.List exports ++" (interfaceExportsName H2010Names.TermNamespace "++" dataList)
+  expectEqual
+    "Data.List ++ fixity"
+    (Just (H2010.Fixity H2010.InfixR 5))
+    (Map.lookup "++" (H2010ModuleInterface.interfaceFixities dataList))
+
+  dataMaybe <- requireInterface (H2010.ModuleName ["Data", "Maybe"])
+  assertBool "Data.Maybe exports Maybe" (interfaceExportsName H2010Names.TypeNamespace "Maybe" dataMaybe)
+  assertBool "Data.Maybe exports Just" (interfaceExportsName H2010Names.ConstructorNamespace "Just" dataMaybe)
+  assertBool
+    "Data.Maybe exposes Maybe constructors"
+    (interfaceExportsChild H2010Names.TypeNamespace "Maybe" H2010Names.ConstructorNamespace "Nothing" dataMaybe)
+
+  controlMonad <- requireInterface (H2010.ModuleName ["Control", "Monad"])
+  assertBool "Control.Monad exports Functor" (interfaceExportsName H2010Names.ClassNamespace "Functor" controlMonad)
+  assertBool "Control.Monad exports fmap" (interfaceExportsName H2010Names.TermNamespace "fmap" controlMonad)
+  assertBool
+    "Control.Monad exposes Functor fmap child"
+    (interfaceExportsChild H2010Names.ClassNamespace "Functor" H2010Names.TermNamespace "fmap" controlMonad)
+  assertBool "Control.Monad exports Monad" (interfaceExportsName H2010Names.ClassNamespace "Monad" controlMonad)
+  assertBool "Control.Monad exports return" (interfaceExportsName H2010Names.TermNamespace "return" controlMonad)
+  assertBool
+    "Control.Monad exposes Monad bind child"
+    (interfaceExportsChild H2010Names.ClassNamespace "Monad" H2010Names.TermNamespace ">>=" controlMonad)
+  expectEqual
+    "Control.Monad bind fixity"
+    (Just (H2010.Fixity H2010.InfixL 1))
+    (Map.lookup ">>=" (H2010ModuleInterface.interfaceFixities controlMonad))
+
+  systemIO <- requireInterface (H2010.ModuleName ["System", "IO"])
+  assertBool "System.IO exports IO" (interfaceExportsName H2010Names.TypeNamespace "IO" systemIO)
+  assertBool "System.IO exports putStrLn" (interfaceExportsName H2010Names.TermNamespace "putStrLn" systemIO)
+  assertBool "System.IO exports getLine" (interfaceExportsName H2010Names.TermNamespace "getLine" systemIO)
+  assertBool "System.IO exports print" (interfaceExportsName H2010Names.TermNamespace "print" systemIO)
+
+  dataInt <- requireInterface (H2010.ModuleName ["Data", "Int"])
+  dataWord <- requireInterface (H2010.ModuleName ["Data", "Word"])
+  assertBool "Data.Int exports Int8" (interfaceExportsName H2010Names.TypeNamespace "Int8" dataInt)
+  assertBool "Data.Word exports Word64" (interfaceExportsName H2010Names.TypeNamespace "Word64" dataWord)
+
+  foreignPtr <- requireInterface (H2010.ModuleName ["Foreign", "Ptr"])
+  foreignCString <- requireInterface (H2010.ModuleName ["Foreign", "C", "String"])
+  assertBool "Foreign.Ptr exports Ptr" (interfaceExportsName H2010Names.TypeNamespace "Ptr" foreignPtr)
+  assertBool "Foreign.Ptr exports FunPtr" (interfaceExportsName H2010Names.TypeNamespace "FunPtr" foreignPtr)
+  assertBool "Foreign.C.String exports CString" (interfaceExportsName H2010Names.TypeNamespace "CString" foreignCString)
+
+  expectEqual
+    "Data.Char stays reserved until functions are implemented"
+    Nothing
+    (Map.lookup (H2010.ModuleName ["Data", "Char"]) H2010StandardLibrary.standardLibraryModuleInterfaces)
+  expectEqual
+    "Numeric stays reserved until numeric formatting is implemented"
+    Nothing
+    (Map.lookup (H2010.ModuleName ["Numeric"]) H2010StandardLibrary.standardLibraryModuleInterfaces)
+  _ <- typecheckHaskell2010 haskell2010StandardLibraryModulesSource
+  Right ()
+ where
+  requireInterface moduleName =
+    case Map.lookup moduleName H2010StandardLibrary.standardLibraryModuleInterfaces of
+      Nothing -> Left ("standard library does not expose " <> show moduleName)
+      Just interface -> Right interface
+
+interfaceExportsName :: H2010Names.Namespace -> Text -> H2010ModuleInterface.ModuleInterface -> Bool
+interfaceExportsName namespace occurrence interface =
+  any
+    (\name -> H2010Names.nameNamespace name == namespace && H2010Names.nameOcc name == occurrence)
+    (H2010ModuleInterface.interfaceExports interface)
+
+interfaceExportsChild ::
+  H2010Names.Namespace ->
+  Text ->
+  H2010Names.Namespace ->
+  Text ->
+  H2010ModuleInterface.ModuleInterface ->
+  Bool
+interfaceExportsChild parentNamespace parentOcc childNamespace childOcc interface =
+  or
+    [ any
+        (\child -> H2010Names.nameNamespace child == childNamespace && H2010Names.nameOcc child == childOcc)
+        (Map.findWithDefault [] parent (H2010ModuleInterface.interfaceChildren interface))
+    | parent <- H2010ModuleInterface.interfaceExports interface
+    , H2010Names.nameNamespace parent == parentNamespace
+    , H2010Names.nameOcc parent == parentOcc
+    ]
+
+testHaskell2010RenamerForeignDeclarations :: Either String ()
+testHaskell2010RenamerForeignDeclarations = do
+  renamed <-
+    renameHaskell2010
+      "module ForeignRenamer (c_abs) where\n\
+      \foreign import ccall unsafe \"static [stdlib.h] abs\" c_abs :: Int -> IO Int\n\
+      \main = c_abs\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [ H2010Renamed.RForeignDecl (H2010Renamed.RForeignImportDecl foreignImport)
+      , H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar importedName)) []
+      ] -> do
+        expectEqual "foreign import renamed occurrence" "c_abs" (H2010Names.nameOcc (H2010Renamed.rForeignImportName foreignImport))
+        expectEqual "foreign import is the referenced top-level name" (H2010Renamed.rForeignImportName foreignImport) importedName
+        expectEqual "foreign import renamed type preserves IO result" "IO" =<< foreignImportResultConstructor foreignImport
+    other -> Left ("unexpected renamed foreign import module: " <> show other)
+  exported <-
+    renameHaskell2010
+      "module ForeignExport where\n\
+      \identity x = x\n\
+      \foreign export ccall \"hs_identity\" identity :: Int -> Int\n"
+  case H2010Renamed.rModuleDecls exported of
+    [ H2010Renamed.RFunctionBinding identityName _ _ _
+      , H2010Renamed.RForeignDecl (H2010Renamed.RForeignExportDecl foreignExport)
+      ] ->
+        expectEqual "foreign export resolves existing top-level binding" identityName (H2010Renamed.rForeignExportName foreignExport)
+    other -> Left ("unexpected renamed foreign export module: " <> show other)
+  modules <- parseHaskell2010ModuleSources haskell2010ForeignImportModuleSources
+  renamedWithInterfaces <-
+    mapLeft
+      (Text.unpack . H2010Renamer.renderRenameError)
+      (H2010Renamer.renameModuleGraphWithInterfaces modules)
+  provider <- lookupInterface "ForeignProvider" renamedWithInterfaces
+  assertBool "foreign import is exported through module interface" (exportsTerm "c_abs" provider)
+  case renameHaskell2010Raw "module BadForeignExport where\nforeign export ccall \"missing\" missing :: Int\n" of
+    Left (H2010Renamer.UnboundName H2010Names.TermNamespace "missing") -> Right ()
+    Left err -> Left ("expected unbound foreign export diagnostic, got " <> show err)
+    Right bad -> Left ("unbound foreign export renamed unexpectedly: " <> show bad)
+ where
+  foreignImportResultConstructor foreignImport =
+    case H2010Renamed.rForeignImportType foreignImport of
+      H2010Renamed.RTyFun _ (H2010Renamed.RTyApp (H2010Renamed.RTyCon ioName) _) ->
+        Right (H2010Names.nameOcc ioName)
+      other ->
+        Left ("unexpected renamed foreign import type: " <> show other)
+
+  lookupInterface moduleName renamedWithInterfaces =
+    case
+      List.find
+        ((== H2010.ModuleName [moduleName]) . H2010ModuleInterface.interfaceModuleName . snd)
+        renamedWithInterfaces
+      of
+        Just (_, interface) -> Right interface
+        Nothing -> Left ("missing interface for module " <> Text.unpack moduleName)
+
+  exportsTerm occurrence interface =
+    any
+      (\name -> H2010Names.nameNamespace name == H2010Names.TermNamespace && H2010Names.nameOcc name == occurrence)
+      (H2010ModuleInterface.interfaceExports interface)
+
 testHaskell2010RenamerModuleGraphExports :: Either String ()
 testHaskell2010RenamerModuleGraphExports = do
   modules <- parseHaskell2010ModuleSources haskell2010MultiModuleSources
@@ -921,6 +1464,32 @@ testHaskell2010RenamerModuleGraphExports = do
     Left (H2010Renamer.UnboundName H2010Names.TermNamespace "hidden") -> Right ()
     Left err -> Left ("expected hidden export rejection, got " <> show err)
     Right renamed -> Left ("hidden import renamed unexpectedly: " <> show renamed)
+
+testHaskell2010RenamerModuleGraphInstances :: Either String ()
+testHaskell2010RenamerModuleGraphInstances = do
+  modules <- parseHaskell2010ModuleSources haskell2010InstanceImportSources
+  renamedWithInterfaces <-
+    mapLeft
+      (Text.unpack . H2010Renamer.renderRenameError)
+      (H2010Renamer.renameModuleGraphWithInterfaces modules)
+  provider <- lookupInterface "InstanceProvider" renamedWithInterfaces
+  bridge <- lookupInterface "InstanceBridge" renamedWithInterfaces
+  mainInterface <- lookupInterface "Main" renamedWithInterfaces
+  let providerInstances = H2010ModuleInterface.interfaceInstances provider
+      bridgeInstances = H2010ModuleInterface.interfaceInstances bridge
+      mainInstances = H2010ModuleInterface.interfaceInstances mainInterface
+  expectEqual "empty export-list provider still exports one instance" 1 (length providerInstances)
+  expectEqual "empty import-list bridge re-exports provider instances" providerInstances bridgeInstances
+  expectEqual "import chain makes provider instance visible to main" providerInstances mainInstances
+ where
+  lookupInterface moduleName renamedWithInterfaces =
+    case
+      List.find
+        ((== H2010.ModuleName [moduleName]) . H2010ModuleInterface.interfaceModuleName . snd)
+        renamedWithInterfaces
+      of
+        Just (_, interface) -> Right interface
+        Nothing -> Left ("missing interface for module " <> Text.unpack moduleName)
 
 testHaskell2010ModuleGraphCycle :: IO (Either String ())
 testHaskell2010ModuleGraphCycle = do
@@ -1226,6 +1795,26 @@ testHaskell2010KindRejectsMismatch =
       Left err -> Left ("expected kind mismatch, got: " <> show err)
       Right coreModule -> Left ("kind-mismatched source typechecked unexpectedly: " <> show coreModule)
 
+testHaskell2010KindChecksMonadConstraint :: Either String ()
+testHaskell2010KindChecksMonadConstraint = do
+  _ <-
+    typecheckHaskell2010
+      "module Core0 where\n\
+      \same :: Monad m => m Int -> m Int\n\
+      \same value = value\n\
+      \main = 0\n"
+  case
+    typecheckHaskell2010Raw
+      "module Core0 where\n\
+      \bad :: Monad Int => Int\n\
+      \bad = 0\n\
+      \main = 0\n"
+    of
+      Left err
+        | H2010Typecheck.KindMismatch {} <- haskell2010TypecheckErrorDetail err -> Right ()
+      Left err -> Left ("expected Monad kind mismatch, got: " <> show err)
+      Right coreModule -> Left ("Monad Int source typechecked unexpectedly: " <> show coreModule)
+
 testHaskell2010TypeSynonymExpansion :: Either String ()
 testHaskell2010TypeSynonymExpansion =
   expectCoreEvalInt
@@ -1391,11 +1980,15 @@ testHaskell2010ConstraintRejectsInvalidArity =
       Right coreModule -> Left ("invalid class constraint arity typechecked unexpectedly: " <> show coreModule)
 
 testHaskell2010ClassConstraintPlaceholders :: Either String ()
-testHaskell2010ClassConstraintPlaceholders =
-  expectPlaceholder "superclass constraint context" superclassSource
-    *> expectPlaceholder "method-specific constraint context" methodConstraintSource
+testHaskell2010ClassConstraintPlaceholders = do
+  coreModule <- typecheckHaskell2010 superclassDefaultSource
+  assertBool "superclass dictionary constructor is recorded" (containsConstructorOccurrence "$MkOrderedDict" coreModule)
+  assertBool "default method-filled instance dictionary is emitted" (containsBindingPrefix "$fOrdered" coreModule)
+  expectCoreEvalInt "superclass/default method Core oracle" 7 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+  expectPlaceholder "method-specific constraint context" methodConstraintSource
     *> expectPlaceholder "instance constraint context" instanceContextSource
     *> expectPlaceholder "expression signature constraint context" expressionSignatureSource
+    *> expectTypecheckMessage "recursive superclass cycle" "recursive superclass cycle" recursiveSuperclassSource
  where
   expectPlaceholder label source =
     case typecheckHaskell2010Raw source of
@@ -1405,11 +1998,29 @@ testHaskell2010ClassConstraintPlaceholders =
       Left err -> Left (label <> ": expected unsupported class-constraint context, got " <> show err)
       Right coreModule -> Left (label <> ": typechecked unexpectedly: " <> show coreModule)
 
-  superclassSource =
+  expectTypecheckMessage label needle source =
+    case typecheckHaskell2010Raw source of
+      Left err
+        | needle `Text.isInfixOf` H2010Typecheck.renderTypecheckError err -> Right ()
+      Left err -> Left (label <> ": expected diagnostic containing " <> Text.unpack needle <> ", got " <> show err)
+      Right coreModule -> Left (label <> ": typechecked unexpectedly: " <> show coreModule)
+
+  superclassDefaultSource =
     "module Core0 where\n\
-    \class Eq a => Ordered a where\n\
+    \class Equal a where\n\
+    \  equal :: a -> a -> Bool\n\
+    \class Equal a => Ordered a where\n\
     \  ordered :: a -> a -> Bool\n\
-    \main = 0\n"
+    \  same :: a -> a -> Bool\n\
+    \  same x y = equal x y\n\
+    \data Box = Box Int\n\
+    \instance Equal Box where\n\
+    \  equal (Box x) (Box y) = x == y\n\
+    \instance Ordered Box where\n\
+    \  ordered (Box x) (Box y) = x < y\n\
+    \sameOrdered :: Ordered a => a -> a -> Bool\n\
+    \sameOrdered x y = equal x y\n\
+    \main = if same (Box 4) (Box 4) && sameOrdered (Box 5) (Box 5) && ordered (Box 1) (Box 2) then 7 else 0\n"
 
   methodConstraintSource =
     "module Core0 where\n\
@@ -1429,6 +2040,14 @@ testHaskell2010ClassConstraintPlaceholders =
   expressionSignatureSource =
     "module Core0 where\n\
     \main = (1 :: Eq Int => Int)\n"
+
+  recursiveSuperclassSource =
+    "module Core0 where\n\
+    \class Second a => First a where\n\
+    \  first :: a -> Int\n\
+    \class First a => Second a where\n\
+    \  second :: a -> Int\n\
+    \main = 0\n"
 
 testHaskell2010Core0If :: Either String ()
 testHaskell2010Core0If = do
@@ -1545,6 +2164,52 @@ testHaskell2010Core0PreludeClassDictionaries = do
   assertBool "Prelude Num Int instance dictionary is emitted" (containsBindingOccurrence "$fNumInt" coreModule)
   expectCoreEvalInt "Prelude class dictionary Core oracle" 6 =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0CharRuntime :: Either String ()
+testHaskell2010Core0CharRuntime = do
+  coreModule <- typecheckHaskell2010 haskell2010CharRuntimeSource
+  assertBool "Prelude Eq Char instance dictionary is emitted" (containsBindingOccurrence "$fEqChar" coreModule)
+  expectCoreEvalInt "Char runtime Core oracle" 1 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0StringCharList :: Either String ()
+testHaskell2010Core0StringCharList = do
+  coreModule <- typecheckHaskell2010 haskell2010StringCharListSource
+  (binder, rhs) <- lookupCoreBindingOccurrence "main" coreModule
+  expectEqual "String Char-list result type" H2010Core.intTy (H2010Core.coreBinderType binder)
+  assertBool "source String literals desugar before Core" (not (coreModuleContainsStringLiteral coreModule))
+  assertBool "String literal pattern emits cons alternatives" (containsConstructorAlt ":" rhs)
+  assertBool "String literal pattern emits nil alternatives" (containsConstructorAlt "[]" rhs)
+  assertBool "String literal expressions emit cons constructors" (containsConstructorExpr ":" rhs)
+  expectCoreEvalInt "String Char-list Core oracle" 5 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0BroadShow :: Either String ()
+testHaskell2010Core0BroadShow = do
+  coreModule <- typecheckHaskell2010 haskell2010BroadShowSource
+  assertBool "Prelude Show Char instance dictionary is emitted" (containsBindingOccurrence "$fShowChar" coreModule)
+  assertBool "Prelude Show String instance dictionary is emitted" (containsBindingOccurrence "$fShowString" coreModule)
+  assertBool "Prelude generic Show list dictionary is emitted" (containsBindingOccurrence "$fShowList" coreModule)
+  assertBool "Prelude Show list method helper is emitted" (containsBindingOccurrence "$show_list" coreModule)
+  expectCoreEvalIO "broader Show Core oracle" haskell2010BroadShowOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0Append :: Either String ()
+testHaskell2010Core0Append = do
+  coreModule <- typecheckHaskell2010 haskell2010AppendSource
+  assertBool "Prelude append binding is emitted" (containsBindingOccurrence "++" coreModule)
+  expectCoreEvalIO "Prelude append Core oracle" haskell2010AppendOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0Foldl :: Either String ()
+testHaskell2010Core0Foldl = do
+  coreModule <- typecheckHaskell2010 haskell2010FoldlSource
+  assertBool "Prelude foldl binding is emitted" (containsBindingOccurrence "foldl" coreModule)
+  expectCoreEvalIO "Prelude foldl Core oracle" haskell2010FoldlOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0PreludeFunctions :: Either String ()
+testHaskell2010Core0PreludeFunctions = do
+  coreModule <- typecheckHaskell2010 haskell2010PreludeFunctionsSource
+  assertBool
+    "Prelude function-completion bindings are emitted"
+    (all (`containsBindingOccurrence` coreModule) ["$", ".", "flip", "head", "tail", "null", "fst", "snd"])
+  expectCoreEvalIO "Prelude function completion Core oracle" haskell2010PreludeFunctionsOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0NumericDefaulting :: Either String ()
 testHaskell2010Core0NumericDefaulting = do
   coreModule <- typecheckHaskell2010 haskell2010NumericDefaultingSource
@@ -1553,6 +2218,17 @@ testHaskell2010Core0NumericDefaulting = do
   assertBool "Prelude fromInteger selector is emitted" (containsBindingOccurrence "fromInteger" coreModule)
   assertBool "Prelude Show Int instance dictionary is emitted" (containsBindingOccurrence "$fShowInt" coreModule)
   expectCoreEvalIO "numeric defaulting Core oracle" "7\n47\n" =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0NumericHierarchy :: Either String ()
+testHaskell2010Core0NumericHierarchy = do
+  coreModule <- typecheckHaskell2010 haskell2010NumericHierarchySource
+  assertBool "Prelude Real dictionary constructor is recorded" (containsConstructorOccurrence "$MkRealDict" coreModule)
+  assertBool "Prelude Integral dictionary constructor is recorded" (containsConstructorOccurrence "$MkIntegralDict" coreModule)
+  assertBool "Prelude Real Int instance dictionary is emitted" (containsBindingOccurrence "$fRealInt" coreModule)
+  assertBool "Prelude Integral Int instance dictionary is emitted" (containsBindingOccurrence "$fIntegralInt" coreModule)
+  assertBool "Prelude quot selector is emitted" (containsBindingOccurrence "quot" coreModule)
+  assertBool "Prelude divMod selector is emitted" (containsBindingOccurrence "divMod" coreModule)
+  expectCoreEvalIO "numeric hierarchy Core oracle" haskell2010NumericHierarchyOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
 testHaskell2010MonomorphismRestrictionDefaulting :: Either String ()
 testHaskell2010MonomorphismRestrictionDefaulting = do
@@ -1568,6 +2244,12 @@ testHaskell2010Core0MultiModuleImports = do
   assertBool "imported constructor metadata is emitted" (containsConstructorOccurrence "Box" coreModule)
   expectCoreEvalInt "multi-module Core oracle" 24 =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0ModuleInstanceImports :: Either String ()
+testHaskell2010Core0ModuleInstanceImports = do
+  coreModule <- typecheckHaskell2010Modules haskell2010InstanceImportSources
+  assertBool "source instance dictionary is emitted from hidden provider" (containsBindingPrefix "$fMeasureBox" coreModule)
+  expectCoreEvalInt "transitive instance-import Core oracle" 42 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0IOPrinting :: Either String ()
 testHaskell2010Core0IOPrinting = do
   coreModule <- typecheckHaskell2010 haskell2010IOPrintingSource
@@ -1579,6 +2261,32 @@ testHaskell2010Core0IOPrinting = do
   assertBool "Prelude return binding is emitted" (containsBindingOccurrence "return" coreModule)
   assertBool "Prelude >> binding is emitted" (containsBindingOccurrence ">>" coreModule)
   expectCoreEvalIO "IO printing Core oracle" "ok\nanswer\n42\nTrue\n" =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0IONormalExamples :: Either String ()
+testHaskell2010Core0IONormalExamples = do
+  coreModule <- typecheckHaskell2010 haskell2010IONormalExamplesSource
+  assertBool "Prelude >>= binding is emitted" (containsBindingOccurrence ">>=" coreModule)
+  assertBool "Prelude Show Char instance dictionary is emitted" (containsBindingOccurrence "$fShowChar" coreModule)
+  assertBool "Prelude Show String instance dictionary is emitted" (containsBindingOccurrence "$fShowString" coreModule)
+  assertBool "Prelude generic Show list dictionary is emitted" (containsBindingOccurrence "$fShowList" coreModule)
+  expectCoreEvalIO "normal IO examples Core oracle" haskell2010IONormalExamplesOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0IOGetLine :: Either String ()
+testHaskell2010Core0IOGetLine = do
+  coreModule <- typecheckHaskell2010 haskell2010IOGetLineSource
+  assertBool "Prelude getLine binding is emitted" (containsBindingOccurrence "getLine" coreModule)
+  assertBool "Prelude append binding is emitted for getLine output formatting" (containsBindingOccurrence "++" coreModule)
+  expectCoreEvalIO "IO getLine empty-stdin Core oracle" haskell2010IOGetLineEmptyOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0Monad :: Either String ()
+testHaskell2010Core0Monad = do
+  coreModule <- typecheckHaskell2010 haskell2010MonadSource
+  assertBool "Prelude Monad dictionary constructor is recorded" (containsConstructorOccurrence "$MkMonadDict" coreModule)
+  assertBool "Prelude Monad IO instance dictionary is emitted" (containsBindingOccurrence "$fMonadIO" coreModule)
+  assertBool "Prelude Monad Maybe instance dictionary is emitted" (containsBindingOccurrence "$fMonadMaybe" coreModule)
+  assertBool "Prelude Monad list instance dictionary is emitted" (containsBindingOccurrence "$fMonadList" coreModule)
+  assertBool "Prelude fail selector is emitted" (containsBindingOccurrence "fail" coreModule)
+  expectCoreEvalIO "Monad Core oracle" haskell2010MonadOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
 testHaskell2010Core0GuardsAndAsPatterns :: Either String ()
 testHaskell2010Core0GuardsAndAsPatterns = do
@@ -1607,9 +2315,123 @@ testHaskell2010Core0Sections = do
  where
   intToInt = H2010Core.funTy H2010Core.intTy H2010Core.intTy
 
+testHaskell2010Core0UserDefinedOperators :: Either String ()
+testHaskell2010Core0UserDefinedOperators = do
+  coreModule <- typecheckHaskell2010 haskell2010UserDefinedOperatorsSource
+  mapM_
+    (\occurrence -> assertBool ("user-defined operator binding emitted: " <> Text.unpack occurrence) (containsBindingOccurrence occurrence coreModule))
+    ["<+>", "<->", "combine", "++"]
+  (ltPlusGtBinder, _) <- lookupCoreBindingOccurrence "<+>" coreModule
+  (combineBinder, _) <- lookupCoreBindingOccurrence "combine" coreModule
+  (appendBinder, _) <- lookupCoreBindingOccurrence "++" coreModule
+  expectEqual "symbolic operator Core type" intBinary (H2010Core.coreBinderType ltPlusGtBinder)
+  expectEqual "backtick operator Core type" intBinary (H2010Core.coreBinderType combineBinder)
+  expectEqual "local append-shadowing Core type" intBinary (H2010Core.coreBinderType appendBinder)
+  expectCoreEvalInt "user-defined operator Core oracle" 537 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+ where
+  intBinary = H2010Core.funTy H2010Core.intTy (H2010Core.funTy H2010Core.intTy H2010Core.intTy)
+
+testHaskell2010Core0ArithmeticSequences :: Either String ()
+testHaskell2010Core0ArithmeticSequences = do
+  coreModule <- typecheckHaskell2010 haskell2010ArithmeticSequencesSource
+  assertBool "Int enumFromTo helper is emitted" (containsBindingOccurrence "$enumFromToInt" coreModule)
+  assertBool "Int enumFromThenTo helper is emitted" (containsBindingOccurrence "$enumFromThenToInt" coreModule)
+  assertBool "Char enumFromThenTo helper is emitted" (containsBindingOccurrence "$enumFromThenToChar" coreModule)
+  assertBool "open Int enumFrom helper is emitted" (containsBindingOccurrence "$enumFromInt" coreModule)
+  expectCoreEvalIO "arithmetic sequence Core oracle" haskell2010ArithmeticSequencesOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0EnumBounded :: Either String ()
+testHaskell2010Core0EnumBounded = do
+  coreModule <- typecheckHaskell2010 haskell2010EnumBoundedSource
+  assertBool "Prelude Enum dictionary constructor is recorded" (containsConstructorOccurrence "$MkEnumDict" coreModule)
+  assertBool "Prelude Bounded dictionary constructor is recorded" (containsConstructorOccurrence "$MkBoundedDict" coreModule)
+  assertBool "Prelude Enum Int instance dictionary is emitted" (containsBindingOccurrence "$fEnumInt" coreModule)
+  assertBool "Prelude Enum Char instance dictionary is emitted" (containsBindingOccurrence "$fEnumChar" coreModule)
+  assertBool "Prelude Bounded Bool instance dictionary is emitted" (containsBindingOccurrence "$fBoundedBool" coreModule)
+  assertBool "Enum helper support is emitted" (containsBindingOccurrence "$enumFromToChar" coreModule)
+  expectCoreEvalIO "Enum/Bounded Core oracle" haskell2010EnumBoundedOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0DerivedEq :: Either String ()
+testHaskell2010Core0DerivedEq = do
+  coreModule <- typecheckHaskell2010 haskell2010DerivedEqSource
+  assertBool "Prelude Eq dictionary constructor is recorded" (containsConstructorOccurrence "$MkEqDict" coreModule)
+  assertBool "derived Eq Flag dictionary is emitted" (containsBindingPrefix "$fEqFlag" coreModule)
+  assertBool "derived Eq Box dictionary is emitted" (containsBindingPrefix "$fEqBox" coreModule)
+  assertBool "derived Eq Tree dictionary is emitted" (containsBindingPrefix "$fEqTree" coreModule)
+  assertBool "generic Eq list dictionary is emitted" (containsBindingOccurrence "$fEqList" coreModule)
+  assertBool "generic Eq list method helper is emitted" (containsBindingOccurrence "$eq_list" coreModule)
+  expectCoreEvalInt "derived Eq Core oracle" 10 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0DerivedOrd :: Either String ()
+testHaskell2010Core0DerivedOrd = do
+  coreModule <- typecheckHaskell2010 haskell2010DerivedOrdSource
+  assertBool "Prelude Ord dictionary constructor is recorded" (containsConstructorOccurrence "$MkOrdDict" coreModule)
+  assertBool "derived Ord Rank dictionary is emitted" (containsBindingPrefix "$fOrdRank" coreModule)
+  assertBool "derived Ord Box dictionary is emitted" (containsBindingPrefix "$fOrdBox" coreModule)
+  assertBool "derived Ord Tree dictionary is emitted" (containsBindingPrefix "$fOrdTree" coreModule)
+  assertBool "generic Ord list dictionary is emitted" (containsBindingOccurrence "$fOrdList" coreModule)
+  assertBool "generic Ord list compare helper is emitted" (containsBindingOccurrence "$compare_list" coreModule)
+  expectCoreEvalInt "derived Ord Core oracle" 11 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0DerivedShow :: Either String ()
+testHaskell2010Core0DerivedShow = do
+  coreModule <- typecheckHaskell2010 haskell2010DerivedShowSource
+  assertBool "Prelude Show dictionary constructor is recorded" (containsConstructorOccurrence "$MkShowDict" coreModule)
+  assertBool "derived Show Flag dictionary is emitted" (containsBindingPrefix "$fShowFlag" coreModule)
+  assertBool "derived Show Box dictionary is emitted" (containsBindingPrefix "$fShowBox" coreModule)
+  assertBool "derived Show Tree dictionary is emitted" (containsBindingPrefix "$fShowTree" coreModule)
+  assertBool "generic Show list dictionary is emitted" (containsBindingOccurrence "$fShowList" coreModule)
+  expectCoreEvalIO "derived Show Core oracle" haskell2010DerivedShowOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0DerivedEnum :: Either String ()
+testHaskell2010Core0DerivedEnum = do
+  coreModule <- typecheckHaskell2010 haskell2010DerivedEnumSource
+  assertBool "Prelude Enum dictionary constructor is recorded" (containsConstructorOccurrence "$MkEnumDict" coreModule)
+  assertBool "derived Enum Direction dictionary is emitted" (containsBindingPrefix "$fEnumDirection" coreModule)
+  assertBool "derived Enum singleton dictionary is emitted" (containsBindingPrefix "$fEnumSingleton" coreModule)
+  assertBool "derived Enum keeps Int range helper support" (containsBindingOccurrence "$enumFromThenToInt" coreModule)
+  expectCoreEvalIO "derived Enum Core oracle" haskell2010DerivedEnumOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0DerivedBounded :: Either String ()
+testHaskell2010Core0DerivedBounded = do
+  coreModule <- typecheckHaskell2010 haskell2010DerivedBoundedSource
+  assertBool "Prelude Bounded dictionary constructor is recorded" (containsConstructorOccurrence "$MkBoundedDict" coreModule)
+  assertBool "derived Bounded Direction dictionary is emitted" (containsBindingPrefix "$fBoundedDirection" coreModule)
+  assertBool "derived Bounded Pair dictionary is emitted" (containsBindingPrefix "$fBoundedPair" coreModule)
+  assertBool "derived Bounded record dictionary is emitted" (containsBindingPrefix "$fBoundedRecord" coreModule)
+  assertBool "derived Bounded newtype dictionary is emitted" (containsBindingPrefix "$fBoundedFlag" coreModule)
+  expectCoreEvalIO "derived Bounded Core oracle" haskell2010DerivedBoundedOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0ListComprehensions :: Either String ()
+testHaskell2010Core0ListComprehensions = do
+  coreModule <- typecheckHaskell2010 haskell2010ListComprehensionsSource
+  assertBool "list comprehension emits list cases" (countCasesInModule coreModule >= 6)
+  expectCoreEvalIO "list comprehension Core oracle" haskell2010ListComprehensionsOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0RejectsInvalidDerivedEnum :: Either String ()
+testHaskell2010Core0RejectsInvalidDerivedEnum =
+  case typecheckHaskell2010Raw haskell2010InvalidDerivedEnumSource of
+    Left err ->
+      assertBool
+        "invalid derived Enum diagnostic mentions nullary constructors"
+        ("requires only nullary constructors" `Text.isInfixOf` H2010Typecheck.renderTypecheckError err)
+    Right coreModule ->
+      Left ("invalid derived Enum unexpectedly typechecked:\n" <> show coreModule)
+
+testHaskell2010Core0RejectsInvalidDerivedBounded :: Either String ()
+testHaskell2010Core0RejectsInvalidDerivedBounded =
+  case typecheckHaskell2010Raw haskell2010InvalidDerivedBoundedSource of
+    Left err ->
+      assertBool
+        "invalid derived Bounded diagnostic mentions enumeration or single constructor"
+        ("requires an enumeration or a single constructor" `Text.isInfixOf` H2010Typecheck.renderTypecheckError err)
+    Right coreModule ->
+      Left ("invalid derived Bounded unexpectedly typechecked:\n" <> show coreModule)
+
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries :: Either String ()
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
   expectTypecheckMessage "rejects duplicate concrete instances" "duplicate instance" duplicateInstanceSource
+    *> expectTypecheckMessage "rejects overlapping instances" "overlapping instance" overlappingInstanceSource
     *> expectTypecheckMessage "rejects missing instance methods" "missing instance method" missingInstanceMethodSource
     *> expectTypecheckMessage "rejects unsolved Prelude class dictionaries" "unsolved type-class constraint" unsolvedPreludeConstraintSource
  where
@@ -1637,6 +2459,17 @@ testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
     \  equal :: a -> a -> Bool\n\
     \data Box = Box Int\n\
     \instance Equal Box where {}\n\
+    \main = 1\n"
+
+  overlappingInstanceSource =
+    "module Main where\n\
+    \class Tag a where\n\
+    \  tag :: a -> Int\n\
+    \data Box a = Box a\n\
+    \instance Tag (Box a) where\n\
+    \  tag (Box _) = 0\n\
+    \instance Tag (Box Int) where\n\
+    \  tag (Box x) = x\n\
     \main = 1\n"
 
   unsolvedPreludeConstraintSource =
@@ -1677,8 +2510,496 @@ testHaskell2010TypeErrorDiagnosticsWithSpans =
       Left err -> Left ("expected source-spanned type error, got: " <> show err)
       Right coreModule -> Left ("ill-typed source typechecked unexpectedly: " <> show coreModule)
 
-testHaskell2010ExhaustivenessWarningPlaceholders :: Either String ()
-testHaskell2010ExhaustivenessWarningPlaceholders = do
+testHaskell2010ForeignTypechecking :: Either String ()
+testHaskell2010ForeignTypechecking = do
+  expectForeignImportCoreSTG
+    "static import over Haskell Int"
+    (ForeignCallIR True)
+    "module Core0 where\n\
+    \foreign import ccall \"abs\" c_abs :: Int -> IO Int\n\
+    \main = do\n\
+    \  value <- c_abs 1\n\
+    \  print value\n"
+  expectForeignCallEvaluatesArguments
+  expectForeignImportDeclaration
+    "static import over Foreign.C.Types"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"abs\" c_abs :: CInt -> IO CInt\n\
+    \main = 1\n"
+    "declare i32 @abs(i32)"
+  expectForeignImportDeclaration
+    "static unsigned import over Foreign.C.Types"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CUInt)\n\
+    \foreign import ccall \"hegglog_ffi_identity_u32\" c_id_u32 :: CUInt -> IO CUInt\n\
+    \main = 1\n"
+    "declare i32 @hegglog_ffi_identity_u32(i32)"
+  expectForeignImportCoreSTG
+    "dynamic import shape"
+    (ForeignCallIR False)
+    "module Core0 where\n\
+    \import Foreign (FunPtr)\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"dynamic\" mkFun :: FunPtr (CInt -> IO CInt) -> CInt -> IO CInt\n\
+    \main = 1\n"
+  expectForeignImportCoreSTG
+    "wrapper import shape"
+    (ForeignCallIR False)
+    "module Core0 where\n\
+    \import Foreign (FunPtr)\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"wrapper\" wrapFun :: (CInt -> IO CInt) -> IO (FunPtr (CInt -> IO CInt))\n\
+    \main = 1\n"
+  expectForeignImportCoreSTG
+    "address import shape"
+    ForeignImportValueIR
+    "module Core0 where\n\
+    \import Foreign (Ptr)\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"&errno\" c_errno :: Ptr CInt\n\
+    \main = 1\n"
+  expectForeignImportValueDeclaration
+    "address import native declaration"
+    "module Core0 where\n\
+    \import Foreign (Ptr)\n\
+    \foreign import ccall \"&hegglog_ffi_global_i64\" c_global :: Ptr Int\n\
+    \main = 1\n"
+    "@hegglog_ffi_global_i64 = external global i8"
+  expectForeignImportCoreSTG
+    "opaque Foreign.C.Types names"
+    ForeignImportValueIR
+    "module Core0 where\n\
+    \import Foreign (Ptr)\n\
+    \import Foreign.C.Types (CFile)\n\
+    \foreign import ccall \"&stdin\" c_stdin :: Ptr CFile\n\
+    \main = 1\n"
+  expectForeignImportCoreSTG
+    "type synonym expansion and local newtype validation"
+    (ForeignCallIR False)
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \type MyCInt = CInt\n\
+    \newtype FD = FD MyCInt\n\
+    \foreign import ccall \"fd\" c_fd :: FD -> IO MyCInt\n\
+    \main = 1\n"
+  expectForeignExportCoreSTG
+    "foreign export metadata and native entrypoint"
+    "module Core0 where\n\
+    \identity :: Int -> Int\n\
+    \identity x = x\n\
+    \foreign export ccall \"hs_identity\" identity :: Int -> Int\n\
+    \main = 1\n"
+    "hs_identity"
+ where
+  expectForeignImportCoreSTG label expectedIR source = do
+    case typecheckHaskell2010Raw source of
+      Right coreModule -> do
+        assertBool (label <> ": Core contains expected foreign IR") (coreModuleHasForeignIR expectedIR coreModule)
+        stgProgram <-
+          mapLeft
+            (Text.unpack . H2010STGLower.renderSTGLowerError)
+            (H2010STGLower.lowerCoreModule coreModule)
+        assertBool (label <> ": STG contains expected foreign IR") (stgProgramHasForeignIR expectedIR stgProgram)
+        case expectedIR of
+          ForeignCallIR True ->
+            expectForeignRuntimeUnsupported label coreModule stgProgram
+          ForeignCallIR False ->
+            Right ()
+          ForeignImportValueIR ->
+            Right ()
+      Left err ->
+        Left (label <> ": expected FFI Core/STG IR, got typecheck diagnostic: " <> Text.unpack (H2010Typecheck.renderTypecheckError err))
+
+  expectForeignExportCoreSTG label source expectedSymbol =
+    case typecheckHaskell2010Raw source of
+      Right coreModule -> do
+        assertBool
+          (label <> ": Core carries foreign export metadata")
+          ( any
+              ((== Just expectedSymbol) . H2010.foreignExportEntitySymbol . H2010Core.coreForeignExportEntity)
+              (H2010Core.coreModuleForeignExports coreModule)
+          )
+        stgProgram <-
+          mapLeft
+            (Text.unpack . H2010STGLower.renderSTGLowerError)
+            (H2010STGLower.lowerCoreModule coreModule)
+        assertBool
+          (label <> ": STG carries foreign export metadata")
+          ( any
+              ((== Just expectedSymbol) . H2010.foreignExportEntitySymbol . H2010Core.coreForeignExportEntity)
+              (H2010STG.stgProgramForeignExports stgProgram)
+          )
+        case H2010STGLLVM.lowerSTGProgramToLLVM "main" stgProgram of
+          Right llvmModule ->
+            assertBool
+              (label <> ": native backend defines exported C symbol")
+              (any ((== expectedSymbol) . LIR.functionName) (LIR.moduleFunctions llvmModule))
+          Left err ->
+            Left (label <> ": expected native foreign export lowering, got " <> Text.unpack (H2010STGLLVM.renderSTGLLVMError err))
+      Left err ->
+        Left (label <> ": expected foreign export Core/STG metadata, got typecheck diagnostic: " <> Text.unpack (H2010Typecheck.renderTypecheckError err))
+
+  expectForeignRuntimeUnsupported label coreModule stgProgram = do
+    case H2010CoreEval.evalCoreModuleBindingByOccurrence "main" coreModule of
+      Left err
+        | "foreign call" `Text.isInfixOf` H2010CoreEval.renderCoreEvalError err ->
+            Right ()
+      Left err ->
+        Left (label <> ": expected Core foreign-call runtime boundary, got " <> Text.unpack (H2010CoreEval.renderCoreEvalError err))
+      Right value ->
+        Left (label <> ": Core foreign call evaluated unexpectedly to " <> Text.unpack (H2010CoreEval.renderCoreValue value))
+    case H2010STGEval.evalSTGProgramBindingByOccurrence "main" stgProgram of
+      Left err
+        | "foreign call" `Text.isInfixOf` H2010STGEval.renderSTGEvalError err ->
+            Right ()
+      Left err ->
+        Left (label <> ": expected STG foreign-call runtime boundary, got " <> Text.unpack (H2010STGEval.renderSTGEvalError err))
+      Right value ->
+        Left (label <> ": STG foreign call evaluated unexpectedly to " <> Text.unpack (H2010STGEval.renderSTGValue value))
+    case H2010STGLLVM.lowerSTGProgramToLLVM "main" stgProgram of
+      Right llvmModule ->
+        assertBool
+          (label <> ": native FFI declares static ccall symbol")
+          ("declare i64 @abs(i64)" `elem` LIR.moduleDeclarations llvmModule)
+      Left err ->
+        Left (label <> ": expected native static ccall lowering, got " <> Text.unpack (H2010STGLLVM.renderSTGLLVMError err))
+
+  expectForeignImportDeclaration label source expectedDeclaration =
+    case typecheckHaskell2010Raw source of
+      Right coreModule -> do
+        assertBool (label <> ": Core contains static foreign call IR") (coreModuleHasForeignIR (ForeignCallIR True) coreModule)
+        stgProgram <-
+          mapLeft
+            (Text.unpack . H2010STGLower.renderSTGLowerError)
+            (H2010STGLower.lowerCoreModule coreModule)
+        assertBool (label <> ": STG contains static foreign call IR") (stgProgramHasForeignIR (ForeignCallIR True) stgProgram)
+        case H2010STGLLVM.lowerSTGProgramToLLVM "main" stgProgram of
+          Right llvmModule ->
+            assertBool
+              (label <> ": native FFI declares expected static ccall ABI")
+              (expectedDeclaration `elem` LIR.moduleDeclarations llvmModule)
+          Left err ->
+            Left (label <> ": expected native static ccall declaration lowering, got " <> Text.unpack (H2010STGLLVM.renderSTGLLVMError err))
+      Left err ->
+        Left (label <> ": expected FFI Core/STG IR, got typecheck diagnostic: " <> Text.unpack (H2010Typecheck.renderTypecheckError err))
+
+  expectForeignImportValueDeclaration label source expectedDeclaration =
+    case typecheckHaskell2010Raw source of
+      Right coreModule -> do
+        assertBool (label <> ": Core contains foreign import value IR") (coreModuleHasForeignIR ForeignImportValueIR coreModule)
+        stgProgram <-
+          mapLeft
+            (Text.unpack . H2010STGLower.renderSTGLowerError)
+            (H2010STGLower.lowerCoreModule coreModule)
+        assertBool (label <> ": STG contains foreign import value IR") (stgProgramHasForeignIR ForeignImportValueIR stgProgram)
+        case H2010STGLLVM.lowerSTGProgramToLLVM "main" stgProgram of
+          Right llvmModule ->
+            assertBool
+              (label <> ": native FFI declares expected address symbol")
+              (expectedDeclaration `elem` LIR.moduleDeclarations llvmModule)
+          Left err ->
+            Left (label <> ": expected native address declaration lowering, got " <> Text.unpack (H2010STGLLVM.renderSTGLLVMError err))
+      Left err ->
+        Left (label <> ": expected FFI Core/STG IR, got typecheck diagnostic: " <> Text.unpack (H2010Typecheck.renderTypecheckError err))
+
+  expectForeignCallEvaluatesArguments = do
+    coreModule <-
+      mapLeft
+        (Text.unpack . H2010Typecheck.renderTypecheckError)
+        ( typecheckHaskell2010Raw
+            "module Core0 where\n\
+            \foreign import ccall \"abs\" c_abs :: Int -> IO Int\n\
+            \bad = 1 / 0\n\
+            \main = c_abs bad\n"
+        )
+    case H2010CoreEval.evalCoreModuleBindingByOccurrence "main" coreModule of
+      Left H2010CoreEval.CoreEvalDivisionByZero ->
+        Right ()
+      Left err ->
+        Left ("foreign call Core argument strictness: expected division by zero, got " <> Text.unpack (H2010CoreEval.renderCoreEvalError err))
+      Right value ->
+        Left ("foreign call Core argument strictness: evaluated unexpectedly to " <> Text.unpack (H2010CoreEval.renderCoreValue value))
+    stgProgram <-
+      mapLeft
+        (Text.unpack . H2010STGLower.renderSTGLowerError)
+        (H2010STGLower.lowerCoreModule coreModule)
+    case H2010STGEval.evalSTGProgramBindingByOccurrence "main" stgProgram of
+      Left H2010STGEval.STGEvalDivisionByZero ->
+        Right ()
+      Left err ->
+        Left ("foreign call STG argument strictness: expected division by zero, got " <> Text.unpack (H2010STGEval.renderSTGEvalError err))
+      Right value ->
+        Left ("foreign call STG argument strictness: evaluated unexpectedly to " <> Text.unpack (H2010STGEval.renderSTGValue value))
+
+testHaskell2010ForeignPtrStablePtrTypechecking :: Either String ()
+testHaskell2010ForeignPtrStablePtrTypechecking = do
+  coreModule <-
+    typecheckHaskell2010
+      "module Core0 where\n\
+      \import Foreign (Ptr, FunPtr, StablePtr, ForeignPtr, newStablePtr, deRefStablePtr, freeStablePtr, castStablePtrToPtr, castPtrToStablePtr, newForeignPtr, newForeignPtr_, addForeignPtrFinalizer, finalizeForeignPtr, withForeignPtr, touchForeignPtr)\n\
+      \foreign import ccall \"&hegglog_ffi_global_i64\" c_global :: Ptr Int\n\
+      \foreign import ccall \"&hegglog_ffi_count_i64_finalizer\" c_finalizer :: FunPtr (Ptr Int -> IO ())\n\
+      \foreign import ccall \"hegglog_ffi_read_i64_ptr\" c_read :: Ptr Int -> IO Int\n\
+      \stableRoundTrip :: Int -> IO Int\n\
+      \stableRoundTrip value = do\n\
+      \  stable <- newStablePtr value\n\
+      \  first <- deRefStablePtr stable\n\
+      \  let raw = castStablePtrToPtr stable\n\
+      \  second <- deRefStablePtr (castPtrToStablePtr raw)\n\
+      \  freeStablePtr stable\n\
+      \  return (first + second)\n\
+      \foreignRoundTrip :: IO Int\n\
+      \foreignRoundTrip = do\n\
+      \  managed <- newForeignPtr c_finalizer c_global\n\
+      \  addForeignPtrFinalizer c_finalizer managed\n\
+      \  value <- withForeignPtr managed c_read\n\
+      \  touchForeignPtr managed\n\
+      \  finalizeForeignPtr managed\n\
+      \  unmanaged <- newForeignPtr_ c_global\n\
+      \  withForeignPtr unmanaged c_read\n\
+      \main = do\n\
+      \  stableRoundTrip 21\n\
+      \  foreignRoundTrip\n"
+  stgProgram <-
+    mapLeft
+      (Text.unpack . H2010STGLower.renderSTGLowerError)
+      (H2010STGLower.lowerCoreModule coreModule)
+  assertBool "StablePtr primitive appears in Core" (coreModuleHasPrim H2010Core.PrimNewStablePtr coreModule)
+    *> assertBool "ForeignPtr primitive appears in Core" (coreModuleHasPrim H2010Core.PrimWithForeignPtr coreModule)
+    *> assertBool "StablePtr primitive appears in STG" (stgProgramHasPrim H2010Core.PrimNewStablePtr stgProgram)
+    *> assertBool "ForeignPtr primitive appears in STG" (stgProgramHasPrim H2010Core.PrimWithForeignPtr stgProgram)
+
+data ForeignIRExpectation
+  = ForeignCallIR Bool
+  | ForeignImportValueIR
+  deriving stock (Show, Eq)
+
+coreModuleHasForeignIR :: ForeignIRExpectation -> H2010Core.CoreModule -> Bool
+coreModuleHasForeignIR expected (H2010Core.CoreModule _ _ binds _foreignExports) =
+  any (coreBindHasForeignIR expected) binds
+
+coreBindHasForeignIR :: ForeignIRExpectation -> H2010Core.CoreBind -> Bool
+coreBindHasForeignIR expected = \case
+  H2010Core.CoreNonRec _ rhs ->
+    coreExprHasForeignIR expected rhs
+  H2010Core.CoreRec pairs ->
+    any (coreExprHasForeignIR expected . snd) pairs
+
+coreExprHasForeignIR :: ForeignIRExpectation -> H2010Core.CoreExpr -> Bool
+coreExprHasForeignIR expected = \case
+  H2010Core.CForeignCall {} ->
+    case expected of
+      ForeignCallIR {} -> True
+      ForeignImportValueIR -> False
+  H2010Core.CForeignImportValue {} ->
+    expected == ForeignImportValueIR
+  H2010Core.CLam _ body _ ->
+    coreExprHasForeignIR expected body
+  H2010Core.CApp callee argument _ ->
+    coreExprHasForeignIR expected callee || coreExprHasForeignIR expected argument
+  H2010Core.CTypeLam _ body _ ->
+    coreExprHasForeignIR expected body
+  H2010Core.CTypeApp callee _ _ ->
+    coreExprHasForeignIR expected callee
+  H2010Core.CLet bind body _ ->
+    coreBindHasForeignIR expected bind || coreExprHasForeignIR expected body
+  H2010Core.CCase scrutinee _ alternatives _ ->
+    coreExprHasForeignIR expected scrutinee || any (coreAltHasForeignIR expected) alternatives
+  H2010Core.CCoerce expression _ ->
+    coreExprHasForeignIR expected expression
+  H2010Core.CPrimOp _ arguments _ ->
+    any (coreExprHasForeignIR expected) arguments
+  H2010Core.CVar {} ->
+    False
+  H2010Core.CLit {} ->
+    False
+  H2010Core.CCon {} ->
+    False
+
+coreAltHasForeignIR :: ForeignIRExpectation -> H2010Core.CoreAlt -> Bool
+coreAltHasForeignIR expected (H2010Core.CoreAlt _ _ body) =
+  coreExprHasForeignIR expected body
+
+coreModuleHasPrim :: H2010Core.CorePrimOp -> H2010Core.CoreModule -> Bool
+coreModuleHasPrim expected (H2010Core.CoreModule _ _ binds _foreignExports) =
+  any (coreBindHasPrim expected) binds
+
+coreBindHasPrim :: H2010Core.CorePrimOp -> H2010Core.CoreBind -> Bool
+coreBindHasPrim expected = \case
+  H2010Core.CoreNonRec _ rhs ->
+    coreExprHasPrim expected rhs
+  H2010Core.CoreRec pairs ->
+    any (coreExprHasPrim expected . snd) pairs
+
+coreExprHasPrim :: H2010Core.CorePrimOp -> H2010Core.CoreExpr -> Bool
+coreExprHasPrim expected = \case
+  H2010Core.CPrimOp op arguments _ ->
+    op == expected || any (coreExprHasPrim expected) arguments
+  H2010Core.CLam _ body _ ->
+    coreExprHasPrim expected body
+  H2010Core.CApp callee argument _ ->
+    coreExprHasPrim expected callee || coreExprHasPrim expected argument
+  H2010Core.CTypeLam _ body _ ->
+    coreExprHasPrim expected body
+  H2010Core.CTypeApp callee _ _ ->
+    coreExprHasPrim expected callee
+  H2010Core.CLet bind body _ ->
+    coreBindHasPrim expected bind || coreExprHasPrim expected body
+  H2010Core.CCase scrutinee _ alternatives _ ->
+    coreExprHasPrim expected scrutinee || any (coreAltHasPrim expected) alternatives
+  H2010Core.CCoerce expression _ ->
+    coreExprHasPrim expected expression
+  H2010Core.CForeignCall _ arguments _ ->
+    any (coreExprHasPrim expected) arguments
+  H2010Core.CVar {} -> False
+  H2010Core.CLit {} -> False
+  H2010Core.CCon {} -> False
+  H2010Core.CForeignImportValue {} -> False
+
+coreAltHasPrim :: H2010Core.CorePrimOp -> H2010Core.CoreAlt -> Bool
+coreAltHasPrim expected (H2010Core.CoreAlt _ _ body) =
+  coreExprHasPrim expected body
+
+stgProgramHasForeignIR :: ForeignIRExpectation -> H2010STG.STGProgram -> Bool
+stgProgramHasForeignIR expected (H2010STG.STGProgram _ binds _foreignExports) =
+  any (stgBindHasForeignIR expected) binds
+
+stgBindHasForeignIR :: ForeignIRExpectation -> H2010STG.STGBind -> Bool
+stgBindHasForeignIR expected = \case
+  H2010STG.STGNonRec _ rhs ->
+    stgRhsHasForeignIR expected rhs
+  H2010STG.STGRec pairs ->
+    any (stgRhsHasForeignIR expected . snd) pairs
+
+stgRhsHasForeignIR :: ForeignIRExpectation -> H2010STG.STGRhs -> Bool
+stgRhsHasForeignIR expected = \case
+  H2010STG.STGFunction _ body ->
+    stgExprHasForeignIR expected body
+  H2010STG.STGThunk _ body ->
+    stgExprHasForeignIR expected body
+  H2010STG.STGConstructor {} ->
+    False
+
+stgExprHasForeignIR :: ForeignIRExpectation -> H2010STG.STGExpr -> Bool
+stgExprHasForeignIR expected = \case
+  H2010STG.STGForeignCall {} ->
+    case expected of
+      ForeignCallIR {} -> True
+      ForeignImportValueIR -> False
+  H2010STG.STGForeignImportValue {} ->
+    expected == ForeignImportValueIR
+  H2010STG.STGLet bind body _ ->
+    stgBindHasForeignIR expected bind || stgExprHasForeignIR expected body
+  H2010STG.STGCase scrutinee _ alternatives _ ->
+    stgExprHasForeignIR expected scrutinee || any (stgAltHasForeignIR expected) alternatives
+  H2010STG.STGAtom {} ->
+    False
+  H2010STG.STGApp {} ->
+    False
+  H2010STG.STGPrim {} ->
+    False
+
+stgAltHasForeignIR :: ForeignIRExpectation -> H2010STG.STGAlt -> Bool
+stgAltHasForeignIR expected (H2010STG.STGAlt _ _ body) =
+  stgExprHasForeignIR expected body
+
+stgProgramHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGProgram -> Bool
+stgProgramHasPrim expected (H2010STG.STGProgram _ binds _foreignExports) =
+  any (stgBindHasPrim expected) binds
+
+stgBindHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGBind -> Bool
+stgBindHasPrim expected = \case
+  H2010STG.STGNonRec _ rhs ->
+    stgRhsHasPrim expected rhs
+  H2010STG.STGRec pairs ->
+    any (stgRhsHasPrim expected . snd) pairs
+
+stgRhsHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGRhs -> Bool
+stgRhsHasPrim expected = \case
+  H2010STG.STGFunction _ body ->
+    stgExprHasPrim expected body
+  H2010STG.STGThunk _ body ->
+    stgExprHasPrim expected body
+  H2010STG.STGConstructor {} ->
+    False
+
+stgExprHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGExpr -> Bool
+stgExprHasPrim expected = \case
+  H2010STG.STGPrim op _ _ ->
+    op == expected
+  H2010STG.STGLet bind body _ ->
+    stgBindHasPrim expected bind || stgExprHasPrim expected body
+  H2010STG.STGCase scrutinee _ alternatives _ ->
+    stgExprHasPrim expected scrutinee || any (stgAltHasPrim expected) alternatives
+  H2010STG.STGAtom {} -> False
+  H2010STG.STGApp {} -> False
+  H2010STG.STGForeignCall {} -> False
+  H2010STG.STGForeignImportValue {} -> False
+
+stgAltHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGAlt -> Bool
+stgAltHasPrim expected (H2010STG.STGAlt _ _ body) =
+  stgExprHasPrim expected body
+
+testHaskell2010RejectsInvalidForeignTypechecking :: Either String ()
+testHaskell2010RejectsInvalidForeignTypechecking = do
+  expectForeignTypeError
+    "address import rejects scalar target"
+    "foreign import address must have type Ptr a or FunPtr a"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"&errno\" c_errno :: CInt\n\
+    \main = 1\n"
+  expectForeignTypeError
+    "dynamic import rejects non-FunPtr source"
+    "foreign import dynamic must have type FunPtr ft -> ft"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"dynamic\" bad :: CInt -> CInt\n\
+    \main = 1\n"
+  expectForeignTypeError
+    "wrapper import rejects missing FunPtr result"
+    "foreign import wrapper must have type ft -> IO (FunPtr ft)"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"wrapper\" bad :: CInt -> IO CInt\n\
+    \main = 1\n"
+  expectForeignTypeError
+    "static import rejects String arguments"
+    "non-marshallable foreign argument"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"strlen\" c_strlen :: String -> IO CInt\n\
+    \main = 1\n"
+  expectForeignTypeError
+    "foreign import rejects non-Haskell-2010 calling conventions"
+    "foreign import calling convention `jvm`"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import jvm \"foreign\" foreign_value :: CInt -> CInt\n\
+    \main = 1\n"
+  expectForeignTypeError
+    "foreign export type must match exported binding"
+    "type mismatch"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \identity :: Int -> Int\n\
+    \identity x = x\n\
+    \foreign export ccall \"identity\" identity :: CInt -> CInt\n\
+    \main = 1\n"
+ where
+  expectForeignTypeError label expected source =
+    case typecheckHaskell2010Raw source of
+      Left err
+        | expected `Text.isInfixOf` H2010Typecheck.renderTypecheckError err ->
+            Right ()
+      Left err ->
+        Left (label <> ": expected diagnostic containing " <> show expected <> ", got: " <> Text.unpack (H2010Typecheck.renderTypecheckError err))
+      Right coreModule ->
+        Left (label <> ": invalid foreign declaration typechecked unexpectedly: " <> show coreModule)
+
+testHaskell2010PatternMatchDiagnostics :: Either String ()
+testHaskell2010PatternMatchDiagnostics = do
   partialCase <- typecheckHaskell2010WithWarnings haskell2010PartialCaseWarningSource
   let partialCaseWarnings = H2010Typecheck.typecheckResultWarnings partialCase
   assertBool
@@ -1699,6 +3020,14 @@ testHaskell2010ExhaustivenessWarningPlaceholders = do
     "partial function emits a function warning"
     (warningMentionsFunction (H2010Typecheck.typecheckResultWarnings partialFunction))
 
+  redundantCase <- typecheckHaskell2010WithWarnings haskell2010RedundantCaseWarningSource
+  assertBool
+    "redundant case emits an unreachable alternative warning"
+    (warningMentionsRedundantCase (H2010Typecheck.typecheckResultWarnings redundantCase))
+  assertBool
+    "redundant case warning has a source span"
+    (warningHasTestSourceSpan (H2010Typecheck.typecheckResultWarnings redundantCase))
+
   nativeResult <- compileHaskell2010Native haskell2010PartialCaseWarningSource
   assertBool
     "native result exposes typecheck warnings"
@@ -1710,16 +3039,26 @@ testHaskell2010ExhaustivenessWarningPlaceholders = do
   warningMentionsCase warnings =
     any
       ( \rendered ->
-          "non-exhaustive pattern match placeholder" `Text.isInfixOf` rendered
+          "non-exhaustive pattern match" `Text.isInfixOf` rendered
             && "case alternatives" `Text.isInfixOf` rendered
+            && "False" `Text.isInfixOf` rendered
       )
       (renderedWarnings warnings)
 
   warningMentionsFunction warnings =
     any
       ( \rendered ->
-          "non-exhaustive pattern match placeholder" `Text.isInfixOf` rendered
+          "non-exhaustive pattern match" `Text.isInfixOf` rendered
             && "function `fromJust" `Text.isInfixOf` rendered
+            && "Nothing" `Text.isInfixOf` rendered
+      )
+      (renderedWarnings warnings)
+
+  warningMentionsRedundantCase warnings =
+    any
+      ( \rendered ->
+          "redundant pattern match" `Text.isInfixOf` rendered
+            && "case alternatives" `Text.isInfixOf` rendered
       )
       (renderedWarnings warnings)
 
@@ -1827,12 +3166,68 @@ testHaskell2010Core0EvalPreludeClassDictionaries =
     6
     =<< evalHaskell2010Binding "main" haskell2010PreludeClassDictionarySource
 
+testHaskell2010Core0EvalCharRuntime :: Either String ()
+testHaskell2010Core0EvalCharRuntime =
+  expectCoreEvalInt
+    "Core-0 Char runtime evaluation"
+    1
+    =<< evalHaskell2010Binding "main" haskell2010CharRuntimeSource
+
+testHaskell2010Core0EvalStringCharList :: Either String ()
+testHaskell2010Core0EvalStringCharList =
+  expectCoreEvalInt
+    "Core-0 String Char-list evaluation"
+    5
+    =<< evalHaskell2010Binding "main" haskell2010StringCharListSource
+
+testHaskell2010Core0EvalBroadShow :: Either String ()
+testHaskell2010Core0EvalBroadShow =
+  expectCoreEvalIO
+    "Core-0 broader Show evaluation"
+    haskell2010BroadShowOutput
+    =<< evalHaskell2010Binding "main" haskell2010BroadShowSource
+
+testHaskell2010Core0EvalAppend :: Either String ()
+testHaskell2010Core0EvalAppend =
+  expectCoreEvalIO
+    "Core-0 Prelude append evaluation"
+    haskell2010AppendOutput
+    =<< evalHaskell2010Binding "main" haskell2010AppendSource
+
+testHaskell2010Core0EvalFoldl :: Either String ()
+testHaskell2010Core0EvalFoldl =
+  expectCoreEvalIO
+    "Core-0 Prelude foldl evaluation"
+    haskell2010FoldlOutput
+    =<< evalHaskell2010Binding "main" haskell2010FoldlSource
+
+testHaskell2010Core0EvalPreludeFunctions :: Either String ()
+testHaskell2010Core0EvalPreludeFunctions =
+  expectCoreEvalIO
+    "Core-0 Prelude function completion evaluation"
+    haskell2010PreludeFunctionsOutput
+    =<< evalHaskell2010Binding "main" haskell2010PreludeFunctionsSource
+
+testHaskell2010Core0EvalStandardLibraryModules :: Either String ()
+testHaskell2010Core0EvalStandardLibraryModules =
+  expectCoreEvalIO
+    "Core-0 standard library module import evaluation"
+    haskell2010StandardLibraryModulesOutput
+    =<< evalHaskell2010Binding "main" haskell2010StandardLibraryModulesSource
+
 testHaskell2010Core0EvalNumericDefaulting :: Either String ()
 testHaskell2010Core0EvalNumericDefaulting =
   expectCoreEvalIO
     "Core-0 numeric defaulting evaluation"
     "7\n47\n"
     =<< evalHaskell2010Binding "main" haskell2010NumericDefaultingSource
+
+testHaskell2010Core0EvalNumericHierarchy :: Either String ()
+testHaskell2010Core0EvalNumericHierarchy =
+  expectCoreEvalIO
+    "Core-0 numeric hierarchy evaluation"
+    haskell2010NumericHierarchyOutput
+    =<< evalHaskell2010Binding "main" haskell2010NumericHierarchySource
 
 testHaskell2010Core0EvalMultiModuleImports :: Either String ()
 testHaskell2010Core0EvalMultiModuleImports =
@@ -1842,12 +3237,41 @@ testHaskell2010Core0EvalMultiModuleImports =
     =<< evalHaskell2010CoreModuleBinding "main"
     =<< typecheckHaskell2010Modules haskell2010MultiModuleSources
 
+testHaskell2010Core0EvalModuleInstanceImports :: Either String ()
+testHaskell2010Core0EvalModuleInstanceImports =
+  expectCoreEvalInt
+    "Core-0 transitive instance-import evaluation"
+    42
+    =<< evalHaskell2010CoreModuleBinding "main"
+    =<< typecheckHaskell2010Modules haskell2010InstanceImportSources
+
 testHaskell2010Core0EvalIOPrinting :: Either String ()
 testHaskell2010Core0EvalIOPrinting =
   expectCoreEvalIO
     "Core-0 IO printing evaluation"
     "ok\nanswer\n42\nTrue\n"
     =<< evalHaskell2010Binding "main" haskell2010IOPrintingSource
+
+testHaskell2010Core0EvalIONormalExamples :: Either String ()
+testHaskell2010Core0EvalIONormalExamples =
+  expectCoreEvalIO
+    "Core-0 normal IO examples evaluation"
+    haskell2010IONormalExamplesOutput
+    =<< evalHaskell2010Binding "main" haskell2010IONormalExamplesSource
+
+testHaskell2010Core0EvalIOGetLine :: Either String ()
+testHaskell2010Core0EvalIOGetLine =
+  expectCoreEvalIO
+    "Core-0 IO getLine empty-stdin evaluation"
+    haskell2010IOGetLineEmptyOutput
+    =<< evalHaskell2010Binding "main" haskell2010IOGetLineSource
+
+testHaskell2010Core0EvalMonad :: Either String ()
+testHaskell2010Core0EvalMonad =
+  expectCoreEvalIO
+    "Core-0 Monad evaluation"
+    haskell2010MonadOutput
+    =<< evalHaskell2010Binding "main" haskell2010MonadSource
 
 testHaskell2010Core0EvalGuardsAndAsPatterns :: Either String ()
 testHaskell2010Core0EvalGuardsAndAsPatterns =
@@ -1862,6 +3286,76 @@ testHaskell2010Core0EvalSections =
     "Core-0 operator section evaluation"
     6
     =<< evalHaskell2010Binding "main" haskell2010SectionsSource
+
+testHaskell2010Core0EvalUserDefinedOperators :: Either String ()
+testHaskell2010Core0EvalUserDefinedOperators =
+  expectCoreEvalInt
+    "Core-0 user-defined operator evaluation"
+    537
+    =<< evalHaskell2010Binding "main" haskell2010UserDefinedOperatorsSource
+
+testHaskell2010Core0EvalArithmeticSequences :: Either String ()
+testHaskell2010Core0EvalArithmeticSequences =
+  expectCoreEvalIO
+    "Core-0 arithmetic sequence evaluation"
+    haskell2010ArithmeticSequencesOutput
+    =<< evalHaskell2010Binding "main" haskell2010ArithmeticSequencesSource
+
+testHaskell2010Core0EvalEnumBounded :: Either String ()
+testHaskell2010Core0EvalEnumBounded =
+  expectCoreEvalIO
+    "Core-0 Enum/Bounded evaluation"
+    haskell2010EnumBoundedOutput
+    =<< evalHaskell2010Binding "main" haskell2010EnumBoundedSource
+
+testHaskell2010Core0EvalDerivedEq :: Either String ()
+testHaskell2010Core0EvalDerivedEq =
+  expectCoreEvalInt
+    "Core-0 derived Eq evaluation"
+    10
+    =<< evalHaskell2010Binding "main" haskell2010DerivedEqSource
+
+testHaskell2010Core0EvalDerivedOrd :: Either String ()
+testHaskell2010Core0EvalDerivedOrd =
+  expectCoreEvalInt
+    "Core-0 derived Ord evaluation"
+    11
+    =<< evalHaskell2010Binding "main" haskell2010DerivedOrdSource
+
+testHaskell2010Core0EvalDerivedShow :: Either String ()
+testHaskell2010Core0EvalDerivedShow =
+  expectCoreEvalIO
+    "Core-0 derived Show evaluation"
+    haskell2010DerivedShowOutput
+    =<< evalHaskell2010Binding "main" haskell2010DerivedShowSource
+
+testHaskell2010Core0EvalDerivedEnum :: Either String ()
+testHaskell2010Core0EvalDerivedEnum =
+  expectCoreEvalIO
+    "Core-0 derived Enum evaluation"
+    haskell2010DerivedEnumOutput
+    =<< evalHaskell2010Binding "main" haskell2010DerivedEnumSource
+
+testHaskell2010Core0EvalDerivedEnumRuntimeError :: Either String ()
+testHaskell2010Core0EvalDerivedEnumRuntimeError =
+  case evalHaskell2010BindingRaw "main" haskell2010DerivedEnumRuntimeErrorSource of
+    Left (H2010CoreEval.CoreEvalNoMatchingAlternative _) -> Right ()
+    Left err -> Left ("expected derived Enum bounds runtime error, got: " <> show err)
+    Right value -> Left ("derived Enum bounds error unexpectedly returned: " <> show value)
+
+testHaskell2010Core0EvalDerivedBounded :: Either String ()
+testHaskell2010Core0EvalDerivedBounded =
+  expectCoreEvalIO
+    "Core-0 derived Bounded evaluation"
+    haskell2010DerivedBoundedOutput
+    =<< evalHaskell2010Binding "main" haskell2010DerivedBoundedSource
+
+testHaskell2010Core0EvalListComprehensions :: Either String ()
+testHaskell2010Core0EvalListComprehensions =
+  expectCoreEvalIO
+    "Core-0 list comprehension evaluation"
+    haskell2010ListComprehensionsOutput
+    =<< evalHaskell2010Binding "main" haskell2010ListComprehensionsSource
 
 testHaskell2010Core0EvalLazyLet :: Either String ()
 testHaskell2010Core0EvalLazyLet =
@@ -2106,9 +3600,44 @@ testHaskell2010CoreToSTGPreludeClassDictionaries :: Either String ()
 testHaskell2010CoreToSTGPreludeClassDictionaries =
   checkCoreToSTGInt "Core-to-STG Prelude class dictionaries" 6 haskell2010PreludeClassDictionarySource
 
+testHaskell2010CoreToSTGCharRuntime :: Either String ()
+testHaskell2010CoreToSTGCharRuntime =
+  checkCoreToSTGInt "Core-to-STG Char runtime" 1 haskell2010CharRuntimeSource
+
+testHaskell2010CoreToSTGStringCharList :: Either String ()
+testHaskell2010CoreToSTGStringCharList =
+  checkCoreToSTGInt "Core-to-STG String Char-list" 5 haskell2010StringCharListSource
+
+testHaskell2010CoreToSTGBroadShow :: Either String ()
+testHaskell2010CoreToSTGBroadShow =
+  checkCoreToSTGIO "Core-to-STG broader Show" haskell2010BroadShowOutput haskell2010BroadShowSource
+
+testHaskell2010CoreToSTGAppend :: Either String ()
+testHaskell2010CoreToSTGAppend =
+  checkCoreToSTGIO "Core-to-STG Prelude append" haskell2010AppendOutput haskell2010AppendSource
+
+testHaskell2010CoreToSTGFoldl :: Either String ()
+testHaskell2010CoreToSTGFoldl =
+  checkCoreToSTGIO "Core-to-STG Prelude foldl" haskell2010FoldlOutput haskell2010FoldlSource
+
+testHaskell2010CoreToSTGPreludeFunctions :: Either String ()
+testHaskell2010CoreToSTGPreludeFunctions =
+  checkCoreToSTGIO "Core-to-STG Prelude function completion" haskell2010PreludeFunctionsOutput haskell2010PreludeFunctionsSource
+
+testHaskell2010CoreToSTGStandardLibraryModules :: Either String ()
+testHaskell2010CoreToSTGStandardLibraryModules =
+  checkCoreToSTGIO
+    "Core-to-STG standard library module imports"
+    haskell2010StandardLibraryModulesOutput
+    haskell2010StandardLibraryModulesSource
+
 testHaskell2010CoreToSTGNumericDefaulting :: Either String ()
 testHaskell2010CoreToSTGNumericDefaulting =
   checkCoreToSTGIO "Core-to-STG numeric defaulting" "7\n47\n" haskell2010NumericDefaultingSource
+
+testHaskell2010CoreToSTGNumericHierarchy :: Either String ()
+testHaskell2010CoreToSTGNumericHierarchy =
+  checkCoreToSTGIO "Core-to-STG numeric hierarchy" haskell2010NumericHierarchyOutput haskell2010NumericHierarchySource
 
 testHaskell2010CoreToSTGMultiModuleImports :: Either String ()
 testHaskell2010CoreToSTGMultiModuleImports = do
@@ -2121,6 +3650,14 @@ testHaskell2010CoreToSTGIOPrinting :: Either String ()
 testHaskell2010CoreToSTGIOPrinting =
   checkCoreToSTGIO "Core-to-STG IO printing" "ok\nanswer\n42\nTrue\n" haskell2010IOPrintingSource
 
+testHaskell2010CoreToSTGIONormalExamples :: Either String ()
+testHaskell2010CoreToSTGIONormalExamples =
+  checkCoreToSTGIO "Core-to-STG normal IO examples" haskell2010IONormalExamplesOutput haskell2010IONormalExamplesSource
+
+testHaskell2010CoreToSTGIOGetLine :: Either String ()
+testHaskell2010CoreToSTGIOGetLine =
+  checkCoreToSTGIO "Core-to-STG IO getLine empty stdin" haskell2010IOGetLineEmptyOutput haskell2010IOGetLineSource
+
 testHaskell2010CoreToSTGGuardsAndAsPatterns :: Either String ()
 testHaskell2010CoreToSTGGuardsAndAsPatterns =
   checkCoreToSTGInt "Core-to-STG guards and as-patterns" 15 haskell2010GuardAsPatternSource
@@ -2128,6 +3665,42 @@ testHaskell2010CoreToSTGGuardsAndAsPatterns =
 testHaskell2010CoreToSTGSections :: Either String ()
 testHaskell2010CoreToSTGSections =
   checkCoreToSTGInt "Core-to-STG operator sections" 6 haskell2010SectionsSource
+
+testHaskell2010CoreToSTGUserDefinedOperators :: Either String ()
+testHaskell2010CoreToSTGUserDefinedOperators =
+  checkCoreToSTGInt "Core-to-STG user-defined operators" 537 haskell2010UserDefinedOperatorsSource
+
+testHaskell2010CoreToSTGArithmeticSequences :: Either String ()
+testHaskell2010CoreToSTGArithmeticSequences =
+  checkCoreToSTGIO "Core-to-STG arithmetic sequences" haskell2010ArithmeticSequencesOutput haskell2010ArithmeticSequencesSource
+
+testHaskell2010CoreToSTGEnumBounded :: Either String ()
+testHaskell2010CoreToSTGEnumBounded =
+  checkCoreToSTGIO "Core-to-STG Enum/Bounded" haskell2010EnumBoundedOutput haskell2010EnumBoundedSource
+
+testHaskell2010CoreToSTGDerivedEq :: Either String ()
+testHaskell2010CoreToSTGDerivedEq =
+  checkCoreToSTGInt "Core-to-STG derived Eq" 10 haskell2010DerivedEqSource
+
+testHaskell2010CoreToSTGDerivedOrd :: Either String ()
+testHaskell2010CoreToSTGDerivedOrd =
+  checkCoreToSTGInt "Core-to-STG derived Ord" 11 haskell2010DerivedOrdSource
+
+testHaskell2010CoreToSTGDerivedShow :: Either String ()
+testHaskell2010CoreToSTGDerivedShow =
+  checkCoreToSTGIO "Core-to-STG derived Show" haskell2010DerivedShowOutput haskell2010DerivedShowSource
+
+testHaskell2010CoreToSTGDerivedEnum :: Either String ()
+testHaskell2010CoreToSTGDerivedEnum =
+  checkCoreToSTGIO "Core-to-STG derived Enum" haskell2010DerivedEnumOutput haskell2010DerivedEnumSource
+
+testHaskell2010CoreToSTGDerivedBounded :: Either String ()
+testHaskell2010CoreToSTGDerivedBounded =
+  checkCoreToSTGIO "Core-to-STG derived Bounded" haskell2010DerivedBoundedOutput haskell2010DerivedBoundedSource
+
+testHaskell2010CoreToSTGListComprehensions :: Either String ()
+testHaskell2010CoreToSTGListComprehensions =
+  checkCoreToSTGIO "Core-to-STG list comprehensions" haskell2010ListComprehensionsOutput haskell2010ListComprehensionsSource
 
 testHaskell2010CoreToSTGDivisionByZero :: Either String ()
 testHaskell2010CoreToSTGDivisionByZero =
@@ -2190,6 +3763,389 @@ testHaskell2010NativeNewtypeErasure = do
     "native LLVM newtype data allocations match unwrapped Int baseline"
     (countTextOccurrences "call ptr @hegglog_hs_make_data" baselineText)
     (countTextOccurrences "call ptr @hegglog_hs_make_data" llvmText)
+
+testHaskell2010NativeCharRuntime :: Either String ()
+testHaskell2010NativeCharRuntime = do
+  charRuntimeText <- compileHaskell2010NativeText haskell2010CharRuntimeSource
+  assertBool "native LLVM boxes Char literals" ("@hegglog_hs_make_char" `Text.isInfixOf` charRuntimeText)
+  assertBool "native LLVM unboxes Char values" ("@hegglog_hs_expect_char" `Text.isInfixOf` charRuntimeText)
+  assertBool "native LLVM compares unboxed Char values" ("icmp eq i32" `Text.isInfixOf` charRuntimeText)
+  charMainText <- compileHaskell2010NativeText haskell2010CharMainSource
+  assertBool "native LLVM has a Char main format" ("@haskell2010_fmt_char" `Text.isInfixOf` charMainText)
+
+testHaskell2010NativeStringCharList :: Either String ()
+testHaskell2010NativeStringCharList = do
+  llvmText <- compileHaskell2010NativeText haskell2010StringCharListSource
+  assertBool "native LLVM boxes String literal chars" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+  assertBool "native LLVM converts show buffers to Char lists" ("@hegglog_hs_make_char_list_from_cstring" `Text.isInfixOf` llvmText)
+  assertBool "native LLVM does not emit per-literal string globals" (not ("@haskell2010_str_" `Text.isInfixOf` llvmText))
+  assertBool "native LLVM does not call special string payload allocator" (not ("call ptr @hegglog_hs_make_string" `Text.isInfixOf` llvmText))
+  outputText <- compileHaskell2010NativeText haskell2010StringOutputSource
+  assertBool "native output LLVM boxes direct String literal chars" ("@hegglog_hs_make_char" `Text.isInfixOf` outputText)
+  assertBool "native output LLVM keeps direct String literals as Char lists" (not ("@haskell2010_str_" `Text.isInfixOf` outputText))
+
+testHaskell2010NativeArithmeticSequences :: Either String ()
+testHaskell2010NativeArithmeticSequences = do
+  llvmText <- compileHaskell2010NativeText haskell2010ArithmeticSequencesSource
+  assertBool "native arithmetic sequences lower Char ordinals" ("zext i32" `Text.isInfixOf` llvmText)
+  assertBool "native arithmetic sequences rebox generated Chars" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeNumericHierarchy :: Either String ()
+testHaskell2010NativeNumericHierarchy = do
+  llvmText <- compileHaskell2010NativeText haskell2010NumericHierarchySource
+  assertBool "native Integral quot/div emits signed division" ("sdiv i64" `Text.isInfixOf` llvmText)
+  assertBool "native Integral rem/mod emits checked remainder arithmetic" ("@llvm.smul.with.overflow.i64" `Text.isInfixOf` llvmText)
+  assertBool "native Integral div/mod emits checked adjustment arithmetic" ("@llvm.ssub.with.overflow.i64" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeEnumBounded :: Either String ()
+testHaskell2010NativeEnumBounded = do
+  llvmText <- compileHaskell2010NativeText haskell2010EnumBoundedSource
+  assertBool "native Enum emits checked Int arithmetic" ("@llvm.sadd.with.overflow.i64" `Text.isInfixOf` llvmText)
+  assertBool "native Enum/Bounded emits Char boxing" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeDerivedEq :: Either String ()
+testHaskell2010NativeDerivedEq = do
+  llvmText <- compileHaskell2010NativeText haskell2010DerivedEqSource
+  assertBool "native derived Eq emits Bool branch comparisons" ("br i1" `Text.isInfixOf` llvmText)
+  assertBool "native derived Eq keeps String fields as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeDerivedOrd :: Either String ()
+testHaskell2010NativeDerivedOrd = do
+  llvmText <- compileHaskell2010NativeText haskell2010DerivedOrdSource
+  assertBool "native derived Ord emits Ordering case branches" ("br i1" `Text.isInfixOf` llvmText)
+  assertBool "native derived Ord keeps String fields as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeDerivedShow :: Either String ()
+testHaskell2010NativeDerivedShow = do
+  llvmText <- compileHaskell2010NativeText haskell2010DerivedShowSource
+  assertBool "native derived Show emits synthesized append helpers" ("derived_ushow_uappend" `Text.isInfixOf` llvmText)
+  assertBool "native derived Show keeps String fields as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeDerivedEnum :: Either String ()
+testHaskell2010NativeDerivedEnum = do
+  llvmText <- compileHaskell2010NativeText haskell2010DerivedEnumSource
+  assertBool "native derived Enum emits generated dictionary" ("fEnumDirection" `Text.isInfixOf` llvmText)
+  assertBool "native derived Enum emits Int range helper calls" ("enumFromThenToInt" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeDerivedBounded :: Either String ()
+testHaskell2010NativeDerivedBounded = do
+  llvmText <- compileHaskell2010NativeText haskell2010DerivedBoundedSource
+  assertBool "native derived Bounded emits generated product dictionary" ("fBoundedPair" `Text.isInfixOf` llvmText)
+  assertBool "native derived Bounded emits generated record dictionary" ("fBoundedRecord" `Text.isInfixOf` llvmText)
+  assertBool "native derived Bounded emits generated newtype dictionary" ("fBoundedFlag" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeAppend :: Either String ()
+testHaskell2010NativeAppend = do
+  llvmText <- compileHaskell2010NativeText haskell2010AppendSource
+  assertBool "native Prelude append emits list case dispatch" ("case_data_match" `Text.isInfixOf` llvmText)
+  assertBool "native Prelude append keeps String values as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeFoldl :: Either String ()
+testHaskell2010NativeFoldl = do
+  llvmText <- compileHaskell2010NativeText haskell2010FoldlSource
+  assertBool "native Prelude foldl emits generated binding" ("foldl" `Text.isInfixOf` llvmText)
+  assertBool "native Prelude foldl emits list case dispatch" ("case_data_match" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativePreludeFunctions :: Either String ()
+testHaskell2010NativePreludeFunctions = do
+  llvmText <- compileHaskell2010NativeText haskell2010PreludeFunctionsSource
+  assertBool "native Prelude function completion emits case dispatch" ("case_data_match" `Text.isInfixOf` llvmText)
+  assertBool "native Prelude function completion keeps String values as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeUserDefinedOperators :: Either String ()
+testHaskell2010NativeUserDefinedOperators = do
+  llvmText <- compileHaskell2010NativeText haskell2010UserDefinedOperatorsSource
+  assertBool "native LLVM emits symbolic operator binding" ("_x3c__x2b__x3e_" `Text.isInfixOf` llvmText)
+  assertBool "native LLVM emits prefix symbolic operator binding" ("_x3c__x2d__x3e_" `Text.isInfixOf` llvmText)
+  assertBool "native LLVM emits backtick value operator binding" ("combine" `Text.isInfixOf` llvmText)
+  assertBool "native LLVM emits local append-shadowing binding" ("_x2b__x2b_" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeGetLine :: Either String ()
+testHaskell2010NativeGetLine = do
+  llvmText <- compileHaskell2010NativeText haskell2010IOGetLineSource
+  assertBool "native IO getLine emits runtime helper" ("@hegglog_hs_getline" `Text.isInfixOf` llvmText)
+  assertBool "native IO getLine reads from stdin" ("declare i32 @getchar()" `Text.isInfixOf` llvmText)
+  assertBool "native IO getLine returns Char-list strings" ("call ptr @hegglog_hs_make_char(i64 %char_i64)" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeListComprehensions :: Either String ()
+testHaskell2010NativeListComprehensions = do
+  llvmText <- compileHaskell2010NativeText haskell2010ListComprehensionsSource
+  assertBool "native list comprehensions branch on guards and patterns" ("br i1" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeStaticCCall :: IO (Either String ())
+testHaskell2010NativeStaticCCall = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} ->
+      case compileHaskell2010Native haskell2010StaticCCallSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          createDirectoryIfMissing True ".context/native-tests"
+          let llvmText = H2010Native.haskell2010LLVMText result
+              outputPath = ".context/native-tests/haskell2010-static-ccall"
+              helperPath = "test/native/haskell2010/ffi_helpers.c"
+          pureChecks <-
+            pure $
+              assertBool
+                "static ccall declares pure i64 helper"
+                ("declare i64 @hegglog_ffi_add_i64(i64, i64)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "static ccall declares void IO helper"
+                  ("declare void @hegglog_ffi_reset()" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "static ccall emits direct pure helper call"
+                  ("call i64 @hegglog_ffi_add_i64" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "static ccall emits direct void helper call"
+                  ("call void @hegglog_ffi_reset()" `Text.isInfixOf` llvmText)
+          case pureChecks of
+            Left err ->
+              pure (Left err)
+            Right () -> do
+              buildResult <- LLVMTools.buildNativeExecutableWithObjects tools llvmText [helperPath] outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    expectEqual "Haskell 2010 static ccall stdout" (Text.unpack haskell2010StaticCCallOutput) stdoutText
+                  LLVMTools.NativeRunFailed code stdoutText stderrText ->
+                    Left
+                      ( "Haskell 2010 static ccall execution failed for "
+                          <> outputPath
+                          <> " with "
+                          <> show code
+                          <> "\nstdout:\n"
+                          <> stdoutText
+                          <> "\nstderr:\n"
+                          <> stderrText
+                      )
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("Haskell 2010 static ccall execution I/O error for " <> outputPath <> ": " <> message)
+
+testHaskell2010NativePointerAddressCCall :: IO (Either String ())
+testHaskell2010NativePointerAddressCCall = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} ->
+      case compileHaskell2010Native haskell2010PointerAddressCCallSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          createDirectoryIfMissing True ".context/native-tests"
+          let llvmText = H2010Native.haskell2010LLVMText result
+              outputPath = ".context/native-tests/haskell2010-pointer-address-ccall"
+              helperPath = "test/native/haskell2010/ffi_helpers.c"
+          pureChecks <-
+            pure $
+              assertBool
+                "address import declares external data symbol"
+                ("@hegglog_ffi_global_i64 = external global i8" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "function address import declares function pointer target"
+                  ("declare i64 @hegglog_ffi_inc_i64(i64)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "pointer argument ccall uses ptr ABI"
+                  ("declare i64 @hegglog_ffi_read_i64_ptr(ptr)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "pointer result ccall uses ptr ABI"
+                  ("declare ptr @hegglog_ffi_select_i64_ptr(i1)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "pointer runtime boxes raw addresses"
+                  ("call ptr @hegglog_hs_make_ptr(ptr @hegglog_ffi_global_i64)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "foreign pointer arguments are unboxed before calls"
+                  ("call ptr @hegglog_hs_expect_ptr" `Text.isInfixOf` llvmText)
+          case pureChecks of
+            Left err ->
+              pure (Left err)
+            Right () -> do
+              buildResult <- LLVMTools.buildNativeExecutableWithObjects tools llvmText [helperPath] outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    expectEqual "Haskell 2010 pointer/address ccall stdout" (Text.unpack haskell2010PointerAddressCCallOutput) stdoutText
+                  LLVMTools.NativeRunFailed code stdoutText stderrText ->
+                    Left
+                      ( "Haskell 2010 pointer/address ccall execution failed for "
+                          <> outputPath
+                          <> " with "
+                          <> show code
+                          <> "\nstdout:\n"
+                          <> stdoutText
+                          <> "\nstderr:\n"
+                          <> stderrText
+                      )
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("Haskell 2010 pointer/address ccall execution I/O error for " <> outputPath <> ": " <> message)
+
+testHaskell2010NativeDynamicWrapperCCall :: IO (Either String ())
+testHaskell2010NativeDynamicWrapperCCall = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} ->
+      case compileHaskell2010Native haskell2010DynamicWrapperCCallSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          createDirectoryIfMissing True ".context/native-tests"
+          let llvmText = H2010Native.haskell2010LLVMText result
+              outputPath = ".context/native-tests/haskell2010-dynamic-wrapper-ccall"
+              helperPath = "test/native/haskell2010/ffi_helpers.c"
+          pureChecks <-
+            pure $
+              assertBool
+                "dynamic import emits an indirect foreign call"
+                ("call i64 %ptr" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "wrapper import emits a callback entrypoint"
+                  ("define i64 @hegglog_hs_ffi_wrapper_" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "wrapper import stores the Haskell callback closure"
+                  (" = internal global [64 x ptr] zeroinitializer" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "wrapper callback re-enters Haskell function closures"
+                  ("call ptr @hegglog_hs_expect_function" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "wrapper result is boxed as a FunPtr"
+                  ("call ptr @hegglog_hs_make_ptr(ptr %wrapper_fn" `Text.isInfixOf` llvmText)
+          case pureChecks of
+            Left err ->
+              pure (Left err)
+            Right () -> do
+              buildResult <- LLVMTools.buildNativeExecutableWithObjects tools llvmText [helperPath] outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    expectEqual "Haskell 2010 dynamic/wrapper ccall stdout" (Text.unpack haskell2010DynamicWrapperCCallOutput) stdoutText
+                  LLVMTools.NativeRunFailed code stdoutText stderrText ->
+                    Left
+                      ( "Haskell 2010 dynamic/wrapper ccall execution failed for "
+                          <> outputPath
+                          <> " with "
+                          <> show code
+                          <> "\nstdout:\n"
+                          <> stdoutText
+                          <> "\nstderr:\n"
+                          <> stderrText
+                      )
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("Haskell 2010 dynamic/wrapper ccall execution I/O error for " <> outputPath <> ": " <> message)
+
+testHaskell2010NativeForeignExportCCall :: IO (Either String ())
+testHaskell2010NativeForeignExportCCall = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} ->
+      case compileHaskell2010Native haskell2010ForeignExportCCallSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          createDirectoryIfMissing True ".context/native-tests"
+          let llvmText = H2010Native.haskell2010LLVMText result
+              outputPath = ".context/native-tests/haskell2010-foreign-export-ccall"
+              helperPath = "test/native/haskell2010/ffi_export_helpers.c"
+          pureChecks <-
+            pure $
+              assertBool
+                "foreign export defines pure C entrypoint"
+                ("define i64 @hegglog_hs_export_add(i64 %arg0, i64 %arg1)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "foreign export defines IO C entrypoint"
+                  ("define i64 @hegglog_hs_export_io(i64 %arg0)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "foreign export boxes C arguments"
+                  ("call ptr @hegglog_hs_make_int(i64 %arg0)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "foreign export unboxes Haskell results"
+                  ("call i64 @hegglog_hs_expect_int" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "foreign export helper import is declared"
+                  ("declare i64 @hegglog_ffi_call_export_add(i64, i64)" `Text.isInfixOf` llvmText)
+          case pureChecks of
+            Left err ->
+              pure (Left err)
+            Right () -> do
+              buildResult <- LLVMTools.buildNativeExecutableWithObjects tools llvmText [helperPath] outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    expectEqual "Haskell 2010 foreign export ccall stdout" (Text.unpack haskell2010ForeignExportCCallOutput) stdoutText
+                  LLVMTools.NativeRunFailed code stdoutText stderrText ->
+                    Left
+                      ( "Haskell 2010 foreign export ccall execution failed for "
+                          <> outputPath
+                          <> " with "
+                          <> show code
+                          <> "\nstdout:\n"
+                          <> stdoutText
+                          <> "\nstderr:\n"
+                          <> stderrText
+                      )
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("Haskell 2010 foreign export ccall execution I/O error for " <> outputPath <> ": " <> message)
+
+testHaskell2010NativeStableForeignPtrFinalizers :: IO (Either String ())
+testHaskell2010NativeStableForeignPtrFinalizers = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} ->
+      case compileHaskell2010Native haskell2010StableForeignPtrFinalizersSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          createDirectoryIfMissing True ".context/native-tests"
+          let llvmText = H2010Native.haskell2010LLVMText result
+              outputPath = ".context/native-tests/haskell2010-stable-foreign-ptr-finalizers"
+              helperPath = "test/native/haskell2010/ffi_helpers.c"
+          pureChecks <-
+            pure $
+              assertBool
+                "StablePtr creation uses runtime ownership record"
+                ("call ptr @hegglog_hs_new_stable_ptr" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "StablePtr dereference validates liveness"
+                  ("call ptr @hegglog_hs_deref_stable_ptr" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "ForeignPtr creation uses runtime ownership record"
+                  ("call ptr @hegglog_hs_make_foreign_ptr" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "ForeignPtr finalization calls runtime finalizer dispatch"
+                  ("call void @hegglog_hs_finalize_foreign_ptr" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "ForeignPtr finalizers dispatch through function pointers"
+                  ("call void %finalizer_" `Text.isInfixOf` llvmText)
+          case pureChecks of
+            Left err ->
+              pure (Left err)
+            Right () -> do
+              buildResult <- LLVMTools.buildNativeExecutableWithObjects tools llvmText [helperPath] outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    expectEqual "Haskell 2010 StablePtr ForeignPtr stdout" (Text.unpack haskell2010StableForeignPtrFinalizersOutput) stdoutText
+                  LLVMTools.NativeRunFailed code stdoutText stderrText ->
+                    Left
+                      ( "Haskell 2010 StablePtr ForeignPtr execution failed for "
+                          <> outputPath
+                          <> " with "
+                          <> show code
+                          <> "\nstdout:\n"
+                          <> stdoutText
+                          <> "\nstderr:\n"
+                          <> stderrText
+                      )
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("Haskell 2010 StablePtr ForeignPtr execution I/O error for " <> outputPath <> ": " <> message)
 
 testHaskell2010NativeLLVMExecution :: IO (Either String ())
 testHaskell2010NativeLLVMExecution = do
@@ -2255,6 +4211,38 @@ testHaskell2010NativeExecutableExecution = do
                 )
             LLVMTools.NativeRunIOError message ->
               Left ("Haskell 2010 native execution I/O error for " <> outputPath <> ": " <> message)
+
+testHaskell2010NativeGetLineExecution :: IO (Either String ())
+testHaskell2010NativeGetLineExecution = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} -> do
+      createDirectoryIfMissing True ".context/native-tests"
+      case compileHaskell2010Native haskell2010IOGetLineSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          let outputPath = ".context/native-tests/haskell2010-io-getline"
+          buildResult <- LLVMTools.buildNativeExecutable tools (H2010Native.haskell2010LLVMText result) outputPath
+          runBuiltNativeWithInput outputPath haskell2010IOGetLineInput buildResult $ \runResult ->
+            case runResult of
+              LLVMTools.NativeRunSucceeded stdoutText ->
+                expectEqual "Haskell 2010 native getLine stdout" (Text.unpack haskell2010IOGetLineOutput) stdoutText
+              LLVMTools.NativeRunFailed code stdoutText stderrText ->
+                Left
+                  ( "Haskell 2010 native getLine execution failed for "
+                      <> outputPath
+                      <> " with "
+                      <> show code
+                      <> "\nstdout:\n"
+                      <> stdoutText
+                      <> "\nstderr:\n"
+                      <> stderrText
+                  )
+              LLVMTools.NativeRunIOError message ->
+                Left ("Haskell 2010 native getLine execution I/O error for " <> outputPath <> ": " <> message)
 
 testHaskell2010NativeRuntimeError :: IO (Either String ())
 testHaskell2010NativeRuntimeError = do
@@ -2438,6 +4426,9 @@ haskell2010CoreEgglogNativeAgreementCases =
   , ("lazy-let", haskell2010LazyLetSource, ExpectedNativeStdout "5\n")
   , ("known-constructor-forced-field", haskell2010KnownConstructorForcedFieldSource, ExpectedNativeRuntimeError)
   , ("division-by-zero", haskell2010DivisionByZeroSource, ExpectedNativeRuntimeError)
+  , ("derived-enum", haskell2010DerivedEnumSource, ExpectedNativeStdout (Text.unpack haskell2010DerivedEnumOutput))
+  , ("derived-enum-runtime-error", haskell2010DerivedEnumRuntimeErrorSource, ExpectedNativeRuntimeError)
+  , ("derived-bounded", haskell2010DerivedBoundedSource, ExpectedNativeStdout (Text.unpack haskell2010DerivedBoundedOutput))
   ]
 
 noEgglogNativeOptions :: H2010Native.Haskell2010NativeOptions
@@ -4330,9 +6321,18 @@ testNativeRuntimeErrorExecutable = do
 
 runBuiltNative :: FilePath -> LLVMTools.NativeBuildResult -> (LLVMTools.NativeRunResult -> Either String ()) -> IO (Either String ())
 runBuiltNative outputPath buildResult checkRun =
+  runBuiltNativeWithInput outputPath "" buildResult checkRun
+
+runBuiltNativeWithInput ::
+  FilePath ->
+  Text ->
+  LLVMTools.NativeBuildResult ->
+  (LLVMTools.NativeRunResult -> Either String ()) ->
+  IO (Either String ())
+runBuiltNativeWithInput outputPath stdinText buildResult checkRun =
   case buildResult of
     LLVMTools.NativeBuildSucceeded ->
-      checkRun <$> LLVMTools.runNativeExecutable outputPath
+      checkRun <$> LLVMTools.runNativeExecutableWithInput outputPath (Text.unpack stdinText)
     LLVMTools.NativeBuildToolchainMissing {} ->
       pure (Right ())
     LLVMTools.NativeBuildFailed clangPath args code stdoutText stderrText ->
@@ -5454,7 +7454,7 @@ expectCoreEvalInt label expected = \case
 
 expectCoreEvalIO :: String -> Text -> H2010CoreEval.CoreValue -> Either String ()
 expectCoreEvalIO label expected = \case
-  H2010CoreEval.CoreIO chunks ->
+  H2010CoreEval.CoreIO chunks _ ->
     expectEqual label expected (Text.concat chunks)
   actual ->
     Left
@@ -5559,11 +7559,34 @@ haskell2010NativeSuccessExamples =
   , ("recursive-pattern-binding", haskell2010RecursivePatternBindingSource, "2\n")
   , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
   , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
+  , ("char-runtime", haskell2010CharRuntimeSource, "1\n")
+  , ("char-main", haskell2010CharMainSource, "Z\n")
+  , ("string-char-list", haskell2010StringCharListSource, "5\n")
+  , ("string-output", haskell2010StringOutputSource, "native\nok\n7\n")
+  , ("string-show-output", haskell2010StringShowOutputSource, "42\nFalse\n")
+  , ("string-char-patterns", haskell2010StringCharPatternsSource, "6\n")
+  , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
+  , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
+  , ("prelude-foldl", haskell2010FoldlSource, Text.unpack haskell2010FoldlOutput)
+  , ("prelude-functions", haskell2010PreludeFunctionsSource, Text.unpack haskell2010PreludeFunctionsOutput)
+  , ("standard-library-modules", haskell2010StandardLibraryModulesSource, Text.unpack haskell2010StandardLibraryModulesOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
+  , ("numeric-hierarchy", haskell2010NumericHierarchySource, Text.unpack haskell2010NumericHierarchyOutput)
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
+  , ("io-normal-examples", haskell2010IONormalExamplesSource, Text.unpack haskell2010IONormalExamplesOutput)
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
   , ("irrefutable-patterns", haskell2010IrrefutablePatternSource, "7\n")
   , ("sections", haskell2010SectionsSource, "6\n")
+  , ("user-defined-operators", haskell2010UserDefinedOperatorsSource, "537\n")
+  , ("where-layout", haskell2010WhereLayoutSource, "14\n")
+  , ("arithmetic-sequences", haskell2010ArithmeticSequencesSource, Text.unpack haskell2010ArithmeticSequencesOutput)
+  , ("enum-bounded", haskell2010EnumBoundedSource, Text.unpack haskell2010EnumBoundedOutput)
+  , ("derived-eq", haskell2010DerivedEqSource, "10\n")
+  , ("derived-ord", haskell2010DerivedOrdSource, "11\n")
+  , ("derived-show", haskell2010DerivedShowSource, Text.unpack haskell2010DerivedShowOutput)
+  , ("derived-enum", haskell2010DerivedEnumSource, Text.unpack haskell2010DerivedEnumOutput)
+  , ("derived-bounded", haskell2010DerivedBoundedSource, Text.unpack haskell2010DerivedBoundedOutput)
+  , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-record-fields", haskell2010RecordFieldSource, "43\n")
   , ("adt-maybe", haskell2010PolymorphicADTSource, "4\n")
@@ -5581,12 +7604,193 @@ haskell2010NativeExecutableExamples =
   , ("recursive-pattern-binding", haskell2010RecursivePatternBindingSource, "2\n")
   , ("typeclass-dictionary", haskell2010TypeClassDictionarySource, "1\n")
   , ("prelude-classes", haskell2010PreludeClassDictionarySource, "6\n")
+  , ("char-runtime", haskell2010CharRuntimeSource, "1\n")
+  , ("char-main", haskell2010CharMainSource, "Z\n")
+  , ("string-char-list", haskell2010StringCharListSource, "5\n")
+  , ("string-output", haskell2010StringOutputSource, "native\nok\n7\n")
+  , ("string-show-output", haskell2010StringShowOutputSource, "42\nFalse\n")
+  , ("string-char-patterns", haskell2010StringCharPatternsSource, "6\n")
+  , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
+  , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
+  , ("prelude-foldl", haskell2010FoldlSource, Text.unpack haskell2010FoldlOutput)
+  , ("prelude-functions", haskell2010PreludeFunctionsSource, Text.unpack haskell2010PreludeFunctionsOutput)
+  , ("standard-library-modules", haskell2010StandardLibraryModulesSource, Text.unpack haskell2010StandardLibraryModulesOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
+  , ("numeric-hierarchy", haskell2010NumericHierarchySource, Text.unpack haskell2010NumericHierarchyOutput)
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
+  , ("io-normal-examples", haskell2010IONormalExamplesSource, Text.unpack haskell2010IONormalExamplesOutput)
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
   , ("irrefutable-patterns", haskell2010IrrefutablePatternSource, "7\n")
   , ("sections", haskell2010SectionsSource, "6\n")
+  , ("user-defined-operators", haskell2010UserDefinedOperatorsSource, "537\n")
+  , ("where-layout", haskell2010WhereLayoutSource, "14\n")
+  , ("arithmetic-sequences", haskell2010ArithmeticSequencesSource, Text.unpack haskell2010ArithmeticSequencesOutput)
+  , ("enum-bounded", haskell2010EnumBoundedSource, Text.unpack haskell2010EnumBoundedOutput)
+  , ("derived-eq", haskell2010DerivedEqSource, "10\n")
+  , ("derived-ord", haskell2010DerivedOrdSource, "11\n")
+  , ("derived-show", haskell2010DerivedShowSource, Text.unpack haskell2010DerivedShowOutput)
+  , ("derived-enum", haskell2010DerivedEnumSource, Text.unpack haskell2010DerivedEnumOutput)
+  , ("derived-bounded", haskell2010DerivedBoundedSource, Text.unpack haskell2010DerivedBoundedOutput)
+  , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   ]
+
+haskell2010StaticCCallSource :: Text
+haskell2010StaticCCallSource =
+  "module Main where\n\
+  \foreign import ccall \"hegglog_ffi_add_i64\" c_add :: Int -> Int -> Int\n\
+  \foreign import ccall \"hegglog_ffi_reset\" c_reset :: IO ()\n\
+  \foreign import ccall \"hegglog_ffi_accum\" c_accum :: Int -> IO Int\n\
+  \foreign import ccall \"hegglog_ffi_current\" c_current :: IO Int\n\
+  \foreign import ccall \"hegglog_ffi_bool_to_i64\" c_bool_to_i64 :: Bool -> Int\n\
+  \foreign import ccall \"hegglog_ffi_next_char\" c_next_char :: Char -> Char\n\
+  \main = do\n\
+  \  print (c_add 7 5)\n\
+  \  c_reset\n\
+  \  first <- c_accum 10\n\
+  \  second <- c_accum 32\n\
+  \  current <- c_current\n\
+  \  print first\n\
+  \  print second\n\
+  \  print current\n\
+  \  print (c_bool_to_i64 True)\n\
+  \  putStrLn [c_next_char 'A']\n"
+
+haskell2010StaticCCallOutput :: Text
+haskell2010StaticCCallOutput =
+  "12\n10\n42\n42\n11\nB\n"
+
+haskell2010PointerAddressCCallSource :: Text
+haskell2010PointerAddressCCallSource =
+  "module Main where\n\
+  \import Foreign (Ptr, FunPtr)\n\
+  \foreign import ccall \"&hegglog_ffi_global_i64\" c_global :: Ptr Int\n\
+  \foreign import ccall \"&hegglog_ffi_inc_i64\" c_inc_ptr :: FunPtr (Int -> IO Int)\n\
+  \foreign import ccall \"hegglog_ffi_read_i64_ptr\" c_read :: Ptr Int -> IO Int\n\
+  \foreign import ccall \"hegglog_ffi_write_i64_ptr\" c_write :: Ptr Int -> Int -> IO ()\n\
+  \foreign import ccall \"hegglog_ffi_select_i64_ptr\" c_select :: Bool -> IO (Ptr Int)\n\
+  \foreign import ccall \"hegglog_ffi_apply_i64\" c_apply :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
+  \main = do\n\
+  \  before <- c_read c_global\n\
+  \  print before\n\
+  \  c_write c_global 123\n\
+  \  after <- c_read c_global\n\
+  \  print after\n\
+  \  selected <- c_select True\n\
+  \  selectedValue <- c_read selected\n\
+  \  print selectedValue\n\
+  \  applied <- c_apply c_inc_ptr 41\n\
+  \  print applied\n"
+
+haskell2010PointerAddressCCallOutput :: Text
+haskell2010PointerAddressCCallOutput =
+  "77\n123\n99\n42\n"
+
+haskell2010DynamicWrapperCCallSource :: Text
+haskell2010DynamicWrapperCCallSource =
+  "module Main where\n\
+  \import Foreign (FunPtr)\n\
+  \foreign import ccall \"dynamic\" mkIntFun :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
+  \foreign import ccall \"dynamic\" mkPureFun :: FunPtr (Int -> Int) -> Int -> Int\n\
+  \foreign import ccall \"wrapper\" wrapIntFun :: (Int -> IO Int) -> IO (FunPtr (Int -> IO Int))\n\
+  \foreign import ccall \"wrapper\" wrapPureFun :: (Int -> Int) -> IO (FunPtr (Int -> Int))\n\
+  \foreign import ccall \"&hegglog_ffi_inc_i64\" c_inc_ptr :: FunPtr (Int -> IO Int)\n\
+  \foreign import ccall \"&hegglog_ffi_inc_i64\" c_inc_pure_ptr :: FunPtr (Int -> Int)\n\
+  \foreign import ccall \"hegglog_ffi_apply_i64\" c_apply :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
+  \foreign import ccall \"hegglog_ffi_apply_i64\" c_apply_pure :: FunPtr (Int -> Int) -> Int -> IO Int\n\
+  \foreign import ccall \"hegglog_ffi_apply_twice_i64\" c_apply_twice :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
+  \callback :: Int -> IO Int\n\
+  \callback value = do\n\
+  \  print value\n\
+  \  return (value + 2)\n\
+  \callback2 :: Int -> IO Int\n\
+  \callback2 value = return (value + 10)\n\
+  \pureCallback :: Int -> Int\n\
+  \pureCallback value = value + 20\n\
+  \main = do\n\
+  \  direct <- mkIntFun c_inc_ptr 10\n\
+  \  print direct\n\
+  \  print (mkPureFun c_inc_pure_ptr 20)\n\
+  \  callbackPtr <- wrapIntFun callback\n\
+  \  callbackPtr2 <- wrapIntFun callback2\n\
+  \  pureCallbackPtr <- wrapPureFun pureCallback\n\
+  \  once <- c_apply callbackPtr 40\n\
+  \  print once\n\
+  \  other <- c_apply callbackPtr2 5\n\
+  \  print other\n\
+  \  pureApplied <- c_apply_pure pureCallbackPtr 2\n\
+  \  print pureApplied\n\
+  \  twice <- c_apply_twice callbackPtr 3\n\
+  \  print twice\n"
+
+haskell2010DynamicWrapperCCallOutput :: Text
+haskell2010DynamicWrapperCCallOutput =
+  "11\n21\n40\n42\n15\n22\n3\n4\n11\n"
+
+haskell2010ForeignExportCCallSource :: Text
+haskell2010ForeignExportCCallSource =
+  "module Main where\n\
+  \foreign import ccall \"hegglog_ffi_call_export_add\" c_call_add :: Int -> Int -> IO Int\n\
+  \foreign import ccall \"hegglog_ffi_call_export_io\" c_call_io :: Int -> IO Int\n\
+  \exportedAdd :: Int -> Int -> Int\n\
+  \exportedAdd lhs rhs = lhs + rhs\n\
+  \exportedIO :: Int -> IO Int\n\
+  \exportedIO value = do\n\
+  \  print value\n\
+  \  return (value + 7)\n\
+  \foreign export ccall \"hegglog_hs_export_add\" exportedAdd :: Int -> Int -> Int\n\
+  \foreign export ccall \"hegglog_hs_export_io\" exportedIO :: Int -> IO Int\n\
+  \main = do\n\
+  \  add <- c_call_add 10 32\n\
+  \  print add\n\
+  \  io <- c_call_io 5\n\
+  \  print io\n"
+
+haskell2010ForeignExportCCallOutput :: Text
+haskell2010ForeignExportCCallOutput =
+  "42\n5\n12\n"
+
+haskell2010StableForeignPtrFinalizersSource :: Text
+haskell2010StableForeignPtrFinalizersSource =
+  "module Main where\n\
+  \import Foreign (Ptr, FunPtr, StablePtr, ForeignPtr, newStablePtr, deRefStablePtr, freeStablePtr, castStablePtrToPtr, castPtrToStablePtr, newForeignPtr, addForeignPtrFinalizer, finalizeForeignPtr, withForeignPtr, touchForeignPtr)\n\
+  \foreign import ccall \"&hegglog_ffi_global_i64\" c_global :: Ptr Int\n\
+  \foreign import ccall \"&hegglog_ffi_count_i64_finalizer\" c_finalizer :: FunPtr (Ptr Int -> IO ())\n\
+  \foreign import ccall \"hegglog_ffi_reset_finalizers\" c_reset_finalizers :: IO ()\n\
+  \foreign import ccall \"hegglog_ffi_finalizer_total_value\" c_finalizer_total :: IO Int\n\
+  \foreign import ccall \"hegglog_ffi_expect_i64\" c_expect :: Int -> Int -> IO ()\n\
+  \foreign import ccall \"hegglog_ffi_read_i64_ptr\" c_read :: Ptr Int -> IO Int\n\
+  \foreign import ccall \"hegglog_ffi_write_i64_ptr\" c_write :: Ptr Int -> Int -> IO ()\n\
+  \stableRoundTrip :: Int -> IO Int\n\
+  \stableRoundTrip value = do\n\
+  \  stable <- newStablePtr value\n\
+  \  first <- deRefStablePtr stable\n\
+  \  let raw = castStablePtrToPtr stable\n\
+  \  second <- deRefStablePtr (castPtrToStablePtr raw)\n\
+  \  freeStablePtr stable\n\
+  \  return (first + second)\n\
+  \foreignRoundTrip :: IO Int\n\
+  \foreignRoundTrip = do\n\
+  \  c_reset_finalizers\n\
+  \  c_write c_global 5\n\
+  \  managed <- newForeignPtr c_finalizer c_global\n\
+  \  first <- withForeignPtr managed c_read\n\
+  \  c_write c_global 7\n\
+  \  addForeignPtrFinalizer c_finalizer managed\n\
+  \  touchForeignPtr managed\n\
+  \  finalizeForeignPtr managed\n\
+  \  finalizeForeignPtr managed\n\
+  \  total <- c_finalizer_total\n\
+  \  return (first + total)\n\
+  \main = do\n\
+  \  stable <- stableRoundTrip 21\n\
+  \  c_expect stable 42\n\
+  \  foreignValue <- foreignRoundTrip\n\
+  \  c_expect foreignValue 19\n\
+  \  putStrLn \"ok\"\n"
+
+haskell2010StableForeignPtrFinalizersOutput :: Text
+haskell2010StableForeignPtrFinalizersOutput =
+  "ok\n"
 
 haskell2010ArithmeticSource :: Text
 haskell2010ArithmeticSource =
@@ -5609,6 +7813,7 @@ haskell2010PrimitiveArithmeticCoreModule =
                 H2010Core.intTy
             )
         ]
+    , H2010Core.coreModuleForeignExports = []
     }
 
 haskell2010KnownBoolCaseCoreModule :: H2010Core.CoreModule
@@ -5628,6 +7833,7 @@ haskell2010KnownBoolCaseCoreModule =
                 H2010Core.intTy
             )
         ]
+    , H2010Core.coreModuleForeignExports = []
     }
 
 haskell2010PolymorphicIdentitySource :: Text
@@ -5685,6 +7891,14 @@ haskell2010PartialFunctionWarningSource =
   \fromJust :: Maybe Int -> Int\n\
   \fromJust (Just x) = x\n\
   \main = fromJust (Just 1)\n"
+
+haskell2010RedundantCaseWarningSource :: Text
+haskell2010RedundantCaseWarningSource =
+  "module Main where\n\
+  \main = case True of\n\
+  \  True -> 1\n\
+  \  True -> 2\n\
+  \  False -> 0\n"
 
 haskell2010KnownConstructorCaseSource :: Text
 haskell2010KnownConstructorCaseSource =
@@ -5754,6 +7968,290 @@ haskell2010SectionsSource =
   \short = (False &&)\n\
   \main = if short ((1 / 0) == 0) then 0 else if over (right 3) then left (right 4) else 0\n"
 
+haskell2010UserDefinedOperatorsSource :: Text
+haskell2010UserDefinedOperatorsSource =
+  "module Main where\n\
+  \infixr 5 <+>\n\
+  \infixl 6 `combine`\n\
+  \infixl 7 ++\n\
+  \\n\
+  \(<->) :: Int -> Int -> Int\n\
+  \(<->) x y = x - y\n\
+  \\n\
+  \(<+>) :: Int -> Int -> Int\n\
+  \x <+> y = x * 10 + y\n\
+  \\n\
+  \combine :: Int -> Int -> Int\n\
+  \x `combine` y = x * 10 + y\n\
+  \\n\
+  \(++) :: Int -> Int -> Int\n\
+  \x ++ y = x * y\n\
+  \\n\
+  \main = (1 <+> 2 <+> 3) + (4 `combine` 5 `combine` 6) + (6 ++ 7) + (10 <-> 4)\n"
+
+haskell2010WhereLayoutSource :: Text
+haskell2010WhereLayoutSource =
+  "module Main where\n\
+  \\n\
+  \f :: Int -> Int\n\
+  \f x =\n\
+  \  y + z\n\
+  \  where\n\
+  \    y = x + 1\n\
+  \    z = 2\n\
+  \\n\
+  \g :: Maybe Int -> Int\n\
+  \g value =\n\
+  \  case value of\n\
+  \    Just n ->\n\
+  \      a + b\n\
+  \      where\n\
+  \        a = n\n\
+  \        b = 1\n\
+  \    Nothing ->\n\
+  \      0\n\
+  \\n\
+  \main = f 4 + g (Just 6)\n"
+
+haskell2010ArithmeticSequencesSource :: Text
+haskell2010ArithmeticSequencesSource =
+  "module Main where\n\
+  \ints :: [Int]\n\
+  \ints = [1..4]\n\
+  \odds :: [Int]\n\
+  \odds = [1, 3..8]\n\
+  \downs :: [Int]\n\
+  \downs = [6, 4..0]\n\
+  \chars :: String\n\
+  \chars = ['a'..'d']\n\
+  \charsDown :: String\n\
+  \charsDown = ['f', 'd'..'b']\n\
+  \openPrefix :: [Int]\n\
+  \openPrefix = case [7..] of\n\
+  \  a : b : c : _ -> [a, b, c]\n\
+  \  _ -> []\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print ints\n\
+  \  print odds\n\
+  \  print downs\n\
+  \  putStrLn chars\n\
+  \  putStrLn charsDown\n\
+  \  print openPrefix\n\
+  \  return ()\n"
+
+haskell2010ArithmeticSequencesOutput :: Text
+haskell2010ArithmeticSequencesOutput =
+  "[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]\n"
+
+haskell2010EnumBoundedSource :: Text
+haskell2010EnumBoundedSource =
+  "module Main where\n\
+  \letter :: Char\n\
+  \letter = toEnum 65\n\
+  \charCode :: Int\n\
+  \charCode = fromEnum 'A'\n\
+  \stepped :: String\n\
+  \stepped = enumFromThenTo 'a' 'c' 'g'\n\
+  \boundedBools :: [Bool]\n\
+  \boundedBools = [minBound, maxBound]\n\
+  \defaulted = enumFromTo 4 6\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (succ (41 :: Int))\n\
+  \  print (pred (43 :: Int))\n\
+  \  putStrLn (enumFromTo 'x' 'z')\n\
+  \  putStrLn stepped\n\
+  \  print charCode\n\
+  \  putStrLn [letter]\n\
+  \  print boundedBools\n\
+  \  print defaulted\n\
+  \  return ()\n"
+
+haskell2010EnumBoundedOutput :: Text
+haskell2010EnumBoundedOutput =
+  "42\n42\nxyz\naceg\n65\nA\n[False,True]\n[4,5,6]\n"
+
+haskell2010DerivedEqSource :: Text
+haskell2010DerivedEqSource =
+  "module Main where\n\
+  \data Flag = Off | On deriving (Eq)\n\
+  \data Box a = Box a deriving (Eq)\n\
+  \data Name = Name String deriving (Eq)\n\
+  \data Tree a = Leaf a | Node (Tree a) (Tree a) deriving (Eq)\n\
+  \newtype Age = Age Int deriving (Eq)\n\
+  \score :: Bool -> Int\n\
+  \score flag = case flag of\n\
+  \  True -> 1\n\
+  \  False -> 0\n\
+  \main :: Int\n\
+  \main = score (On == On) + score (Off /= On) + score (Box 'x' == Box 'x') + score (Box 'x' /= Box 'y') + score (Name \"aa\" == Name \"aa\") + score (Name \"aa\" /= Name \"ab\") + score (Node (Leaf 'a') (Leaf 'b') == Node (Leaf 'a') (Leaf 'b')) + score (Node (Leaf 'a') (Leaf 'b') /= Node (Leaf 'a') (Leaf 'c')) + score (Age 7 == Age 7) + score (Box \"hi\" == Box \"hi\")\n"
+
+haskell2010DerivedOrdSource :: Text
+haskell2010DerivedOrdSource =
+  "module Main where\n\
+  \data Rank = Low | Mid | High deriving (Eq, Ord)\n\
+  \data Box a = Box a deriving (Eq, Ord)\n\
+  \data Name = Name String deriving (Eq, Ord)\n\
+  \data Tree a = Leaf a | Node (Tree a) (Tree a) deriving (Eq, Ord)\n\
+  \newtype Age = Age Int deriving (Eq, Ord)\n\
+  \score :: Bool -> Int\n\
+  \score flag = case flag of\n\
+  \  True -> 1\n\
+  \  False -> 0\n\
+  \isLT :: Ordering -> Bool\n\
+  \isLT ordering = case ordering of\n\
+  \  LT -> True\n\
+  \  EQ -> False\n\
+  \  GT -> False\n\
+  \main :: Int\n\
+  \main = score (Low < Mid) + score (High > Mid) + score (Mid <= Mid) + score (Box 'a' < Box 'b') + score (Box \"aa\" < Box \"ab\") + score (Name \"aa\" < Name \"ab\") + score (Node (Leaf 'a') (Leaf 'b') < Node (Leaf 'a') (Leaf 'c')) + score (Age 8 >= Age 7) + score (max Low High == High) + score (min (Box 'a') (Box 'b') == Box 'a') + score (isLT (compare Mid High))\n"
+
+haskell2010DerivedShowSource :: Text
+haskell2010DerivedShowSource =
+  "module Main where\n\
+  \data Flag = Off | On deriving (Show)\n\
+  \data Box a = Box a deriving (Show)\n\
+  \data Name = Name String deriving (Show)\n\
+  \data Tree a = Leaf a | Node (Tree a) (Tree a) deriving (Show)\n\
+  \data Person = Person { age :: Int, label :: String } deriving (Show)\n\
+  \newtype Years = Years Int deriving (Show)\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  putStrLn (show Off)\n\
+  \  putStrLn (show (Box 'x'))\n\
+  \  putStrLn (show (Name \"aa\"))\n\
+  \  putStrLn (show (Node (Leaf 'a') (Leaf 'b')))\n\
+  \  putStrLn (show (Years 7))\n\
+  \  putStrLn (show (Person { label = \"Ada\", age = 42 }))\n\
+  \  putStrLn (show [Box True, Box False])\n\
+  \  return ()\n"
+
+haskell2010DerivedShowOutput :: Text
+haskell2010DerivedShowOutput =
+  "Off\n\
+  \Box ('x')\n\
+  \Name (\"aa\")\n\
+  \Node (Leaf ('a')) (Leaf ('b'))\n\
+  \Years (7)\n\
+  \Person { age = (42), label = (\"Ada\") }\n\
+  \[Box (True),Box (False)]\n"
+
+haskell2010DerivedEnumSource :: Text
+haskell2010DerivedEnumSource =
+  "module Main where\n\
+  \data Direction = North | East | South | West deriving (Enum, Eq, Show)\n\
+  \data Singleton = Only deriving (Enum, Eq, Show)\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (fromEnum North)\n\
+  \  print (fromEnum South)\n\
+  \  print (fromEnum (succ East))\n\
+  \  print (fromEnum (pred South))\n\
+  \  putStrLn (show (toEnum 3 :: Direction))\n\
+  \  print (map fromEnum (enumFrom East))\n\
+  \  print (map fromEnum (enumFromThen West South))\n\
+  \  print (map fromEnum (enumFromTo East West))\n\
+  \  print (map fromEnum (enumFromThenTo North South West))\n\
+  \  print (map fromEnum (enumFromThenTo West South North))\n\
+  \  print (map fromEnum [East .. West])\n\
+  \  print (map fromEnum [West, South .. North])\n\
+  \  print (fromEnum Only)\n\
+  \  return ()\n"
+
+haskell2010DerivedEnumOutput :: Text
+haskell2010DerivedEnumOutput =
+  "0\n\
+  \2\n\
+  \2\n\
+  \1\n\
+  \West\n\
+  \[1,2,3]\n\
+  \[3,2,1,0]\n\
+  \[1,2,3]\n\
+  \[0,2]\n\
+  \[3,2,1,0]\n\
+  \[1,2,3]\n\
+  \[3,2,1,0]\n\
+  \0\n"
+
+haskell2010DerivedEnumRuntimeErrorSource :: Text
+haskell2010DerivedEnumRuntimeErrorSource =
+  "module Main where\n\
+  \data Direction = North | East | South | West deriving (Enum)\n\
+  \main = fromEnum (succ West)\n"
+
+haskell2010InvalidDerivedEnumSource :: Text
+haskell2010InvalidDerivedEnumSource =
+  "module Main where\n\
+  \data Box = Box Int deriving (Enum)\n\
+  \main = 0\n"
+
+haskell2010DerivedBoundedSource :: Text
+haskell2010DerivedBoundedSource =
+  "module Main where\n\
+  \data Direction = North | East | South | West deriving (Bounded, Enum, Eq, Show)\n\
+  \data Pair a b = Pair a b deriving (Bounded, Eq, Show)\n\
+  \data Record = Record { low :: Bool, high :: Direction } deriving (Bounded, Eq, Show)\n\
+  \newtype Flag = Flag Bool deriving (Bounded, Eq, Show)\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (fromEnum (minBound :: Direction))\n\
+  \  print (fromEnum (maxBound :: Direction))\n\
+  \  print (minBound :: Pair Bool Direction)\n\
+  \  print (maxBound :: Pair Bool Direction)\n\
+  \  print (minBound :: Record)\n\
+  \  print (maxBound :: Record)\n\
+  \  print (minBound :: Flag)\n\
+  \  print (maxBound :: Flag)\n\
+  \  return ()\n"
+
+haskell2010DerivedBoundedOutput :: Text
+haskell2010DerivedBoundedOutput =
+  "0\n\
+  \3\n\
+  \Pair (False) (North)\n\
+  \Pair (True) (West)\n\
+  \Record { low = (False), high = (North) }\n\
+  \Record { low = (True), high = (West) }\n\
+  \Flag (False)\n\
+  \Flag (True)\n"
+
+haskell2010InvalidDerivedBoundedSource :: Text
+haskell2010InvalidDerivedBoundedSource =
+  "module Main where\n\
+  \data Mixed = Empty | Box Int deriving (Bounded)\n\
+  \main = 0\n"
+
+haskell2010ListComprehensionsSource :: Text
+haskell2010ListComprehensionsSource =
+  "module Main where\n\
+  \pairs :: [Int]\n\
+  \pairs = [x * y | x <- [1..3], y <- [2..4], x < y]\n\
+  \chars :: String\n\
+  \chars = [c | c <- ['a'..'f'], c /= 'c', c < 'f']\n\
+  \justs :: [Int]\n\
+  \justs = [x | Just x <- [Nothing, Just 3, Just 4]]\n\
+  \tuples :: [Int]\n\
+  \tuples = [a + b | (a, b) <- [(1, 2), (3, 4)]]\n\
+  \nested :: [Int]\n\
+  \nested = [x | Just (Just x) <- [Just Nothing, Just (Just 9), Nothing]]\n\
+  \locals :: [Int]\n\
+  \locals = [y | x <- [1..3], let y = x + 10, y > 11]\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print pairs\n\
+  \  putStrLn chars\n\
+  \  print justs\n\
+  \  print tuples\n\
+  \  print nested\n\
+  \  print locals\n\
+  \  return ()\n"
+
+haskell2010ListComprehensionsOutput :: Text
+haskell2010ListComprehensionsOutput =
+  "[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]\n"
+
 haskell2010GuardedSelfRecursionSource :: Text
 haskell2010GuardedSelfRecursionSource =
   "module Main where\n\
@@ -5821,6 +8319,219 @@ haskell2010PreludeClassDictionarySource =
   \  _ -> False\n\
   \main = if same 7 7 && not (same 7 8) && ordered 3 4 && compareFlag && max False True && not (min False True) then distancePlusSign 9 4 else 0\n"
 
+haskell2010CharRuntimeSource :: Text
+haskell2010CharRuntimeSource =
+  "module Main where\n\
+  \same :: Char -> Char -> Bool\n\
+  \same x y = x == y\n\
+  \different :: Char -> Char -> Bool\n\
+  \different x y = x /= y\n\
+  \main = case 'h' of\n\
+  \  'h' -> if same 'a' 'a' && different 'a' 'b' then 1 else 0\n\
+  \  _ -> 0\n"
+
+haskell2010CharMainSource :: Text
+haskell2010CharMainSource =
+  "module Main where\n\
+  \main = 'Z'\n"
+
+haskell2010StringCharListSource :: Text
+haskell2010StringCharListSource =
+  "module Main where\n\
+  \stringLength :: String -> Int\n\
+  \stringLength xs = length xs\n\
+  \shownLength :: Int\n\
+  \shownLength = length (show 42)\n\
+  \main = case \"hi\" of\n\
+  \  \"hi\" -> stringLength \"abc\" + shownLength\n\
+  \  _ -> 0\n"
+
+haskell2010StringOutputSource :: Text
+haskell2010StringOutputSource =
+  "module Main where\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  putStrLn \"native\"\n\
+  \  putStrLn (reverse \"ko\")\n\
+  \  print (length \"abc\" + length (show True))\n\
+  \  return ()\n"
+
+haskell2010StringShowOutputSource :: Text
+haskell2010StringShowOutputSource =
+  "module Main where\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  putStrLn (show 42)\n\
+  \  putStrLn (show False)\n\
+  \  return ()\n"
+
+haskell2010StringCharPatternsSource :: Text
+haskell2010StringCharPatternsSource =
+  "module Main where\n\
+  \prefixScore :: String -> Int\n\
+  \prefixScore xs = case xs of\n\
+  \  'h' : 'i' : rest -> length rest\n\
+  \  _ -> 100\n\
+  \literalScore :: String -> Int\n\
+  \literalScore xs = case xs of\n\
+  \  \"ok\" -> 1\n\
+  \  _ -> 0\n\
+  \main = prefixScore \"hithere\" + literalScore \"ok\"\n"
+
+haskell2010BroadShowSource :: Text
+haskell2010BroadShowSource =
+  "module Main where\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  putStrLn (show 'Z')\n\
+  \  putStrLn (show \"hi\")\n\
+  \  putStrLn (show [1, 2, 3])\n\
+  \  putStrLn (show [True, False])\n\
+  \  putStrLn (show [\"a\", \"b\"])\n\
+  \  print 'Q'\n\
+  \  print \"ok\"\n\
+  \  return ()\n"
+
+haskell2010BroadShowOutput :: Text
+haskell2010BroadShowOutput =
+  "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Q'\n\"ok\"\n"
+
+haskell2010AppendSource :: Text
+haskell2010AppendSource =
+  "module Main where\n\
+  \listAppend :: [Int]\n\
+  \listAppend = [1, 2] ++ [] ++ [3, 4]\n\
+  \stringAppend :: String\n\
+  \stringAppend = \"he\" ++ \"gg\" ++ \"log\"\n\
+  \leftSection :: String -> String\n\
+  \leftSection = (\"he\" ++)\n\
+  \rightSection :: String -> String\n\
+  \rightSection = (++ \"log\")\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print listAppend\n\
+  \  putStrLn stringAppend\n\
+  \  print ([1] ++ [2] ++ [3])\n\
+  \  print ((++) [True] [False])\n\
+  \  putStrLn (leftSection \"y\")\n\
+  \  putStrLn (rightSection \"heg\")\n\
+  \  return ()\n"
+
+haskell2010AppendOutput :: Text
+haskell2010AppendOutput =
+  "[1,2,3,4]\n\
+  \hegglog\n\
+  \[1,2,3]\n\
+  \[True,False]\n\
+  \hey\n\
+  \heglog\n"
+
+haskell2010FoldlSource :: Text
+haskell2010FoldlSource =
+  "module Main where\n\
+  \twist :: Int -> Int -> Int\n\
+  \twist acc x = acc * 10 + x\n\
+  \minus :: Int -> Int -> Int\n\
+  \minus acc x = acc - x\n\
+  \snoc :: String -> Char -> String\n\
+  \snoc acc x = acc ++ [x]\n\
+  \count :: Int -> Bool -> Int\n\
+  \count acc flag = if flag then acc + 1 else acc\n\
+  \explode :: Int -> Bool -> Int\n\
+  \explode _ _ = 1 / 0\n\
+  \ignoreLeft :: Int -> Int -> Int\n\
+  \ignoreLeft _ x = x\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (foldl twist 0 [1, 2, 3, 4])\n\
+  \  print (foldl minus 0 [1, 2, 3])\n\
+  \  putStrLn (foldl snoc \"\" ['a', 'b', 'c', 'd'])\n\
+  \  print (foldl count 0 [True, False, True])\n\
+  \  print (foldl explode 7 [])\n\
+  \  print (foldl ignoreLeft (1 / 0) [5])\n\
+  \  return ()\n"
+
+haskell2010FoldlOutput :: Text
+haskell2010FoldlOutput =
+  "1234\n\
+  \-6\n\
+  \abcd\n\
+  \2\n\
+  \7\n\
+  \5\n"
+
+haskell2010PreludeFunctionsSource :: Text
+haskell2010PreludeFunctionsSource =
+  "module Main where\n\
+  \inc :: Int -> Int\n\
+  \inc x = x + 1\n\
+  \double :: Int -> Int\n\
+  \double x = x * 2\n\
+  \minus :: Int -> Int -> Int\n\
+  \minus x y = x - y\n\
+  \choose :: Bool -> [Int]\n\
+  \choose flag = if flag then [1, 2, 3] else []\n\
+  \emptyInts :: [Int]\n\
+  \emptyInts = []\n\
+  \pair :: (Int, String)\n\
+  \pair = (42, \"ok\")\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print $ inc 4\n\
+  \  print ((inc . double) 10)\n\
+  \  print (flip minus 3 10)\n\
+  \  print (head (choose True))\n\
+  \  print (tail [1, 2, 3])\n\
+  \  print (null emptyInts)\n\
+  \  print (null [False])\n\
+  \  print (fst pair)\n\
+  \  putStrLn (snd pair)\n\
+  \  return ()\n"
+
+haskell2010PreludeFunctionsOutput :: Text
+haskell2010PreludeFunctionsOutput =
+  "5\n\
+  \21\n\
+  \7\n\
+  \1\n\
+  \[2,3]\n\
+  \True\n\
+  \False\n\
+  \42\n\
+  \ok\n"
+
+haskell2010StandardLibraryModulesSource :: Text
+haskell2010StandardLibraryModulesSource =
+  "module Main where\n\
+  \import Data.List ((++), foldl, head, map, null)\n\
+  \import Data.Maybe (Maybe(..))\n\
+  \import Control.Monad (Functor(..), return)\n\
+  \import System.IO (IO, putStrLn, print)\n\
+  \emptyInts :: [Int]\n\
+  \emptyInts = []\n\
+  \sumList :: [Int] -> Int\n\
+  \sumList xs = foldl (+) 0 xs\n\
+  \describe :: Maybe Int -> Int\n\
+  \describe value = case value of\n\
+  \  Just found -> found\n\
+  \  Nothing -> 0\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (sumList (map (+ 1) [1, 2, 3]))\n\
+  \  print (sumList (fmap (+ 1) [1, 2, 3]))\n\
+  \  print (describe (fmap (+ 1) (Just (head ([4] ++ [5])))))\n\
+  \  print (null emptyInts)\n\
+  \  fmap id (putStrLn \"stdlib\")\n\
+  \  return ()\n"
+
+haskell2010StandardLibraryModulesOutput :: Text
+haskell2010StandardLibraryModulesOutput =
+  "9\n\
+  \9\n\
+  \5\n\
+  \True\n\
+  \stdlib\n"
+
 haskell2010NumericDefaultingSource :: Text
 haskell2010NumericDefaultingSource =
   "module Main where\n\
@@ -5833,6 +8544,49 @@ haskell2010NumericDefaultingSource =
   \  print (1 + 2 * 3)\n\
   \  print (twice defaulted + viaFromInteger)\n\
   \  return ()\n"
+
+haskell2010NumericHierarchySource :: Text
+haskell2010NumericHierarchySource =
+  "module Main where\n\
+  \default (Integer, Int)\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (quot 17 5)\n\
+  \  print (rem 17 5)\n\
+  \  print (div (0 - 17) 5)\n\
+  \  print (mod (0 - 17) 5)\n\
+  \  print (quot (0 - 17) 5)\n\
+  \  print (rem (0 - 17) 5)\n\
+  \  case quotRem 17 5 of\n\
+  \    (q, r) -> do\n\
+  \      print q\n\
+  \      print r\n\
+  \  case divMod (0 - 17) 5 of\n\
+  \    (d, m) -> do\n\
+  \      print d\n\
+  \      print m\n\
+  \  case toRational (7 :: Int) of\n\
+  \    (n, d) -> do\n\
+  \      print n\n\
+  \      print d\n\
+  \  print (toInteger (7 :: Int))\n\
+  \  return ()\n"
+
+haskell2010NumericHierarchyOutput :: Text
+haskell2010NumericHierarchyOutput =
+  "3\n\
+  \2\n\
+  \-4\n\
+  \3\n\
+  \-3\n\
+  \-2\n\
+  \3\n\
+  \2\n\
+  \-4\n\
+  \3\n\
+  \7\n\
+  \1\n\
+  \7\n"
 
 haskell2010MonomorphismRestrictionSource :: Text
 haskell2010MonomorphismRestrictionSource =
@@ -5870,6 +8624,50 @@ haskell2010HiddenImportSources =
     )
   ]
 
+haskell2010ForeignImportModuleSources :: [(FilePath, Text)]
+haskell2010ForeignImportModuleSources =
+  [ ( "ForeignProvider.hs"
+    , "module ForeignProvider (c_abs) where\n\
+      \foreign import ccall \"abs\" c_abs :: Int -> IO Int\n"
+    )
+  , ( "Main.hs"
+    , "module Main where\n\
+      \import ForeignProvider (c_abs)\n\
+      \main = c_abs\n"
+    )
+  ]
+
+haskell2010InstanceImportSources :: [(FilePath, Text)]
+haskell2010InstanceImportSources =
+  [ ( "InstanceClass.hs"
+    , "module InstanceClass (Measure(..)) where\n\
+      \class Measure a where\n\
+      \  measure :: a -> Int\n"
+    )
+  , ( "InstanceType.hs"
+    , "module InstanceType (Box(..)) where\n\
+      \data Box = Box Int\n"
+    )
+  , ( "InstanceProvider.hs"
+    , "module InstanceProvider () where\n\
+      \import InstanceClass (Measure(..))\n\
+      \import InstanceType (Box(..))\n\
+      \instance Measure Box where\n\
+      \  measure (Box n) = n + 1\n"
+    )
+  , ( "InstanceBridge.hs"
+    , "module InstanceBridge () where\n\
+      \import InstanceProvider ()\n"
+    )
+  , ( "Main.hs"
+    , "module Main where\n\
+      \import InstanceClass (Measure(..))\n\
+      \import InstanceType (Box(..))\n\
+      \import InstanceBridge ()\n\
+      \main = measure (Box 41)\n"
+    )
+  ]
+
 haskell2010IOPrintingSource :: Text
 haskell2010IOPrintingSource =
   "module Main where\n\
@@ -5880,6 +8678,92 @@ haskell2010IOPrintingSource =
   \  prefix\n\
   \  print (not False)\n\
   \  return ()\n"
+
+haskell2010IONormalExamplesSource :: Text
+haskell2010IONormalExamplesSource =
+  "module Main where\n\
+  \greeting :: String\n\
+  \greeting = \"hello\"\n\
+  \announce :: String -> IO ()\n\
+  \announce label = putStrLn label\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  word <- return greeting\n\
+  \  announce word\n\
+  \  return \"bound\" >>= putStrLn\n\
+  \  let values = [1, 2, 3]\n\
+  \  putStrLn (show \"quoted\")\n\
+  \  print 'X'\n\
+  \  print \"plain\"\n\
+  \  print values\n\
+  \  print [True, False]\n\
+  \  return ()\n"
+
+haskell2010IONormalExamplesOutput :: Text
+haskell2010IONormalExamplesOutput =
+  "hello\nbound\n\"quoted\"\n'X'\n\"plain\"\n[1,2,3]\n[True,False]\n"
+
+haskell2010IOGetLineSource :: Text
+haskell2010IOGetLineSource =
+  "module Main where\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  first <- getLine\n\
+  \  second <- getLine\n\
+  \  putStrLn (\"first=\" ++ first)\n\
+  \  putStrLn (\"second=\" ++ second)\n\
+  \  print (length first + length second)\n\
+  \  return ()\n"
+
+haskell2010IOGetLineInput :: Text
+haskell2010IOGetLineInput =
+  "hegg\nlog\nunused\n"
+
+haskell2010IOGetLineOutput :: Text
+haskell2010IOGetLineOutput =
+  "first=hegg\nsecond=log\n7\n"
+
+haskell2010IOGetLineEmptyOutput :: Text
+haskell2010IOGetLineEmptyOutput =
+  "first=\nsecond=\n0\n"
+
+haskell2010MonadSource :: Text
+haskell2010MonadSource =
+  "module Main where\n\
+  \listPairs :: [Int]\n\
+  \listPairs = do\n\
+  \  x <- [1, 2]\n\
+  \  y <- [10, 20]\n\
+  \  return (x + y)\n\
+  \listFail :: [Int]\n\
+  \listFail = do\n\
+  \  Just x <- [Just 1, Nothing, Just 3]\n\
+  \  return x\n\
+  \maybeValue :: Maybe Int\n\
+  \maybeValue = do\n\
+  \  x <- Just 5\n\
+  \  y <- return 2\n\
+  \  return (x + y)\n\
+  \maybeFail :: Maybe Int\n\
+  \maybeFail = do\n\
+  \  Just x <- Just Nothing\n\
+  \  return x\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  putStrLn \"monad\"\n\
+  \  print listPairs\n\
+  \  print listFail\n\
+  \  case maybeValue of\n\
+  \    Just value -> print value\n\
+  \    Nothing -> putStrLn \"missing\"\n\
+  \  case maybeFail of\n\
+  \    Just value -> print value\n\
+  \    Nothing -> putStrLn \"maybe fail\"\n\
+  \  return ()\n"
+
+haskell2010MonadOutput :: Text
+haskell2010MonadOutput =
+  "monad\n[11,21,12,22]\n[1,3]\n7\nmaybe fail\n"
 
 haskell2010GuardAsPatternSource :: Text
 haskell2010GuardAsPatternSource =
@@ -5995,7 +8879,7 @@ expectSTGInt label expected = \case
 
 expectSTGIO :: String -> Text -> H2010STGEval.STGValue -> Either String ()
 expectSTGIO label expected = \case
-  H2010STGEval.STGIO chunks ->
+  H2010STGEval.STGIO chunks _ ->
     expectEqual label expected (Text.concat chunks)
   actual ->
     Left
@@ -6048,7 +8932,7 @@ stgThunkBinding binder updateFlag expression =
 
 stgMainProgram :: H2010STG.STGExpr -> H2010STG.STGProgram
 stgMainProgram expression =
-  H2010STG.STGProgram Map.empty [stgThunkBinding stgMainBinder H2010STG.Updatable expression]
+  H2010STG.STGProgram Map.empty [stgThunkBinding stgMainBinder H2010STG.Updatable expression] []
 
 stgMainBinder :: H2010STG.STGBinder
 stgMainBinder =
@@ -6065,6 +8949,7 @@ stgLazyFunctionArgumentProgram =
     [ H2010STG.STGNonRec constBinder constRhs
     , stgThunkBinding stgMainBinder H2010STG.Updatable mainBody
     ]
+    []
  where
   constBinder =
     stgBinder
@@ -6117,6 +9002,7 @@ stgBlackHoleProgram =
         ]
     , stgThunkBinding stgMainBinder H2010STG.Updatable (H2010STG.STGAtom (stgVar stgRecursiveBinder))
     ]
+    []
 
 expectCoreValidationError ::
   String ->
@@ -6259,6 +9145,42 @@ bindContainsConstructorExpr occurrence = \case
 altContainsConstructorExpr :: Text -> H2010Core.CoreAlt -> Bool
 altContainsConstructorExpr occurrence (H2010Core.CoreAlt _ _ body) =
   containsConstructorExpr occurrence body
+
+coreModuleContainsStringLiteral :: H2010Core.CoreModule -> Bool
+coreModuleContainsStringLiteral =
+  any bindContainsStringLiteral . H2010Core.coreModuleBinds
+
+bindContainsStringLiteral :: H2010Core.CoreBind -> Bool
+bindContainsStringLiteral = \case
+  H2010Core.CoreNonRec _ rhs -> containsStringLiteral rhs
+  H2010Core.CoreRec pairs -> any (containsStringLiteral . snd) pairs
+
+containsStringLiteral :: H2010Core.CoreExpr -> Bool
+containsStringLiteral = \case
+  H2010Core.CLit (H2010.LString {}) _ ->
+    True
+  H2010Core.CLam _ body _ ->
+    containsStringLiteral body
+  H2010Core.CApp callee arg _ ->
+    containsStringLiteral callee || containsStringLiteral arg
+  H2010Core.CTypeLam _ body _ ->
+    containsStringLiteral body
+  H2010Core.CTypeApp callee _ _ ->
+    containsStringLiteral callee
+  H2010Core.CLet bind body _ ->
+    bindContainsStringLiteral bind || containsStringLiteral body
+  H2010Core.CCase scrutinee _ alternatives _ ->
+    containsStringLiteral scrutinee || any altContainsStringLiteral alternatives
+  H2010Core.CCoerce expression _ ->
+    containsStringLiteral expression
+  H2010Core.CPrimOp _ arguments _ ->
+    any containsStringLiteral arguments
+  _ ->
+    False
+
+altContainsStringLiteral :: H2010Core.CoreAlt -> Bool
+altContainsStringLiteral (H2010Core.CoreAlt _ _ body) =
+  containsStringLiteral body
 
 containsCoerce :: H2010Core.CoreExpr -> Bool
 containsCoerce = \case

@@ -39,8 +39,12 @@ module Haskell2010.Renamed
       , RListComp
       , RExprTypeSig
       , RRecordCon
+      , RRecordUpdate
       )
   , RExport (..)
+  , RForeignDeclInfo (..)
+  , RForeignExport (..)
+  , RForeignImport (..)
   , RHsModule (..)
   , RHsType
       ( RTyVar
@@ -89,7 +93,16 @@ where
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import Haskell2010.Names (RName)
-import Haskell2010.Syntax (Fixity, ImportDecl, Literal, ModuleName)
+import Haskell2010.Syntax
+  ( Fixity
+  , ForeignCallConv
+  , ForeignExportEntity
+  , ForeignImportEntity
+  , ForeignSafety
+  , ImportDecl
+  , Literal
+  , ModuleName
+  )
 import Syntax.Span (SourceSpan)
 
 data RHsModule = RHsModule
@@ -124,7 +137,29 @@ data RDeclNode
   | RClassDeclNode [RHsType] RName RName [RDecl]
   | RInstanceDeclNode [RHsType] RHsType [RDecl]
   | RDefaultDeclNode [RHsType]
-  | RForeignDeclNode Text
+  | RForeignDeclNode RForeignDeclInfo
+  deriving stock (Show, Eq, Ord)
+
+data RForeignDeclInfo
+  = RForeignImportDecl RForeignImport
+  | RForeignExportDecl RForeignExport
+  deriving stock (Show, Eq, Ord)
+
+data RForeignImport = RForeignImport
+  { rForeignImportCallConv :: ForeignCallConv
+  , rForeignImportSafety :: ForeignSafety
+  , rForeignImportEntity :: ForeignImportEntity
+  , rForeignImportName :: RName
+  , rForeignImportType :: RHsType
+  }
+  deriving stock (Show, Eq, Ord)
+
+data RForeignExport = RForeignExport
+  { rForeignExportCallConv :: ForeignCallConv
+  , rForeignExportEntity :: ForeignExportEntity
+  , rForeignExportName :: RName
+  , rForeignExportType :: RHsType
+  }
   deriving stock (Show, Eq, Ord)
 
 pattern RTypeSignature :: [RName] -> RHsType -> RDecl
@@ -177,10 +212,10 @@ pattern RDefaultDecl types <- SpannedRDecl _ (RDefaultDeclNode types)
   where
     RDefaultDecl types = SpannedRDecl Nothing (RDefaultDeclNode types)
 
-pattern RForeignDecl :: Text -> RDecl
-pattern RForeignDecl text <- SpannedRDecl _ (RForeignDeclNode text)
+pattern RForeignDecl :: RForeignDeclInfo -> RDecl
+pattern RForeignDecl info <- SpannedRDecl _ (RForeignDeclNode info)
   where
-    RForeignDecl text = SpannedRDecl Nothing (RForeignDeclNode text)
+    RForeignDecl info = SpannedRDecl Nothing (RForeignDeclNode info)
 
 {-# COMPLETE RTypeSignature, RFunctionBinding, RPatternBinding, RFixityDecl, RDataDecl, RNewtypeDecl, RTypeSynonym, RClassDecl, RInstanceDecl, RDefaultDecl, RForeignDecl #-}
 
@@ -275,6 +310,7 @@ data RExprNode
   | RListCompNode RExpr [RStmt]
   | RExprTypeSigNode RExpr RHsType
   | RRecordConNode RName [(RName, RExpr)]
+  | RRecordUpdateNode RExpr [(RName, RExpr)]
   deriving stock (Show, Eq, Ord)
 
 pattern RVar :: RName -> RExpr
@@ -377,7 +413,12 @@ pattern RRecordCon name fields <- SpannedRExpr _ (RRecordConNode name fields)
   where
     RRecordCon name fields = SpannedRExpr Nothing (RRecordConNode name fields)
 
-{-# COMPLETE RVar, RCon, RLit, RApp, RInfixApp, RLambda, RLet, RIf, RCase, RDo, RList, RTuple, RUnit, RParen, RLeftSection, RRightSection, RArithmeticSeq, RListComp, RExprTypeSig, RRecordCon #-}
+pattern RRecordUpdate :: RExpr -> [(RName, RExpr)] -> RExpr
+pattern RRecordUpdate scrutinee fields <- SpannedRExpr _ (RRecordUpdateNode scrutinee fields)
+  where
+    RRecordUpdate scrutinee fields = SpannedRExpr Nothing (RRecordUpdateNode scrutinee fields)
+
+{-# COMPLETE RVar, RCon, RLit, RApp, RInfixApp, RLambda, RLet, RIf, RCase, RDo, RList, RTuple, RUnit, RParen, RLeftSection, RRightSection, RArithmeticSeq, RListComp, RExprTypeSig, RRecordCon, RRecordUpdate #-}
 
 rExprSpan :: RExpr -> Maybe SourceSpan
 rExprSpan (SpannedRExpr sourceRange _) =

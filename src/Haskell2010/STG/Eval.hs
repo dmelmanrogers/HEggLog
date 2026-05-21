@@ -16,11 +16,12 @@ where
 
 import Control.Monad (foldM, zipWithM_)
 import Control.Monad.State.Strict (StateT, get, lift, modify, runStateT)
+import Data.Char (chr, ord)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Core.Syntax
-import Haskell2010.Names (RName, nameOcc, renderRName)
+import Haskell2010.Names (Namespace (..), RName (..), nameOcc, renderRName)
 import Haskell2010.STG.Syntax
 import qualified Haskell2010.STG.Validate as STGValidate
 import Haskell2010.Syntax (Literal (..))
@@ -34,6 +35,7 @@ import Runtime.Int
   , ltHInt
   , mkHIntLiteral
   , mulHInt
+  , remHInt
   , renderHInt
   , renderIntError
   , subHInt
@@ -47,7 +49,10 @@ data STGValue
   | STGBool Bool
   | STGChar Char
   | STGString Text
-  | STGIO [Text]
+  | STGIO [Text] STGValue
+  | STGPointer (Maybe STGValue)
+  | STGStablePtr STGValue
+  | STGForeignPtr STGValue
   | STGData RName [STGHeapAddress]
   | STGFunctionValue STGHeapAddress
   deriving stock (Show, Eq, Ord)
@@ -66,6 +71,7 @@ data STGEvalError
   | STGEvalUnknownHeapAddress STGHeapAddress
   | STGEvalBlackHole (Maybe RName)
   | STGEvalTypeError Text
+  | STGEvalUnsupportedForeign Text
   | STGEvalArityMismatch RName Int Int
   | STGEvalDivisionByZero
   | STGEvalIntError IntError
@@ -176,12 +182,25 @@ evalExpr env = \case
     scrutineeValue <- evalExpr env scrutinee
     evalCaseAlternative env binder alternatives scrutineeValue
   STGPrim op arguments _ ->
-    traverse (evalAtom env) arguments >>= evalPrimitive op
+    evalPrimitive env op arguments
+  STGForeignCall foreignImport arguments _ -> do
+    _ <- traverse (evalAtom env) arguments
+    throwEval
+      ( STGEvalUnsupportedForeign
+          ("foreign call `" <> renderRName (coreForeignImportName foreignImport) <> "` requires native FFI ABI support")
+      )
+  STGForeignImportValue foreignImport _ ->
+    throwEval
+      ( STGEvalUnsupportedForeign
+          ("foreign import `" <> renderRName (coreForeignImportName foreignImport) <> "` requires native FFI ABI support")
+      )
 
 evalAtom :: RuntimeEnv -> STGAtom -> EvalM STGValue
 evalAtom env = \case
   STGVar name _ ->
     lookupEnv name env >>= forceAddress
+  STGLit (LString value) _ ->
+    stringListValue value
   STGLit literal _ ->
     liftEither (evalLiteral literal)
   STGCon name _ ->
@@ -199,7 +218,7 @@ evalLiteral = \case
     Right (STGString value)
 
 allocateProgramEnv :: STGProgram -> EvalM RuntimeEnv
-allocateProgramEnv (STGProgram _ binds) =
+allocateProgramEnv (STGProgram _ binds _foreignExports) =
   foldM allocateBind Map.empty binds
 
 allocateBind :: RuntimeEnv -> STGBind -> EvalM RuntimeEnv
@@ -236,6 +255,8 @@ atomAddress :: RuntimeEnv -> STGAtom -> EvalM STGHeapAddress
 atomAddress env = \case
   STGVar name _ ->
     lookupEnv name env
+  STGLit (LString value) _ ->
+    stringListValue value >>= allocateClosure . ValueClosure
   STGLit literal _ -> do
     value <- liftEither (evalLiteral literal)
     allocateClosure (ValueClosure value)
@@ -273,11 +294,20 @@ applyFunction ::
   STGExpr ->
   [STGAtom] ->
   EvalM STGValue
-applyFunction callerEnv callee closureEnv binders body arguments
+applyFunction callerEnv callee closureEnv binders body arguments =
+  traverse (atomAddress callerEnv) arguments >>= applyFunctionAddresses callee closureEnv binders body
+
+applyFunctionAddresses ::
+  RName ->
+  RuntimeEnv ->
+  [STGBinder] ->
+  STGExpr ->
+  [STGHeapAddress] ->
+  EvalM STGValue
+applyFunctionAddresses callee closureEnv binders body argumentAddresses
   | expectedArity /= actualArity =
       throwEval (STGEvalArityMismatch callee expectedArity actualArity)
   | otherwise = do
-      argumentAddresses <- traverse (atomAddress callerEnv) arguments
       let parameterEnv =
             Map.fromList (zip (map stgBinderName binders) argumentAddresses)
       evalExpr (Map.union parameterEnv closureEnv) body
@@ -285,7 +315,26 @@ applyFunction callerEnv callee closureEnv binders body arguments
   expectedArity =
     length binders
   actualArity =
-    length arguments
+    length argumentAddresses
+
+enterFunctionAddressWithArguments :: RName -> STGHeapAddress -> [STGHeapAddress] -> EvalM STGValue
+enterFunctionAddressWithArguments callee address argumentAddresses =
+  lookupClosure address >>= \case
+    FunctionClosure closureEnv binders body ->
+      applyFunctionAddresses callee closureEnv binders body argumentAddresses
+    ThunkClosure {} -> do
+      value <- forceAddress address
+      case value of
+        STGFunctionValue functionAddress ->
+          enterFunctionAddressWithArguments callee functionAddress argumentAddresses
+        other ->
+          typeError ("expected STG function, got " <> renderSTGValue other)
+    ValueClosure (STGFunctionValue functionAddress) ->
+      enterFunctionAddressWithArguments callee functionAddress argumentAddresses
+    ValueClosure other ->
+      typeError ("expected STG function, got " <> renderSTGValue other)
+    BlackHole origin ->
+      throwEval (STGEvalBlackHole origin)
 
 forceAddress :: STGHeapAddress -> EvalM STGValue
 forceAddress address =
@@ -357,8 +406,9 @@ alternativeFields altCon value =
     _ ->
       Nothing
 
-evalPrimitive :: CorePrimOp -> [STGValue] -> EvalM STGValue
-evalPrimitive op values =
+evalPrimitive :: RuntimeEnv -> CorePrimOp -> [STGAtom] -> EvalM STGValue
+evalPrimitive env op arguments = do
+  values <- traverse (evalAtom env) arguments
   case (op, values) of
     (PrimAdd, [STGInt lhs, STGInt rhs]) ->
       liftEither (checkedIntValue (addHInt lhs rhs))
@@ -371,27 +421,83 @@ evalPrimitive op values =
           throwEval STGEvalDivisionByZero
     (PrimDiv, [STGInt lhs, STGInt rhs]) ->
       liftEither (checkedIntValue (divHInt lhs rhs))
+    (PrimRem, [STGInt _, STGInt rhs])
+      | hintToInteger rhs == 0 ->
+          throwEval STGEvalDivisionByZero
+    (PrimRem, [STGInt lhs, STGInt rhs]) ->
+      liftEither (checkedIntValue (remHInt lhs rhs))
     (PrimEq, [lhs, rhs]) ->
       liftEither (STGBool <$> valueEquals lhs rhs)
     (PrimLt, [STGInt lhs, STGInt rhs]) ->
       pure (STGBool (ltHInt lhs rhs))
     (PrimNegate, [STGInt value]) ->
       liftEither (checkedIntValue (subHInt zero value))
+    (PrimCharToInt, [STGChar value]) ->
+      liftEither (checkedIntValue (mkHIntLiteral (fromIntegral (ord value))))
+    (PrimIntToChar, [STGInt value]) ->
+      case hintToInteger value of
+        code
+          | 0 <= code && code <= 0x10FFFF -> pure (STGChar (chr (fromIntegral code)))
+          | otherwise -> typeError ("invalid Char code point " <> Text.pack (show code))
     (PrimShowInt, [STGInt value]) ->
-      pure (STGString (renderHInt value))
+      stringListValue (renderHInt value)
     (PrimShowBool, [STGBool True]) ->
-      pure (STGString "True")
+      stringListValue "True"
     (PrimShowBool, [STGBool False]) ->
-      pure (STGString "False")
+      stringListValue "False"
     (PrimPutStrLn, [value]) ->
-      STGIO . (: []) . (<> "\n") <$> stgStringText value
-    (PrimIOThen, [STGIO first, STGIO second]) ->
-      pure (STGIO (first <> second))
-    (PrimIOReturn, [_]) ->
-      pure (STGIO [])
+      (\text -> STGIO [text <> "\n"] (STGData unitDataConName [])) <$> stgStringText value
+    (PrimGetLine, []) ->
+      stringListValue "" >>= \line -> pure (STGIO [] line)
+    (PrimIOThen, [STGIO first _, STGIO second result]) ->
+      pure (STGIO (first <> second) result)
+    (PrimIOBind, [STGIO first value, STGFunctionValue functionAddress]) -> do
+      valueAddress <- allocateClosure (ValueClosure value)
+      second <- enterFunctionAddressWithArguments ioBindContinuationName functionAddress [valueAddress]
+      case second of
+        STGIO secondChunks result ->
+          pure (STGIO (first <> secondChunks) result)
+        other ->
+          typeError ("expected STG IO action from bind continuation, got " <> renderSTGValue other)
+    (PrimIOReturn, [value]) ->
+      pure (STGIO [] value)
+    (PrimIOFail, [value]) ->
+      stgStringText value >>= \message -> typeError ("IO fail: " <> message)
+    (PrimNewStablePtr, [value]) ->
+      pure (STGIO [] (STGStablePtr value))
+    (PrimDeRefStablePtr, [STGStablePtr value]) ->
+      pure (STGIO [] value)
+    (PrimFreeStablePtr, [STGStablePtr _]) ->
+      pure (STGIO [] (STGData unitDataConName []))
+    (PrimCastStablePtrToPtr, [STGStablePtr value]) ->
+      pure (STGPointer (Just value))
+    (PrimCastPtrToStablePtr, [STGPointer (Just value)]) ->
+      pure (STGStablePtr value)
+    (PrimNewForeignPtr, [_finalizer, pointer]) ->
+      pure (STGIO [] (STGForeignPtr pointer))
+    (PrimNewForeignPtr_, [pointer]) ->
+      pure (STGIO [] (STGForeignPtr pointer))
+    (PrimAddForeignPtrFinalizer, [_finalizer, STGForeignPtr _]) ->
+      pure (STGIO [] (STGData unitDataConName []))
+    (PrimFinalizeForeignPtr, [STGForeignPtr _]) ->
+      pure (STGIO [] (STGData unitDataConName []))
+    (PrimWithForeignPtr, [STGForeignPtr pointer, STGFunctionValue functionAddress]) -> do
+      pointerAddress <- allocateClosure (ValueClosure pointer)
+      action <- enterFunctionAddressWithArguments withForeignPtrContinuationName functionAddress [pointerAddress]
+      case action of
+        STGIO chunks result ->
+          pure (STGIO chunks result)
+        other ->
+          typeError ("expected STG IO action from withForeignPtr continuation, got " <> renderSTGValue other)
+    (PrimTouchForeignPtr, [STGForeignPtr _]) ->
+      pure (STGIO [] (STGData unitDataConName []))
     _ ->
       throwEval (STGEvalTypeError ("invalid STG primitive operands for " <> renderCorePrimOpName op))
  where
+  ioBindContinuationName =
+    RName TermNamespace "$io_bind_continuation" (-3921) False
+  withForeignPtrContinuationName =
+    RName TermNamespace "$with_foreign_ptr_continuation" (-3922) False
   checkedIntValue =
     \case
       Right value -> Right (STGInt value)
@@ -417,6 +523,17 @@ stgStringText = \case
           other -> typeError ("expected Char in String list, got " <> renderSTGValue other)
   other ->
     typeError ("expected String, got " <> renderSTGValue other)
+
+stringListValue :: Text -> EvalM STGValue
+stringListValue value =
+  case Text.uncons value of
+    Nothing ->
+      pure (constructorValue listNilDataConName [])
+    Just (char, rest) -> do
+      headAddress <- allocateClosure (ValueClosure (STGChar char))
+      tailValue <- stringListValue rest
+      tailAddress <- allocateClosure (ValueClosure tailValue)
+      pure (constructorValue listConsDataConName [headAddress, tailAddress])
 
 valueEquals :: STGValue -> STGValue -> Either STGEvalError Bool
 valueEquals lhs rhs =
@@ -513,8 +630,14 @@ renderSTGValue = \case
     Text.pack (show value)
   STGString value ->
     Text.pack (show (Text.unpack value))
-  STGIO chunks ->
+  STGIO chunks _ ->
     "<STG IO " <> Text.pack (show (Text.unpack (Text.concat chunks))) <> ">"
+  STGPointer {} ->
+    "<STG Ptr>"
+  STGStablePtr {} ->
+    "<STG StablePtr>"
+  STGForeignPtr {} ->
+    "<STG ForeignPtr>"
   STGData name fields ->
     renderRName name <> "/" <> Text.pack (show (length fields))
   STGFunctionValue address ->
@@ -544,6 +667,8 @@ renderSTGEvalError = \case
     "entered an evaluating STG thunk for `" <> renderRName name <> "`"
   STGEvalTypeError message ->
     message
+  STGEvalUnsupportedForeign message ->
+    message
   STGEvalArityMismatch callee expected actual ->
     "STG function `"
       <> renderRName callee
@@ -564,11 +689,28 @@ renderCorePrimOpName = \case
   PrimSub -> "-"
   PrimMul -> "*"
   PrimDiv -> "/"
+  PrimRem -> "rem"
   PrimEq -> "=="
   PrimLt -> "<"
   PrimNegate -> "negate#"
+  PrimCharToInt -> "charToInt#"
+  PrimIntToChar -> "intToChar#"
   PrimShowInt -> "showInt#"
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"
+  PrimGetLine -> "getLine#"
   PrimIOThen -> "thenIO#"
+  PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"
+  PrimIOFail -> "failIO#"
+  PrimNewStablePtr -> "newStablePtr#"
+  PrimDeRefStablePtr -> "deRefStablePtr#"
+  PrimFreeStablePtr -> "freeStablePtr#"
+  PrimCastStablePtrToPtr -> "castStablePtrToPtr#"
+  PrimCastPtrToStablePtr -> "castPtrToStablePtr#"
+  PrimNewForeignPtr -> "newForeignPtr#"
+  PrimNewForeignPtr_ -> "newForeignPtr_#"
+  PrimAddForeignPtrFinalizer -> "addForeignPtrFinalizer#"
+  PrimFinalizeForeignPtr -> "finalizeForeignPtr#"
+  PrimWithForeignPtr -> "withForeignPtr#"
+  PrimTouchForeignPtr -> "touchForeignPtr#"

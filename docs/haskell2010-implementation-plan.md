@@ -110,8 +110,9 @@ is built alongside them.
 12. Lists, tuples, and Prelude Core. Completed for built-in list, tuple, unit,
     `Maybe`, `Either`, and `Ordering` constructors/types, list and tuple
     expressions/patterns, short-circuit Bool operators, generated Core Prelude
-    bindings for `id`, `const`, `not`, `otherwise`, `map`, `foldr`, `length`,
-    `filter`, and `reverse`, Core/STG/native execution, and wet-tested
+    bindings for `id`, `const`, `not`, `otherwise`, `($)`, `(.)`, `flip`,
+    `map`, `foldr`, `foldl`, `head`, `tail`, `null`, `fst`, `snd`, `length`,
+    `filter`, `reverse`, and `(++)`, Core/STG/native execution, and wet-tested
     default/no-egglog CLI runs.
 13. Recursion. Completed for singleton self-recursive bindings, mutually
     recursive top-level groups, local recursive `let`, fibonacci/factorial
@@ -121,21 +122,25 @@ is built alongside them.
     classes, concrete context-free instances, structured explicit constraints,
     structured placeholder diagnostics for unsupported constraint contexts,
     generated dictionary constructors/selectors, built-in `Eq Int`, `Eq Bool`,
-    `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, and `Show Bool`
-    dictionaries,
+    `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Real Int`,
+    `Integral Int`, `Show Int`,
+    `Show Bool`, `Show Char`, exact `Show String`, and generated structural
+    list `Show` dictionaries, derived `Eq`/`Ord`/`Show` dictionaries for supported
+    data/newtype declarations, structural list `Eq`, and structural list `Ord`,
     source-spanned typecheck diagnostics including delayed class-constraint
     dictionary failures,
     documented executable-subset monomorphism/defaulting behavior,
     Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
-    Superclasses, defaults, deriving, broader `Show`, and additional numeric
-    classes remain planned.
+    Instance contexts, derived `Read`, the full `showsPrec`/`showList` hierarchy,
+    Fractional/Floating classes, arbitrary-precision `Integer`, and full
+    `Ratio`/`Rational` behavior remain planned.
 15. Guarded RHS/case alternatives and as-pattern aliases. Completed for
     multi-branch guards, guarded case alternatives, as-pattern alias binding,
     Core/STG/native no-match behavior for guard fallthrough, and wet-tested
     default/no-egglog CLI runs.
-16. IO printing and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
-    `putStrLn`, `print`, `return`, `(>>)`, expression-only `do` sequencing
-    with local `let`, Core/STG/native execution, and wet-tested
+16. IO printing/input and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
+    `putStrLn`, `getLine`, `print`, `return`, `(>>)`, `(>>=)`, expression and bind-statement
+    `do` sequencing with local `let`, Core/STG/native execution, native stdin line reads, and wet-tested
     default/no-egglog CLI runs.
 17. Numeric literals and defaulting. Completed for dictionary-backed
     `fromInteger`, overloaded integer literals, executable `Int` defaulting,
