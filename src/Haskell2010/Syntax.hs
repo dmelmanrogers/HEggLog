@@ -41,6 +41,7 @@ module Haskell2010.Syntax
       , ListComp
       , ExprTypeSig
       , RecordCon
+      , RecordUpdate
       )
   , Fixity (..)
   , ForeignCallConv (..)
@@ -363,6 +364,7 @@ data ExprNode
   | ListCompNode Expr [Stmt]
   | ExprTypeSigNode Expr HsType
   | RecordConNode Text [(Text, Expr)]
+  | RecordUpdateNode Expr [(Text, Expr)]
   deriving stock (Show, Eq, Ord)
 
 pattern Var :: Text -> Expr
@@ -465,7 +467,12 @@ pattern RecordCon name fields <- SpannedExpr _ (RecordConNode name fields)
   where
     RecordCon name fields = SpannedExpr Nothing (RecordConNode name fields)
 
-{-# COMPLETE Var, Con, Lit, App, InfixApp, Lambda, Let, If, Case, Do, List, Tuple, Unit, Paren, LeftSection, RightSection, ArithmeticSeq, ListComp, ExprTypeSig, RecordCon #-}
+pattern RecordUpdate :: Expr -> [(Text, Expr)] -> Expr
+pattern RecordUpdate scrutinee fields <- SpannedExpr _ (RecordUpdateNode scrutinee fields)
+  where
+    RecordUpdate scrutinee fields = SpannedExpr Nothing (RecordUpdateNode scrutinee fields)
+
+{-# COMPLETE Var, Con, Lit, App, InfixApp, Lambda, Let, If, Case, Do, List, Tuple, Unit, Paren, LeftSection, RightSection, ArithmeticSeq, ListComp, ExprTypeSig, RecordCon, RecordUpdate #-}
 
 exprSpan :: Expr -> Maybe SourceSpan
 exprSpan (SpannedExpr sourceRange _) =

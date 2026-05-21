@@ -108,7 +108,8 @@ data TypecheckError
 
 data TypecheckWarning
   = TypecheckWarningAt SourceSpan TypecheckWarning
-  | NonExhaustivePatternMatch PatternExhaustivenessContext
+  | NonExhaustivePatternMatch PatternExhaustivenessContext [Text]
+  | RedundantPatternMatch PatternExhaustivenessContext
   deriving stock (Show, Eq)
 
 data PatternExhaustivenessContext
@@ -503,10 +504,38 @@ renderTypecheckWarningDetail :: TypecheckWarning -> Text
 renderTypecheckWarningDetail = \case
   TypecheckWarningAt _ warning ->
     renderTypecheckWarningDetail warning
-  NonExhaustivePatternMatch context ->
-    "non-exhaustive pattern match placeholder: "
+  NonExhaustivePatternMatch context missing ->
+    "non-exhaustive pattern match: "
       <> renderPatternExhaustivenessContext context
-      <> " is not yet proven exhaustive by the Haskell 2010 coverage checker"
+      <> renderPatternCoverageMiss context
+      <> renderMissingPatternWitnesses missing
+  RedundantPatternMatch context ->
+    "redundant pattern match: "
+      <> renderPatternExhaustivenessContext context
+      <> renderPatternRedundancy context
+
+renderMissingPatternWitnesses :: [Text] -> Text
+renderMissingPatternWitnesses = \case
+  [] -> "all supported patterns"
+  witnesses -> Text.intercalate ", " witnesses
+
+renderPatternCoverageMiss :: PatternExhaustivenessContext -> Text
+renderPatternCoverageMiss = \case
+  CasePatternExhaustiveness ->
+    " do not cover "
+  FunctionPatternExhaustiveness {} ->
+    " does not cover "
+  LambdaPatternExhaustiveness ->
+    " does not cover "
+
+renderPatternRedundancy :: PatternExhaustivenessContext -> Text
+renderPatternRedundancy = \case
+  CasePatternExhaustiveness ->
+    " contain an unreachable alternative"
+  FunctionPatternExhaustiveness {} ->
+    " contains an unreachable alternative"
+  LambdaPatternExhaustiveness ->
+    " contains an unreachable alternative"
 
 renderPatternExhaustivenessContext :: PatternExhaustivenessContext -> Text
 renderPatternExhaustivenessContext = \case
@@ -1469,6 +1498,7 @@ exprTupleArities = \case
   RListComp body statements -> exprTupleArities body <> Set.unions (map stmtTupleArities statements)
   RExprTypeSig expr ty -> exprTupleArities expr <> typeTupleArities ty
   RRecordCon _ fields -> Set.unions (map (exprTupleArities . snd) fields)
+  RRecordUpdate scrutinee fields -> exprTupleArities scrutinee <> Set.unions (map (exprTupleArities . snd) fields)
 
 stmtTupleArities :: RStmt -> Set.Set Int
 stmtTupleArities = \case
@@ -1570,6 +1600,7 @@ exprPreludeValueNames = \case
   RListComp body statements -> exprPreludeValueNames body <> concatMap stmtPreludeValueNames statements
   RExprTypeSig expr _ -> exprPreludeValueNames expr
   RRecordCon _ fields -> concatMap (exprPreludeValueNames . snd) fields
+  RRecordUpdate scrutinee fields -> exprPreludeValueNames scrutinee <> concatMap (exprPreludeValueNames . snd) fields
 
 stmtPreludeValueNames :: RStmt -> [RName]
 stmtPreludeValueNames = \case
@@ -1762,6 +1793,8 @@ exprFreeTermNames = \case
     exprFreeTermNames expr
   RRecordCon _ fields ->
     Set.unions (map (exprFreeTermNames . snd) fields)
+  RRecordUpdate scrutinee fields ->
+    exprFreeTermNames scrutinee <> Set.unions (map (exprFreeTermNames . snd) fields)
 
 stmtFreeTermNames :: RStmt -> Set.Set RName
 stmtFreeTermNames = \case
@@ -3427,7 +3460,7 @@ inferLambdaPatterns context initialEnv =
           caseBinder <- freshTermBinder "$case" patTy
           let scrutinee = TVar (typedBinderName binder) (Scheme [] [] patTy) [] patTy
           plan <- inferPatternPlan env patTy scrutinee pat
-          warnIfNonExhaustivePatterns context patTy [(pat, RUnguarded RUnit)]
+          warnForPatternCoverage context patTy [PatternCoverageRow (rPatSpan pat) pat (RUnguarded RUnit)]
           let wrapOne = caseForPatternPlan scrutinee caseBinder plan
           go (binders <> [binder]) (patternEnv plan) (wrap . wrapOne) rest
 
@@ -3503,6 +3536,8 @@ inferExpr env expr =
         inferConstructor name
       RRecordCon name fields ->
         inferRecordConstruction env name fields
+      RRecordUpdate scrutinee fields ->
+        inferRecordUpdate env scrutinee fields
       RLit (LString value) ->
         pure (stringLiteralTypedExpr value)
       RLit (LInt value) ->
@@ -3544,7 +3579,7 @@ inferExpr env expr =
         typedScrutinee <- inferExpr env scrutinee
         scrutineeTy <- applyCurrent (typedExprType typedScrutinee)
         resultTy <- freshMeta
-        warnIfNonExhaustivePatterns CasePatternExhaustiveness scrutineeTy [(pat, rhs) | RAlt pat rhs _ <- alternatives]
+        warnForPatternCoverage CasePatternExhaustiveness scrutineeTy [PatternCoverageRow (rAltSpan alt) pat rhs | alt@(RAlt pat rhs _) <- alternatives]
         case alternatives of
           firstAlt : _ -> do
             firstIrrefutable <- caseAltCanElideRuntimeCase firstAlt
@@ -4089,10 +4124,198 @@ inferRecordConstruction env name fields = do
       foldM applyConstructorArgument typedConstructor typedFields
  where
   applyConstructorArgument function argument = do
-    resultTy <- freshMeta
-    unify (typedExprType function) (TyFun (typedExprType argument) resultTy)
-    resultTy' <- applyCurrent resultTy
+    freshResultTy <- freshMeta
+    unify (typedExprType function) (TyFun (typedExprType argument) freshResultTy)
+    resultTy' <- applyCurrent freshResultTy
     pure (TApp function argument resultTy')
+
+inferRecordUpdate :: TypeEnv -> RExpr -> [(RName, RExpr)] -> InferM TypedExpr
+inferRecordUpdate env scrutinee fields = do
+  when (null fields) $
+    throwTypecheck (UnsupportedCore0 "record update requires at least one field")
+  ensureNoDuplicateRecordUpdateLabels (map fst fields)
+  selectors <- recordSelectors <$> get
+  selectorInfos <- traverse (lookupRecordUpdateSelector selectors) (map fst fields)
+  targetHead <- recordUpdateTargetHead selectorInfos
+  typedScrutinee <- inferExpr env scrutinee
+  rejectMismatchedConcreteRecordUpdate targetHead typedScrutinee
+  typedFields <- traverse (\(name, expr) -> (name,) <$> inferExpr env expr) fields
+  unifyRecordUpdateFields typedScrutinee typedFields selectorInfos
+  scrutineeTy <- applyCurrent (typedExprType typedScrutinee)
+  constructors <- dataConstructors <$> get
+  let recordConstructors = recordConstructorsForHead targetHead constructors
+      updateLabels = Set.fromList (map fst fields)
+      updatableConstructors =
+        [ (name, info)
+        | (name, info) <- recordConstructors
+        , recordConstructorHasLabels updateLabels info
+        ]
+  when (null updatableConstructors) $
+    throwTypecheck
+      ( UnsupportedCore0
+          ( "record update fields "
+              <> Text.intercalate ", " (map (renderRName . fst) fields)
+              <> " are not all provided by any constructor of `"
+              <> renderRName targetHead
+              <> "`"
+          )
+      )
+  case updatableConstructors of
+    [(name, info)]
+      | dataConstructorRepresentation info == CoreNewtypeConstructor ->
+          recordUpdateConstructorBody scrutineeTy (Map.fromList typedFields) name info
+    _ -> do
+      alternatives <- traverse (uncurry (recordUpdateAlternative scrutineeTy (Map.fromList typedFields))) updatableConstructors
+      resultTy <- applyCurrent scrutineeTy
+      caseBinder <- freshTermBinder "$record_update" resultTy
+      pure (TCase typedScrutinee caseBinder alternatives resultTy)
+
+lookupRecordUpdateSelector :: Map.Map RName RecordSelectorInfo -> RName -> InferM RecordSelectorInfo
+lookupRecordUpdateSelector selectors label =
+  case Map.lookup label selectors of
+    Nothing ->
+      throwTypecheck (UnsupportedCore0 ("record update uses unknown field `" <> renderRName label <> "`"))
+    Just info ->
+      pure info
+
+recordUpdateTargetHead :: [RecordSelectorInfo] -> InferM RName
+recordUpdateTargetHead selectorInfos =
+  case List.nub (mapMaybe (recordTypeHead . recordSelectorResultType) selectorInfos) of
+    [targetHead] ->
+      pure targetHead
+    [] ->
+      throwTypecheck (UnsupportedCore0 "record update could not determine a record datatype")
+    heads ->
+      throwTypecheck
+        ( UnsupportedCore0
+            ( "record update fields are ambiguous across datatypes "
+                <> Text.intercalate ", " (map renderRName heads)
+            )
+        )
+
+rejectMismatchedConcreteRecordUpdate :: RName -> TypedExpr -> InferM ()
+rejectMismatchedConcreteRecordUpdate targetHead typedScrutinee = do
+  scrutineeTy <- applyCurrent (typedExprType typedScrutinee)
+  case recordTypeHead scrutineeTy of
+    Just scrutineeHead
+      | scrutineeHead /= targetHead ->
+          throwTypecheck
+            ( UnsupportedCore0
+                ( "record update uses fields from `"
+                    <> renderRName targetHead
+                    <> "` on scrutinee of type "
+                    <> renderMonoType scrutineeTy
+                )
+            )
+    _ ->
+      pure ()
+
+unifyRecordUpdateFields :: TypedExpr -> [(RName, TypedExpr)] -> [RecordSelectorInfo] -> InferM ()
+unifyRecordUpdateFields typedScrutinee typedFields selectorInfos =
+  traverse_ unifyOne (zip typedFields selectorInfos)
+ where
+  unifyOne ((_, typedField), selectorInfo) = do
+    (selectorTy, _) <- instantiate (recordSelectorScheme selectorInfo)
+    case selectorTy of
+      TyFun recordTy fieldTy -> do
+        unify (typedExprType typedScrutinee) recordTy
+        unify (typedExprType typedField) fieldTy
+      other ->
+        throwTypecheck (UnsupportedCore0 ("record selector `" <> renderRName (recordSelectorName selectorInfo) <> "` has non-function type " <> renderMonoType other))
+
+recordConstructorsForHead :: RName -> Map.Map RName DataConstructorInfo -> [(RName, DataConstructorInfo)]
+recordConstructorsForHead targetHead constructors =
+  [ (name, info)
+  | (name, info) <- Map.toList constructors
+  , recordTypeHead (dataConstructorResult info) == Just targetHead
+  ]
+
+recordConstructorHasLabels :: Set.Set RName -> DataConstructorInfo -> Bool
+recordConstructorHasLabels labels info =
+  labels `Set.isSubsetOf` Map.keysSet (recordLabelIndexMapPure info)
+
+recordUpdateAlternative :: MonoType -> Map.Map RName TypedExpr -> RName -> DataConstructorInfo -> InferM TypedAlt
+recordUpdateAlternative scrutineeTy typedFields name info = do
+  (fieldTypes, resultTy, typeArguments) <- instantiateConstructorFields info
+  unify resultTy scrutineeTy
+  fieldTypes' <- traverse applyCurrent fieldTypes
+  resultTy' <- applyCurrent resultTy
+  typeArguments' <- traverse applyCurrent typeArguments
+  binders <- traverse (uncurry recordUpdateFieldBinder) (zip [0 :: Int ..] fieldTypes')
+  body <- recordUpdateConstructorBodyFromFields typedFields name info fieldTypes' resultTy' typeArguments' (Just binders)
+  pure (TypedAlt (ConstructorAlt name) binders body)
+
+recordUpdateConstructorBody :: MonoType -> Map.Map RName TypedExpr -> RName -> DataConstructorInfo -> InferM TypedExpr
+recordUpdateConstructorBody scrutineeTy typedFields name info = do
+  (fieldTypes, resultTy, typeArguments) <- instantiateConstructorFields info
+  unify resultTy scrutineeTy
+  fieldTypes' <- traverse applyCurrent fieldTypes
+  resultTy' <- applyCurrent resultTy
+  typeArguments' <- traverse applyCurrent typeArguments
+  recordUpdateConstructorBodyFromFields typedFields name info fieldTypes' resultTy' typeArguments' Nothing
+
+recordUpdateConstructorBodyFromFields ::
+  Map.Map RName TypedExpr ->
+  RName ->
+  DataConstructorInfo ->
+  [MonoType] ->
+  MonoType ->
+  [MonoType] ->
+  Maybe [TypedBinder] ->
+  InferM TypedExpr
+recordUpdateConstructorBodyFromFields typedFields name info fieldTypes resultTy typeArguments maybeBinders = do
+  fieldArgs <- traverse recordUpdateFieldArg (zip3 [0 :: Int ..] fieldTypes (dataConstructorFieldLabels info))
+  constructorTy <- applyCurrent (foldr TyFun resultTy fieldTypes)
+  typedConstructor <- typedConstructorExpr name info typeArguments constructorTy
+  foldM applyConstructorArgument typedConstructor fieldArgs
+ where
+  recordUpdateFieldArg (index, fieldTy, maybeLabel) =
+    case maybeLabel >>= (`Map.lookup` typedFields) of
+      Just typedField -> do
+        unify fieldTy (typedExprType typedField)
+        pure typedField
+      Nothing ->
+        case maybeBinders >>= listAt index of
+          Just binder ->
+            pure (typedLocalVar binder)
+          Nothing ->
+            typedLocalVar <$> recordUpdateFieldBinder index fieldTy
+
+  applyConstructorArgument function argument = do
+    freshResultTy <- freshMeta
+    unify (typedExprType function) (TyFun (typedExprType argument) freshResultTy)
+    resultTy' <- applyCurrent freshResultTy
+    pure (TApp function argument resultTy')
+
+listAt :: Int -> [a] -> Maybe a
+listAt index values
+  | index < 0 = Nothing
+  | otherwise =
+      case drop index values of
+        value : _ -> Just value
+        [] -> Nothing
+
+recordUpdateFieldBinder :: Int -> MonoType -> InferM TypedBinder
+recordUpdateFieldBinder index =
+  freshTermBinder ("$record_update_field" <> renderInt index)
+
+recordTypeHead :: MonoType -> Maybe RName
+recordTypeHead = \case
+  TyCon name -> Just name
+  TyApp fn _ -> recordTypeHead fn
+  _ -> Nothing
+
+ensureNoDuplicateRecordUpdateLabels :: [RName] -> InferM ()
+ensureNoDuplicateRecordUpdateLabels =
+  go Set.empty
+ where
+  go _ [] =
+    pure ()
+  go seen (label : rest)
+    | label `Set.member` seen =
+        throwTypecheck (UnsupportedCore0 ("record update repeats field `" <> renderRName label <> "`"))
+    | otherwise =
+        go (Set.insert label seen) rest
 
 inferConstructor :: RName -> InferM TypedExpr
 inferConstructor name
@@ -4385,20 +4608,182 @@ constructorCanElideRuntimeCase name = do
         Nothing ->
           pure False
 
-warnIfNonExhaustivePatterns :: PatternExhaustivenessContext -> MonoType -> [(RPat, RRhs)] -> InferM ()
-warnIfNonExhaustivePatterns context scrutineeTy alternatives = do
-  exhaustive <- alternativesProveExhaustive scrutineeTy alternatives
-  unless exhaustive $
-    emitTypecheckWarning (NonExhaustivePatternMatch context)
+data PatternCoverageRow = PatternCoverageRow
+  { patternCoverageRowSpan :: Maybe SourceSpan
+  , patternCoverageRowPattern :: RPat
+  , patternCoverageRowRhs :: RRhs
+  }
+  deriving stock (Show, Eq, Ord)
 
-alternativesProveExhaustive :: MonoType -> [(RPat, RRhs)] -> InferM Bool
-alternativesProveExhaustive scrutineeTy alternatives = do
+data PatternCoverageState = PatternCoverageState
+  { patternCoverageCoversAll :: Bool
+  , patternCoverageConstructors :: Set.Set RName
+  , patternCoverageLiterals :: Set.Set Literal
+  }
+  deriving stock (Show, Eq, Ord)
+
+emptyPatternCoverageState :: PatternCoverageState
+emptyPatternCoverageState =
+  PatternCoverageState
+    { patternCoverageCoversAll = False
+    , patternCoverageConstructors = Set.empty
+    , patternCoverageLiterals = Set.empty
+    }
+
+warnForPatternCoverage :: PatternExhaustivenessContext -> MonoType -> [PatternCoverageRow] -> InferM ()
+warnForPatternCoverage context scrutineeTy rows = do
   scrutineeTy' <- applyCurrent scrutineeTy
-  let totalAlternatives = [(pat, rhs) | (pat, rhs) <- alternatives, rhsProvesTotal rhs]
-  direct <- anyM (patternProvesExhaustive scrutineeTy' . fst) totalAlternatives
-  if direct
-    then pure True
-    else constructorFamilyCovered scrutineeTy' (map fst totalAlternatives)
+  warnForRedundantPatterns context scrutineeTy' rows
+  missing <- missingPatternWitnesses scrutineeTy' rows
+  unless (null missing) $
+    emitTypecheckWarning (NonExhaustivePatternMatch context missing)
+
+warnForRedundantPatterns :: PatternExhaustivenessContext -> MonoType -> [PatternCoverageRow] -> InferM ()
+warnForRedundantPatterns context scrutineeTy =
+  go emptyPatternCoverageState
+ where
+  go _ [] =
+    pure ()
+  go coverage (row : rest) = do
+    redundant <- patternRedundantUnderCoverage scrutineeTy coverage (patternCoverageRowPattern row)
+    when redundant $
+      withTypecheckSpan (patternCoverageRowSpan row) $
+        emitTypecheckWarning (RedundantPatternMatch context)
+    rowCoverage <-
+      if rhsProvesTotal (patternCoverageRowRhs row)
+        then patternTotalCoverage scrutineeTy (patternCoverageRowPattern row)
+        else pure emptyPatternCoverageState
+    go (mergePatternCoverage coverage rowCoverage) rest
+
+missingPatternWitnesses :: MonoType -> [PatternCoverageRow] -> InferM [Text]
+missingPatternWitnesses scrutineeTy rows = do
+  coverage <-
+    foldM
+      ( \acc row ->
+          if rhsProvesTotal (patternCoverageRowRhs row)
+            then mergePatternCoverage acc <$> patternTotalCoverage scrutineeTy (patternCoverageRowPattern row)
+            else pure acc
+      )
+      emptyPatternCoverageState
+      rows
+  if patternCoverageCoversAll coverage
+    then pure []
+    else do
+      family <- constructorFamilyForType scrutineeTy
+      case family of
+        Nothing ->
+          pure ["<unknown>"]
+        Just required ->
+          pure (map renderRName (Set.toList (required `Set.difference` patternCoverageConstructors coverage)))
+
+mergePatternCoverage :: PatternCoverageState -> PatternCoverageState -> PatternCoverageState
+mergePatternCoverage lhs rhs =
+  PatternCoverageState
+    { patternCoverageCoversAll = patternCoverageCoversAll lhs || patternCoverageCoversAll rhs
+    , patternCoverageConstructors = patternCoverageConstructors lhs <> patternCoverageConstructors rhs
+    , patternCoverageLiterals = patternCoverageLiterals lhs <> patternCoverageLiterals rhs
+    }
+
+patternTotalCoverage :: MonoType -> RPat -> InferM PatternCoverageState
+patternTotalCoverage scrutineeTy pat =
+  case pat of
+    RPVar {} ->
+      pure emptyPatternCoverageState {patternCoverageCoversAll = True}
+    RPWildcard ->
+      pure emptyPatternCoverageState {patternCoverageCoversAll = True}
+    RPIrrefutable {} ->
+      pure emptyPatternCoverageState {patternCoverageCoversAll = True}
+    RPParen inner ->
+      patternTotalCoverage scrutineeTy inner
+    RPAs _ inner ->
+      patternTotalCoverage scrutineeTy inner
+    RPLit literal ->
+      pure emptyPatternCoverageState {patternCoverageLiterals = Set.singleton literal}
+    RPList [] ->
+      pure emptyPatternCoverageState {patternCoverageConstructors = Set.singleton listNilDataConName}
+    RPTuple fields ->
+      case scrutineeTy of
+        TyTuple fieldTypes
+          | length fieldTypes == length fields -> do
+              fieldsExhaustive <- andM (zipWith patternProvesExhaustive fieldTypes fields)
+              pure
+                emptyPatternCoverageState
+                  { patternCoverageConstructors =
+                      if fieldsExhaustive
+                        then Set.singleton (tupleDataConName (length fields))
+                        else Set.empty
+                  }
+        _ ->
+          pure emptyPatternCoverageState
+    RPCon name fields ->
+      constructorPatternTotalCoverage name fields
+    RPRecordCon name fields ->
+      recordPatternTotalCoverage name fields
+    _ ->
+      pure emptyPatternCoverageState
+
+constructorPatternTotalCoverage :: RName -> [RPat] -> InferM PatternCoverageState
+constructorPatternTotalCoverage name fields = do
+  canonical <- canonicalConstructorName name
+  fieldsCovered <-
+    if canonical == trueDataConName || canonical == falseDataConName
+      then pure (null fields)
+      else constructorFieldsProveExhaustive canonical fields
+  pure
+    emptyPatternCoverageState
+      { patternCoverageConstructors =
+          if fieldsCovered
+            then Set.singleton canonical
+            else Set.empty
+      }
+
+recordPatternTotalCoverage :: RName -> [(RName, RPat)] -> InferM PatternCoverageState
+recordPatternTotalCoverage name fields = do
+  canonical <- canonicalConstructorName name
+  maybeInfo <- lookupDataConstructorInfo canonical
+  case maybeInfo of
+    Nothing ->
+      pure emptyPatternCoverageState
+    Just info -> do
+      orderedFields <- orderRecordPatternFields canonical info fields
+      constructorPatternTotalCoverage canonical orderedFields
+
+patternRedundantUnderCoverage :: MonoType -> PatternCoverageState -> RPat -> InferM Bool
+patternRedundantUnderCoverage scrutineeTy coverage pat
+  | patternCoverageCoversAll coverage =
+      pure True
+  | otherwise = do
+      family <- constructorFamilyForType scrutineeTy
+      case family of
+        Just required
+          | required `Set.isSubsetOf` patternCoverageConstructors coverage
+          , patternSyntacticallyIrrefutable pat ->
+              pure True
+        _ ->
+          patternHeadAlreadyCovered coverage pat
+
+patternHeadAlreadyCovered :: PatternCoverageState -> RPat -> InferM Bool
+patternHeadAlreadyCovered coverage = \case
+  RPParen inner ->
+    patternHeadAlreadyCovered coverage inner
+  RPAs _ inner ->
+    patternHeadAlreadyCovered coverage inner
+  RPIrrefutable inner ->
+    patternHeadAlreadyCovered coverage inner
+  RPLit literal ->
+    pure (literal `Set.member` patternCoverageLiterals coverage)
+  RPList [] ->
+    pure (listNilDataConName `Set.member` patternCoverageConstructors coverage)
+  RPTuple fields ->
+    pure (tupleDataConName (length fields) `Set.member` patternCoverageConstructors coverage)
+  RPCon name _ -> do
+    canonical <- canonicalConstructorName name
+    pure (canonical `Set.member` patternCoverageConstructors coverage)
+  RPRecordCon name _ -> do
+    canonical <- canonicalConstructorName name
+    pure (canonical `Set.member` patternCoverageConstructors coverage)
+  _ ->
+    pure False
 
 rhsProvesTotal :: RRhs -> Bool
 rhsProvesTotal = \case
@@ -9401,15 +9786,6 @@ coreTypeToMono = \case
 zipWithM_ :: Monad m => (a -> b -> m c) -> [a] -> [b] -> m ()
 zipWithM_ f lhs rhs =
   sequence_ (zipWith f lhs rhs)
-
-anyM :: Monad m => (a -> m Bool) -> [a] -> m Bool
-anyM _ [] =
-  pure False
-anyM f (value : rest) = do
-  result <- f value
-  if result
-    then pure True
-    else anyM f rest
 
 andM :: Monad m => [m Bool] -> m Bool
 andM [] =

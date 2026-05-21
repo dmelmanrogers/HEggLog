@@ -640,6 +640,8 @@ renameExprRaw = \case
     RCon <$> lookupName ConstructorNamespace occ
   S.RecordCon occ fields ->
     RRecordCon <$> lookupName ConstructorNamespace occ <*> traverse renameRecordExprField fields
+  S.RecordUpdate scrutinee fields ->
+    RRecordUpdate <$> renameExpr scrutinee <*> traverse renameRecordExprField fields
   S.Lit literal ->
     pure (RLit literal)
   S.App function argument ->
@@ -1089,6 +1091,8 @@ resolveExprFixities expr =
       RExprTypeSig <$> resolveExprFixities inner <*> pure sourceType
     RRecordCon name fields ->
       RRecordCon name <$> traverse (\(fieldName, fieldExpr) -> (fieldName,) <$> resolveExprFixities fieldExpr) fields
+    RRecordUpdate scrutinee fields ->
+      RRecordUpdate <$> resolveExprFixities scrutinee <*> traverse (\(fieldName, fieldExpr) -> (fieldName,) <$> resolveExprFixities fieldExpr) fields
     _ ->
       pure expr
 

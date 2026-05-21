@@ -110,6 +110,19 @@
       "notes": "Explicit case over Bool."
     },
     {
+      "name": "expressions.where-groups",
+      "sourceFile": "test/haskell2010/conformance/expressions/where-groups.hs",
+      "category": "expressions",
+      "expectedStatus": "native-success",
+      "expectedStdout": "14\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Function and case-alternative where declaration groups lower through Core/STG/native execution for the currently accepted where syntax."
+    },
+    {
       "name": "expressions.sections",
       "sourceFile": "test/haskell2010/conformance/expressions/sections.hs",
       "category": "expressions",
@@ -147,7 +160,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "implicit\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Modules without an explicit Prelude import receive names as if by import Prelude."
     },
     {
@@ -157,7 +173,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "explicit\n42\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "An explicit Prelude import suppresses the implicit import and restricts unqualified names to the import list."
     },
     {
@@ -167,7 +186,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "qualified\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "A qualified explicit Prelude import suppresses implicit unqualified Prelude names while keeping qualified access."
     },
     {
@@ -177,7 +199,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "42\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Instances cross empty export lists and empty import lists through a transitive import chain."
     },
     {
@@ -199,6 +224,19 @@
       "notes": "Top-level type signature checked against binding."
     },
     {
+      "name": "declarations.fixity-expression-signature",
+      "sourceFile": "test/haskell2010/conformance/declarations/fixity-expression-signature.hs",
+      "category": "declarations",
+      "expectedStatus": "native-success",
+      "expectedStdout": "9\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "A local fixity declaration affects infix reassociation and expression type signatures check before native execution."
+    },
+    {
       "name": "declarations.multiple-definitions",
       "sourceFile": "test/haskell2010/conformance/declarations/multiple-definitions.hs",
       "category": "declarations",
@@ -206,6 +244,19 @@
       "expectedStdout": "6\n",
       "requiredStage": "native",
       "notes": "Multiple top-level value definitions in one module."
+    },
+    {
+      "name": "declarations.pattern-binding",
+      "sourceFile": "test/haskell2010/conformance/declarations/pattern-binding.hs",
+      "category": "declarations",
+      "expectedStatus": "native-success",
+      "expectedStdout": "12\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Top-level non-variable pattern bindings emit selector bindings and compile natively."
     },
     {
       "name": "declarations.newtype-wrapper",
@@ -268,6 +319,31 @@
       "expectedStdout": "43\n",
       "requiredStage": "native",
       "notes": "Record declaration labels, selector functions, complete record construction, and record pattern matching."
+    },
+    {
+      "name": "adts.record-update",
+      "sourceFile": "test/haskell2010/conformance/adts/record-update.hs",
+      "category": "adts",
+      "expectedStatus": "native-success",
+      "expectedStdout": "59\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Record update syntax lowers through typed Core/STG/native execution, updates multiple fields, composes with record construction, and preserves laziness of untouched fields."
+    },
+    {
+      "name": "adts.record-update-missing-constructor-field",
+      "sourceFile": "test/haskell2010/conformance/adts/record-update-missing-constructor-field.hs",
+      "category": "adts",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "A record update whose labels are valid for the datatype but not present on the runtime constructor compiles and fails by missing case alternative at runtime."
     },
     {
       "name": "lists-tuples.list-length",
@@ -393,7 +469,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "1\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Boxed Char literals, Char literal case alternatives, and the built-in Eq Char dictionary lower through native STG."
     },
     {
@@ -403,7 +482,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "Z\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Executable scalar Char main unboxes through the native runtime and prints as a character."
     },
     {
@@ -413,7 +495,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "5\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Source string literals and string literal patterns lower to ordinary [Char] lists; length and show output consume them as lists."
     },
     {
@@ -423,7 +508,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "native\nok\n7\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Direct string literals and list functions over strings feed native putStrLn/print through ordinary [Char] values."
     },
     {
@@ -433,7 +521,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "42\nFalse\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Built-in Show Int and Show Bool results are native [Char] values consumable by putStrLn."
     },
     {
@@ -443,7 +534,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "6\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Native execution covers explicit Char cons patterns and string literal patterns over source string values."
     },
     {
@@ -453,7 +547,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Q'\n\"ok\"\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Broader Show coverage for Char, String, generic lists, nested string lists, print, and defaulted numeric list elements."
     },
     {
@@ -463,7 +560,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Executable arithmetic sequences for Int and Char, including ascending, descending, and lazily consumed open Int ranges."
     },
     {
@@ -473,7 +573,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "42\n42\nxyz\naceg\n65\nA\n[False,True]\n[4,5,6]\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Public Enum Int/Char and Bounded Int/Char/Bool dictionaries, including defaulting through Num+Enum, compile and run natively."
     },
     {
@@ -483,7 +586,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Executable list comprehensions over Int and Char ranges, guards, nested generators, let qualifiers, tuple patterns, and refutable Maybe patterns."
     },
     {
@@ -528,7 +634,10 @@
       "category": "io",
       "expectedStatus": "native-runtime-error",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Explicit IO fail compiles through the Monad IO dictionary and exits nonzero at runtime."
     },
     {
@@ -538,7 +647,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "7\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Known-constructor Core optimizer case must agree with --no-egglog."
     },
     {
@@ -548,7 +660,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "monad\n[11,21,12,22]\n[1,3]\n7\nmaybe fail\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Haskell 2010 Monad dictionaries drive IO, Maybe, and list do-notation, including fail on refutable do-bind patterns."
     },
     {
@@ -558,7 +673,10 @@
       "expectedStatus": "native-success",
       "expectedStdout": "[]\nmaybe explicit fail\n7\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
       "notes": "Explicit fail uses the Monad Maybe and Monad list dictionaries without going through refutable do-bind desugaring."
     },
     {
@@ -568,8 +686,13 @@
       "expectedStatus": "native-success",
       "expectedStdout": "12\n10\n42\n42\n11\nB\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
-      "extraObjects": ["test/native/haskell2010/ffi_helpers.c"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c"
+      ],
       "notes": "Static foreign import ccall declarations lower through LLVM, link against C helpers, marshal Int/Bool/Char values, and sequence IO effects."
     },
     {
@@ -579,8 +702,13 @@
       "expectedStatus": "native-success",
       "expectedStdout": "77\n123\n99\n42\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
-      "extraObjects": ["test/native/haskell2010/ffi_helpers.c"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c"
+      ],
       "notes": "Ptr/FunPtr imports cover static data addresses, function addresses, pointer arguments, pointer results, mutation through IO, and function-pointer arguments."
     },
     {
@@ -590,8 +718,13 @@
       "expectedStatus": "native-success",
       "expectedStdout": "11\n21\n40\n42\n15\n22\n3\n4\n11\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
-      "extraObjects": ["test/native/haskell2010/ffi_helpers.c"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c"
+      ],
       "notes": "dynamic imports emit indirect FunPtr calls and wrapper imports create C-callable callbacks that re-enter Haskell closures."
     },
     {
@@ -601,8 +734,13 @@
       "expectedStatus": "native-success",
       "expectedStdout": "42\n5\n12\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
-      "extraObjects": ["test/native/haskell2010/ffi_export_helpers.c"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_export_helpers.c"
+      ],
       "notes": "foreign export ccall generates C-callable entrypoints for supported pure and IO functions and links C helpers that call back into Haskell."
     },
     {
@@ -612,8 +750,13 @@
       "expectedStatus": "native-success",
       "expectedStdout": "ok\n",
       "requiredStage": "native",
-      "compilerModes": ["default", "no-egglog"],
-      "extraObjects": ["test/native/haskell2010/ffi_helpers.c"],
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c"
+      ],
       "notes": "StablePtr and manual ForeignPtr APIs compile natively with stable pointer dereference/free, casts, withForeignPtr, finalizer registration, reverse-order dispatch, and idempotent finalization."
     },
     {
@@ -663,6 +806,42 @@
       "notes": "Malformed layout must fail during Haskell 2010 parsing."
     },
     {
+      "name": "negative.malformed-where-layout",
+      "sourceFile": "test/haskell2010/conformance/negative/malformed-where-layout.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "parse",
+      "requiredStage": "parse",
+      "notes": "Malformed where-group layout must fail during Haskell 2010 parsing."
+    },
+    {
+      "name": "negative.invalid-pattern-binding",
+      "sourceFile": "test/haskell2010/conformance/negative/invalid-pattern-binding.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "duplicate",
+      "requiredStage": "rename",
+      "notes": "A top-level non-variable pattern binding with duplicate binders is rejected by pattern-binder validation."
+    },
+    {
+      "name": "negative.duplicate-function-parameter",
+      "sourceFile": "test/haskell2010/conformance/negative/duplicate-function-parameter.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "duplicate",
+      "requiredStage": "rename",
+      "notes": "Duplicate source binders in one function equation are rejected before typechecking."
+    },
+    {
+      "name": "negative.impossible-case-pattern",
+      "sourceFile": "test/haskell2010/conformance/negative/impossible-case-pattern.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "type",
+      "requiredStage": "typecheck",
+      "notes": "A case alternative whose pattern is impossible for the scrutinee type is rejected with a type diagnostic."
+    },
+    {
       "name": "negative.duplicate-monad-io",
       "sourceFile": "test/haskell2010/conformance/negative/duplicate-monad-io.hs",
       "category": "negative",
@@ -670,6 +849,42 @@
       "expectedDiagnosticCategory": "duplicate built-in instance",
       "requiredStage": "typecheck",
       "notes": "User instances must not overlap or duplicate the Haskell 2010 built-in Monad IO dictionary."
+    },
+    {
+      "name": "negative.record-update-ambiguous-fields",
+      "sourceFile": "test/haskell2010/conformance/negative/record-update-ambiguous-fields.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "record update fields are ambiguous",
+      "requiredStage": "typecheck",
+      "notes": "Record update labels must all belong to the same datatype."
+    },
+    {
+      "name": "negative.record-update-duplicate-field",
+      "sourceFile": "test/haskell2010/conformance/negative/record-update-duplicate-field.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "record update repeats field",
+      "requiredStage": "typecheck",
+      "notes": "Duplicate field labels in a record update are rejected."
+    },
+    {
+      "name": "negative.record-update-invalid-field",
+      "sourceFile": "test/haskell2010/conformance/negative/record-update-invalid-field.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "record update uses fields from",
+      "requiredStage": "typecheck",
+      "notes": "A field selector from another datatype is rejected for the scrutinee record type."
+    },
+    {
+      "name": "negative.record-update-non-record",
+      "sourceFile": "test/haskell2010/conformance/negative/record-update-non-record.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "record update uses fields from",
+      "requiredStage": "typecheck",
+      "notes": "A concrete non-record scrutinee cannot be updated with record fields."
     },
     {
       "name": "negative.missing-instance-import",
@@ -798,6 +1013,15 @@
       "notes": "TC-016 documents Read as a deliberate Prelude/typeclass deviation until ReadS, readsPrec/readList, lexical parsing, and derived Read are implemented coherently."
     },
     {
+      "name": "unsupported.constrained-expression-signature",
+      "sourceFile": "test/haskell2010/conformance/unsupported/constrained-expression-signature.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "unsupported",
+      "requiredStage": "typecheck",
+      "notes": "Constrained expression signatures are parsed but deliberately rejected until the broader local constraint surface is implemented."
+    },
+    {
       "name": "unsupported.kind-checking",
       "sourceFile": "test/haskell2010/conformance/unsupported/kind-checking.hs",
       "category": "negative",
@@ -823,6 +1047,19 @@
       "expectedStdout": "7\n",
       "requiredStage": "native",
       "notes": "Irrefutable/lazy patterns match without forcing the scrutinee and force mismatches only through demanded binders."
+    },
+    {
+      "name": "patterns.unit-wildcard",
+      "sourceFile": "test/haskell2010/conformance/patterns/unit-wildcard.hs",
+      "category": "patterns",
+      "expectedStatus": "native-success",
+      "expectedStdout": "8\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Unit and wildcard function patterns compile natively without forcing an unused argument."
     },
     {
       "name": "unsupported.package-module-search-path",

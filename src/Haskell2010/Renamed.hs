@@ -39,6 +39,7 @@ module Haskell2010.Renamed
       , RListComp
       , RExprTypeSig
       , RRecordCon
+      , RRecordUpdate
       )
   , RExport (..)
   , RForeignDeclInfo (..)
@@ -309,6 +310,7 @@ data RExprNode
   | RListCompNode RExpr [RStmt]
   | RExprTypeSigNode RExpr RHsType
   | RRecordConNode RName [(RName, RExpr)]
+  | RRecordUpdateNode RExpr [(RName, RExpr)]
   deriving stock (Show, Eq, Ord)
 
 pattern RVar :: RName -> RExpr
@@ -411,7 +413,12 @@ pattern RRecordCon name fields <- SpannedRExpr _ (RRecordConNode name fields)
   where
     RRecordCon name fields = SpannedRExpr Nothing (RRecordConNode name fields)
 
-{-# COMPLETE RVar, RCon, RLit, RApp, RInfixApp, RLambda, RLet, RIf, RCase, RDo, RList, RTuple, RUnit, RParen, RLeftSection, RRightSection, RArithmeticSeq, RListComp, RExprTypeSig, RRecordCon #-}
+pattern RRecordUpdate :: RExpr -> [(RName, RExpr)] -> RExpr
+pattern RRecordUpdate scrutinee fields <- SpannedRExpr _ (RRecordUpdateNode scrutinee fields)
+  where
+    RRecordUpdate scrutinee fields = SpannedRExpr Nothing (RRecordUpdateNode scrutinee fields)
+
+{-# COMPLETE RVar, RCon, RLit, RApp, RInfixApp, RLambda, RLet, RIf, RCase, RDo, RList, RTuple, RUnit, RParen, RLeftSection, RRightSection, RArithmeticSeq, RListComp, RExprTypeSig, RRecordCon, RRecordUpdate #-}
 
 rExprSpan :: RExpr -> Maybe SourceSpan
 rExprSpan (SpannedRExpr sourceRange _) =

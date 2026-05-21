@@ -440,8 +440,18 @@ infixExpr = withSpan setExprSpan $ do
 
 appExpr :: Parser Expr
 appExpr = withSpan setExprSpan $ do
-  atoms <- some atomExpr
+  atoms <- some postfixExpr
   pure (foldl1 App atoms)
+
+postfixExpr :: Parser Expr
+postfixExpr = withSpan setExprSpan $ do
+  base <- atomExpr
+  updates <- many (try recordUpdateSuffix)
+  pure (foldl RecordUpdate base updates)
+
+recordUpdateSuffix :: Parser [(Text, Expr)]
+recordUpdateSuffix =
+  bracesComma1 recordExprField
 
 atomExpr :: Parser Expr
 atomExpr =
@@ -460,12 +470,13 @@ recordConExpr = withSpan setExprSpan $ do
   constructor <- qconid
   fields <- bracesComma recordExprField
   pure (RecordCon constructor fields)
- where
-  recordExprField = do
-    name <- qvarid
-    void (symbol "=")
-    expr <- exprParser
-    pure (name, expr)
+
+recordExprField :: Parser (Text, Expr)
+recordExprField = do
+  name <- qvarid
+  void (symbol "=")
+  expr <- exprParser
+  pure (name, expr)
 
 literalExpr :: Parser Expr
 literalExpr =

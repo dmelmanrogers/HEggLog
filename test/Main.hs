@@ -110,6 +110,7 @@ testGroups =
       , pureTest "Haskell 2010 expression surface forms parse" testHaskell2010ExpressionSurfaceParsing
       , pureTest "Haskell 2010 foreign declarations parse structurally" testHaskell2010ForeignDeclarationParsing
       , pureTest "Haskell 2010 record field syntax parses" testHaskell2010RecordFieldSyntaxParsing
+      , pureTest "Haskell 2010 record update syntax parses" testHaskell2010RecordUpdateSyntaxParsing
       , pureTest "Haskell 2010 malformed layout is rejected" testHaskell2010MalformedLayout
       , pureTest "Haskell 2010 imports after declarations are rejected" testHaskell2010ImportAfterDecl
       ]
@@ -120,6 +121,7 @@ testGroups =
       , pureTest "rejects unbound variables" testHaskell2010RenamerUnboundVariable
       , pureTest "separates term constructor type and class namespaces" testHaskell2010RenamerNamespaces
       , pureTest "scopes pattern binders over guarded RHS" testHaskell2010RenamerPatternScope
+      , pureTest "renames record update labels distinctly from construction" testHaskell2010RenamerRecordUpdate
       , pureTest "resolves right-associative fixity" testHaskell2010RenamerRightAssociativeFixity
       , pureTest "resolves operator precedence" testHaskell2010RenamerFixityPrecedence
       , pureTest "rejects chained non-associative operators" testHaskell2010RenamerNonAssociativeFixity
@@ -205,7 +207,7 @@ testGroups =
       , pureTest "typechecks Haskell 2010 FFI signatures before lowering" testHaskell2010ForeignTypechecking
       , pureTest "typechecks StablePtr ForeignPtr and finalizer APIs" testHaskell2010ForeignPtrStablePtrTypechecking
       , pureTest "rejects invalid Haskell 2010 FFI signature shapes" testHaskell2010RejectsInvalidForeignTypechecking
-      , pureTest "records Haskell 2010 exhaustiveness warning placeholders" testHaskell2010ExhaustivenessWarningPlaceholders
+      , pureTest "records Haskell 2010 pattern-match diagnostics" testHaskell2010PatternMatchDiagnostics
       , ioTest "property-checks generated Haskell 2010 inference programs" $
           checkProperty propHaskell2010InferenceValidPrograms
       , ioTest "property-checks generated Haskell 2010 dictionary inference programs" $
@@ -817,6 +819,20 @@ testHaskell2010RecordFieldSyntaxParsing = do
         expectEqual "record pattern fields are parsed" ["age"] (map fst patFields)
     other -> Left ("unexpected record field syntax parse: " <> show other)
 
+testHaskell2010RecordUpdateSyntaxParsing :: Either String ()
+testHaskell2010RecordUpdateSyntaxParsing = do
+  parsed <-
+    parseHaskell2010
+      "module Records where\n\
+      \data Person = Person { age, score :: Int }\n\
+      \update p = p { score = 3, age = age p }\n"
+  case H2010.moduleDecls parsed of
+    [ H2010.DataDecl "Person" [] [H2010.RecordConDecl "Person" [H2010.ConField ["age", "score"] _]] []
+      , H2010.FunctionBinding "update" [H2010.PVar "p"] (H2010.Unguarded (H2010.RecordUpdate (H2010.Var "p") updateFields)) []
+      ] ->
+        expectEqual "record update field order is parsed from source order" ["score", "age"] (map fst updateFields)
+    other -> Left ("unexpected record update syntax parse: " <> show other)
+
 testHaskell2010MalformedLayout :: Either String ()
 testHaskell2010MalformedLayout =
   case
@@ -931,6 +947,24 @@ testHaskell2010RenamerPatternScope = do
         expectEqual "second guard x resolves to pattern binder" patX guardX2
         expectEqual "body x resolves to pattern binder" patX bodyX
     other -> Left ("unexpected renamed pattern module: " <> show other)
+
+testHaskell2010RenamerRecordUpdate :: Either String ()
+testHaskell2010RenamerRecordUpdate = do
+  renamed <-
+    renameHaskell2010
+      "module Records where\n\
+      \data Person = Person { age, score :: Int }\n\
+      \update p = p { age = score p }\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [ H2010Renamed.RDataDecl _ [] [H2010Renamed.RRecordConDecl _ [H2010Renamed.RConField [ageLabel, scoreLabel] _]] []
+      , H2010Renamed.RFunctionBinding _ [H2010Renamed.RPVar paramP] (H2010Renamed.RUnguarded (H2010Renamed.RRecordUpdate (H2010Renamed.RVar updateP) [(updateAge, H2010Renamed.RApp (H2010Renamed.RVar scoreUse) (H2010Renamed.RVar scoreArg))])) []
+      ] -> do
+        expectEqual "record update scrutinee resolves to parameter" paramP updateP
+        expectEqual "record update label resolves to selector" ageLabel updateAge
+        expectEqual "record update field expression resolves selector" scoreLabel scoreUse
+        expectEqual "record update field expression argument resolves parameter" paramP scoreArg
+        expectEqual "record labels live in term namespace" H2010Names.TermNamespace (H2010Names.nameNamespace updateAge)
+    other -> Left ("unexpected renamed record update module: " <> show other)
 
 testHaskell2010RenamerRightAssociativeFixity :: Either String ()
 testHaskell2010RenamerRightAssociativeFixity = do
@@ -2659,8 +2693,8 @@ testHaskell2010RejectsInvalidForeignTypechecking = do
       Right coreModule ->
         Left (label <> ": invalid foreign declaration typechecked unexpectedly: " <> show coreModule)
 
-testHaskell2010ExhaustivenessWarningPlaceholders :: Either String ()
-testHaskell2010ExhaustivenessWarningPlaceholders = do
+testHaskell2010PatternMatchDiagnostics :: Either String ()
+testHaskell2010PatternMatchDiagnostics = do
   partialCase <- typecheckHaskell2010WithWarnings haskell2010PartialCaseWarningSource
   let partialCaseWarnings = H2010Typecheck.typecheckResultWarnings partialCase
   assertBool
@@ -2681,6 +2715,14 @@ testHaskell2010ExhaustivenessWarningPlaceholders = do
     "partial function emits a function warning"
     (warningMentionsFunction (H2010Typecheck.typecheckResultWarnings partialFunction))
 
+  redundantCase <- typecheckHaskell2010WithWarnings haskell2010RedundantCaseWarningSource
+  assertBool
+    "redundant case emits an unreachable alternative warning"
+    (warningMentionsRedundantCase (H2010Typecheck.typecheckResultWarnings redundantCase))
+  assertBool
+    "redundant case warning has a source span"
+    (warningHasTestSourceSpan (H2010Typecheck.typecheckResultWarnings redundantCase))
+
   nativeResult <- compileHaskell2010Native haskell2010PartialCaseWarningSource
   assertBool
     "native result exposes typecheck warnings"
@@ -2692,16 +2734,26 @@ testHaskell2010ExhaustivenessWarningPlaceholders = do
   warningMentionsCase warnings =
     any
       ( \rendered ->
-          "non-exhaustive pattern match placeholder" `Text.isInfixOf` rendered
+          "non-exhaustive pattern match" `Text.isInfixOf` rendered
             && "case alternatives" `Text.isInfixOf` rendered
+            && "False" `Text.isInfixOf` rendered
       )
       (renderedWarnings warnings)
 
   warningMentionsFunction warnings =
     any
       ( \rendered ->
-          "non-exhaustive pattern match placeholder" `Text.isInfixOf` rendered
+          "non-exhaustive pattern match" `Text.isInfixOf` rendered
             && "function `fromJust" `Text.isInfixOf` rendered
+            && "Nothing" `Text.isInfixOf` rendered
+      )
+      (renderedWarnings warnings)
+
+  warningMentionsRedundantCase warnings =
+    any
+      ( \rendered ->
+          "redundant pattern match" `Text.isInfixOf` rendered
+            && "case alternatives" `Text.isInfixOf` rendered
       )
       (renderedWarnings warnings)
 
@@ -7388,6 +7440,14 @@ haskell2010PartialFunctionWarningSource =
   \fromJust :: Maybe Int -> Int\n\
   \fromJust (Just x) = x\n\
   \main = fromJust (Just 1)\n"
+
+haskell2010RedundantCaseWarningSource :: Text
+haskell2010RedundantCaseWarningSource =
+  "module Main where\n\
+  \main = case True of\n\
+  \  True -> 1\n\
+  \  True -> 2\n\
+  \  False -> 0\n"
 
 haskell2010KnownConstructorCaseSource :: Text
 haskell2010KnownConstructorCaseSource =

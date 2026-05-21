@@ -38,6 +38,7 @@ data E2ECase = E2ECase
   , alsoEmitLLVM :: Bool
   , includeReport :: Bool
   , stdinText :: Text
+  , expectedCompileWarnings :: [Text]
   }
   deriving stock (Show, Eq)
 
@@ -113,6 +114,7 @@ runNativeCase hegglog e2eCase mode =
     case expected e2eCase of
       ExpectSuccess expectedStdout -> do
         assertExitSuccess ("native compile " <> showCommand hegglog args) compileResult
+        assertCompileWarnings e2eCase compileResult
         assertExecutableExists outputPath
         runResult <- runCommandWithInput outputPath [] (stdinText e2eCase)
         assertExitSuccess ("native run " <> outputPath) runResult
@@ -141,6 +143,7 @@ runEmitLLVMCase hegglog clang e2eCase =
         args = ["compile", sourcePath e2eCase, "--emit-llvm", "-o", llvmPath]
     emitResult <- runCommand hegglog args
     assertExitSuccess ("emit LLVM " <> showCommand hegglog args) emitResult
+    assertCompileWarnings e2eCase emitResult
     llvmExists <- doesFileExist llvmPath
     assertBool ("LLVM output should exist: " <> llvmPath) llvmExists
     llvmText <- Text.IO.readFile llvmPath
@@ -228,6 +231,19 @@ assertAnyCategory categories output =
   lowerOutput = toLower <$> output
   lowerCategories = Text.unpack . Text.toLower <$> categories
 
+assertCompileWarnings :: E2ECase -> CommandResult -> Assertion
+assertCompileWarnings e2eCase result =
+  mapM_ assertWarning (expectedCompileWarnings e2eCase)
+ where
+  assertWarning warning =
+    assertBool
+      ( "compile warning should contain "
+          <> show warning
+          <> "\nstderr:\n"
+          <> resultStderr result
+      )
+      (Text.unpack warning `isInfixOf` resultStderr result)
+
 assertReportResult :: String -> IO String
 assertReportResult output =
   case [drop (length resultPrefix) line | line <- lines output, resultPrefix `isPrefixOf` line] of
@@ -277,6 +293,7 @@ successCase name path expectedStdout modes emitLLVM =
     , alsoEmitLLVM = emitLLVM
     , includeReport = True
     , stdinText = ""
+    , expectedCompileWarnings = []
     }
 
 nativeOnlySuccessCase :: Text -> FilePath -> Text -> [EgglogMode] -> Bool -> E2ECase
@@ -289,11 +306,16 @@ nativeOnlySuccessCase name path expectedStdout modes emitLLVM =
     , alsoEmitLLVM = emitLLVM
     , includeReport = False
     , stdinText = ""
+    , expectedCompileWarnings = []
     }
 
 nativeOnlySuccessCaseWithInput :: Text -> FilePath -> Text -> Text -> [EgglogMode] -> Bool -> E2ECase
 nativeOnlySuccessCaseWithInput name path input expectedStdout modes emitLLVM =
   (nativeOnlySuccessCase name path expectedStdout modes emitLLVM) {stdinText = input}
+
+nativeOnlySuccessCaseWithCompileWarnings :: Text -> FilePath -> Text -> [EgglogMode] -> Bool -> [Text] -> E2ECase
+nativeOnlySuccessCaseWithCompileWarnings name path expectedStdout modes emitLLVM warnings =
+  (nativeOnlySuccessCase name path expectedStdout modes emitLLVM) {expectedCompileWarnings = warnings}
 
 runtimeErrorCase :: Text -> FilePath -> [EgglogMode] -> E2ECase
 runtimeErrorCase name path modes =
@@ -305,6 +327,7 @@ runtimeErrorCase name path modes =
     , alsoEmitLLVM = False
     , includeReport = False
     , stdinText = ""
+    , expectedCompileWarnings = []
     }
 
 compileErrorCase :: Text -> FilePath -> [Text] -> E2ECase
@@ -317,6 +340,7 @@ compileErrorCase name path categories =
     , alsoEmitLLVM = False
     , includeReport = False
     , stdinText = ""
+    , expectedCompileWarnings = []
     }
 
 e2eCases :: [E2ECase]
@@ -369,6 +393,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-sections" "test/e2e/programs/haskell2010/sections.hs" "6" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-arithmetic-sequences" "test/e2e/programs/haskell2010/arithmetic-sequences.hs" "[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-list-comprehensions" "test/e2e/programs/haskell2010/list-comprehensions.hs" "[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCaseWithCompileWarnings "haskell2010-pattern-diagnostics" "test/e2e/programs/haskell2010/pattern-diagnostics.hs" "7" [DefaultEgglog, NoEgglog] True ["non-exhaustive pattern match", "case alternatives", "False"]
   , nativeOnlySuccessCase "haskell2010-adt-box" "test/e2e/programs/haskell2010/adt-box.hs" "7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-adt-maybe" "test/e2e/programs/haskell2010/adt-maybe.hs" "4" [DefaultEgglog, NoEgglog] False
   , nativeOnlySuccessCase "haskell2010-adt-nested" "test/e2e/programs/haskell2010/adt-nested.hs" "3" [DefaultEgglog, NoEgglog] False
