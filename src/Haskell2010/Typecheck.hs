@@ -33,6 +33,7 @@ import qualified Haskell2010.Core.Validate as CoreValidate
 import Haskell2010.Names
 import Haskell2010.Renamed
 import Haskell2010.Syntax (Literal (..))
+import qualified Haskell2010.Syntax as S
 import Syntax.Span (SourceSpan, renderSourceDiagnostic)
 
 data Kind
@@ -209,6 +210,7 @@ data TypedAlt = TypedAlt CoreAltCon [TypedBinder] TypedExpr
 data DataConstructorInfo = DataConstructorInfo
   { dataConstructorTyVars :: [RName]
   , dataConstructorFields :: [MonoType]
+  , dataConstructorCoreFields :: Maybe [CoreType]
   , dataConstructorFieldLabels :: [Maybe RName]
   , dataConstructorResult :: MonoType
   , dataConstructorScheme :: Scheme
@@ -245,6 +247,7 @@ positionalDataConstructorInfo tyVars fields resultTy scheme representation =
   DataConstructorInfo
     { dataConstructorTyVars = tyVars
     , dataConstructorFields = fields
+    , dataConstructorCoreFields = Nothing
     , dataConstructorFieldLabels = replicate (length fields) Nothing
     , dataConstructorResult = resultTy
     , dataConstructorScheme = scheme
@@ -254,6 +257,7 @@ positionalDataConstructorInfo tyVars fields resultTy scheme representation =
 data ClassInfo = ClassInfo
   { classInfoName :: RName
   , classInfoVariable :: RName
+  , classInfoVariableKind :: Kind
   , classInfoDictTypeName :: RName
   , classInfoDictConstructorName :: RName
   , classInfoSuperclasses :: [ClassConstraint]
@@ -265,6 +269,7 @@ data ClassMethodInfo = ClassMethodInfo
   { classMethodName :: RName
   , classMethodScheme :: Scheme
   , classMethodFieldType :: MonoType
+  , classMethodFieldScheme :: Scheme
   , classMethodFieldIndex :: Int
   , classMethodDefault :: Maybe SourceBinding
   }
@@ -337,7 +342,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
   let sourceDecls = rModuleDecls sourceModule
       tupleArities = collectTupleArities sourceDecls
       preludeValues = collectPreludeValueNames sourceDecls
-  ((typedBindings, _typedEnv, typedInstances), finalState) <-
+  ((typedBindings, _typedEnv, typedInstances, foreignCoreBinds, foreignCoreExports), finalState) <-
     runInfer Map.empty $ do
       typeConstructors <- collectTypeConstructors sourceDecls
       modify (\state -> state {typeConstructors = typeConstructors})
@@ -347,10 +352,11 @@ typecheckModuleToCoreWithWarnings sourceModule = do
       defaults <- collectDefaultTypes sourceDecls
       modify (\state -> state {defaultTypes = defaults})
       constructors <- collectDataConstructors sourceDecls
+      dictionaryConstructors <- classDictionaryConstructors classes
       let allConstructors =
             Map.unions
               [ constructors
-              , classDictionaryConstructors classes
+              , dictionaryConstructors
               , builtinDataConstructors
               ]
       selectors <- collectRecordSelectors allConstructors
@@ -361,12 +367,22 @@ typecheckModuleToCoreWithWarnings sourceModule = do
               , recordSelectors = selectors
               }
         )
-      let classEnv = classMethodTypeEnv classes `Map.union` recordSelectorTypeEnv selectors
+      validateForeignDecls sourceDecls
+      foreignEnv <- foreignImportTypeEnv sourceDecls
+      let classEnv =
+            Map.unions
+              [ classMethodTypeEnv classes
+              , recordSelectorTypeEnv selectors
+              , foreignEnv
+              ]
       (bindings, env) <- inferBindingGroup classEnv sourceDecls
       explicitInstances <- inferInstanceDictionaries env sourceDecls
       derivedInstances <- inferDerivedInstanceDictionaries env sourceDecls explicitInstances
+      validateForeignExportsAgainstEnv env sourceDecls
+      foreignCoreBinds <- foreignImportCoreBinds sourceDecls
+      foreignCoreExports <- foreignExportCoreExports sourceDecls
       let instances = explicitInstances <> derivedInstances
-      pure (bindings, env, instances)
+      pure (bindings, env, instances, foreignCoreBinds, foreignCoreExports)
   let classes = classInfos finalState
       classesForCore = usedClassInfos classes (substitution finalState) typedBindings typedInstances
       builtinInstances = builtinInstanceDictionaries classesForCore
@@ -386,6 +402,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
   builtinEqSupportBinds <- builtinEqSupportCoreBinds classesForCore
   builtinOrdSupportBinds <- builtinOrdSupportCoreBinds classesForCore
   builtinShowSupportBinds <- builtinShowSupportCoreBinds classesForCore
+  builtinMonadSupportBinds <- builtinMonadSupportCoreBinds classesForCore
   builtinInstanceCoreBinds <- traverse (builtinInstanceDictionaryToCore classesForCore) builtinInstances
   instanceCoreBinds <- traverse (instanceDictionaryToCore (substitution finalState) classesForCore instances) typedInstances
   preludeCoreBinds <- preludeCoreBindings (preludeValues <> classPreludeSupportNames classesForCore)
@@ -400,10 +417,11 @@ typecheckModuleToCoreWithWarnings sourceModule = do
           { coreModuleName = rModuleName sourceModule
           , coreModuleConstructors = coreConstructors
           , coreModuleBinds =
-              case preludeCoreBinds <> classCoreBinds <> recordCoreBinds <> builtinEqSupportBinds <> builtinOrdSupportBinds <> builtinShowSupportBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> sourceCoreBinds of
+              case preludeCoreBinds <> classCoreBinds <> recordCoreBinds <> builtinEqSupportBinds <> builtinOrdSupportBinds <> builtinShowSupportBinds <> builtinMonadSupportBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> foreignCoreBinds <> sourceCoreBinds of
                 [] -> []
                 [one] -> [one]
                 many -> [CoreRec (concatMap bindPairs many)]
+          , coreModuleForeignExports = foreignCoreExports
           }
   case CoreValidate.validateModule (CoreValidate.moduleValidationEnv coreModule) coreModule of
     Right () ->
@@ -697,6 +715,7 @@ collectDataConstructors =
           DataConstructorInfo
             { dataConstructorTyVars = params
             , dataConstructorFields = fieldTypes
+            , dataConstructorCoreFields = Nothing
             , dataConstructorFieldLabels = fieldLabels
             , dataConstructorResult = resultTy
             , dataConstructorScheme = scheme
@@ -808,10 +827,12 @@ collectClassInfos decls = do
       let normalizedSuperclasses = map (replaceConstraintClassVariable classVariable) superclasses
       validateSuperclasses className classVariable normalizedSuperclasses
       methods <- collectClassMethods className classVariable (length normalizedSuperclasses) classDecls
+      variableKind <- defaultKindMetas <$> (typeVariableKind classVariable >>= applyKindCurrent)
       let info =
             ClassInfo
               { classInfoName = className
               , classInfoVariable = classVariable
+              , classInfoVariableKind = variableKind
               , classInfoDictTypeName = classDictionaryTypeName className
               , classInfoDictConstructorName = classDictionaryConstructorName className
               , classInfoSuperclasses = normalizedSuperclasses
@@ -915,16 +936,17 @@ collectClassMethods className classVariable superclassCount decls = do
         variables = List.nub (concatMap constraintTypeVars normalizedConstraints <> typeVars normalizedBody)
     unless (null constraints) $
       throwUnsupportedClassConstraintContext (MethodConstraintContext methodName) normalizedConstraints
-    unless (all (== classVariable) variables) $
-      throwTypecheck (UnsupportedCore0 ("method-specific type variables for `" <> renderRName methodName <> "`"))
     let classTy = TyVar classVariable
         allVariables = List.nub (classVariable : variables)
+        fieldVariables = filter (/= classVariable) variables
         scheme = Scheme allVariables [singleClassConstraint className classTy] normalizedBody
+        fieldScheme = Scheme fieldVariables [] normalizedBody
     pure
       ClassMethodInfo
         { classMethodName = methodName
         , classMethodScheme = scheme
         , classMethodFieldType = normalizedBody
+        , classMethodFieldScheme = fieldScheme
         , classMethodFieldIndex = superclassCount + index
         , classMethodDefault = Map.lookup methodName defaults
         }
@@ -953,23 +975,34 @@ classMethodTypeEnv infos =
     , method <- classInfoMethods info
     ]
 
-classDictionaryConstructors :: Map.Map RName ClassInfo -> Map.Map RName DataConstructorInfo
+classDictionaryConstructors :: Map.Map RName ClassInfo -> InferM (Map.Map RName DataConstructorInfo)
 classDictionaryConstructors =
-  Map.fromList . map constructorInfo . Map.elems
+  fmap Map.fromList . traverse constructorInfo . Map.elems
  where
-  constructorInfo info =
+  constructorInfo info = do
+    coreFields <- lift (classDictionaryCoreFieldTypes Map.empty Map.empty info)
     let classVar = classInfoVariable info
         classTy = TyVar classVar
         fields = classDictionaryFieldTypes info
         resultTy = classDictionaryType info classTy
         scheme = Scheme [classVar] [] (foldr TyFun resultTy fields)
-     in ( classInfoDictConstructorName info
-        , positionalDataConstructorInfo [classVar] fields resultTy scheme CoreDataConstructor
-        )
+        constructorInfo' =
+          (positionalDataConstructorInfo [classVar] fields resultTy scheme CoreDataConstructor)
+            {dataConstructorCoreFields = Just coreFields}
+    pure (classInfoDictConstructorName info, constructorInfo')
 
 classDictionaryFieldTypes :: ClassInfo -> [MonoType]
 classDictionaryFieldTypes info =
   map superclassDictionaryFieldType (classInfoSuperclasses info) <> map classMethodFieldType (classInfoMethods info)
+
+classDictionaryCoreFieldTypes :: Subst -> Map.Map Int RName -> ClassInfo -> Either TypecheckError [CoreType]
+classDictionaryCoreFieldTypes subst metas info =
+  (<>) <$> traverse (monoToCoreType subst metas . superclassDictionaryFieldType) (classInfoSuperclasses info)
+    <*> traverse (classMethodFieldCoreType subst metas) (classInfoMethods info)
+
+classMethodFieldCoreType :: Subst -> Map.Map Int RName -> ClassMethodInfo -> Either TypecheckError CoreType
+classMethodFieldCoreType subst metas method =
+  schemeToCoreTypeWith subst metas (classMethodFieldScheme method)
 
 superclassDictionaryFieldType :: ClassConstraint -> MonoType
 superclassDictionaryFieldType constraint =
@@ -998,6 +1031,7 @@ builtinClassInfos =
     , (builtinShowClassName, showInfo)
     , (builtinEnumClassName, enumInfo)
     , (builtinBoundedClassName, boundedInfo)
+    , (builtinMonadClassName, monadInfo)
     ]
  where
   eqA = preludeTypeVariable "a" (-1301)
@@ -1084,23 +1118,56 @@ builtinClassInfos =
       , ("maxBound", -1452, boundedATy)
       ]
 
+  monadM = preludeTypeVariable "m" (-1361)
+  monadA = preludeTypeVariable "a" (-1362)
+  monadB = preludeTypeVariable "b" (-1363)
+  monadMTy = TyVar monadM
+  monadATy = TyVar monadA
+  monadBTy = TyVar monadB
+  monadMA = TyApp monadMTy monadATy
+  monadMB = TyApp monadMTy monadBTy
+  monadInfo =
+    builtinClassInfoWithKind
+      builtinMonadClassName
+      monadM
+      (KindArrow StarKind StarKind)
+      []
+      [ BuiltinMethodSpec ">>=" (-1461) [monadA, monadB] (TyFun monadMA (TyFun (TyFun monadATy monadMB) monadMB))
+      , BuiltinMethodSpec ">>" (-1462) [monadA, monadB] (TyFun monadMA (TyFun monadMB monadMB))
+      , BuiltinMethodSpec "return" (-1463) [monadA] (TyFun monadATy monadMA)
+      , BuiltinMethodSpec "fail" (-1464) [monadA] (TyFun stringMonoType monadMA)
+      ]
+
 builtinClassInfo :: RName -> RName -> [ClassConstraint] -> [(Text, Int, MonoType)] -> ClassInfo
 builtinClassInfo className classVariable superclasses methodSpecs =
+  builtinClassInfoWithKind
+    className
+    classVariable
+    StarKind
+    superclasses
+    [BuiltinMethodSpec occurrence unique [] fieldType | (occurrence, unique, fieldType) <- methodSpecs]
+
+data BuiltinMethodSpec = BuiltinMethodSpec Text Int [RName] MonoType
+
+builtinClassInfoWithKind :: RName -> RName -> Kind -> [ClassConstraint] -> [BuiltinMethodSpec] -> ClassInfo
+builtinClassInfoWithKind className classVariable classVariableKind superclasses methodSpecs =
   ClassInfo
     { classInfoName = className
     , classInfoVariable = classVariable
+    , classInfoVariableKind = classVariableKind
     , classInfoDictTypeName = classDictionaryTypeName className
     , classInfoDictConstructorName = classDictionaryConstructorName className
     , classInfoSuperclasses = superclasses
     , classInfoMethods =
         [ ClassMethodInfo
             { classMethodName = preludeTermName occurrence unique
-            , classMethodScheme = Scheme [classVariable] [singleClassConstraint className (TyVar classVariable)] fieldType
+            , classMethodScheme = Scheme (classVariable : methodVariables) [singleClassConstraint className (TyVar classVariable)] fieldType
             , classMethodFieldType = fieldType
+            , classMethodFieldScheme = Scheme methodVariables [] fieldType
             , classMethodFieldIndex = length superclasses + index
             , classMethodDefault = Nothing
             }
-        | (index, (occurrence, unique, fieldType)) <- zip [0 ..] methodSpecs
+        | (index, BuiltinMethodSpec occurrence unique methodVariables fieldType) <- zip [0 ..] methodSpecs
         ]
     }
 
@@ -1128,6 +1195,10 @@ builtinBoundedClassName :: RName
 builtinBoundedClassName =
   preludeClassName "Bounded" (-1350)
 
+builtinMonadClassName :: RName
+builtinMonadClassName =
+  preludeClassName "Monad" (-1360)
+
 preludeClassName :: Text -> Int -> RName
 preludeClassName occurrence unique =
   RName ClassNamespace occurrence unique True
@@ -1142,6 +1213,7 @@ canonicalClassName name
         "Show" -> builtinShowClassName
         "Enum" -> builtinEnumClassName
         "Bounded" -> builtinBoundedClassName
+        "Monad" -> builtinMonadClassName
         _ -> name
   | otherwise = name
 
@@ -1161,6 +1233,7 @@ builtinClassInfoByOccurrence occurrence = do
           "Show" -> builtinShowClassName
           "Enum" -> builtinEnumClassName
           "Bounded" -> builtinBoundedClassName
+          "Monad" -> builtinMonadClassName
           _ -> RName ClassNamespace occurrence 0 True
   case Map.lookup className classes of
     Just info -> pure info
@@ -1323,7 +1396,7 @@ constructorInfosToCore subst =
  where
   toCore info =
     CoreConstructorInfo (dataConstructorTyVars info)
-      <$> traverse (monoToCoreType subst Map.empty) (dataConstructorFields info)
+      <$> maybe (traverse (monoToCoreType subst Map.empty) (dataConstructorFields info)) pure (dataConstructorCoreFields info)
       <*> monoToCoreType subst Map.empty (dataConstructorResult info)
       <*> pure (dataConstructorRepresentation info)
 
@@ -1541,7 +1614,19 @@ supportedPreludeValueOccurrences =
   , "putStrLn"
   , "getLine"
   , "print"
+  , "newStablePtr"
+  , "deRefStablePtr"
+  , "freeStablePtr"
+  , "castStablePtrToPtr"
+  , "castPtrToStablePtr"
+  , "newForeignPtr"
+  , "newForeignPtr_"
+  , "addForeignPtrFinalizer"
+  , "finalizeForeignPtr"
+  , "withForeignPtr"
+  , "touchForeignPtr"
   , "return"
+  , "fail"
   , ">>="
   , ">>"
   , "=="
@@ -1883,6 +1968,10 @@ matchMonoTypes variables patternTy actualTy replacements =
         TyApp actualFn actualArg ->
           matchMonoTypes variables patternFn actualFn replacements
             >>= matchMonoTypes variables patternArg actualArg
+        TyList actualElement
+          | TyCon name <- patternFn
+          , name == listTyConName ->
+              matchMonoTypes variables patternArg actualElement replacements
         _ -> Nothing
     TyFun patternArg patternResult ->
       case actualTy of
@@ -1903,6 +1992,10 @@ matchMonoTypes variables patternTy actualTy replacements =
       case actualTy of
         TyList actualElement ->
           matchMonoTypes variables patternElement actualElement replacements
+        TyApp actualFn actualArg
+          | TyCon name <- actualFn
+          , name == listTyConName ->
+              matchMonoTypes variables patternElement actualArg replacements
         _ -> Nothing
 
 data SourceBinding = SourceBinding
@@ -1981,6 +2074,379 @@ defaultTypeMonoType sourceType = do
       | nameOcc name == "Integer" -> pure intMonoType
     other ->
       throwTypecheck (UnsupportedCore0 ("default type " <> Text.pack (show other)))
+
+validateForeignDecls :: [RDecl] -> InferM ()
+validateForeignDecls =
+  traverse_ validateForeignDecl
+
+foreignImportTypeEnv :: [RDecl] -> InferM TypeEnv
+foreignImportTypeEnv =
+  foldM collect Map.empty
+ where
+  collect acc decl =
+    withTypecheckSpan (rDeclSpan decl) $
+      case decl of
+        RForeignDecl (RForeignImportDecl foreignImport) -> do
+          scheme <- foreignImportScheme foreignImport
+          pure (Map.insert (rForeignImportName foreignImport) scheme acc)
+        _ ->
+          pure acc
+
+validateForeignDecl :: RDecl -> InferM ()
+validateForeignDecl decl =
+  withTypecheckSpan (rDeclSpan decl) $
+    case decl of
+      RForeignDecl (RForeignImportDecl foreignImport) ->
+        validateForeignImport foreignImport
+      RForeignDecl (RForeignExportDecl foreignExport) ->
+        validateForeignExport foreignExport
+      _ ->
+        pure ()
+
+validateForeignExportsAgainstEnv :: TypeEnv -> [RDecl] -> InferM ()
+validateForeignExportsAgainstEnv env =
+  traverse_ validateExport
+ where
+  validateExport decl =
+    withTypecheckSpan (rDeclSpan decl) $
+      case decl of
+        RForeignDecl (RForeignExportDecl foreignExport) -> do
+          declaredTy <- foreignDeclarationMonoType "foreign export" (rForeignExportType foreignExport)
+          case Map.lookup (rForeignExportName foreignExport) env of
+            Nothing ->
+              throwTypecheck (UnknownCore0Variable (rForeignExportName foreignExport))
+            Just scheme@(Scheme _ constraints _) -> do
+              unless (null constraints) $
+                throwTypecheck (UnsupportedCore0 ("foreign export target `" <> renderRName (rForeignExportName foreignExport) <> "` has constrained type"))
+              (actualTy, _) <- instantiate scheme
+              unify actualTy declaredTy
+        _ ->
+          pure ()
+
+validateForeignImport :: RForeignImport -> InferM ()
+validateForeignImport foreignImport = do
+  validateForeignCallConv "foreign import" (rForeignImportCallConv foreignImport)
+  ty <- foreignDeclarationMonoType "foreign import" (rForeignImportType foreignImport)
+  case S.foreignImportEntityKind (rForeignImportEntity foreignImport) of
+    S.ForeignImportDefault ->
+      validateForeignFunctionType "foreign import" ty
+    S.ForeignImportStatic {} ->
+      validateForeignFunctionType "foreign import static" ty
+    S.ForeignImportAddress {} ->
+      validateForeignAddressType ty
+    S.ForeignImportDynamic ->
+      validateForeignDynamicType ty
+    S.ForeignImportWrapper ->
+      validateForeignWrapperType ty
+    S.ForeignImportUnknown raw ->
+      throwTypecheck (UnsupportedCore0 ("unknown foreign import entity `" <> raw <> "`"))
+
+validateForeignExport :: RForeignExport -> InferM ()
+validateForeignExport foreignExport = do
+  validateForeignCallConv "foreign export" (rForeignExportCallConv foreignExport)
+  ty <- foreignDeclarationMonoType "foreign export" (rForeignExportType foreignExport)
+  validateForeignFunctionType "foreign export" ty
+
+validateForeignCallConv :: Text -> S.ForeignCallConv -> InferM ()
+validateForeignCallConv context = \case
+  S.ForeignCCall ->
+    pure ()
+  S.ForeignStdCall ->
+    pure ()
+  other ->
+    throwTypecheck (UnsupportedCore0 (context <> " calling convention `" <> renderForeignCallConv other <> "`"))
+
+renderForeignCallConv :: S.ForeignCallConv -> Text
+renderForeignCallConv = \case
+  S.ForeignCCall -> "ccall"
+  S.ForeignStdCall -> "stdcall"
+  S.ForeignCPlusPlus -> "cplusplus"
+  S.ForeignJvm -> "jvm"
+  S.ForeignDotNet -> "dotnet"
+  S.ForeignOtherCallConv occurrence -> occurrence
+
+foreignDeclarationMonoType :: Text -> RHsType -> InferM MonoType
+foreignDeclarationMonoType context sourceType = do
+  (constraints, ty) <- sourceQualifiedMonoType sourceType
+  unless (null constraints) $
+    throwTypecheck (UnsupportedCore0 (context <> " type cannot have type-class constraints"))
+  pure ty
+
+foreignImportScheme :: RForeignImport -> InferM Scheme
+foreignImportScheme foreignImport = do
+  ty <- foreignDeclarationMonoType "foreign import" (rForeignImportType foreignImport)
+  pure (Scheme (List.nub (typeVars ty)) [] ty)
+
+foreignImportCoreBinds :: [RDecl] -> InferM [CoreBind]
+foreignImportCoreBinds =
+  fmap concat . traverse foreignImportCoreBindsFromDecl
+ where
+  foreignImportCoreBindsFromDecl decl =
+    withTypecheckSpan (rDeclSpan decl) $
+      case decl of
+        RForeignDecl (RForeignImportDecl foreignImport) ->
+          (: []) <$> foreignImportCoreBind foreignImport
+        _ ->
+          pure []
+
+foreignImportCoreBind :: RForeignImport -> InferM CoreBind
+foreignImportCoreBind foreignImport = do
+  scheme@(Scheme variables _ monoTy) <- foreignImportScheme foreignImport
+  bodyTy <- lift (monoToCoreType Map.empty Map.empty monoTy)
+  binderTy <- lift (schemeToCoreTypeWith Map.empty Map.empty scheme)
+  let info =
+        CoreForeignImport
+          { coreForeignImportCallConv = rForeignImportCallConv foreignImport
+          , coreForeignImportSafety = rForeignImportSafety foreignImport
+          , coreForeignImportEntity = rForeignImportEntity foreignImport
+          , coreForeignImportName = rForeignImportName foreignImport
+          , coreForeignImportType = bodyTy
+          }
+  body <- foreignImportCoreBody foreignImport info bodyTy
+  let rhs =
+        case variables of
+          [] -> body
+          _ -> CTypeLam variables body binderTy
+  pure (CoreNonRec (CoreBinder (rForeignImportName foreignImport) binderTy) rhs)
+
+foreignImportCoreBody :: RForeignImport -> CoreForeignImport -> CoreType -> InferM CoreExpr
+foreignImportCoreBody foreignImport info bodyTy =
+  case S.foreignImportEntityKind (rForeignImportEntity foreignImport) of
+    S.ForeignImportDefault ->
+      etaExpandForeignCall info bodyTy
+    S.ForeignImportStatic {} ->
+      etaExpandForeignCall info bodyTy
+    S.ForeignImportDynamic ->
+      etaExpandForeignCall info bodyTy
+    S.ForeignImportWrapper ->
+      etaExpandForeignCall info bodyTy
+    _ ->
+      pure (CForeignImportValue info bodyTy)
+
+foreignExportCoreExports :: [RDecl] -> InferM [CoreForeignExport]
+foreignExportCoreExports =
+  foldM collect []
+ where
+  collect acc decl =
+    withTypecheckSpan (rDeclSpan decl) $
+      case decl of
+        RForeignDecl (RForeignExportDecl foreignExport) -> do
+          monoTy <- foreignDeclarationMonoType "foreign export" (rForeignExportType foreignExport)
+          coreTy <- lift (monoToCoreType Map.empty Map.empty monoTy)
+          pure
+            ( acc
+                <> [ CoreForeignExport
+                      { coreForeignExportCallConv = rForeignExportCallConv foreignExport
+                      , coreForeignExportEntity = rForeignExportEntity foreignExport
+                      , coreForeignExportName = rForeignExportName foreignExport
+                      , coreForeignExportType = coreTy
+                      }
+                   ]
+            )
+        _ ->
+          pure acc
+
+etaExpandForeignCall :: CoreForeignImport -> CoreType -> InferM CoreExpr
+etaExpandForeignCall info bodyTy = do
+  binders <-
+    traverse
+      ( \(index, argumentTy) -> do
+          name <- freshGeneratedName TermNamespace ("$foreign_arg" <> Text.pack (show index))
+          pure (CoreBinder name argumentTy)
+      )
+      (zip [(0 :: Int) ..] argumentTypes)
+  let call =
+        CForeignCall
+          info
+          [CVar (coreBinderName binder) (coreBinderType binder) | binder <- binders]
+          resultTy
+  pure (foldr lambda call binders)
+ where
+  (argumentTypes, resultTy) =
+    splitCoreFunctionType bodyTy
+
+  lambda binder body =
+    CLam binder body (CTyFun (coreBinderType binder) (exprType body))
+
+splitCoreFunctionType :: CoreType -> ([CoreType], CoreType)
+splitCoreFunctionType =
+  go []
+ where
+  go acc = \case
+    CTyFun argument result ->
+      go (acc <> [argument]) result
+    result ->
+      (acc, result)
+
+validateForeignFunctionType :: Text -> MonoType -> InferM ()
+validateForeignFunctionType context ty = do
+  let (arguments, result) = splitFunctionType ty
+  traverse_ (validateForeignArgumentType context) arguments
+  validateForeignResultType context result
+
+validateForeignDynamicType :: MonoType -> InferM ()
+validateForeignDynamicType ty =
+  case ty of
+    TyFun pointerTy targetTy
+      | Just ptrTargetTy <- foreignFunPtrArgument pointerTy
+      , ptrTargetTy == targetTy ->
+          validateForeignFunctionType "foreign import dynamic target" targetTy
+    _ ->
+      throwTypecheck (UnsupportedCore0 ("foreign import dynamic must have type FunPtr ft -> ft, got `" <> renderMonoType ty <> "`"))
+
+validateForeignWrapperType :: MonoType -> InferM ()
+validateForeignWrapperType ty =
+  case ty of
+    TyFun targetTy resultTy
+      | Just resultInnerTy <- foreignIOResult resultTy
+      , Just ptrTargetTy <- foreignFunPtrArgument resultInnerTy
+      , ptrTargetTy == targetTy -> do
+          validateForeignFunctionType "foreign import wrapper target" targetTy
+    _ ->
+      throwTypecheck (UnsupportedCore0 ("foreign import wrapper must have type ft -> IO (FunPtr ft), got `" <> renderMonoType ty <> "`"))
+
+validateForeignAddressType :: MonoType -> InferM ()
+validateForeignAddressType ty
+  | isForeignPtrType ty || isForeignFunPtrType ty =
+      pure ()
+  | otherwise =
+      throwTypecheck (UnsupportedCore0 ("foreign import address must have type Ptr a or FunPtr a, got `" <> renderMonoType ty <> "`"))
+
+validateForeignArgumentType :: Text -> MonoType -> InferM ()
+validateForeignArgumentType context ty =
+  case ty of
+    TyFun {} ->
+      throwTypecheck (UnsupportedCore0 ("non-marshallable foreign argument type `" <> renderMonoType ty <> "` in " <> context))
+    _ ->
+      validateMarshallableForeignType Set.empty ("foreign argument in " <> context) ty
+
+validateForeignResultType :: Text -> MonoType -> InferM ()
+validateForeignResultType context ty =
+  case foreignIOResult ty of
+    Just resultTy ->
+      validateForeignResultPayload ("foreign result in " <> context) resultTy
+    Nothing ->
+      validateForeignResultPayload ("foreign result in " <> context) ty
+
+validateForeignResultPayload :: Text -> MonoType -> InferM ()
+validateForeignResultPayload _ ty
+  | isUnitType ty =
+      pure ()
+validateForeignResultPayload context ty =
+  validateMarshallableForeignType Set.empty context ty
+
+validateMarshallableForeignType :: Set.Set RName -> Text -> MonoType -> InferM ()
+validateMarshallableForeignType seen context ty
+  | isScalarForeignType ty || isForeignPtrType ty || isForeignFunPtrType ty || isForeignStablePtrType ty =
+      pure ()
+  | otherwise = do
+      representation <- newtypeRepresentationField ty
+      case (monoTypeHeadConstructor ty, representation) of
+        (Just typeName, Just fieldTy)
+          | typeName `Set.notMember` seen ->
+              validateMarshallableForeignType (Set.insert typeName seen) context fieldTy
+        _ ->
+          throwTypecheck (UnsupportedCore0 ("non-marshallable " <> context <> " type `" <> renderMonoType ty <> "`"))
+
+newtypeRepresentationField :: MonoType -> InferM (Maybe MonoType)
+newtypeRepresentationField ty = do
+  constructors <- dataConstructors <$> get
+  pure (listToMaybe (mapMaybe representationField (Map.elems constructors)))
+ where
+  representationField info = do
+    let (resultHead, resultArgs) = monoTypeApplicationSpine (dataConstructorResult info)
+        (tyHead, tyArgs) = monoTypeApplicationSpine ty
+    resultTypeName <- tyConName resultHead
+    tyTypeName <- tyConName tyHead
+    fieldTy <- listToMaybe (dataConstructorFields info)
+    if dataConstructorRepresentation info == CoreNewtypeConstructor
+      && resultTypeName == tyTypeName
+      && length resultArgs == length tyArgs
+      then Just (replaceTypeVars (Map.fromList (zip (dataConstructorTyVars info) tyArgs)) fieldTy)
+      else Nothing
+
+  tyConName = \case
+    TyCon name -> Just name
+    _ -> Nothing
+
+splitFunctionType :: MonoType -> ([MonoType], MonoType)
+splitFunctionType =
+  go []
+ where
+  go acc = \case
+    TyFun arg result ->
+      go (acc <> [arg]) result
+    result ->
+      (acc, result)
+
+foreignIOResult :: MonoType -> Maybe MonoType
+foreignIOResult = \case
+  TyApp (TyCon name) resultTy
+    | isTypeConstructorOccurrence "IO" name -> Just resultTy
+  _ -> Nothing
+
+foreignFunPtrArgument :: MonoType -> Maybe MonoType
+foreignFunPtrArgument = \case
+  TyApp (TyCon name) targetTy
+    | isTypeConstructorOccurrence "FunPtr" name -> Just targetTy
+  _ -> Nothing
+
+isForeignPtrType :: MonoType -> Bool
+isForeignPtrType = \case
+  TyApp (TyCon name) _ ->
+    isTypeConstructorOccurrence "Ptr" name
+  _ ->
+    False
+
+isForeignFunPtrType :: MonoType -> Bool
+isForeignFunPtrType = \case
+  TyApp (TyCon name) _ ->
+    isTypeConstructorOccurrence "FunPtr" name
+  _ ->
+    False
+
+isForeignStablePtrType :: MonoType -> Bool
+isForeignStablePtrType = \case
+  TyApp (TyCon name) _ ->
+    isTypeConstructorOccurrence "StablePtr" name
+  _ ->
+    False
+
+isScalarForeignType :: MonoType -> Bool
+isScalarForeignType = \case
+  TyCon name ->
+    nameExternal name && nameOcc name `Set.member` scalarForeignTypeOccurrences
+  _ ->
+    False
+
+isUnitType :: MonoType -> Bool
+isUnitType = \case
+  TyTuple [] ->
+    True
+  TyCon name ->
+    isTypeConstructorOccurrence "()" name
+  _ ->
+    False
+
+isTypeConstructorOccurrence :: Text -> RName -> Bool
+isTypeConstructorOccurrence occurrence name =
+  nameExternal name && nameNamespace name == TypeNamespace && nameOcc name == occurrence
+
+monoTypeHeadConstructor :: MonoType -> Maybe RName
+monoTypeHeadConstructor ty =
+  case fst (monoTypeApplicationSpine ty) of
+    TyCon name -> Just name
+    _ -> Nothing
+
+monoTypeApplicationSpine :: MonoType -> (MonoType, [MonoType])
+monoTypeApplicationSpine =
+  go []
+ where
+  go args = \case
+    TyApp fn arg ->
+      go (arg : args) fn
+    headTy ->
+      (headTy, args)
 
 collectValueBindings :: [RDecl] -> InferM [SourceBinding]
 collectValueBindings =
@@ -2742,6 +3208,10 @@ typesMayUnify lhs rhs =
     (TyMeta {}, _) -> True
     (_, TyMeta {}) -> True
     (TyCon lhsName, TyCon rhsName) -> lhsName == rhsName
+    (TyApp (TyCon lhsName) lhsArg, TyList rhsElement)
+      | lhsName == listTyConName -> typesMayUnify lhsArg rhsElement
+    (TyList lhsElement, TyApp (TyCon rhsName) rhsArg)
+      | rhsName == listTyConName -> typesMayUnify lhsElement rhsArg
     (TyApp lhsFn lhsArg, TyApp rhsFn rhsArg) ->
       typesMayUnify lhsFn rhsFn && typesMayUnify lhsArg rhsArg
     (TyFun lhsArg lhsResult, TyFun rhsArg rhsResult) ->
@@ -2784,8 +3254,10 @@ inferInstanceDictionary env instanceHead decls = do
 
 splitInstanceHead :: RHsType -> InferM (RName, MonoType)
 splitInstanceHead = \case
-  RTyApp (RTyCon className) argument ->
-    (canonicalClassName className,) <$> sourceMonoType argument
+  RTyApp (RTyCon className) argument -> do
+    let canonicalName = canonicalClassName className
+    expectedKind <- classConstraintArgumentKind canonicalName
+    (canonicalName,) <$> sourceMonoTypeAtKind expectedKind argument
   other ->
     throwTypecheck (UnsupportedCore0 ("instance head " <> Text.pack (show other)))
 
@@ -2797,16 +3269,17 @@ collectInstanceMethods =
     withTypecheckSpan (rDeclSpan decl) $
       case decl of
         RFunctionBinding name patterns rhs whereDecls ->
-          case Map.lookup name acc of
+          let canonicalName = canonicalInstanceMethodName name
+           in case Map.lookup canonicalName acc of
             Just _ ->
-              throwTypecheck (UnsupportedCore0 ("duplicate instance method `" <> renderRName name <> "`"))
+              throwTypecheck (UnsupportedCore0 ("duplicate instance method `" <> renderRName canonicalName <> "`"))
             Nothing ->
               pure
                 ( Map.insert
-                    name
+                    canonicalName
                     SourceBinding
                       { sourceBindingSpan = rDeclSpan decl
-                      , sourceBindingName = name
+                      , sourceBindingName = canonicalName
                       , sourceBindingPatterns = patterns
                       , sourceBindingPatternBinding = Nothing
                       , sourceBindingRhs = rhs
@@ -2820,6 +3293,13 @@ collectInstanceMethods =
           pure acc
         other ->
           throwTypecheck (UnsupportedCore0 ("instance declaration item " <> Text.pack (show other)))
+
+canonicalInstanceMethodName :: RName -> RName
+canonicalInstanceMethodName name
+  | nameExternal name =
+      maybe name classMethodName (builtinMethodInfoByOccurrence (nameOcc name))
+  | otherwise =
+      name
 
 inferInstanceMethod ::
   TypeEnv ->
@@ -3490,11 +3970,9 @@ inferDo env (statement@(RExprStmt expr) : rest) =
   withTypecheckSpan (rStmtSpan statement) $ do
     first <- inferExpr env expr
     restExpr <- inferDo env rest
-    firstResult <- freshMeta
-    restResult <- freshMeta
-    unify (typedExprType first) (ioMonoType firstResult)
-    unify (typedExprType restExpr) (ioMonoType restResult)
-    pure (TPrim PrimIOThen [first, restExpr] (typedExprType restExpr))
+    thenExpr <- inferPreludeMonadMethod env ">>"
+    thenFirst <- applyTypedExpr thenExpr first
+    applyTypedExpr thenFirst restExpr
 inferDo env (statement@(RLetStmt decls) : rest) =
   withTypecheckSpan (rStmtSpan statement) $ do
     (bindings, env') <- inferBindingGroup env decls
@@ -3503,8 +3981,20 @@ inferDo env (statement@(RLetStmt decls) : rest) =
 inferDo env (statement@(RBindStmt pat expr) : rest) =
   withTypecheckSpan (rStmtSpan statement) $ do
     first <- inferExpr env expr
-    valueTy <- freshMeta
-    unify (typedExprType first) (ioMonoType valueTy)
+    bindExpr <- inferPreludeMonadMethod env ">>="
+    bindFirst <- applyTypedExpr bindExpr first
+    bindFirstTy <- applyCurrent (typedExprType bindFirst)
+    (valueTy, expectedBodyTy) <-
+      case bindFirstTy of
+        TyFun (TyFun argumentTy resultTy) _ ->
+          pure (argumentTy, resultTy)
+        other ->
+          throwTypecheck
+            ( UnsupportedCore0
+                ( "built-in method `>>=` has unexpected partially applied type "
+                    <> renderMonoType other
+                )
+            )
     valueTy' <- applyCurrent valueTy
     argumentBinder <- freshTermBinder "$do_bind" valueTy'
     caseBinder <- freshTermBinder "$do_bind_case" valueTy'
@@ -3516,12 +4006,72 @@ inferDo env (statement@(RBindStmt pat expr) : rest) =
             valueTy'
     plan <- inferPatternPlan env valueTy' argument pat
     body <- inferDo (patternEnv plan) rest
-    resultTy <- freshMeta
-    unify (typedExprType body) (ioMonoType resultTy)
-    let wrappedBody = caseForPatternPlan argument caseBinder plan body
+    unify (typedExprType body) expectedBodyTy
+    bodyTy <- applyCurrent (typedExprType body)
+    failedBody <- doPatternFailBody env statement bodyTy
+    let wrappedBody =
+          doCaseForPatternPlan
+            (patternSyntacticallyIrrefutable pat)
+            argument
+            caseBinder
+            plan
+            body
+            failedBody
         continuationTy = TyFun valueTy' (typedExprType wrappedBody)
         continuation = TLam argumentBinder wrappedBody continuationTy
-    pure (TPrim PrimIOBind [first, continuation] (typedExprType wrappedBody))
+    applyTypedExpr bindFirst continuation
+
+inferPreludeMonadMethod :: TypeEnv -> Text -> InferM TypedExpr
+inferPreludeMonadMethod env occurrence = do
+  unique <- monadMethodUnique occurrence
+  inferExpr env (RVar (preludeTermName occurrence unique))
+ where
+  monadMethodUnique = \case
+    ">>=" -> pure (-1461)
+    ">>" -> pure (-1462)
+    "return" -> pure (-1463)
+    "fail" -> pure (-1464)
+    other -> throwTypecheck (UnsupportedCore0 ("unknown Monad method `" <> other <> "`"))
+
+applyTypedExpr :: TypedExpr -> TypedExpr -> InferM TypedExpr
+applyTypedExpr fn arg = do
+  resultTy <- freshMeta
+  unify (typedExprType fn) (TyFun (typedExprType arg) resultTy)
+  resultTy' <- applyCurrent resultTy
+  pure (TApp fn arg resultTy')
+
+doPatternFailBody :: TypeEnv -> RStmt -> MonoType -> InferM TypedExpr
+doPatternFailBody env statement expectedTy = do
+  failExpr <- inferPreludeMonadMethod env "fail"
+  let message =
+        "pattern match failure in do expression"
+          <> maybe "" ((": " <>) . renderSourceDiagnosticLine) (rStmtSpan statement)
+      messageExpr = stringLiteralTypedExpr message
+  failed <- applyTypedExpr failExpr messageExpr
+  unify (typedExprType failed) expectedTy
+  pure failed
+
+renderSourceDiagnosticLine :: SourceSpan -> Text
+renderSourceDiagnosticLine sourceRange =
+  case Text.lines (renderSourceDiagnostic sourceRange "" "") of
+    firstLine : _ -> firstLine
+    [] -> ""
+
+doCaseForPatternPlan :: Bool -> TypedExpr -> TypedBinder -> PatternPlan -> TypedExpr -> TypedExpr -> TypedExpr
+doCaseForPatternPlan isIrrefutable scrutinee caseBinder plan success failure
+  | patternNeedsRuntimeCase plan && not isIrrefutable =
+      TCase
+        scrutinee
+        caseBinder
+        [ TypedAlt
+            (patternAltCon plan)
+            (patternAltBinders plan)
+            (patternWrapBody plan success)
+        , TypedAlt DefaultAlt [] failure
+        ]
+        (typedExprType success)
+  | otherwise =
+      caseForPatternPlan scrutinee caseBinder plan success
 
 inferRecordConstruction :: TypeEnv -> RName -> [(RName, RExpr)] -> InferM TypedExpr
 inferRecordConstruction env name fields = do
@@ -3664,15 +4214,17 @@ preludeValueScheme name
             "putStrLn" -> Just (Scheme [] [] (TyFun stringMonoType ioUnit))
             "getLine" -> Just (Scheme [] [] (ioMonoType stringMonoType))
             "print" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun aTy ioUnit))
-            "return" -> Just (Scheme [a] [] (TyFun aTy (ioMonoType aTy)))
-            ">>=" ->
-              Just
-                ( Scheme
-                    [a, b]
-                    []
-                    (TyFun (ioMonoType aTy) (TyFun (TyFun aTy (ioMonoType bTy)) (ioMonoType bTy)))
-                )
-            ">>" -> Just (Scheme [a, b] [] (TyFun (ioMonoType aTy) (TyFun (ioMonoType bTy) (ioMonoType bTy))))
+            "newStablePtr" -> Just (Scheme [a] [] (TyFun aTy (ioMonoType stablePtrA)))
+            "deRefStablePtr" -> Just (Scheme [a] [] (TyFun stablePtrA (ioMonoType aTy)))
+            "freeStablePtr" -> Just (Scheme [a] [] (TyFun stablePtrA ioUnit))
+            "castStablePtrToPtr" -> Just (Scheme [a] [] (TyFun stablePtrA ptrUnit))
+            "castPtrToStablePtr" -> Just (Scheme [a] [] (TyFun ptrUnit stablePtrA))
+            "newForeignPtr" -> Just (Scheme [a] [] (TyFun finalizerPtrA (TyFun ptrA (ioMonoType foreignPtrA))))
+            "newForeignPtr_" -> Just (Scheme [a] [] (TyFun ptrA (ioMonoType foreignPtrA)))
+            "addForeignPtrFinalizer" -> Just (Scheme [a] [] (TyFun finalizerPtrA (TyFun foreignPtrA ioUnit)))
+            "finalizeForeignPtr" -> Just (Scheme [a] [] (TyFun foreignPtrA ioUnit))
+            "withForeignPtr" -> Just (Scheme [a, b] [] (TyFun foreignPtrA (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy))))
+            "touchForeignPtr" -> Just (Scheme [a] [] (TyFun foreignPtrA ioUnit))
             _ -> Nothing
  where
   a = preludeTypeVariable "a" (-1201)
@@ -3682,6 +4234,11 @@ preludeValueScheme name
   listA = TyList aTy
   listB = TyList bTy
   ioUnit = ioMonoType unitMonoType
+  ptrA = TyApp (TyCon ptrTyConName) aTy
+  ptrUnit = TyApp (TyCon ptrTyConName) unitMonoType
+  stablePtrA = TyApp (TyCon stablePtrTyConName) aTy
+  foreignPtrA = TyApp (TyCon foreignPtrTyConName) aTy
+  finalizerPtrA = TyApp (TyCon funPtrTyConName) (TyFun ptrA ioUnit)
 
 inferPrimitive :: TypeEnv -> RExpr -> RName -> RExpr -> InferM TypedExpr
 inferPrimitive env lhs op rhs =
@@ -4595,11 +5152,21 @@ sourceClassConstraint sourceConstraint =
     case typeApplicationSpine sourceConstraint of
       Just (className, arguments) -> do
         argument <- requireSingleConstraintArgument className arguments
-        checkSourceTypeKind argument
+        let canonicalName = canonicalClassName className
+        expectedKind <- classConstraintArgumentKind canonicalName
+        argumentTy <- sourceMonoTypeAtKind expectedKind argument
         sourceRange <- currentTypecheckSpan
-        singleClassConstraintAt sourceRange (canonicalClassName className) <$> sourceMonoType argument
+        pure (singleClassConstraintAt sourceRange canonicalName argumentTy)
       Nothing ->
         throwTypecheck (UnsupportedCore0 ("type-class constraint " <> Text.pack (show sourceConstraint)))
+
+classConstraintArgumentKind :: RName -> InferM Kind
+classConstraintArgumentKind className = do
+  classes <- classInfos <$> get
+  pure $
+    case Map.lookup className classes <|> Map.lookup className builtinClassInfos of
+      Just info -> classInfoVariableKind info
+      Nothing -> StarKind
 
 requireSingleConstraintArgument :: RName -> [a] -> InferM a
 requireSingleConstraintArgument className = \case
@@ -4619,8 +5186,12 @@ throwUnsupportedClassConstraintContext context constraints =
 
 sourceMonoType :: RHsType -> InferM MonoType
 sourceMonoType sourceType =
+  sourceMonoTypeAtKind StarKind sourceType
+
+sourceMonoTypeAtKind :: Kind -> RHsType -> InferM MonoType
+sourceMonoTypeAtKind expectedKind sourceType =
   withTypecheckSpan (rTypeSpan sourceType) $ do
-    checkSourceTypeKind sourceType
+    checkSourceTypeKindAt expectedKind sourceType
     expanded <- expandSourceTypeSynonyms sourceType
     sourceMonoTypeUnchecked expanded
 
@@ -4737,9 +5308,13 @@ sourceTypeWithoutParens = \case
 
 checkSourceTypeKind :: RHsType -> InferM ()
 checkSourceTypeKind sourceType =
+  checkSourceTypeKindAt StarKind sourceType
+
+checkSourceTypeKindAt :: Kind -> RHsType -> InferM ()
+checkSourceTypeKindAt expected sourceType =
   withTypecheckSpan (rTypeSpan sourceType) $ do
     actual <- inferSourceTypeKind sourceType
-    unifyKind StarKind actual
+    unifyKind expected actual
 
 inferSourceTypeKind :: RHsType -> InferM Kind
 inferSourceTypeKind sourceType =
@@ -4776,8 +5351,10 @@ checkConstraintKind :: RHsType -> InferM ()
 checkConstraintKind sourceConstraint =
   withTypecheckSpan (rTypeSpan sourceConstraint) $
     case typeApplicationSpine sourceConstraint of
-      Just (className, arguments) ->
-        checkSourceTypeKind =<< requireSingleConstraintArgument className arguments
+      Just (className, arguments) -> do
+        argument <- requireSingleConstraintArgument className arguments
+        expectedKind <- classConstraintArgumentKind (canonicalClassName className)
+        checkSourceTypeKindAt expectedKind argument
       Nothing ->
         throwTypecheck (UnsupportedCore0 ("type-class constraint " <> Text.pack (show sourceConstraint)))
 
@@ -4874,12 +5451,19 @@ builtinTypeConstructorMonoType name =
         "Bool" -> pure boolMonoType
         "Char" -> pure charMonoType
         "String" -> pure stringMonoType
+        "[]" -> pure (TyCon listTyConName)
         "IO" -> pure (TyCon ioTyConName)
         "Maybe" -> pure (TyCon maybeTyConName)
         "Either" -> pure (TyCon eitherTyConName)
         "Ordering" -> pure orderingMonoType
         "()" -> pure unitMonoType
-        other -> throwTypecheck (UnsupportedCore0 ("type constructor `" <> other <> "`"))
+        "Ptr" -> pure (TyCon ptrTyConName)
+        "FunPtr" -> pure (TyCon funPtrTyConName)
+        "StablePtr" -> pure (TyCon stablePtrTyConName)
+        "ForeignPtr" -> pure (TyCon foreignPtrTyConName)
+        other
+          | isBuiltinForeignTypeOccurrence other -> pure (TyCon name)
+          | otherwise -> throwTypecheck (UnsupportedCore0 ("type constructor `" <> other <> "`"))
 
 builtinTypeConstructorInfo :: RName -> Maybe TypeConstructorInfo
 builtinTypeConstructorInfo name
@@ -4891,12 +5475,75 @@ builtinTypeConstructorInfo name
           "Bool" -> Just 0
           "Char" -> Just 0
           "String" -> Just 0
+          "[]" -> Just 1
           "IO" -> Just 1
           "Maybe" -> Just 1
           "Either" -> Just 2
           "Ordering" -> Just 0
           "()" -> Just 0
-          _ -> Nothing
+          other -> builtinForeignTypeArity other
+
+builtinForeignTypeArity :: Text -> Maybe Int
+builtinForeignTypeArity occurrence
+  | occurrence `Set.member` scalarForeignTypeOccurrences = Just 0
+  | occurrence `Set.member` pointerForeignTypeOccurrences = Just 1
+  | otherwise = Nothing
+
+isBuiltinForeignTypeOccurrence :: Text -> Bool
+isBuiltinForeignTypeOccurrence occurrence =
+  occurrence `Set.member` scalarForeignTypeOccurrences
+    || occurrence `Set.member` pointerForeignTypeOccurrences
+
+scalarForeignTypeOccurrences :: Set.Set Text
+scalarForeignTypeOccurrences =
+  Set.fromList
+    [ "Int"
+    , "Bool"
+    , "Char"
+    , "Float"
+    , "Double"
+    , "Word"
+    , "Int8"
+    , "Int16"
+    , "Int32"
+    , "Int64"
+    , "Word8"
+    , "Word16"
+    , "Word32"
+    , "Word64"
+    , "CString"
+    , "CWString"
+    , "CChar"
+    , "CSChar"
+    , "CUChar"
+    , "CShort"
+    , "CUShort"
+    , "CInt"
+    , "CUInt"
+    , "CLong"
+    , "CULong"
+    , "CLLong"
+    , "CULLong"
+    , "CFloat"
+    , "CDouble"
+    , "CPtrdiff"
+    , "CSize"
+    , "CWchar"
+    , "CSigAtomic"
+    , "CIntPtr"
+    , "CUIntPtr"
+    , "CIntMax"
+    , "CUIntMax"
+    , "CClock"
+    , "CTime"
+    , "CFile"
+    , "CFpos"
+    , "CJmpBuf"
+    ]
+
+pointerForeignTypeOccurrences :: Set.Set Text
+pointerForeignTypeOccurrences =
+  Set.fromList ["Ptr", "FunPtr", "StablePtr", "ForeignPtr"]
 
 instantiate :: Scheme -> InferM (MonoType, [MonoType])
 instantiate (Scheme variables _ body) = do
@@ -4951,6 +5598,16 @@ unify lhs rhs = do
       | lhsName == rhsName -> pure ()
     (TyCon lhsName, TyCon rhsName)
       | lhsName == rhsName -> pure ()
+    (TyApp (TyCon lhsName) lhsArg, TyList rhsElement)
+      | lhsName == listTyConName -> unify lhsArg rhsElement
+    (TyList lhsElement, TyApp (TyCon rhsName) rhsArg)
+      | rhsName == listTyConName -> unify lhsElement rhsArg
+    (TyApp (TyMeta meta) lhsArg, TyList rhsElement) -> do
+      bindMeta meta (TyCon listTyConName)
+      unify lhsArg rhsElement
+    (TyList lhsElement, TyApp (TyMeta meta) rhsArg) -> do
+      bindMeta meta (TyCon listTyConName)
+      unify lhsElement rhsArg
     (TyApp lhsFn lhsArg, TyApp rhsFn rhsArg) ->
       unify lhsFn rhsFn *> unify lhsArg rhsArg
     (TyFun lhsArg lhsResult, TyFun rhsArg rhsResult) ->
@@ -4987,13 +5644,19 @@ applySubst subst = \case
   TyCon name ->
     TyCon name
   TyApp fn arg ->
-    TyApp (applySubst subst fn) (applySubst subst arg)
+    normalizeListTypeApplication (TyApp (applySubst subst fn) (applySubst subst arg))
   TyFun arg result ->
     TyFun (applySubst subst arg) (applySubst subst result)
   TyTuple fields ->
     TyTuple (map (applySubst subst) fields)
   TyList elementType ->
     TyList (applySubst subst elementType)
+
+normalizeListTypeApplication :: MonoType -> MonoType
+normalizeListTypeApplication = \case
+  TyApp (TyCon name) elementTy
+    | name == listTyConName -> TyList elementTy
+  ty -> ty
 
 freeMetaVarsEnv :: TypeEnv -> Set.Set Int
 freeMetaVarsEnv =
@@ -5039,7 +5702,7 @@ replaceTypeVars replacements = \case
   TyMeta meta -> TyMeta meta
   TyVar name -> Map.findWithDefault (TyVar name) name replacements
   TyCon name -> TyCon name
-  TyApp fn arg -> TyApp (replaceTypeVars replacements fn) (replaceTypeVars replacements arg)
+  TyApp fn arg -> normalizeListTypeApplication (TyApp (replaceTypeVars replacements fn) (replaceTypeVars replacements arg))
   TyFun arg result -> TyFun (replaceTypeVars replacements arg) (replaceTypeVars replacements result)
   TyTuple fields -> TyTuple (map (replaceTypeVars replacements) fields)
   TyList elementType -> TyList (replaceTypeVars replacements elementType)
@@ -5053,7 +5716,7 @@ replaceMetasWithVars replacements = \case
   TyCon name ->
     TyCon name
   TyApp fn arg ->
-    TyApp (replaceMetasWithVars replacements fn) (replaceMetasWithVars replacements arg)
+    normalizeListTypeApplication (TyApp (replaceMetasWithVars replacements fn) (replaceMetasWithVars replacements arg))
   TyFun arg result ->
     TyFun (replaceMetasWithVars replacements arg) (replaceMetasWithVars replacements result)
   TyTuple fields ->
@@ -5127,12 +5790,61 @@ preludeCorePair name =
       Just (binderFor name getLineTy, CPrimOp PrimGetLine [] getLineTy)
     "print" ->
       Just (binderFor name printTy, printRhs)
-    "return" ->
-      Just (binderFor name returnTy, CTypeLam [a] (lam returnX aTy (CPrimOp PrimIOReturn [var returnX aTy] (ioTy aTy))) returnTy)
-    ">>=" ->
-      Just (binderFor name bindTy, bindRhs)
-    ">>" ->
-      Just (binderFor name thenTy, thenRhs)
+    "newStablePtr" ->
+      Just
+        ( binderFor name newStablePtrTy
+        , CTypeLam [a] (lam stablePtrNewValue aTy (CPrimOp PrimNewStablePtr [var stablePtrNewValue aTy] (ioTy stablePtrA))) newStablePtrTy
+        )
+    "deRefStablePtr" ->
+      Just
+        ( binderFor name deRefStablePtrTy
+        , CTypeLam [a] (lam stablePtrDeRefValue stablePtrA (CPrimOp PrimDeRefStablePtr [var stablePtrDeRefValue stablePtrA] (ioTy aTy))) deRefStablePtrTy
+        )
+    "freeStablePtr" ->
+      Just
+        ( binderFor name freeStablePtrTy
+        , CTypeLam [a] (lam stablePtrFreeValue stablePtrA (CPrimOp PrimFreeStablePtr [var stablePtrFreeValue stablePtrA] ioUnitTy)) freeStablePtrTy
+        )
+    "castStablePtrToPtr" ->
+      Just
+        ( binderFor name castStablePtrToPtrTy
+        , CTypeLam [a] (lam stablePtrCastValue stablePtrA (CPrimOp PrimCastStablePtrToPtr [var stablePtrCastValue stablePtrA] ptrUnitTy)) castStablePtrToPtrTy
+        )
+    "castPtrToStablePtr" ->
+      Just
+        ( binderFor name castPtrToStablePtrTy
+        , CTypeLam [a] (lam stablePtrCastRawValue ptrUnitTy (CPrimOp PrimCastPtrToStablePtr [var stablePtrCastRawValue ptrUnitTy] stablePtrA)) castPtrToStablePtrTy
+        )
+    "newForeignPtr" ->
+      Just
+        ( binderFor name newForeignPtrTy
+        , CTypeLam [a] (lam foreignPtrNewFinalizerValue finalizerPtrA (lam foreignPtrNewRawValue ptrA (CPrimOp PrimNewForeignPtr [var foreignPtrNewFinalizerValue finalizerPtrA, var foreignPtrNewRawValue ptrA] (ioTy foreignPtrA)))) newForeignPtrTy
+        )
+    "newForeignPtr_" ->
+      Just
+        ( binderFor name newForeignPtrTy_
+        , CTypeLam [a] (lam foreignPtrNewRawValue_ ptrA (CPrimOp PrimNewForeignPtr_ [var foreignPtrNewRawValue_ ptrA] (ioTy foreignPtrA))) newForeignPtrTy_
+        )
+    "addForeignPtrFinalizer" ->
+      Just
+        ( binderFor name addForeignPtrFinalizerTy
+        , CTypeLam [a] (lam foreignPtrAddFinalizerValue finalizerPtrA (lam foreignPtrAddValue foreignPtrA (CPrimOp PrimAddForeignPtrFinalizer [var foreignPtrAddFinalizerValue finalizerPtrA, var foreignPtrAddValue foreignPtrA] ioUnitTy))) addForeignPtrFinalizerTy
+        )
+    "finalizeForeignPtr" ->
+      Just
+        ( binderFor name finalizeForeignPtrTy
+        , CTypeLam [a] (lam foreignPtrFinalizeValue foreignPtrA (CPrimOp PrimFinalizeForeignPtr [var foreignPtrFinalizeValue foreignPtrA] ioUnitTy)) finalizeForeignPtrTy
+        )
+    "withForeignPtr" ->
+      Just
+        ( binderFor name withForeignPtrTy
+        , CTypeLam [a, b] (lam foreignPtrWithValue foreignPtrA (lam withForeignPtrK (CTyFun ptrA (ioTy bTy)) (CPrimOp PrimWithForeignPtr [var foreignPtrWithValue foreignPtrA, var withForeignPtrK (CTyFun ptrA (ioTy bTy))] (ioTy bTy)))) withForeignPtrTy
+        )
+    "touchForeignPtr" ->
+      Just
+        ( binderFor name touchForeignPtrTy
+        , CTypeLam [a] (lam foreignPtrTouchValue foreignPtrA (CPrimOp PrimTouchForeignPtr [var foreignPtrTouchValue foreignPtrA] ioUnitTy)) touchForeignPtrTy
+        )
     _ -> arithmeticSequenceCorePair name
  where
   a = preludeTypeVariable "a" (-1201)
@@ -5144,8 +5856,11 @@ preludeCorePair name =
   listA = CTyList aTy
   listB = CTyList bTy
   ioUnitTy = ioTy unitTy
-  ioA = ioTy aTy
-  ioB = ioTy bTy
+  ptrA = ptrTy aTy
+  ptrUnitTy = ptrTy unitTy
+  stablePtrA = stablePtrTy aTy
+  foreignPtrA = foreignPtrTy aTy
+  finalizerPtrA = funPtrTy (CTyFun ptrA ioUnitTy)
   showDictA = CTyApp (CTyCon (classDictionaryTypeName builtinShowClassName)) aTy
   showMethodDictA = CTyApp (CTyCon (classDictionaryTypeName builtinShowClassName)) showMethodATy
 
@@ -5162,9 +5877,17 @@ preludeCorePair name =
   getLineTy = ioTy stringTy
   showTy = CTyForall [showMethodA] (CTyFun showMethodDictA (CTyFun showMethodATy stringTy))
   printTy = CTyForall [a] (CTyFun showDictA (CTyFun aTy ioUnitTy))
-  returnTy = CTyForall [a] (CTyFun aTy ioA)
-  bindTy = CTyForall [a, b] (CTyFun ioA (CTyFun (CTyFun aTy ioB) ioB))
-  thenTy = CTyForall [a, b] (CTyFun ioA (CTyFun ioB ioB))
+  newStablePtrTy = CTyForall [a] (CTyFun aTy (ioTy stablePtrA))
+  deRefStablePtrTy = CTyForall [a] (CTyFun stablePtrA (ioTy aTy))
+  freeStablePtrTy = CTyForall [a] (CTyFun stablePtrA ioUnitTy)
+  castStablePtrToPtrTy = CTyForall [a] (CTyFun stablePtrA ptrUnitTy)
+  castPtrToStablePtrTy = CTyForall [a] (CTyFun ptrUnitTy stablePtrA)
+  newForeignPtrTy = CTyForall [a] (CTyFun finalizerPtrA (CTyFun ptrA (ioTy foreignPtrA)))
+  newForeignPtrTy_ = CTyForall [a] (CTyFun ptrA (ioTy foreignPtrA))
+  addForeignPtrFinalizerTy = CTyForall [a] (CTyFun finalizerPtrA (CTyFun foreignPtrA ioUnitTy))
+  finalizeForeignPtrTy = CTyForall [a] (CTyFun foreignPtrA ioUnitTy)
+  withForeignPtrTy = CTyForall [a, b] (CTyFun foreignPtrA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))
+  touchForeignPtrTy = CTyForall [a] (CTyFun foreignPtrA ioUnitTy)
 
   idX = preludeTermName "$id_x" (-3001)
   constX = preludeTermName "$const_x" (-3002)
@@ -5206,11 +5929,20 @@ preludeCorePair name =
   putStrLnS = preludeTermName "$putStrLn_s" (-3060)
   printDict = preludeTermName "$print_dict" (-3061)
   printX = preludeTermName "$print_x" (-3062)
-  returnX = preludeTermName "$return_x" (-3063)
-  thenFirst = preludeTermName "$then_first" (-3064)
-  thenSecond = preludeTermName "$then_second" (-3065)
-  bindFirst = preludeTermName "$bind_first" (-3066)
-  bindContinuation = preludeTermName "$bind_continuation" (-3067)
+  stablePtrNewValue = preludeTermName "$stable_ptr_new_value" (-3063)
+  stablePtrDeRefValue = preludeTermName "$stable_ptr_deref_value" (-3064)
+  stablePtrFreeValue = preludeTermName "$stable_ptr_free_value" (-3065)
+  stablePtrCastValue = preludeTermName "$stable_ptr_cast_value" (-3066)
+  stablePtrCastRawValue = preludeTermName "$stable_ptr_cast_raw" (-3067)
+  foreignPtrNewFinalizerValue = preludeTermName "$foreign_ptr_new_finalizer" (-3068)
+  foreignPtrNewRawValue = preludeTermName "$foreign_ptr_new_raw" (-3069)
+  foreignPtrNewRawValue_ = preludeTermName "$foreign_ptr_new_raw_no_finalizer" (-3075)
+  foreignPtrAddFinalizerValue = preludeTermName "$foreign_ptr_add_finalizer" (-3076)
+  foreignPtrAddValue = preludeTermName "$foreign_ptr_add_value" (-3077)
+  foreignPtrFinalizeValue = preludeTermName "$foreign_ptr_finalize_value" (-3078)
+  foreignPtrWithValue = preludeTermName "$foreign_ptr_with_value" (-3079)
+  withForeignPtrK = preludeTermName "$with_foreign_ptr_k" (-3080)
+  foreignPtrTouchValue = preludeTermName "$foreign_ptr_touch_value" (-3081)
 
   binderFor binderName ty = CoreBinder binderName ty
   lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
@@ -5393,23 +6125,6 @@ preludeCorePair name =
       apply showFunction (var printX aTy) stringTy
     printBody =
       CPrimOp PrimPutStrLn [shownValue] ioUnitTy
-
-  thenRhs =
-    CTypeLam [a, b] (lam thenFirst ioA (lam thenSecond ioB (CPrimOp PrimIOThen [var thenFirst ioA, var thenSecond ioB] ioB))) thenTy
-
-  bindRhs =
-    CTypeLam
-      [a, b]
-      ( lam
-          bindFirst
-          ioA
-          ( lam
-              bindContinuation
-              (CTyFun aTy ioB)
-              (CPrimOp PrimIOBind [var bindFirst ioA, var bindContinuation (CTyFun aTy ioB)] ioB)
-          )
-      )
-      bindTy
 
 reverseGoCorePair :: (CoreBinder, CoreExpr)
 reverseGoCorePair =
@@ -6037,6 +6752,16 @@ replaceConstraintTypeVars :: Map.Map RName MonoType -> ClassConstraint -> ClassC
 replaceConstraintTypeVars replacements =
   mapClassConstraintArguments (replaceTypeVars replacements)
 
+replaceSchemeTypeVars :: Map.Map RName MonoType -> Scheme -> Scheme
+replaceSchemeTypeVars replacements (Scheme variables constraints body) =
+  Scheme
+    variables
+    (map (replaceConstraintTypeVars scopedReplacements) constraints)
+    (replaceTypeVars scopedReplacements body)
+ where
+  scopedReplacements =
+    foldr Map.delete replacements variables
+
 resolveDictionary :: CoreElabEnv -> ClassConstraint -> Either TypecheckError CoreExpr
 resolveDictionary env wanted = do
   normalized <- normalizeConstraint (coreElabSubst env) (coreElabMetas env) wanted
@@ -6328,6 +7053,7 @@ builtinInstanceDictionaries classes =
     , maybe [] showInstances (Map.lookup builtinShowClassName classes)
     , maybe [] enumInstances (Map.lookup builtinEnumClassName classes)
     , maybe [] boundedInstances (Map.lookup builtinBoundedClassName classes)
+    , maybe [] monadInstances (Map.lookup builtinMonadClassName classes)
     ]
  where
   eqInstances info =
@@ -6472,6 +7198,24 @@ builtinInstanceDictionaries classes =
         [boolMinBoundMethod, boolMaxBoundMethod]
     ]
 
+  monadInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        (TyCon ioTyConName)
+        (preludeTermName "$fMonadIO" (-1561))
+        [ioMonadBindMethod, ioMonadThenMethod, ioMonadReturnMethod, ioMonadFailMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        (TyCon maybeTyConName)
+        (preludeTermName "$fMonadMaybe" (-1562))
+        [maybeMonadBindMethod, maybeMonadThenMethod, maybeMonadReturnMethod, maybeMonadFailMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        (TyCon listTyConName)
+        (preludeTermName "$fMonadList" (-1563))
+        [listMonadBindMethod, listMonadThenMethod, listMonadReturnMethod, listMonadFailMethod]
+    ]
+
 builtinInstanceDictionaryRefs :: [BuiltinInstanceDictionary] -> [InstanceDictionaryRef]
 builtinInstanceDictionaryRefs =
   map
@@ -6503,6 +7247,8 @@ isBuiltinStructuralInstanceConstraint wanted =
       | className == builtinOrdClassName -> True
     (className, [TyList _])
       | className == builtinShowClassName -> True
+    (className, [TyCon typeName])
+      | className == builtinMonadClassName && typeName == listTyConName -> True
     _ -> False
 
 overlapsBuiltinStructuralInstanceConstraint :: ClassConstraint -> Bool
@@ -6517,6 +7263,9 @@ overlapsBuiltinStructuralInstanceConstraint wanted =
     (className, [argument])
       | className == builtinShowClassName ->
           typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$show_list_overlap" (-1599))))
+    (className, [argument])
+      | className == builtinMonadClassName ->
+          typesMayUnify argument (TyCon listTyConName)
     _ -> False
 
 builtinInstanceDictionaryToCore :: Map.Map RName ClassInfo -> BuiltinInstanceDictionary -> Either TypecheckError CoreBind
@@ -6872,6 +7621,270 @@ stringShowMethod :: CoreExpr
 stringShowMethod =
   unaryMethod "$show_string" (-1891) stringTy stringTy $ \value ->
     consCharCore '"' (CApp (CVar showStringCharsName showStringCharsCoreType) value stringTy)
+
+ioMonadBindMethod :: CoreExpr
+ioMonadBindMethod =
+  CTypeLam [a, b] (lam first ioA (lam continuation (CTyFun aTy ioB) (CPrimOp PrimIOBind [var first ioA, var continuation (CTyFun aTy ioB)] ioB))) ioMonadBindCoreType
+ where
+  a = preludeTypeVariable "a" (-1362)
+  b = preludeTypeVariable "b" (-1363)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  ioA = ioTy aTy
+  ioB = ioTy bTy
+  first = builtinLocalTermName "$io_monad_bind_first" (-2201)
+  continuation = builtinLocalTermName "$io_monad_bind_k" (-2202)
+  lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
+  var name ty = CVar name ty
+
+ioMonadThenMethod :: CoreExpr
+ioMonadThenMethod =
+  CTypeLam [a, b] (lam first ioA (lam second ioB (CPrimOp PrimIOThen [var first ioA, var second ioB] ioB))) ioMonadThenCoreType
+ where
+  a = preludeTypeVariable "a" (-1362)
+  b = preludeTypeVariable "b" (-1363)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  ioA = ioTy aTy
+  ioB = ioTy bTy
+  first = builtinLocalTermName "$io_monad_then_first" (-2203)
+  second = builtinLocalTermName "$io_monad_then_second" (-2204)
+  lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
+  var name ty = CVar name ty
+
+ioMonadReturnMethod :: CoreExpr
+ioMonadReturnMethod =
+  CTypeLam [a] (lam value aTy (CPrimOp PrimIOReturn [var value aTy] (ioTy aTy))) ioMonadReturnCoreType
+ where
+  a = preludeTypeVariable "a" (-1362)
+  aTy = CTyVar a
+  value = builtinLocalTermName "$io_monad_return_x" (-2205)
+  lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
+  var name ty = CVar name ty
+
+ioMonadFailMethod :: CoreExpr
+ioMonadFailMethod =
+  CTypeLam [a] (lam message stringTy (CPrimOp PrimIOFail [var message stringTy] (ioTy aTy))) ioMonadFailCoreType
+ where
+  a = preludeTypeVariable "a" (-1362)
+  aTy = CTyVar a
+  message = builtinLocalTermName "$io_monad_fail_message" (-2206)
+  lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
+  var name ty = CVar name ty
+
+maybeMonadBindMethod :: CoreExpr
+maybeMonadBindMethod =
+  CTypeLam [a, b] (lam value maybeA (lam continuation (CTyFun aTy maybeB) body)) maybeMonadBindCoreType
+ where
+  a = preludeTypeVariable "a" (-1362)
+  b = preludeTypeVariable "b" (-1363)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  maybeA = CTyApp (CTyCon maybeTyConName) aTy
+  maybeB = CTyApp (CTyCon maybeTyConName) bTy
+  value = builtinLocalTermName "$maybe_monad_bind_value" (-2210)
+  continuation = builtinLocalTermName "$maybe_monad_bind_k" (-2211)
+  justValue = builtinLocalTermName "$maybe_monad_bind_just" (-2212)
+  caseName = builtinLocalTermName "$maybe_monad_bind_case" (-2213)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  body =
+    CCase
+      (CVar value maybeA)
+      (CoreBinder caseName maybeA)
+      [ CoreAlt (ConstructorAlt maybeNothingDataConName) [] (nothingCore bTy)
+      , CoreAlt
+          (ConstructorAlt maybeJustDataConName)
+          [CoreBinder justValue aTy]
+          (CApp (CVar continuation (CTyFun aTy maybeB)) (CVar justValue aTy) maybeB)
+      ]
+      maybeB
+
+maybeMonadThenMethod :: CoreExpr
+maybeMonadThenMethod =
+  CTypeLam [a, b] (lam first maybeA (lam second maybeB body)) maybeMonadThenCoreType
+ where
+  a = preludeTypeVariable "a" (-1362)
+  b = preludeTypeVariable "b" (-1363)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  maybeA = CTyApp (CTyCon maybeTyConName) aTy
+  maybeB = CTyApp (CTyCon maybeTyConName) bTy
+  first = builtinLocalTermName "$maybe_monad_then_first" (-2214)
+  second = builtinLocalTermName "$maybe_monad_then_second" (-2215)
+  ignored = builtinLocalTermName "$maybe_monad_then_ignored" (-2216)
+  caseName = builtinLocalTermName "$maybe_monad_then_case" (-2217)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  body =
+    CCase
+      (CVar first maybeA)
+      (CoreBinder caseName maybeA)
+      [ CoreAlt (ConstructorAlt maybeNothingDataConName) [] (nothingCore bTy)
+      , CoreAlt (ConstructorAlt maybeJustDataConName) [CoreBinder ignored aTy] (CVar second maybeB)
+      ]
+      maybeB
+
+maybeMonadReturnMethod :: CoreExpr
+maybeMonadReturnMethod =
+  CTypeLam [a] (lam value aTy (justCore aTy (var value aTy))) maybeMonadReturnCoreType
+ where
+  a = preludeTypeVariable "a" (-1362)
+  aTy = CTyVar a
+  value = builtinLocalTermName "$maybe_monad_return_x" (-2218)
+  lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
+  var name ty = CVar name ty
+
+maybeMonadFailMethod :: CoreExpr
+maybeMonadFailMethod =
+  CTypeLam [a] (lam message stringTy (nothingCore aTy)) maybeMonadFailCoreType
+ where
+  a = preludeTypeVariable "a" (-1362)
+  aTy = CTyVar a
+  message = builtinLocalTermName "$maybe_monad_fail_message" (-2219)
+  lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
+
+listMonadBindMethod :: CoreExpr
+listMonadBindMethod =
+  CVar monadListBindName monadListBindCoreType
+
+listMonadThenMethod :: CoreExpr
+listMonadThenMethod =
+  CTypeLam [a, b] (lam first listA (lam second listB body)) listMonadThenCoreType
+ where
+  a = preludeTypeVariable "a" (-1362)
+  b = preludeTypeVariable "b" (-1363)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  listA = CTyList aTy
+  listB = CTyList bTy
+  first = builtinLocalTermName "$list_monad_then_first" (-2220)
+  second = builtinLocalTermName "$list_monad_then_second" (-2221)
+  ignored = builtinLocalTermName "$list_monad_then_ignored" (-2222)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  body =
+    CApp
+      ( CApp
+          (CTypeApp (CVar monadListBindName monadListBindCoreType) [aTy, bTy] (CTyFun listA (CTyFun (CTyFun aTy listB) listB)))
+          (CVar first listA)
+          (CTyFun (CTyFun aTy listB) listB)
+      )
+      (CLam (CoreBinder ignored aTy) (CVar second listB) (CTyFun aTy listB))
+      listB
+
+listMonadReturnMethod :: CoreExpr
+listMonadReturnMethod =
+  CTypeLam [a] (lam value aTy (consCore aTy (var value aTy) (nilCore aTy))) listMonadReturnCoreType
+ where
+  a = preludeTypeVariable "a" (-1362)
+  aTy = CTyVar a
+  value = builtinLocalTermName "$list_monad_return_x" (-2223)
+  lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
+  var name ty = CVar name ty
+
+listMonadFailMethod :: CoreExpr
+listMonadFailMethod =
+  CTypeLam [a] (lam message stringTy (nilCore aTy)) listMonadFailCoreType
+ where
+  a = preludeTypeVariable "a" (-1362)
+  aTy = CTyVar a
+  message = builtinLocalTermName "$list_monad_fail_message" (-2224)
+  lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
+
+ioMonadBindCoreType, ioMonadThenCoreType, ioMonadReturnCoreType, ioMonadFailCoreType :: CoreType
+ioMonadBindCoreType = monadBindFieldCoreType (CTyCon ioTyConName)
+ioMonadThenCoreType = monadThenFieldCoreType (CTyCon ioTyConName)
+ioMonadReturnCoreType = monadReturnFieldCoreType (CTyCon ioTyConName)
+ioMonadFailCoreType = monadFailFieldCoreType (CTyCon ioTyConName)
+
+maybeMonadBindCoreType, maybeMonadThenCoreType, maybeMonadReturnCoreType, maybeMonadFailCoreType :: CoreType
+maybeMonadBindCoreType = monadBindFieldCoreType (CTyCon maybeTyConName)
+maybeMonadThenCoreType = monadThenFieldCoreType (CTyCon maybeTyConName)
+maybeMonadReturnCoreType = monadReturnFieldCoreType (CTyCon maybeTyConName)
+maybeMonadFailCoreType = monadFailFieldCoreType (CTyCon maybeTyConName)
+
+listMonadThenCoreType, listMonadReturnCoreType, listMonadFailCoreType :: CoreType
+listMonadThenCoreType = monadThenFieldCoreType listTyConCore
+listMonadReturnCoreType = monadReturnFieldCoreType listTyConCore
+listMonadFailCoreType = monadFailFieldCoreType listTyConCore
+
+monadBindFieldCoreType :: CoreType -> CoreType
+monadBindFieldCoreType monadTy =
+  CTyForall [a, b] (CTyFun monadA (CTyFun (CTyFun aTy monadB) monadB))
+ where
+  a = preludeTypeVariable "a" (-1362)
+  b = preludeTypeVariable "b" (-1363)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  monadA = applyMonadCoreType monadTy aTy
+  monadB = applyMonadCoreType monadTy bTy
+
+monadThenFieldCoreType :: CoreType -> CoreType
+monadThenFieldCoreType monadTy =
+  CTyForall [a, b] (CTyFun monadA (CTyFun monadB monadB))
+ where
+  a = preludeTypeVariable "a" (-1362)
+  b = preludeTypeVariable "b" (-1363)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  monadA = applyMonadCoreType monadTy aTy
+  monadB = applyMonadCoreType monadTy bTy
+
+monadReturnFieldCoreType :: CoreType -> CoreType
+monadReturnFieldCoreType monadTy =
+  CTyForall [a] (CTyFun aTy (applyMonadCoreType monadTy aTy))
+ where
+  a = preludeTypeVariable "a" (-1362)
+  aTy = CTyVar a
+
+monadFailFieldCoreType :: CoreType -> CoreType
+monadFailFieldCoreType monadTy =
+  CTyForall [a] (CTyFun stringTy (applyMonadCoreType monadTy aTy))
+ where
+  a = preludeTypeVariable "a" (-1362)
+  aTy = CTyVar a
+
+applyMonadCoreType :: CoreType -> CoreType -> CoreType
+applyMonadCoreType monadTy argumentTy
+  | monadTy == listTyConCore = CTyList argumentTy
+  | otherwise = CTyApp monadTy argumentTy
+
+listTyConCore :: CoreType
+listTyConCore =
+  CTyCon listTyConName
+
+monadListAppendName :: RName
+monadListAppendName =
+  preludeTermName "$monad_list_append" (-2230)
+
+monadListBindName :: RName
+monadListBindName =
+  preludeTermName "$monad_list_bind" (-2231)
+
+monadListAppendCoreType :: CoreType
+monadListAppendCoreType =
+  CTyForall [a] (CTyFun listA (CTyFun listA listA))
+ where
+  a = preludeTypeVariable "a" (-1362)
+  aTy = CTyVar a
+  listA = CTyList aTy
+
+monadListBindCoreType :: CoreType
+monadListBindCoreType =
+  CTyForall [a, b] (CTyFun listA (CTyFun (CTyFun aTy listB) listB))
+ where
+  a = preludeTypeVariable "a" (-1362)
+  b = preludeTypeVariable "b" (-1363)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  listA = CTyList aTy
+  listB = CTyList bTy
+
+nothingCore :: CoreType -> CoreExpr
+nothingCore elementTy =
+  constructorApp maybeNothingDataConName [elementTy] [] (CTyApp (CTyCon maybeTyConName) elementTy)
+
+justCore :: CoreType -> CoreExpr -> CoreExpr
+justCore elementTy value =
+  constructorApp maybeJustDataConName [elementTy] [value] (CTyApp (CTyCon maybeTyConName) elementTy)
 
 binaryPrimMethod :: Text -> Int -> CoreType -> CoreType -> CorePrimOp -> CoreExpr
 binaryPrimMethod occurrence unique argumentTy resultTy prim =
@@ -7629,23 +8642,107 @@ showListDictionaryCorePair info = do
       rhs = CTypeLam [a] (CLam (CoreBinder dictName showDictA) body (CTyFun showDictA showDictListA)) showListDictionaryCoreType
   pure (CoreBinder showListDictionaryName showListDictionaryCoreType, rhs)
 
+builtinMonadSupportCoreBinds :: Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
+builtinMonadSupportCoreBinds classes
+  | builtinMonadClassName `Map.member` classes =
+      Right [CoreRec [monadListAppendCorePair, monadListBindCorePair]]
+  | otherwise =
+      Right []
+
+monadListAppendCorePair :: (CoreBinder, CoreExpr)
+monadListAppendCorePair =
+  (CoreBinder monadListAppendName monadListAppendCoreType, CTypeLam [a] (lam xsName listA (lam ysName listA body)) monadListAppendCoreType)
+ where
+  a = preludeTypeVariable "a" (-1362)
+  aTy = CTyVar a
+  listA = CTyList aTy
+  xsName = builtinLocalTermName "$monad_list_append_xs" (-2232)
+  ysName = builtinLocalTermName "$monad_list_append_ys" (-2233)
+  headName = builtinLocalTermName "$monad_list_append_head" (-2234)
+  tailName = builtinLocalTermName "$monad_list_append_tail" (-2235)
+  caseName = builtinLocalTermName "$monad_list_append_case" (-2236)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  body =
+    listCaseCore
+      (CVar xsName listA)
+      caseName
+      aTy
+      listA
+      (CVar ysName listA)
+      headName
+      tailName
+      ( consCore
+          aTy
+          (CVar headName aTy)
+          ( CApp
+              ( CApp
+                  (CTypeApp (CVar monadListAppendName monadListAppendCoreType) [aTy] (CTyFun listA (CTyFun listA listA)))
+                  (CVar tailName listA)
+                  (CTyFun listA listA)
+              )
+              (CVar ysName listA)
+              listA
+          )
+      )
+
+monadListBindCorePair :: (CoreBinder, CoreExpr)
+monadListBindCorePair =
+  (CoreBinder monadListBindName monadListBindCoreType, CTypeLam [a, b] (lam xsName listA (lam continuationName (CTyFun aTy listB) body)) monadListBindCoreType)
+ where
+  a = preludeTypeVariable "a" (-1362)
+  b = preludeTypeVariable "b" (-1363)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  listA = CTyList aTy
+  listB = CTyList bTy
+  xsName = builtinLocalTermName "$monad_list_bind_xs" (-2237)
+  continuationName = builtinLocalTermName "$monad_list_bind_k" (-2238)
+  headName = builtinLocalTermName "$monad_list_bind_head" (-2239)
+  tailName = builtinLocalTermName "$monad_list_bind_tail" (-2240)
+  caseName = builtinLocalTermName "$monad_list_bind_case" (-2241)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  continuation = CVar continuationName (CTyFun aTy listB)
+  mappedHead = CApp continuation (CVar headName aTy) listB
+  recursiveTail =
+    CApp
+      ( CApp
+          (CTypeApp (CVar monadListBindName monadListBindCoreType) [aTy, bTy] (CTyFun listA (CTyFun (CTyFun aTy listB) listB)))
+          (CVar tailName listA)
+          (CTyFun (CTyFun aTy listB) listB)
+      )
+      continuation
+      listB
+  appended =
+    CApp
+      ( CApp
+          (CTypeApp (CVar monadListAppendName monadListAppendCoreType) [bTy] (CTyFun listB (CTyFun listB listB)))
+          mappedHead
+          (CTyFun listB listB)
+      )
+      recursiveTail
+      listB
+  body =
+    listCaseCore
+      (CVar xsName listA)
+      caseName
+      aTy
+      listB
+      (nilCore bTy)
+      headName
+      tailName
+      appended
+
 classDictionaryConstructorCoreType :: ClassInfo -> Either TypecheckError CoreType
-classDictionaryConstructorCoreType info =
-  schemeToCoreType
-    ( Scheme
-        [classInfoVariable info]
-        []
-        (foldr TyFun (classDictionaryType info (TyVar (classInfoVariable info))) (map classMethodFieldType (classInfoMethods info)))
-    )
+classDictionaryConstructorCoreType info = do
+  resultTy <- monoToCoreType Map.empty Map.empty (classDictionaryType info (TyVar (classInfoVariable info)))
+  fieldTypes <- traverse (classMethodFieldCoreType Map.empty Map.empty) (classInfoMethods info)
+  pure (CTyForall [classInfoVariable info] (foldr CTyFun resultTy fieldTypes))
 
 classDictionaryFullConstructorCoreType :: ClassInfo -> Either TypecheckError CoreType
-classDictionaryFullConstructorCoreType info =
-  schemeToCoreType
-    ( Scheme
-        [classInfoVariable info]
-        []
-        (foldr TyFun (classDictionaryType info (TyVar (classInfoVariable info))) (classDictionaryFieldTypes info))
-    )
+classDictionaryFullConstructorCoreType info = do
+  resultTy <- monoToCoreType Map.empty Map.empty (classDictionaryType info (TyVar (classInfoVariable info)))
+  fieldTypes <- classDictionaryCoreFieldTypes Map.empty Map.empty info
+  pure (CTyForall [classInfoVariable info] (foldr CTyFun resultTy fieldTypes))
 
 showElementCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr
 showElementCore elementTy dictionary element =
@@ -7792,7 +8889,7 @@ classSelectorCoreBinds subst classes =
     binderTy <- superclassSelectorCoreType info index
     dictTy <- monoToCoreType subst Map.empty (classDictionaryType info (TyVar (classInfoVariable info)))
     resultTy <- monoToCoreType subst Map.empty (superclassDictionaryFieldType superclass)
-    fieldTypes <- traverse (monoToCoreType subst Map.empty) (classDictionaryFieldTypes info)
+    fieldTypes <- classDictionaryCoreFieldTypes subst Map.empty info
     let selectorName = superclassSelectorName info index superclass
         dictBinder =
           CoreBinder
@@ -7838,7 +8935,7 @@ classSelectorCoreBinds subst classes =
     binderTy <- schemeToCoreType (classMethodScheme method)
     dictTy <- monoToCoreType subst Map.empty (classDictionaryType info (TyVar (classInfoVariable info)))
     methodTy <- monoToCoreType subst Map.empty (classMethodFieldType method)
-    fieldTypes <- traverse (monoToCoreType subst Map.empty) (classDictionaryFieldTypes info)
+    fieldTypes <- classDictionaryCoreFieldTypes subst Map.empty info
     let dictBinder =
           CoreBinder
             ( RName
@@ -7870,13 +8967,21 @@ classSelectorCoreBinds subst classes =
           ]
         selectedBinder = fieldBinders !! classMethodFieldIndex method
         selected = CVar (coreBinderName selectedBinder) (coreBinderType selectedBinder)
+        selectedMethod =
+          case schemeVars (classMethodFieldScheme method) of
+            [] -> selected
+            variables ->
+              CTypeApp
+                selected
+                (map CTyVar variables)
+                methodTy
         caseExpr =
           CCase
             (CVar (coreBinderName dictBinder) dictTy)
             caseBinder
-            [CoreAlt (ConstructorAlt (classInfoDictConstructorName info)) fieldBinders selected]
+            [CoreAlt (ConstructorAlt (classInfoDictConstructorName info)) fieldBinders selectedMethod]
             methodTy
-        body = CTypeLam [classInfoVariable info] (CLam dictBinder caseExpr (CTyFun dictTy methodTy)) binderTy
+        body = CTypeLam (schemeVars (classMethodScheme method)) (CLam dictBinder caseExpr (CTyFun dictTy methodTy)) binderTy
     pure (CoreNonRec (CoreBinder (classMethodName method) binderTy) body)
 
 recordSelectorCoreBinds :: Subst -> Map.Map RName RecordSelectorInfo -> Either TypecheckError [CoreBind]
@@ -7974,7 +9079,7 @@ instanceDictionaryToCore subst classes instances dictionary = do
         ]
       env = CoreElabEnv subst Map.empty classes instances localDictionaries
   superclassExprs <- traverse (resolveDictionary env) (typedInstanceSuperclasses dictionary)
-  methodExprs <- traverse (exprToCore env) (typedInstanceMethods dictionary)
+  methodExprs <- traverse (uncurry (instanceMethodToCore env info (typedInstanceType dictionary))) (zip (classInfoMethods info) (typedInstanceMethods dictionary))
   constructorTy <- classDictionaryFullConstructorCoreType info
   let fieldExprs = superclassExprs <> methodExprs
       constructorResultTy = foldr CTyFun dictTy (map exprType fieldExprs)
@@ -8001,6 +9106,24 @@ instanceDictionaryToCore subst classes instances dictionary = do
             CTyFun _ result -> result
             _ -> exprType callee
      in CApp callee argument remainingResult
+
+instanceMethodToCore ::
+  CoreElabEnv ->
+  ClassInfo ->
+  MonoType ->
+  ClassMethodInfo ->
+  TypedExpr ->
+  Either TypecheckError CoreExpr
+instanceMethodToCore env info instanceType method expression = do
+  coreExpression <- exprToCore env expression
+  let replacements = Map.singleton (classInfoVariable info) instanceType
+      fieldScheme = replaceSchemeTypeVars replacements (classMethodFieldScheme method)
+      fieldVariables = schemeVars fieldScheme
+  fieldTy <- schemeToCoreTypeWith (coreElabSubst env) (coreElabMetas env) fieldScheme
+  pure $
+    case fieldVariables of
+      [] -> coreExpression
+      variables -> CTypeLam variables coreExpression fieldTy
 
 constructorApp :: RName -> [CoreType] -> [CoreExpr] -> CoreType -> CoreExpr
 constructorApp name typeArguments arguments resultTy =
@@ -8070,6 +9193,9 @@ monoToCoreType subst metas ty =
       Right (CTyVar name)
     TyCon name ->
       Right (CTyCon name)
+    TyApp (TyCon name) arg
+      | name == listTyConName ->
+          CTyList <$> go arg
     TyApp fn arg ->
       CTyApp <$> go fn <*> go arg
     TyFun arg result ->

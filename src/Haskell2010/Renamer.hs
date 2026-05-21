@@ -2,6 +2,7 @@ module Haskell2010.Renamer
   ( RenameError (..)
   , renameModule
   , renameModuleGraph
+  , renameModuleGraphWithInterfaces
   , renderRenameError
   )
 where
@@ -14,9 +15,11 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Haskell2010.ModuleInterface
 import Haskell2010.Names
 import Haskell2010.Pretty (renderModuleName)
 import Haskell2010.Renamed
+import qualified Haskell2010.StandardLibrary as StandardLibrary
 import qualified Haskell2010.Syntax as S
 
 data RenameError
@@ -31,14 +34,6 @@ data RenameError
   deriving stock (Show, Eq)
 
 type Scope = Map.Map Namespace (Map.Map Text [RName])
-
-data ModuleInterface = ModuleInterface
-  { interfaceModuleName :: S.ModuleName
-  , interfaceExports :: [RName]
-  , interfaceChildren :: Map.Map RName [RName]
-  , interfaceFixities :: Map.Map Text S.Fixity
-  }
-  deriving stock (Show, Eq)
 
 data RenameState = RenameState
   { nextUnique :: Int
@@ -55,6 +50,10 @@ renameModule sourceModule =
 
 renameModuleGraph :: [S.HsModule] -> Either RenameError [RHsModule]
 renameModuleGraph modules =
+  map fst <$> renameModuleGraphWithInterfaces modules
+
+renameModuleGraphWithInterfaces :: [S.HsModule] -> Either RenameError [(RHsModule, ModuleInterface)]
+renameModuleGraphWithInterfaces modules =
   snd <$> evalStateT (foldM renameOne (Map.empty, []) modules) initialRenameState
  where
   renameOne (interfaces, renamedModules) sourceModule = do
@@ -63,27 +62,28 @@ renameModuleGraph modules =
       throwRename (DuplicateModuleName currentName)
     renamed <- renameModuleWithInterfaces True interfaces sourceModule
     interface <- moduleInterface interfaces renamed
-    pure (Map.insert currentName interface interfaces, renamedModules <> [renamed])
+    pure (Map.insert currentName interface interfaces, renamedModules <> [(renamed, interface)])
 
 initialRenameState :: RenameState
 initialRenameState =
   RenameState
     { nextUnique = 1
     , scopes = []
-    , fixities = preludeFixities
+    , fixities = Map.empty
     }
 
 renameModuleWithInterfaces :: Bool -> Map.Map S.ModuleName ModuleInterface -> S.HsModule -> RenameM RHsModule
 renameModuleWithInterfaces strictImports interfaces sourceModule = do
-    preludeScope <- externalScope preludeNames
-    importScope <- importsScope strictImports interfaces (S.moduleImports sourceModule)
+    let effectiveImports = effectiveModuleImports sourceModule
+        interfacesWithStandardLibrary = interfacesWithStandardLibraryModules interfaces
+    importScope <- importsScope strictImports interfacesWithStandardLibrary effectiveImports
     topScope <- collectDeclBinders TopLevelContext (S.moduleDecls sourceModule)
     moduleFixities <- collectFixityDecls (S.moduleDecls sourceModule)
-    importFixities <- importsFixities strictImports interfaces (S.moduleImports sourceModule)
+    importFixities <- importsFixities strictImports interfacesWithStandardLibrary effectiveImports
     modify $ \state ->
       state
-        { scopes = [topScope, importScope, preludeScope]
-        , fixities = moduleFixities `Map.union` importFixities `Map.union` preludeFixities
+        { scopes = [topScope, importScope]
+        , fixities = moduleFixities `Map.union` importFixities
         }
     renamedExports <- traverse renameExportList (S.moduleExports sourceModule)
     renamedDecls <- traverse renameDecl (S.moduleDecls sourceModule)
@@ -92,10 +92,21 @@ renameModuleWithInterfaces strictImports interfaces sourceModule = do
       RHsModule
         { rModuleName = S.moduleName sourceModule
         , rModuleExports = renamedExports
-        , rModuleImports = RImportDecl <$> S.moduleImports sourceModule
+        , rModuleImports = RImportDecl <$> effectiveImports
         , rModuleFixities = Map.fromList resolvedFixities
         , rModuleDecls = renamedDecls
         }
+
+effectiveModuleImports :: S.HsModule -> [S.ImportDecl]
+effectiveModuleImports sourceModule
+  | any ((== StandardLibrary.standardPreludeModuleName) . S.importModule) imports = imports
+  | otherwise = StandardLibrary.implicitPreludeImport : imports
+ where
+  imports = S.moduleImports sourceModule
+
+interfacesWithStandardLibraryModules :: Map.Map S.ModuleName ModuleInterface -> Map.Map S.ModuleName ModuleInterface
+interfacesWithStandardLibraryModules interfaces =
+  interfaces `Map.union` StandardLibrary.standardLibraryModuleInterfaces
 
 renderRenameError :: RenameError -> Text
 renderRenameError = \case
@@ -145,14 +156,6 @@ freshName namespace occ external = do
       , nameExternal = external
       }
 
-externalScope :: [(Namespace, Text)] -> RenameM Scope
-externalScope =
-  foldM addExternal emptyScope
- where
-  addExternal scope (namespace, occ) = do
-    name <- freshName namespace occ True
-    pure (insertScopeName namespace occ name scope)
-
 importsScope :: Bool -> Map.Map S.ModuleName ModuleInterface -> [S.ImportDecl] -> RenameM Scope
 importsScope strictImports interfaces =
   foldM addImport emptyScope
@@ -200,7 +203,7 @@ importedNamesFor strictImports interfaces importDecl =
     Just interface ->
       selectInterfaceImports interface importDecl
     Nothing
-      | S.importModule importDecl == S.ModuleName ["Prelude"] ->
+      | S.importModule importDecl == StandardLibrary.standardPreludeModuleName ->
           syntheticImportedNames importDecl
       | strictImports ->
           throwRename (MissingModule (S.importModule importDecl))
@@ -366,8 +369,12 @@ collectDeclBinders context =
       pure scope
     S.DefaultDecl {} ->
       pure scope
-    S.ForeignDecl {} ->
-      pure scope
+    S.ForeignDecl foreignDecl ->
+      case foreignDecl of
+        S.ForeignImportDecl foreignImport ->
+          defineOne TermNamespace (S.foreignImportName foreignImport) scope
+        S.ForeignExportDecl {} ->
+          pure scope
 
   defineConstructor scope (S.ConDecl constructorName _) =
     defineOne ConstructorNamespace constructorName scope
@@ -421,9 +428,12 @@ scopeHasName namespace occ scope =
 insertScopeName :: Namespace -> Text -> RName -> Scope -> Scope
 insertScopeName namespace occ name =
   Map.insertWith
-    (Map.unionWith (<>))
+    (Map.unionWith mergeNames)
     namespace
     (Map.singleton occ [name])
+ where
+  mergeNames new old =
+    List.nub (old <> new)
 
 emptyScope :: Scope
 emptyScope =
@@ -560,8 +570,36 @@ renameDeclRaw = \case
       pure (RInstanceDecl renamedContext renamedType renamedDecls)
   S.DefaultDecl types ->
     RDefaultDecl <$> traverse renameImplicitForallType types
-  S.ForeignDecl text ->
-    pure (RForeignDecl text)
+  S.ForeignDecl foreignDecl ->
+    RForeignDecl <$> renameForeignDecl foreignDecl
+
+renameForeignDecl :: S.ForeignDeclInfo -> RenameM RForeignDeclInfo
+renameForeignDecl = \case
+  S.ForeignImportDecl foreignImport -> do
+    renamedName <- lookupName TermNamespace (S.foreignImportName foreignImport)
+    renamedType <- renameImplicitForallType (S.foreignImportType foreignImport)
+    pure
+      ( RForeignImportDecl
+          RForeignImport
+            { rForeignImportCallConv = S.foreignImportCallConv foreignImport
+            , rForeignImportSafety = S.foreignImportSafety foreignImport
+            , rForeignImportEntity = S.foreignImportEntity foreignImport
+            , rForeignImportName = renamedName
+            , rForeignImportType = renamedType
+            }
+      )
+  S.ForeignExportDecl foreignExport -> do
+    renamedName <- lookupName TermNamespace (S.foreignExportName foreignExport)
+    renamedType <- renameImplicitForallType (S.foreignExportType foreignExport)
+    pure
+      ( RForeignExportDecl
+          RForeignExport
+            { rForeignExportCallConv = S.foreignExportCallConv foreignExport
+            , rForeignExportEntity = S.foreignExportEntity foreignExport
+            , rForeignExportName = renamedName
+            , rForeignExportType = renamedType
+            }
+      )
 
 renameConDecl :: S.ConDecl -> RenameM RConDecl
 renameConDecl sourceConDecl = do
@@ -826,9 +864,12 @@ lookupExportName occ
 moduleInterface :: Map.Map S.ModuleName ModuleInterface -> RHsModule -> RenameM ModuleInterface
 moduleInterface importedInterfaces renamedModule = do
   let declared = declaredInterface renamedModule
-      visibleImportedInterfaces = visibleInterfaces importedInterfaces renamedModule
+      interfacesWithStandardLibrary = interfacesWithStandardLibraryModules importedInterfaces
+      visibleImportedInterfaces = visibleInterfaces interfacesWithStandardLibrary renamedModule
       availableChildren =
         Map.unionsWith (<>) (interfaceChildren declared : map interfaceChildren (Map.elems visibleImportedInterfaces))
+      availableInstances =
+        List.nub (interfaceInstances declared <> concatMap interfaceInstances (Map.elems visibleImportedInterfaces))
   exportedNames <-
     case rModuleExports renamedModule of
       Nothing ->
@@ -845,6 +886,7 @@ moduleInterface importedInterfaces renamedModule = do
       , interfaceExports = exportedNames
       , interfaceChildren = exportedChildren
       , interfaceFixities = fixitiesByOccurrence (rModuleFixities renamedModule)
+      , interfaceInstances = availableInstances
       }
 
 visibleInterfaces :: Map.Map S.ModuleName ModuleInterface -> RHsModule -> Map.Map S.ModuleName ModuleInterface
@@ -864,6 +906,7 @@ declaredInterface renamedModule =
     , interfaceExports = List.nub (concatMap declaredNames (rModuleDecls renamedModule))
     , interfaceChildren = Map.unionsWith (<>) (map declaredChildren (rModuleDecls renamedModule))
     , interfaceFixities = fixitiesByOccurrence (rModuleFixities renamedModule)
+    , interfaceInstances = List.nub (concatMap declaredInstances (rModuleDecls renamedModule))
     }
 
 fixitiesByOccurrence :: Map.Map RName S.Fixity -> Map.Map Text S.Fixity
@@ -924,8 +967,12 @@ declaredNames = \case
     []
   RDefaultDecl {} ->
     []
-  RForeignDecl {} ->
-    []
+  RForeignDecl foreignDecl ->
+    case foreignDecl of
+      RForeignImportDecl foreignImport ->
+        [rForeignImportName foreignImport]
+      RForeignExportDecl {} ->
+        []
 
 declaredChildren :: RDecl -> Map.Map RName [RName]
 declaredChildren = \case
@@ -937,6 +984,18 @@ declaredChildren = \case
     Map.singleton className (concatMap classMemberName decls)
   _ ->
     Map.empty
+
+declaredInstances :: RDecl -> [InterfaceInstance]
+declaredInstances = \case
+  RInstanceDecl context sourceType _ ->
+    [ InterfaceInstance
+        { interfaceInstanceContext = context
+        , interfaceInstanceHead = sourceType
+        , interfaceInstanceDictionary = Nothing
+        }
+    ]
+  _ ->
+    []
 
 conDeclNames :: RConDecl -> [RName]
 conDeclNames = \case
@@ -1134,87 +1193,6 @@ fixityForCurrentName name =
 defaultFixity :: S.Fixity
 defaultFixity =
   S.Fixity S.InfixL 9
-
-preludeFixities :: Map.Map Text S.Fixity
-preludeFixities =
-  Map.fromList
-    [ (":", S.Fixity S.InfixR 5)
-    , ("++", S.Fixity S.InfixR 5)
-    , ("+", S.Fixity S.InfixL 6)
-    , ("-", S.Fixity S.InfixL 6)
-    , ("*", S.Fixity S.InfixL 7)
-    , ("/", S.Fixity S.InfixL 7)
-    , ("==", S.Fixity S.InfixN 4)
-    , ("/=", S.Fixity S.InfixN 4)
-    , ("<", S.Fixity S.InfixN 4)
-    , ("<=", S.Fixity S.InfixN 4)
-    , (">", S.Fixity S.InfixN 4)
-    , (">=", S.Fixity S.InfixN 4)
-    , ("&&", S.Fixity S.InfixR 3)
-    , ("||", S.Fixity S.InfixR 2)
-    , (">>=", S.Fixity S.InfixL 1)
-    , (">>", S.Fixity S.InfixL 1)
-    , ("$", S.Fixity S.InfixR 0)
-    , (".", S.Fixity S.InfixR 9)
-    ]
-
-preludeNames :: [(Namespace, Text)]
-preludeNames =
-  fmap (TermNamespace,)
-    [ "+"
-    , "-"
-    , "*"
-    , "/"
-    , "=="
-    , "/="
-    , "<"
-    , "<="
-    , ">"
-    , ">="
-    , "&&"
-    , "||"
-    , "compare"
-    , "max"
-    , "min"
-    , "succ"
-    , "pred"
-    , "toEnum"
-    , "fromEnum"
-    , "enumFrom"
-    , "enumFromThen"
-    , "enumFromTo"
-    , "enumFromThenTo"
-    , "minBound"
-    , "maxBound"
-    , "negate"
-    , "abs"
-    , "signum"
-    , "fromInteger"
-    , "++"
-    , ">>="
-    , ">>"
-    , "$"
-    , "."
-    , "pure"
-    , "return"
-    , "fmap"
-    , "map"
-    , "foldr"
-    , "length"
-    , "filter"
-    , "reverse"
-    , "show"
-    , "putStrLn"
-    , "getLine"
-    , "print"
-    , "not"
-    , "id"
-    , "const"
-    , "otherwise"
-    ]
-    <> fmap (ConstructorNamespace,) ["True", "False", "Nothing", "Just", "Left", "Right", "LT", "EQ", "GT", ":"]
-    <> fmap (TypeNamespace,) ["Int", "Integer", "Bool", "Char", "String", "IO", "CString", "Maybe", "Either", "Ordering", "()"]
-    <> fmap (ClassNamespace,) ["Eq", "Ord", "Show", "Read", "Num", "Enum", "Bounded", "Functor", "Monad"]
 
 isConstructorLike :: Text -> Bool
 isConstructorLike text =

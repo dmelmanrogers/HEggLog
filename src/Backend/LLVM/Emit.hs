@@ -82,6 +82,8 @@ emitInstruction = \case
     assign reg ("icmp " <> emitPredicate predicate <> " " <> emitTypedOperands ty lhs rhs)
   IZext reg value targetType ->
     assign reg ("zext " <> emitType (operandType value) <> " " <> emitOperand value <> " to " <> emitType targetType)
+  ISext reg value targetType ->
+    assign reg ("sext " <> emitType (operandType value) <> " " <> emitOperand value <> " to " <> emitType targetType)
   ITrunc reg value targetType ->
     assign reg ("trunc " <> emitType (operandType value) <> " " <> emitOperand value <> " to " <> emitType targetType)
   IGetElementPtr reg elementType base indices ->
@@ -195,6 +197,7 @@ emitType :: LLVMType -> Text
 emitType = \case
   LI64 -> "i64"
   LI32 -> "i32"
+  LI16 -> "i16"
   LI1 -> "i1"
   LI8 -> "i8"
   LPtr -> "ptr"

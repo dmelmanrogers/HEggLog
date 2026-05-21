@@ -46,6 +46,7 @@ lowerCoreModule coreModule =
           (namesInModule coreModule)
           ( STGProgram (coreModuleConstructors coreModule)
               <$> traverse lowerBind (coreModuleBinds coreModule)
+              <*> traverse runtimeForeignExport (coreModuleForeignExports coreModule)
           )
       case STGValidate.validateProgram program of
         Left errors -> Left (STGLowerInvalidSTG errors)
@@ -57,6 +58,11 @@ lowerCoreModule coreModule =
 lowerCoreBind :: CoreBind -> Either STGLowerError STGBind
 lowerCoreBind coreBind =
   runLowerWith CoreValidate.defaultValidationEnv (namesInBind coreBind) (lowerBind coreBind)
+
+runtimeForeignExport :: CoreForeignExport -> LowerM CoreForeignExport
+runtimeForeignExport foreignExport = do
+  runtimeTy <- runtimeType (coreForeignExportType foreignExport)
+  pure foreignExport {coreForeignExportType = runtimeTy}
 
 lowerCoreExpr :: CoreExpr -> Either STGLowerError STGExpr
 lowerCoreExpr expression =
@@ -153,6 +159,14 @@ lowerExpr expression =
           (binds, atoms) <- atomizeMany arguments
           ty' <- runtimeType ty
           pure (wrapLets binds (STGPrim op atoms ty'))
+        CForeignCall foreignImport arguments ty -> do
+          (binds, atoms) <- atomizeMany arguments
+          ty' <- runtimeType ty
+          foreignImport' <- runtimeForeignImport foreignImport
+          pure (wrapLets binds (STGForeignCall foreignImport' atoms ty'))
+        CForeignImportValue foreignImport ty -> do
+          foreignImport' <- runtimeForeignImport foreignImport
+          STGForeignImportValue foreignImport' <$> runtimeType ty
 
 lowerApplication :: CoreExpr -> LowerM STGExpr
 lowerApplication expression = do
@@ -333,6 +347,10 @@ retagExpr ty = \case
     STGCase scrutinee binder alternatives ty
   STGPrim op arguments _ ->
     STGPrim op arguments ty
+  STGForeignCall foreignImport arguments _ ->
+    STGForeignCall foreignImport arguments ty
+  STGForeignImportValue foreignImport _ ->
+    STGForeignImportValue foreignImport ty
 
 retagAtom :: CoreType -> STGAtom -> STGAtom
 retagAtom ty = \case
@@ -348,8 +366,10 @@ wrapLets binds body =
   foldr (\bind expr -> STGLet bind expr (stgExprType expr)) body binds
 
 namesInModule :: CoreModule -> [RName]
-namesInModule (CoreModule _ constructors binds) =
-  concatMap namesInConstructorInfo (Map.elems constructors) <> concatMap namesInBind binds
+namesInModule (CoreModule _ constructors binds exports) =
+  concatMap namesInConstructorInfo (Map.elems constructors)
+    <> concatMap namesInBind binds
+    <> map coreForeignExportName exports
 
 namesInBind :: CoreBind -> [RName]
 namesInBind = \case
@@ -382,6 +402,19 @@ namesInExpr = \case
     namesInExpr expression <> namesInType ty
   CPrimOp _ arguments ty ->
     concatMap namesInExpr arguments <> namesInType ty
+  CForeignCall foreignImport arguments ty ->
+    namesInForeignImport foreignImport <> concatMap namesInExpr arguments <> namesInType ty
+  CForeignImportValue foreignImport ty ->
+    namesInForeignImport foreignImport <> namesInType ty
+
+runtimeForeignImport :: CoreForeignImport -> LowerM CoreForeignImport
+runtimeForeignImport foreignImport = do
+  ty <- runtimeType (coreForeignImportType foreignImport)
+  pure foreignImport {coreForeignImportType = ty}
+
+namesInForeignImport :: CoreForeignImport -> [RName]
+namesInForeignImport foreignImport =
+  coreForeignImportName foreignImport : namesInType (coreForeignImportType foreignImport)
 
 namesInAlt :: CoreAlt -> [RName]
 namesInAlt (CoreAlt altCon binders body) =

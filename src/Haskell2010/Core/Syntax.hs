@@ -6,6 +6,8 @@ module Haskell2010.Core.Syntax
   , CoreConstructorInfo (..)
   , CoreConstructorRepresentation (..)
   , CoreExpr (..)
+  , CoreForeignExport (..)
+  , CoreForeignImport (..)
   , CoreModule (..)
   , CorePrimOp (..)
   , CoreType (..)
@@ -15,10 +17,15 @@ module Haskell2010.Core.Syntax
   , eitherRightDataConName
   , eitherTyConName
   , falseDataConName
+  , foreignPtrTy
+  , foreignPtrTyConName
   , funTy
+  , funPtrTy
+  , funPtrTyConName
   , intTy
   , ioTy
   , ioTyConName
+  , listTyConName
   , listConsDataConName
   , listNilDataConName
   , maybeJustDataConName
@@ -28,6 +35,10 @@ module Haskell2010.Core.Syntax
   , orderingGTDataConName
   , orderingLTDataConName
   , orderingTy
+  , ptrTy
+  , ptrTyConName
+  , stablePtrTy
+  , stablePtrTyConName
   , stringTy
   , trueDataConName
   , tupleDataConName
@@ -42,12 +53,13 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Names (Namespace (..), RName (..))
-import Haskell2010.Syntax (Literal, ModuleName)
+import Haskell2010.Syntax (ForeignCallConv, ForeignExportEntity, ForeignImportEntity, ForeignSafety, Literal, ModuleName)
 
 data CoreModule = CoreModule
   { coreModuleName :: Maybe ModuleName
   , coreModuleConstructors :: Map.Map RName CoreConstructorInfo
   , coreModuleBinds :: [CoreBind]
+  , coreModuleForeignExports :: [CoreForeignExport]
   }
   deriving stock (Show, Eq, Ord)
 
@@ -62,6 +74,23 @@ data CoreConstructorInfo = CoreConstructorInfo
 data CoreConstructorRepresentation
   = CoreDataConstructor
   | CoreNewtypeConstructor
+  deriving stock (Show, Eq, Ord)
+
+data CoreForeignImport = CoreForeignImport
+  { coreForeignImportCallConv :: ForeignCallConv
+  , coreForeignImportSafety :: ForeignSafety
+  , coreForeignImportEntity :: ForeignImportEntity
+  , coreForeignImportName :: RName
+  , coreForeignImportType :: CoreType
+  }
+  deriving stock (Show, Eq, Ord)
+
+data CoreForeignExport = CoreForeignExport
+  { coreForeignExportCallConv :: ForeignCallConv
+  , coreForeignExportEntity :: ForeignExportEntity
+  , coreForeignExportName :: RName
+  , coreForeignExportType :: CoreType
+  }
   deriving stock (Show, Eq, Ord)
 
 data CoreType
@@ -97,6 +126,8 @@ data CoreExpr
   | CCase CoreExpr CoreBinder [CoreAlt] CoreType
   | CCoerce CoreExpr CoreType
   | CPrimOp CorePrimOp [CoreExpr] CoreType
+  | CForeignCall CoreForeignImport [CoreExpr] CoreType
+  | CForeignImportValue CoreForeignImport CoreType
   deriving stock (Show, Eq, Ord)
 
 data CoreAlt = CoreAlt CoreAltCon [CoreBinder] CoreExpr
@@ -125,6 +156,18 @@ data CorePrimOp
   | PrimIOThen
   | PrimIOBind
   | PrimIOReturn
+  | PrimIOFail
+  | PrimNewStablePtr
+  | PrimDeRefStablePtr
+  | PrimFreeStablePtr
+  | PrimCastStablePtrToPtr
+  | PrimCastPtrToStablePtr
+  | PrimNewForeignPtr
+  | PrimNewForeignPtr_
+  | PrimAddForeignPtrFinalizer
+  | PrimFinalizeForeignPtr
+  | PrimWithForeignPtr
+  | PrimTouchForeignPtr
   deriving stock (Show, Eq, Ord)
 
 exprType :: CoreExpr -> CoreType
@@ -140,6 +183,8 @@ exprType = \case
   CCase _ _ _ ty -> ty
   CCoerce _ ty -> ty
   CPrimOp _ _ ty -> ty
+  CForeignCall _ _ ty -> ty
+  CForeignImportValue _ ty -> ty
 
 bindersOf :: CoreBind -> [CoreBinder]
 bindersOf = \case
@@ -189,6 +234,42 @@ ioTyConName =
 ioTy :: CoreType -> CoreType
 ioTy =
   CTyApp (CTyCon ioTyConName)
+
+listTyConName :: RName
+listTyConName =
+  builtinTypeName "[]" (-8)
+
+ptrTyConName :: RName
+ptrTyConName =
+  builtinTypeName "Ptr" (-30)
+
+ptrTy :: CoreType -> CoreType
+ptrTy =
+  CTyApp (CTyCon ptrTyConName)
+
+funPtrTyConName :: RName
+funPtrTyConName =
+  builtinTypeName "FunPtr" (-31)
+
+funPtrTy :: CoreType -> CoreType
+funPtrTy =
+  CTyApp (CTyCon funPtrTyConName)
+
+stablePtrTyConName :: RName
+stablePtrTyConName =
+  builtinTypeName "StablePtr" (-32)
+
+stablePtrTy :: CoreType -> CoreType
+stablePtrTy =
+  CTyApp (CTyCon stablePtrTyConName)
+
+foreignPtrTyConName :: RName
+foreignPtrTyConName =
+  builtinTypeName "ForeignPtr" (-33)
+
+foreignPtrTy :: CoreType -> CoreType
+foreignPtrTy =
+  CTyApp (CTyCon foreignPtrTyConName)
 
 trueDataConName :: RName
 trueDataConName =

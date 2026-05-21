@@ -84,6 +84,7 @@ validateInstruction function labels registers = \case
   IDiv _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IIcmp _ _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IZext _ value _ -> validateOperand function registers value
+  ISext _ value _ -> validateOperand function registers value
   ITrunc _ value _ -> validateOperand function registers value
   IGetElementPtr _ _ base indices -> do
     assertOperandType function registers LPtr base
@@ -199,6 +200,7 @@ instructionResult = \case
   IDiv reg _ _ _ -> Just reg
   IIcmp reg _ _ _ _ -> Just reg
   IZext reg _ _ -> Just reg
+  ISext reg _ _ -> Just reg
   ITrunc reg _ _ -> Just reg
   IGetElementPtr reg _ _ _ -> Just reg
   ILoad reg _ _ -> Just reg
@@ -215,6 +217,7 @@ instructionResultType = \case
   IDiv _ ty _ _ -> ty
   IIcmp {} -> LI1
   IZext _ _ ty -> ty
+  ISext _ _ ty -> ty
   ITrunc _ _ ty -> ty
   IGetElementPtr {} -> LPtr
   ILoad _ ty _ -> ty
@@ -258,6 +261,7 @@ renderLLVMType :: LLVMType -> Text
 renderLLVMType = \case
   LI64 -> "i64"
   LI32 -> "i32"
+  LI16 -> "i16"
   LI1 -> "i1"
   LI8 -> "i8"
   LPtr -> "ptr"

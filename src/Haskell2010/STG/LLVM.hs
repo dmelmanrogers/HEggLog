@@ -6,9 +6,10 @@ module Haskell2010.STG.LLVM
   )
 where
 
-import Control.Monad (forM_)
+import Control.Applicative ((<|>))
+import Control.Monad (foldM, forM_)
 import Control.Monad.State.Strict (StateT, get, lift, modify', runStateT)
-import Data.Char (ord)
+import Data.Char (isAlphaNum, ord)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -19,6 +20,7 @@ import Haskell2010.Names (RName, nameOcc, nameUnique, renderRName)
 import Haskell2010.STG.Syntax
 import qualified Haskell2010.STG.Validate as STGValidate
 import Haskell2010.Syntax (Literal (..))
+import qualified Haskell2010.Syntax as S
 import Backend.LLVM.IR
 import Backend.LLVM.Validate
 import Numeric (showHex)
@@ -52,9 +54,30 @@ data AllocatedBinding = AllocatedBinding
   }
   deriving stock (Show, Eq, Ord)
 
+data ForeignIntegerSignedness
+  = ForeignSigned
+  | ForeignUnsigned
+  deriving stock (Show, Eq, Ord)
+
+data ForeignABIType
+  = ForeignABIInteger LLVMType ForeignIntegerSignedness
+  | ForeignABIBool
+  | ForeignABIChar
+  | ForeignABIPointer
+  | ForeignABIVoid
+  deriving stock (Show, Eq, Ord)
+
+data ForeignFunctionABI = ForeignFunctionABI
+  { foreignFunctionSymbol :: Text
+  , foreignFunctionArguments :: [ForeignABIType]
+  , foreignFunctionResult :: ForeignABIType
+  }
+  deriving stock (Show, Eq, Ord)
+
 data ModuleState = ModuleState
   { nextClosureFunction :: Int
   , generatedFunctions :: [LLVMFunction]
+  , generatedForeignWrappers :: Map.Map RName [Text]
   }
   deriving stock (Show, Eq)
 
@@ -90,7 +113,12 @@ lowerSTGProgramToLLVMByName mainName program =
 
 lowerValidatedSTGProgram :: STGBinder -> STGProgram -> Either STGLLVMError LLVMModule
 lowerValidatedSTGProgram mainBinder program = do
-  (mainFunction, moduleState) <- runStateT (lowerMainFunction program mainBinder) initialModuleState
+  foreignDeclarations <- foreignImportDeclarations program
+  (mainFunction, mainModuleState) <- runStateT (lowerMainFunction program mainBinder) initialModuleState
+  (foreignExportFunctions, moduleState) <-
+    runStateT
+      (traverse (lowerForeignExportFunction program) (stgProgramForeignExports program))
+      mainModuleState
   let llvmModule =
         LLVMModule
           { moduleComments =
@@ -99,8 +127,8 @@ lowerValidatedSTGProgram mainBinder program = do
               , "heap objects use process-lifetime allocation; generated programs do not free or collect them"
               ]
           , moduleGlobals = formatGlobals
-          , moduleDeclarations = runtimeDeclarations
-          , moduleFunctions = runtimeFunctions <> generatedFunctions moduleState <> [mainFunction]
+          , moduleDeclarations = uniqueTexts (runtimeDeclarations <> foreignDeclarations)
+          , moduleFunctions = runtimeFunctions <> generatedFunctions moduleState <> foreignExportFunctions <> [mainFunction]
           }
   mapLeft STGLLVMInvalidLLVM (validateLLVMModule llvmModule)
   pure llvmModule
@@ -110,17 +138,18 @@ initialModuleState =
   ModuleState
     { nextClosureFunction = 0
     , generatedFunctions = []
+    , generatedForeignWrappers = Map.empty
     }
 
 findMain :: Text -> STGProgram -> Either STGLLVMError STGBinder
-findMain occurrence (STGProgram _ binds) =
+findMain occurrence (STGProgram _ binds _foreignExports) =
   case [binder | bind <- binds, binder <- stgBindersOf bind, nameOcc (stgBinderName binder) == occurrence] of
     [] -> Left (STGLLVMUnknownMain occurrence)
     [binder] -> Right binder
     binders -> Left (STGLLVMAmbiguousMain occurrence (map stgBinderName binders))
 
 lowerMainFunction :: STGProgram -> STGBinder -> ModuleM LLVMFunction
-lowerMainFunction (STGProgram _ binds) mainBinder =
+lowerMainFunction (STGProgram _ binds _foreignExports) mainBinder =
   runFunction "main" LI32 [] $ do
     env <- emitRecursiveGroup Map.empty (concatMap bindPairs binds)
     mainObject <- resolveName env (stgBinderName mainBinder)
@@ -134,6 +163,35 @@ lowerMainFunction (STGProgram _ binds) mainBinder =
         printedReg <- freshRegister "printed"
         emit (ICall (Just printedReg) LI32 (DirectCall "printf") True [(LPtr, fmt), (operandType printedValue, printedValue)])
     pure (OConstInt LI32 0)
+
+lowerForeignExportFunction :: STGProgram -> CoreForeignExport -> ModuleM LLVMFunction
+lowerForeignExportFunction program foreignExport = do
+  abi <- liftEitherModule (foreignExportFunctionABI foreignExport)
+  let params = foreignABIParameters abi
+      symbol = foreignFunctionSymbol abi
+  case foreignFunctionResult abi of
+    ForeignABIVoid ->
+      runVoidFunction symbol params $ do
+        resultObject <- emitForeignExportResult program foreignExport abi params
+        _ <- emitForce resultObject
+        pure ()
+    resultABI ->
+      runFunction symbol (foreignABITypeLLVM resultABI) params $ do
+        resultObject <- emitForeignExportResult program foreignExport abi params
+        forcedResult <- emitForce resultObject
+        emitUnboxForeignReturn resultABI forcedResult
+
+emitForeignExportResult :: STGProgram -> CoreForeignExport -> ForeignFunctionABI -> [(LLVMType, Register)] -> FunctionM LLVMOperand
+emitForeignExportResult program foreignExport abi params = do
+  env <- emitRecursiveGroup Map.empty (concatMap bindPairs (stgProgramBinds program))
+  exportedObject <- resolveName env (coreForeignExportName foreignExport)
+  boxedArguments <-
+    traverse
+      ( \(argumentABI, (argumentTy, argumentRegister)) ->
+          emitBoxForeignResult argumentABI (OLocal argumentTy argumentRegister)
+      )
+      (zip (foreignFunctionArguments abi) params)
+  applyHaskellFunction exportedObject boxedArguments
 
 printableMainValue :: CoreType -> LLVMOperand -> FunctionM LLVMOperand
 printableMainValue ty value
@@ -196,6 +254,10 @@ emitExpr env = \case
     emitCase env binder alternatives scrutineeObject
   STGPrim op arguments _ ->
     emitPrim env op arguments
+  STGForeignCall foreignImport arguments _ ->
+    emitForeignCall env foreignImport arguments
+  STGForeignImportValue foreignImport _ ->
+    emitForeignImportValue foreignImport
 
 emitBind :: ValueEnv -> STGBind -> FunctionM ValueEnv
 emitBind env = \case
@@ -412,6 +474,64 @@ emitPrim env op arguments =
       emitForce secondAction
     (PrimIOReturn, [value]) ->
       emitAtomAddress env value
+    (PrimIOFail, [_message]) -> do
+      emitAbort
+      continueLabel <- freshBlockLabel "io_fail_unreachable"
+      startBlock continueLabel
+      pure OConstNull
+    (PrimNewStablePtr, [value]) -> do
+      valueObject <- emitAtomAddress env value
+      reg <- freshRegister "stable_ptr"
+      emit (ICall (Just reg) LPtr (DirectCall newStablePtrFunctionName) False [(LPtr, valueObject)])
+      pure (OLocal LPtr reg)
+    (PrimDeRefStablePtr, [stable]) -> do
+      stableObject <- emitAtomAddress env stable
+      reg <- freshRegister "stable_value"
+      emit (ICall (Just reg) LPtr (DirectCall deRefStablePtrFunctionName) False [(LPtr, stableObject)])
+      pure (OLocal LPtr reg)
+    (PrimFreeStablePtr, [stable]) -> do
+      stableObject <- emitAtomAddress env stable
+      emit (ICall Nothing LVoid (DirectCall freeStablePtrFunctionName) False [(LPtr, stableObject)])
+      emitConstructorObject unitDataConName unitTy []
+    (PrimCastStablePtrToPtr, [stable]) ->
+      emitAtomValue env stable
+    (PrimCastPtrToStablePtr, [pointer]) ->
+      emitAtomValue env pointer
+    (PrimNewForeignPtr, [finalizer, pointer]) -> do
+      finalizerPointer <- emitExpectAtomPointer env finalizer
+      rawPointer <- emitExpectAtomPointer env pointer
+      reg <- freshRegister "foreign_ptr"
+      emit (ICall (Just reg) LPtr (DirectCall makeForeignPtrFunctionName) False [(LPtr, rawPointer), (LPtr, finalizerPointer)])
+      pure (OLocal LPtr reg)
+    (PrimNewForeignPtr_, [pointer]) -> do
+      rawPointer <- emitExpectAtomPointer env pointer
+      reg <- freshRegister "foreign_ptr"
+      emit (ICall (Just reg) LPtr (DirectCall makeForeignPtrFunctionName) False [(LPtr, rawPointer), (LPtr, OConstNull)])
+      pure (OLocal LPtr reg)
+    (PrimAddForeignPtrFinalizer, [finalizer, foreignPtr]) -> do
+      finalizerPointer <- emitExpectAtomPointer env finalizer
+      foreignPtrObject <- emitAtomAddress env foreignPtr
+      emit (ICall Nothing LVoid (DirectCall addForeignPtrFinalizerFunctionName) False [(LPtr, foreignPtrObject), (LPtr, finalizerPointer)])
+      emitConstructorObject unitDataConName unitTy []
+    (PrimFinalizeForeignPtr, [foreignPtr]) -> do
+      foreignPtrObject <- emitAtomAddress env foreignPtr
+      emit (ICall Nothing LVoid (DirectCall finalizeForeignPtrFunctionName) False [(LPtr, foreignPtrObject)])
+      emitConstructorObject unitDataConName unitTy []
+    (PrimWithForeignPtr, [foreignPtr, continuation]) -> do
+      foreignPtrObject <- emitAtomAddress env foreignPtr
+      rawPointerReg <- freshRegister "foreign_ptr_payload"
+      emit (ICall (Just rawPointerReg) LPtr (DirectCall foreignPtrAddressFunctionName) False [(LPtr, foreignPtrObject)])
+      pointerObject <- emitMakePointer (OLocal LPtr rawPointerReg)
+      continuationObject <- emitAtomAddress env continuation
+      functionObject <- emitExpectFunction continuationObject
+      action <- enterFunction functionObject pointerObject
+      result <- emitForce action
+      emit (ICall Nothing LVoid (DirectCall touchForeignPtrFunctionName) False [(LPtr, foreignPtrObject)])
+      pure result
+    (PrimTouchForeignPtr, [foreignPtr]) -> do
+      foreignPtrObject <- emitAtomAddress env foreignPtr
+      emit (ICall Nothing LVoid (DirectCall touchForeignPtrFunctionName) False [(LPtr, foreignPtrObject)])
+      emitConstructorObject unitDataConName unitTy []
     _ ->
       throwSTGLLVM
         ( STGLLVMUnsupported
@@ -422,6 +542,409 @@ emitPrim env op arguments =
             )
         )
 
+emitForeignCall :: ValueEnv -> CoreForeignImport -> [STGAtom] -> FunctionM LLVMOperand
+emitForeignCall env foreignImport arguments =
+  case S.foreignImportEntityKind (coreForeignImportEntity foreignImport) of
+    S.ForeignImportDynamic ->
+      emitForeignDynamicCall env foreignImport arguments
+    S.ForeignImportWrapper ->
+      emitForeignWrapperCall env foreignImport arguments
+    _ ->
+      emitStaticForeignCall env foreignImport arguments
+
+emitStaticForeignCall :: ValueEnv -> CoreForeignImport -> [STGAtom] -> FunctionM LLVMOperand
+emitStaticForeignCall env foreignImport arguments = do
+  abi <- liftEitherSTGLLVM (foreignFunctionABI foreignImport)
+  let expectedArity = length (foreignFunctionArguments abi)
+      actualArity = length arguments
+  if expectedArity == actualArity
+    then pure ()
+    else
+      throwSTGLLVM
+        ( STGLLVMUnsupported
+            ( "foreign call `"
+                <> renderRName (coreForeignImportName foreignImport)
+                <> "` arity mismatch during native lowering: expected "
+                <> Text.pack (show expectedArity)
+                <> ", got "
+                <> Text.pack (show actualArity)
+            )
+        )
+  marshalledArguments <-
+    traverse
+      (uncurry (emitMarshalForeignArgument env))
+      (zip (foreignFunctionArguments abi) arguments)
+  case foreignFunctionResult abi of
+    ForeignABIVoid -> do
+      emit (ICall Nothing LVoid (DirectCall (foreignFunctionSymbol abi)) False marshalledArguments)
+      emitConstructorObject unitDataConName unitTy []
+    resultABI -> do
+      resultRegister <- freshRegister "foreign_result"
+      emit
+        ( ICall
+            (Just resultRegister)
+            (foreignABITypeLLVM resultABI)
+            (DirectCall (foreignFunctionSymbol abi))
+            False
+            marshalledArguments
+        )
+      emitBoxForeignResult resultABI (OLocal (foreignABITypeLLVM resultABI) resultRegister)
+
+emitForeignDynamicCall :: ValueEnv -> CoreForeignImport -> [STGAtom] -> FunctionM LLVMOperand
+emitForeignDynamicCall env foreignImport arguments = do
+  abi <- liftEitherSTGLLVM (foreignDynamicFunctionABI foreignImport)
+  let expectedArity = 1 + length (foreignFunctionArguments abi)
+      actualArity = length arguments
+  if expectedArity == actualArity
+    then pure ()
+    else
+      throwSTGLLVM
+        ( STGLLVMUnsupported
+            ( "foreign dynamic call `"
+                <> renderRName (coreForeignImportName foreignImport)
+                <> "` arity mismatch during native lowering: expected "
+                <> Text.pack (show expectedArity)
+                <> ", got "
+                <> Text.pack (show actualArity)
+            )
+        )
+  case arguments of
+    functionPointerAtom : callArguments -> do
+      functionPointer <- emitExpectAtomPointer env functionPointerAtom
+      marshalledArguments <-
+        traverse
+          (uncurry (emitMarshalForeignArgument env))
+          (zip (foreignFunctionArguments abi) callArguments)
+      case foreignFunctionResult abi of
+        ForeignABIVoid -> do
+          emit (ICall Nothing LVoid (IndirectCall functionPointer) False marshalledArguments)
+          emitConstructorObject unitDataConName unitTy []
+        resultABI -> do
+          resultRegister <- freshRegister "foreign_dynamic_result"
+          emit
+            ( ICall
+                (Just resultRegister)
+                (foreignABITypeLLVM resultABI)
+                (IndirectCall functionPointer)
+                False
+                marshalledArguments
+            )
+          emitBoxForeignResult resultABI (OLocal (foreignABITypeLLVM resultABI) resultRegister)
+    [] ->
+      throwSTGLLVM (STGLLVMUnsupported ("foreign dynamic call `" <> renderRName (coreForeignImportName foreignImport) <> "` is missing its FunPtr argument"))
+
+emitForeignWrapperCall :: ValueEnv -> CoreForeignImport -> [STGAtom] -> FunctionM LLVMOperand
+emitForeignWrapperCall env foreignImport arguments = do
+  _ <- liftEitherSTGLLVM (foreignWrapperFunctionABI foreignImport)
+  case arguments of
+    [callbackAtom] -> do
+      wrapperFunctions <- ensureForeignWrapperFunctions foreignImport
+      callbackObject <- emitAtomAddress env callbackAtom
+      wrapperIndex <- emitClaimForeignWrapperSlot foreignImport
+      slotPointer <- emitForeignWrapperSlotPointer (foreignWrapperSlotsName foreignImport) wrapperIndex
+      emit (IStore LPtr callbackObject slotPointer)
+      functionPointer <- emitForeignWrapperFunctionPointer wrapperIndex wrapperFunctions
+      emitMakePointer functionPointer
+    _ ->
+      throwSTGLLVM
+        ( STGLLVMUnsupported
+            ( "foreign wrapper import `"
+                <> renderRName (coreForeignImportName foreignImport)
+                <> "` expects exactly one Haskell callback argument during native lowering, got "
+                <> Text.pack (show (length arguments))
+            )
+        )
+
+ensureForeignWrapperFunctions :: CoreForeignImport -> FunctionM [Text]
+ensureForeignWrapperFunctions foreignImport =
+  lift $ do
+    state <- get
+    case Map.lookup (coreForeignImportName foreignImport) (generatedForeignWrappers state) of
+      Just functionNames ->
+        pure functionNames
+      Nothing -> do
+        abi <- liftEitherModule (foreignWrapperFunctionABI foreignImport)
+        let functionNames = foreignWrapperFunctionNames foreignImport
+            slotsName = foreignWrapperSlotsName foreignImport
+        functions <-
+          traverse
+            ( \(index, functionName) ->
+                buildForeignWrapperFunction slotsName index functionName abi
+            )
+            (zip [0 :: Int ..] functionNames)
+        modify' $
+          \current ->
+            current
+              { generatedFunctions = generatedFunctions current <> functions
+              , generatedForeignWrappers = Map.insert (coreForeignImportName foreignImport) functionNames (generatedForeignWrappers current)
+              }
+        pure functionNames
+
+emitClaimForeignWrapperSlot :: CoreForeignImport -> FunctionM LLVMOperand
+emitClaimForeignWrapperSlot foreignImport = do
+  indexRegister <- freshRegister "wrapper_index"
+  emit (ILoad indexRegister LI64 (OGlobal LPtr (foreignWrapperNextName foreignImport)))
+  exhaustedRegister <- freshRegister "wrapper_exhausted"
+  emit (IIcmp exhaustedRegister ICmpEq LI64 (OLocal LI64 indexRegister) (OConstInt LI64 (fromIntegral foreignWrapperPoolSize)))
+  abortLabel <- freshBlockLabel "wrapper_pool_exhausted"
+  okLabel <- freshBlockLabel "wrapper_pool_ok"
+  terminateCurrent (TCondBr (OLocal LI1 exhaustedRegister) abortLabel okLabel)
+
+  startBlock abortLabel
+  emitAbort
+
+  startBlock okLabel
+  nextRegister <- freshRegister "wrapper_next"
+  emit (IAdd nextRegister LI64 (OLocal LI64 indexRegister) (OConstInt LI64 1))
+  emit (IStore LI64 (OLocal LI64 nextRegister) (OGlobal LPtr (foreignWrapperNextName foreignImport)))
+  pure (OLocal LI64 indexRegister)
+
+emitForeignWrapperSlotPointer :: Text -> LLVMOperand -> FunctionM LLVMOperand
+emitForeignWrapperSlotPointer slotsName index = do
+  slotRegister <- freshRegister "wrapper_slot"
+  emit
+    ( IGetElementPtr
+        slotRegister
+        (LArray foreignWrapperPoolSize LPtr)
+        (OGlobal LPtr slotsName)
+        [(LI64, OConstInt LI64 0), (operandType index, index)]
+    )
+  pure (OLocal LPtr slotRegister)
+
+emitForeignWrapperFunctionPointer :: LLVMOperand -> [Text] -> FunctionM LLVMOperand
+emitForeignWrapperFunctionPointer index functionNames = do
+  joinLabel <- freshBlockLabel "wrapper_function_join"
+  incoming <- go joinLabel [] (zip [0 :: Int ..] functionNames)
+  startBlock joinLabel
+  resultRegister <- freshRegister "wrapper_fn"
+  emit (IPhi resultRegister LPtr incoming)
+  pure (OLocal LPtr resultRegister)
+ where
+  go joinLabel incoming = \case
+    [] -> do
+      emitAbort
+      pure incoming
+    (slotIndex, functionName) : rest -> do
+      matchRegister <- freshRegister "wrapper_fn_match"
+      emit (IIcmp matchRegister ICmpEq LI64 index (OConstInt LI64 (fromIntegral slotIndex)))
+      matchedLabel <- freshBlockLabel "wrapper_fn_matched"
+      nextLabel <- freshBlockLabel "wrapper_fn_next"
+      terminateCurrent (TCondBr (OLocal LI1 matchRegister) matchedLabel nextLabel)
+
+      startBlock matchedLabel
+      matchedPredecessor <- getsCurrentLabel
+      terminateCurrent (TBr joinLabel)
+
+      startBlock nextLabel
+      go joinLabel (incoming <> [(OGlobal LPtr functionName, matchedPredecessor)]) rest
+
+buildForeignWrapperFunction :: Text -> Int -> Text -> ForeignFunctionABI -> ModuleM LLVMFunction
+buildForeignWrapperFunction slotsName slotIndex functionName abi =
+  case foreignFunctionResult abi of
+    ForeignABIVoid ->
+      runVoidFunction functionName params $ do
+        resultObject <- emitForeignWrapperCallbackResult slotsName slotIndex abi params
+        _ <- emitForce resultObject
+        pure ()
+    resultABI ->
+      runFunction functionName (foreignABITypeLLVM resultABI) params $ do
+        resultObject <- emitForeignWrapperCallbackResult slotsName slotIndex abi params
+        forcedResult <- emitForce resultObject
+        emitUnboxForeignReturn resultABI forcedResult
+ where
+  params =
+    foreignABIParameters abi
+
+foreignABIParameters :: ForeignFunctionABI -> [(LLVMType, Register)]
+foreignABIParameters abi =
+  [ (foreignABITypeLLVM argumentABI, Register ("arg" <> Text.pack (show index)))
+  | (index, argumentABI) <- zip [(0 :: Int) ..] (foreignFunctionArguments abi)
+  ]
+
+emitForeignWrapperCallbackResult :: Text -> Int -> ForeignFunctionABI -> [(LLVMType, Register)] -> FunctionM LLVMOperand
+emitForeignWrapperCallbackResult slotsName slotIndex abi params = do
+  callbackSlot <- emitForeignWrapperSlotPointer slotsName (OConstInt LI64 (fromIntegral slotIndex))
+  callbackRegister <- freshRegister "callback"
+  emit (ILoad callbackRegister LPtr callbackSlot)
+  boxedArguments <-
+    traverse
+      ( \(argumentABI, (argumentTy, argumentRegister)) ->
+          emitBoxForeignResult argumentABI (OLocal argumentTy argumentRegister)
+      )
+      (zip (foreignFunctionArguments abi) params)
+  applyHaskellFunction (OLocal LPtr callbackRegister) boxedArguments
+
+applyHaskellFunction :: LLVMOperand -> [LLVMOperand] -> FunctionM LLVMOperand
+applyHaskellFunction functionObject = \case
+  [] ->
+    pure functionObject
+  argumentObject : rest -> do
+    callableObject <- emitExpectFunction functionObject
+    resultObject <- enterFunction callableObject argumentObject
+    applyHaskellFunction resultObject rest
+
+emitUnboxForeignReturn :: ForeignABIType -> LLVMOperand -> FunctionM LLVMOperand
+emitUnboxForeignReturn abi object =
+  case abi of
+    ForeignABIInteger targetTy signedness -> do
+      intValue <- emitExpectObjectInt object
+      emitNarrowForeignInteger targetTy signedness intValue
+    ForeignABIBool ->
+      emitExpectObjectBool object
+    ForeignABIChar ->
+      emitExpectObjectChar object
+    ForeignABIPointer ->
+      emitExpectObjectPointer object
+    ForeignABIVoid ->
+      throwSTGLLVM (STGLLVMUnsupported "foreign callback cannot return a first-class void value")
+
+emitMarshalForeignArgument :: ValueEnv -> ForeignABIType -> STGAtom -> FunctionM (LLVMType, LLVMOperand)
+emitMarshalForeignArgument env abi atom =
+  case abi of
+    ForeignABIInteger targetTy signedness -> do
+      value <- emitExpectAtomInt env atom
+      marshalled <- emitNarrowForeignInteger targetTy signedness value
+      pure (targetTy, marshalled)
+    ForeignABIBool -> do
+      value <- emitExpectAtomBool env atom
+      pure (LI1, value)
+    ForeignABIChar -> do
+      value <- emitExpectAtomChar env atom
+      pure (LI32, value)
+    ForeignABIPointer -> do
+      value <- emitExpectAtomPointer env atom
+      pure (LPtr, value)
+    ForeignABIVoid ->
+      throwSTGLLVM (STGLLVMUnsupported "foreign call cannot marshal a void argument")
+
+emitNarrowForeignInteger :: LLVMType -> ForeignIntegerSignedness -> LLVMOperand -> FunctionM LLVMOperand
+emitNarrowForeignInteger targetTy signedness value
+  | targetTy == LI64 = do
+      case signedness of
+        ForeignSigned ->
+          pure ()
+        ForeignUnsigned ->
+          emitCheckIntegerRange value (0, maxInt64Value)
+      pure value
+  | targetTy `elem` [LI32, LI16, LI8] = do
+      range <- liftEitherSTGLLVM (foreignIntegerRange signedness targetTy)
+      emitCheckIntegerRange value range
+      narrowedRegister <- freshRegister "foreign_arg"
+      emit (ITrunc narrowedRegister value targetTy)
+      pure (OLocal targetTy narrowedRegister)
+  | otherwise =
+      throwSTGLLVM (STGLLVMUnsupported ("unsupported foreign integer ABI type " <> renderLLVMType targetTy))
+
+emitBoxForeignResult :: ForeignABIType -> LLVMOperand -> FunctionM LLVMOperand
+emitBoxForeignResult abi value =
+  case abi of
+    ForeignABIInteger sourceTy signedness -> do
+      value64 <- emitWidenForeignInteger sourceTy signedness value
+      emitMakeIntOperand value64
+    ForeignABIBool ->
+      emitMakeBool value
+    ForeignABIChar -> do
+      value64 <- emitZExtToI64 value "foreign_char"
+      emitMakeCharOperand value64
+    ForeignABIPointer ->
+      emitMakePointer value
+    ForeignABIVoid ->
+      emitConstructorObject unitDataConName unitTy []
+
+emitForeignImportValue :: CoreForeignImport -> FunctionM LLVMOperand
+emitForeignImportValue foreignImport =
+  case S.foreignImportEntityKind (coreForeignImportEntity foreignImport) of
+    S.ForeignImportAddress {} -> do
+      symbol <- liftEitherSTGLLVM (foreignAddressSymbolName foreignImport)
+      case foreignPointerKind (coreForeignImportType foreignImport) of
+        Just {} ->
+          emitMakePointer (OGlobal LPtr symbol)
+        Nothing ->
+          throwSTGLLVM (STGLLVMUnsupported ("native FFI address import `" <> renderRName (coreForeignImportName foreignImport) <> "` must have Ptr or FunPtr type"))
+    other ->
+      throwSTGLLVM
+        ( STGLLVMUnsupported
+            ( "native FFI import value lowering is not implemented for `"
+                <> renderRName (coreForeignImportName foreignImport)
+                <> "` with entity `"
+                <> renderForeignImportEntityKind other
+                <> "`"
+            )
+        )
+
+emitWidenForeignInteger :: LLVMType -> ForeignIntegerSignedness -> LLVMOperand -> FunctionM LLVMOperand
+emitWidenForeignInteger sourceTy signedness value
+  | sourceTy == LI64 = do
+      case signedness of
+        ForeignSigned ->
+          pure ()
+        ForeignUnsigned ->
+          emitCheckIntegerRange value (0, maxInt64Value)
+      pure value
+  | sourceTy `elem` [LI32, LI16, LI8] =
+      case signedness of
+        ForeignSigned -> emitSExtToI64 value "foreign_signed"
+        ForeignUnsigned -> emitZExtToI64 value "foreign_unsigned"
+  | otherwise =
+      throwSTGLLVM (STGLLVMUnsupported ("unsupported foreign integer ABI type " <> renderLLVMType sourceTy))
+
+emitZExtToI64 :: LLVMOperand -> Text -> FunctionM LLVMOperand
+emitZExtToI64 value prefix
+  | operandType value == LI64 =
+      pure value
+  | otherwise = do
+      extendedRegister <- freshRegister prefix
+      emit (IZext extendedRegister value LI64)
+      pure (OLocal LI64 extendedRegister)
+
+emitSExtToI64 :: LLVMOperand -> Text -> FunctionM LLVMOperand
+emitSExtToI64 value prefix
+  | operandType value == LI64 =
+      pure value
+  | otherwise = do
+      extendedRegister <- freshRegister prefix
+      emit (ISext extendedRegister value LI64)
+      pure (OLocal LI64 extendedRegister)
+
+emitCheckIntegerRange :: LLVMOperand -> (Integer, Integer) -> FunctionM ()
+emitCheckIntegerRange value (minValue, maxValue)
+  | operandType value /= LI64 =
+      throwSTGLLVM (STGLLVMUnsupported ("foreign integer range check expected i64, got " <> renderLLVMType (operandType value)))
+  | otherwise = do
+      belowRegister <- freshRegister "foreign_below"
+      emit (IIcmp belowRegister ICmpSlt LI64 value (OConstInt LI64 minValue))
+      belowAbort <- freshBlockLabel "foreign_below_abort"
+      upperCheck <- freshBlockLabel "foreign_upper_check"
+      terminateCurrent (TCondBr (OLocal LI1 belowRegister) belowAbort upperCheck)
+
+      startBlock belowAbort
+      emitAbort
+
+      startBlock upperCheck
+      aboveRegister <- freshRegister "foreign_above"
+      emit (IIcmp aboveRegister ICmpSlt LI64 (OConstInt LI64 maxValue) value)
+      aboveAbort <- freshBlockLabel "foreign_above_abort"
+      ok <- freshBlockLabel "foreign_range_ok"
+      terminateCurrent (TCondBr (OLocal LI1 aboveRegister) aboveAbort ok)
+
+      startBlock aboveAbort
+      emitAbort
+
+      startBlock ok
+
+foreignIntegerRange :: ForeignIntegerSignedness -> LLVMType -> Either STGLLVMError (Integer, Integer)
+foreignIntegerRange signedness ty =
+  case (signedness, ty) of
+    (ForeignSigned, LI8) -> Right (-128, 127)
+    (ForeignSigned, LI16) -> Right (-32768, 32767)
+    (ForeignSigned, LI32) -> Right (-2147483648, 2147483647)
+    (ForeignSigned, LI64) -> Right (minInt64Value, maxInt64Value)
+    (ForeignUnsigned, LI8) -> Right (0, 255)
+    (ForeignUnsigned, LI16) -> Right (0, 65535)
+    (ForeignUnsigned, LI32) -> Right (0, 4294967295)
+    (ForeignUnsigned, LI64) -> Right (0, maxInt64Value)
+    _ -> Left (STGLLVMUnsupported ("unsupported foreign integer ABI type " <> renderLLVMType ty))
+
 emitIntBinary :: ValueEnv -> Text -> STGAtom -> STGAtom -> FunctionM LLVMOperand
 emitIntBinary env intrinsic lhs rhs = do
   lhsValue <- emitExpectAtomInt env lhs
@@ -431,6 +954,10 @@ emitIntBinary env intrinsic lhs rhs = do
 emitExpectAtomInt :: ValueEnv -> STGAtom -> FunctionM LLVMOperand
 emitExpectAtomInt env atom = do
   object <- emitAtomAddress env atom
+  emitExpectObjectInt object
+
+emitExpectObjectInt :: LLVMOperand -> FunctionM LLVMOperand
+emitExpectObjectInt object = do
   reg <- freshRegister "int"
   emit (ICall (Just reg) LI64 (DirectCall expectIntFunctionName) False [(LPtr, object)])
   pure (OLocal LI64 reg)
@@ -438,6 +965,10 @@ emitExpectAtomInt env atom = do
 emitExpectAtomBool :: ValueEnv -> STGAtom -> FunctionM LLVMOperand
 emitExpectAtomBool env atom = do
   object <- emitAtomAddress env atom
+  emitExpectObjectBool object
+
+emitExpectObjectBool :: LLVMOperand -> FunctionM LLVMOperand
+emitExpectObjectBool object = do
   reg <- freshRegister "bool"
   emit (ICall (Just reg) LI1 (DirectCall expectBoolFunctionName) False [(LPtr, object)])
   pure (OLocal LI1 reg)
@@ -445,9 +976,24 @@ emitExpectAtomBool env atom = do
 emitExpectAtomChar :: ValueEnv -> STGAtom -> FunctionM LLVMOperand
 emitExpectAtomChar env atom = do
   object <- emitAtomAddress env atom
+  emitExpectObjectChar object
+
+emitExpectObjectChar :: LLVMOperand -> FunctionM LLVMOperand
+emitExpectObjectChar object = do
   reg <- freshRegister "char"
   emit (ICall (Just reg) LI32 (DirectCall expectCharFunctionName) False [(LPtr, object)])
   pure (OLocal LI32 reg)
+
+emitExpectAtomPointer :: ValueEnv -> STGAtom -> FunctionM LLVMOperand
+emitExpectAtomPointer env atom = do
+  object <- emitAtomAddress env atom
+  emitExpectObjectPointer object
+
+emitExpectObjectPointer :: LLVMOperand -> FunctionM LLVMOperand
+emitExpectObjectPointer object = do
+  reg <- freshRegister "ptr"
+  emit (ICall (Just reg) LPtr (DirectCall expectPointerFunctionName) False [(LPtr, object)])
+  pure (OLocal LPtr reg)
 
 emitShowBool :: LLVMOperand -> FunctionM LLVMOperand
 emitShowBool value = do
@@ -741,6 +1287,12 @@ emitMakeCharOperand value = do
   emit (ICall (Just reg) LPtr (DirectCall makeCharFunctionName) False [(LI64, value)])
   pure (OLocal LPtr reg)
 
+emitMakePointer :: LLVMOperand -> FunctionM LLVMOperand
+emitMakePointer value = do
+  reg <- freshRegister "boxed_ptr"
+  emit (ICall (Just reg) LPtr (DirectCall makePointerFunctionName) False [(LPtr, value)])
+  pure (OLocal LPtr reg)
+
 emitMakeStringLiteral :: Text -> FunctionM LLVMOperand
 emitMakeStringLiteral value =
   Text.foldr cons nil value
@@ -884,6 +1436,23 @@ runFunction name returnType params action = do
       , functionBlocks = completedBlocks finalState
       }
 
+runVoidFunction :: Text -> [(LLVMType, Register)] -> FunctionM () -> ModuleM LLVMFunction
+runVoidFunction name params action = do
+  (_, finalState) <-
+    runStateT
+      ( do
+          action
+          terminateCurrent TRetVoid
+      )
+      initialFunctionState
+  pure
+    LLVMFunction
+      { functionName = name
+      , functionReturnType = LVoid
+      , functionParams = params
+      , functionBlocks = completedBlocks finalState
+      }
+
 initialFunctionState :: FunctionState
 initialFunctionState =
   FunctionState
@@ -981,6 +1550,10 @@ freeVarsExpr = \case
         ]
   STGPrim _ arguments _ ->
     Set.unions (map freeVarsAtom arguments)
+  STGForeignCall _ arguments _ ->
+    Set.unions (map freeVarsAtom arguments)
+  STGForeignImportValue {} ->
+    Set.empty
 
 freeVarsBind :: STGBind -> Set.Set RName
 freeVarsBind = \case
@@ -1001,6 +1574,452 @@ bindPairs = \case
   STGNonRec binder rhs -> [(binder, rhs)]
   STGRec pairs -> pairs
 
+foreignImportDeclarations :: STGProgram -> Either STGLLVMError [Text]
+foreignImportDeclarations program =
+  Map.elems <$> foldM addDeclaration Map.empty (foreignImportsInProgram program)
+ where
+  addDeclaration declarations foreignImport =
+    foldM addOne declarations =<< foreignImportDeclarationsFor foreignImport
+
+  addOne declarations (symbol, declaration) =
+    case Map.lookup symbol declarations of
+      Nothing ->
+        Right (Map.insert symbol declaration declarations)
+      Just existing
+        | existing == declaration ->
+            Right declarations
+        | otherwise ->
+            Left (STGLLVMUnsupported ("foreign symbol `" <> symbol <> "` is imported with incompatible native ABI signatures"))
+
+foreignImportsInProgram :: STGProgram -> [CoreForeignImport]
+foreignImportsInProgram (STGProgram _ binds _foreignExports) =
+  concatMap foreignImportsInBind binds
+
+foreignImportsInBind :: STGBind -> [CoreForeignImport]
+foreignImportsInBind = \case
+  STGNonRec _ rhs ->
+    foreignImportsInRhs rhs
+  STGRec pairs ->
+    concatMap (foreignImportsInRhs . snd) pairs
+
+foreignImportsInRhs :: STGRhs -> [CoreForeignImport]
+foreignImportsInRhs = \case
+  STGFunction _ body ->
+    foreignImportsInExpr body
+  STGThunk _ body ->
+    foreignImportsInExpr body
+  STGConstructor {} ->
+    []
+
+foreignImportsInExpr :: STGExpr -> [CoreForeignImport]
+foreignImportsInExpr = \case
+  STGAtom {} ->
+    []
+  STGApp {} ->
+    []
+  STGLet bind body _ ->
+    foreignImportsInBind bind <> foreignImportsInExpr body
+  STGCase scrutinee _ alternatives _ ->
+    foreignImportsInExpr scrutinee <> concatMap foreignImportsInAlt alternatives
+  STGPrim {} ->
+    []
+  STGForeignCall foreignImport _ _ ->
+    foreignCallDeclarations foreignImport
+  STGForeignImportValue foreignImport _ ->
+    case S.foreignImportEntityKind (coreForeignImportEntity foreignImport) of
+      S.ForeignImportAddress {} -> [foreignImport]
+      _ -> []
+
+foreignCallDeclarations :: CoreForeignImport -> [CoreForeignImport]
+foreignCallDeclarations foreignImport =
+  case S.foreignImportEntityKind (coreForeignImportEntity foreignImport) of
+    S.ForeignImportDynamic ->
+      []
+    _ ->
+      [foreignImport]
+
+foreignImportsInAlt :: STGAlt -> [CoreForeignImport]
+foreignImportsInAlt (STGAlt _ _ body) =
+  foreignImportsInExpr body
+
+foreignImportDeclarationsFor :: CoreForeignImport -> Either STGLLVMError [(Text, Text)]
+foreignImportDeclarationsFor foreignImport =
+  case S.foreignImportEntityKind (coreForeignImportEntity foreignImport) of
+    S.ForeignImportDefault -> do
+      abi <- foreignFunctionABI foreignImport
+      pure [(foreignFunctionSymbol abi, renderForeignDeclaration abi)]
+    S.ForeignImportStatic {} -> do
+      abi <- foreignFunctionABI foreignImport
+      pure [(foreignFunctionSymbol abi, renderForeignDeclaration abi)]
+    S.ForeignImportAddress {} -> do
+      symbol <- foreignAddressSymbolName foreignImport
+      declaration <- foreignAddressDeclaration symbol (coreForeignImportType foreignImport)
+      pure [(symbol, declaration)]
+    S.ForeignImportWrapper ->
+      pure
+        [ (foreignWrapperSlotsName foreignImport, foreignWrapperSlotsDeclaration foreignImport)
+        , (foreignWrapperNextName foreignImport, foreignWrapperNextDeclaration foreignImport)
+        ]
+    other ->
+      Left (STGLLVMUnsupported ("native FFI import declaration lowering is not implemented for `" <> renderForeignImportEntityKind other <> "`"))
+
+foreignFunctionABI :: CoreForeignImport -> Either STGLLVMError ForeignFunctionABI
+foreignFunctionABI foreignImport = do
+  symbol <- foreignFunctionSymbolName foreignImport
+  validateNativeCCall "native FFI call" foreignImport
+  foreignFunctionABIFromType symbol (coreForeignImportType foreignImport)
+
+foreignExportFunctionABI :: CoreForeignExport -> Either STGLLVMError ForeignFunctionABI
+foreignExportFunctionABI foreignExport = do
+  symbol <- foreignExportSymbolName foreignExport
+  validateNativeForeignCallConv
+    "native FFI export"
+    (coreForeignExportCallConv foreignExport)
+    (coreForeignExportName foreignExport)
+  foreignFunctionABIFromType symbol (coreForeignExportType foreignExport)
+
+foreignDynamicFunctionABI :: CoreForeignImport -> Either STGLLVMError ForeignFunctionABI
+foreignDynamicFunctionABI foreignImport = do
+  validateNativeCCall "native FFI dynamic import" foreignImport
+  case splitForeignFunctionType (coreForeignImportType foreignImport) of
+    (pointerTy : argumentTypes, resultType)
+      | Just (ForeignFunctionPointer targetTy) <- foreignPointerKind pointerTy
+      , targetTy == foldr CTyFun resultType argumentTypes ->
+          foreignFunctionABIFromType (foreignDynamicTargetSymbolName foreignImport) targetTy
+    _ ->
+      Left (STGLLVMUnsupported ("native FFI dynamic import `" <> renderRName (coreForeignImportName foreignImport) <> "` must have type FunPtr ft -> ft"))
+
+foreignWrapperFunctionABI :: CoreForeignImport -> Either STGLLVMError ForeignFunctionABI
+foreignWrapperFunctionABI foreignImport = do
+  validateNativeCCall "native FFI wrapper import" foreignImport
+  case splitForeignFunctionType (coreForeignImportType foreignImport) of
+    ([targetTy], resultTy)
+      | Just resultPayload <- foreignIOPayloadTypeMaybe resultTy
+      , Just (ForeignFunctionPointer pointerTargetTy) <- foreignPointerKind resultPayload
+      , pointerTargetTy == targetTy ->
+          foreignFunctionABIFromType (foreignDynamicTargetSymbolName foreignImport) targetTy
+    _ ->
+      Left (STGLLVMUnsupported ("native FFI wrapper import `" <> renderRName (coreForeignImportName foreignImport) <> "` must have type ft -> IO (FunPtr ft)"))
+
+foreignFunctionABIFromType :: Text -> CoreType -> Either STGLLVMError ForeignFunctionABI
+foreignFunctionABIFromType symbol functionTy = do
+  let (argumentTypes, resultType) =
+        splitForeignFunctionType functionTy
+  argumentABIs <- traverse foreignValueABIType argumentTypes
+  resultABI <- foreignResultABIType resultType
+  pure
+    ForeignFunctionABI
+      { foreignFunctionSymbol = symbol
+      , foreignFunctionArguments = argumentABIs
+      , foreignFunctionResult = resultABI
+      }
+
+validateNativeCCall :: Text -> CoreForeignImport -> Either STGLLVMError ()
+validateNativeCCall context foreignImport =
+  validateNativeForeignCallConv context (coreForeignImportCallConv foreignImport) (coreForeignImportName foreignImport)
+
+validateNativeForeignCallConv :: Text -> S.ForeignCallConv -> RName -> Either STGLLVMError ()
+validateNativeForeignCallConv context callConv name =
+  case callConv of
+    S.ForeignCCall ->
+      Right ()
+    other ->
+      Left (STGLLVMUnsupported (context <> " call convention `" <> renderForeignCallConv other <> "` is not implemented for `" <> renderRName name <> "`"))
+
+foreignFunctionSymbolName :: CoreForeignImport -> Either STGLLVMError Text
+foreignFunctionSymbolName foreignImport =
+  case S.foreignImportEntityKind (coreForeignImportEntity foreignImport) of
+    S.ForeignImportDefault ->
+      validateForeignSymbol (nameOcc (coreForeignImportName foreignImport))
+    S.ForeignImportStatic _ symbol ->
+      validateForeignSymbol symbol
+    other ->
+      Left (STGLLVMUnsupported ("native static `ccall` lowering cannot lower foreign import entity `" <> renderForeignImportEntityKind other <> "`"))
+
+foreignExportSymbolName :: CoreForeignExport -> Either STGLLVMError Text
+foreignExportSymbolName foreignExport =
+  case S.foreignExportEntitySymbol (coreForeignExportEntity foreignExport) of
+    Nothing ->
+      validateForeignSymbol (nameOcc (coreForeignExportName foreignExport))
+    Just symbol ->
+      validateForeignSymbol symbol
+
+foreignAddressSymbolName :: CoreForeignImport -> Either STGLLVMError Text
+foreignAddressSymbolName foreignImport = do
+  case coreForeignImportCallConv foreignImport of
+    S.ForeignCCall ->
+      Right ()
+    other ->
+      Left (STGLLVMUnsupported ("native FFI address import call convention `" <> renderForeignCallConv other <> "` is not implemented for `" <> renderRName (coreForeignImportName foreignImport) <> "`"))
+  case S.foreignImportEntityKind (coreForeignImportEntity foreignImport) of
+    S.ForeignImportAddress _ symbol ->
+      validateForeignSymbol symbol
+    other ->
+      Left (STGLLVMUnsupported ("native FFI address import expected address entity, got `" <> renderForeignImportEntityKind other <> "`"))
+
+validateForeignSymbol :: Text -> Either STGLLVMError Text
+validateForeignSymbol symbol
+  | isValidCSymbol symbol = Right symbol
+  | otherwise = Left (STGLLVMUnsupported ("foreign symbol `" <> symbol <> "` is not representable as a direct LLVM C symbol"))
+
+isValidCSymbol :: Text -> Bool
+isValidCSymbol symbol =
+  case Text.uncons symbol of
+    Nothing ->
+      False
+    Just (first, rest) ->
+      isCSymbolStart first && Text.all isCSymbolRest rest
+ where
+  isCSymbolStart c =
+    c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
+  isCSymbolRest c =
+    isCSymbolStart c || isAlphaNum c
+
+splitForeignFunctionType :: CoreType -> ([CoreType], CoreType)
+splitForeignFunctionType =
+  go []
+ where
+  go arguments = \case
+    CTyFun argument result ->
+      go (arguments <> [argument]) result
+    result ->
+      (arguments, result)
+
+foreignResultABIType :: CoreType -> Either STGLLVMError ForeignABIType
+foreignResultABIType resultTy =
+  case foreignIOPayloadType resultTy of
+    payloadTy | payloadTy == unitTy -> Right ForeignABIVoid
+    payloadTy -> foreignValueABIType payloadTy
+
+foreignIOPayloadType :: CoreType -> CoreType
+foreignIOPayloadType = \case
+  CTyApp (CTyCon name) payloadTy
+    | name == ioTyConName -> payloadTy
+  other ->
+    other
+
+foreignIOPayloadTypeMaybe :: CoreType -> Maybe CoreType
+foreignIOPayloadTypeMaybe = \case
+  CTyApp (CTyCon name) payloadTy
+    | name == ioTyConName -> Just payloadTy
+  _ ->
+    Nothing
+
+foreignValueABIType :: CoreType -> Either STGLLVMError ForeignABIType
+foreignValueABIType ty
+  | ty == intTy =
+      Right (ForeignABIInteger LI64 ForeignSigned)
+  | ty == boolTy =
+      Right ForeignABIBool
+  | ty == charTy =
+      Right ForeignABIChar
+  | isForeignPointerCoreType ty =
+      Right ForeignABIPointer
+foreignValueABIType (CTyCon name) =
+  case
+    Map.lookup (nameOcc name) signedForeignIntegerABI
+      <|> Map.lookup (nameOcc name) unsignedForeignIntegerABI
+  of
+    Just (llvmTy, signedness) ->
+      Right (ForeignABIInteger llvmTy signedness)
+    Nothing ->
+      Left (STGLLVMUnsupported ("native static `ccall` scalar marshalling is not implemented for `" <> renderCoreType (CTyCon name) <> "`"))
+foreignValueABIType ty =
+  Left (STGLLVMUnsupported ("native static `ccall` marshalling is not implemented for `" <> renderCoreType ty <> "`"))
+
+signedForeignIntegerABI :: Map.Map Text (LLVMType, ForeignIntegerSignedness)
+signedForeignIntegerABI =
+  Map.fromList
+    [ ("Int", signed LI64)
+    , ("Int8", signed LI8)
+    , ("Int16", signed LI16)
+    , ("Int32", signed LI32)
+    , ("Int64", signed LI64)
+    , ("CChar", signed LI8)
+    , ("CSChar", signed LI8)
+    , ("CShort", signed LI16)
+    , ("CInt", signed LI32)
+    , ("CLong", signed LI64)
+    , ("CLLong", signed LI64)
+    , ("CPtrdiff", signed LI64)
+    , ("CWchar", signed LI32)
+    , ("CSigAtomic", signed LI32)
+    , ("CIntPtr", signed LI64)
+    , ("CIntMax", signed LI64)
+    , ("CClock", signed LI64)
+    , ("CTime", signed LI64)
+    ]
+
+unsignedForeignIntegerABI :: Map.Map Text (LLVMType, ForeignIntegerSignedness)
+unsignedForeignIntegerABI =
+  Map.fromList
+    [ ("Word", unsigned LI64)
+    , ("Word8", unsigned LI8)
+    , ("Word16", unsigned LI16)
+    , ("Word32", unsigned LI32)
+    , ("Word64", unsigned LI64)
+    , ("CUChar", unsigned LI8)
+    , ("CUShort", unsigned LI16)
+    , ("CUInt", unsigned LI32)
+    , ("CULong", unsigned LI64)
+    , ("CULLong", unsigned LI64)
+    , ("CSize", unsigned LI64)
+    , ("CUIntPtr", unsigned LI64)
+    , ("CUIntMax", unsigned LI64)
+    ]
+
+signed :: LLVMType -> (LLVMType, ForeignIntegerSignedness)
+signed ty =
+  (ty, ForeignSigned)
+
+unsigned :: LLVMType -> (LLVMType, ForeignIntegerSignedness)
+unsigned ty =
+  (ty, ForeignUnsigned)
+
+data ForeignPointerKind
+  = ForeignDataPointer CoreType
+  | ForeignFunctionPointer CoreType
+  | ForeignStablePointer CoreType
+  deriving stock (Show, Eq, Ord)
+
+foreignPointerKind :: CoreType -> Maybe ForeignPointerKind
+foreignPointerKind = \case
+  CTyApp (CTyCon name) payload
+    | nameOcc name == "Ptr" -> Just (ForeignDataPointer payload)
+    | nameOcc name == "FunPtr" -> Just (ForeignFunctionPointer payload)
+    | nameOcc name == "StablePtr" -> Just (ForeignStablePointer payload)
+  _ ->
+    Nothing
+
+isForeignPointerCoreType :: CoreType -> Bool
+isForeignPointerCoreType ty =
+  case foreignPointerKind ty of
+    Just {} -> True
+    Nothing -> False
+
+foreignAddressDeclaration :: Text -> CoreType -> Either STGLLVMError Text
+foreignAddressDeclaration symbol ty =
+  case foreignPointerKind ty of
+    Just (ForeignDataPointer _) ->
+      Right ("@" <> symbol <> " = external global i8")
+    Just (ForeignFunctionPointer targetTy) -> do
+      let (argumentTypes, resultType) =
+            splitForeignFunctionType targetTy
+      argumentABIs <- traverse foreignValueABIType argumentTypes
+      resultABI <- foreignResultABIType resultType
+      pure
+        ( renderForeignDeclaration
+            ForeignFunctionABI
+              { foreignFunctionSymbol = symbol
+              , foreignFunctionArguments = argumentABIs
+              , foreignFunctionResult = resultABI
+              }
+        )
+    Just (ForeignStablePointer _) ->
+      Right ("@" <> symbol <> " = external global i8")
+    Nothing ->
+      Left (STGLLVMUnsupported ("native FFI address import `" <> symbol <> "` must have Ptr or FunPtr type, got `" <> renderCoreType ty <> "`"))
+
+foreignWrapperBaseName :: CoreForeignImport -> Text
+foreignWrapperBaseName foreignImport =
+  sanitizeName (nameOcc (coreForeignImportName foreignImport))
+    <> "_u"
+    <> Text.pack (show (nameUnique (coreForeignImportName foreignImport)))
+
+foreignWrapperFunctionNames :: CoreForeignImport -> [Text]
+foreignWrapperFunctionNames foreignImport =
+  [ "hegglog_hs_ffi_wrapper_"
+      <> foreignWrapperBaseName foreignImport
+      <> "_slot"
+      <> Text.pack (show index)
+  | index <- [0 .. foreignWrapperPoolSize - 1]
+  ]
+
+foreignWrapperSlotsName :: CoreForeignImport -> Text
+foreignWrapperSlotsName foreignImport =
+  "hegglog_hs_ffi_wrapper_slots_"
+    <> foreignWrapperBaseName foreignImport
+
+foreignWrapperNextName :: CoreForeignImport -> Text
+foreignWrapperNextName foreignImport =
+  "hegglog_hs_ffi_wrapper_next_"
+    <> foreignWrapperBaseName foreignImport
+
+foreignWrapperSlotsDeclaration :: CoreForeignImport -> Text
+foreignWrapperSlotsDeclaration foreignImport =
+  "@"
+    <> foreignWrapperSlotsName foreignImport
+    <> " = internal global ["
+    <> Text.pack (show foreignWrapperPoolSize)
+    <> " x ptr] zeroinitializer"
+
+foreignWrapperNextDeclaration :: CoreForeignImport -> Text
+foreignWrapperNextDeclaration foreignImport =
+  "@" <> foreignWrapperNextName foreignImport <> " = internal global i64 0"
+
+foreignDynamicTargetSymbolName :: CoreForeignImport -> Text
+foreignDynamicTargetSymbolName foreignImport =
+  "hegglog_hs_ffi_dynamic_target_"
+    <> sanitizeName (nameOcc (coreForeignImportName foreignImport))
+    <> "_u"
+    <> Text.pack (show (nameUnique (coreForeignImportName foreignImport)))
+
+renderForeignDeclaration :: ForeignFunctionABI -> Text
+renderForeignDeclaration abi =
+  "declare "
+    <> renderLLVMType (foreignABITypeLLVM (foreignFunctionResult abi))
+    <> " @"
+    <> foreignFunctionSymbol abi
+    <> "("
+    <> Text.intercalate ", " (map (renderLLVMType . foreignABITypeLLVM) (foreignFunctionArguments abi))
+    <> ")"
+
+foreignABITypeLLVM :: ForeignABIType -> LLVMType
+foreignABITypeLLVM = \case
+  ForeignABIInteger ty _ -> ty
+  ForeignABIBool -> LI1
+  ForeignABIChar -> LI32
+  ForeignABIPointer -> LPtr
+  ForeignABIVoid -> LVoid
+
+renderLLVMType :: LLVMType -> Text
+renderLLVMType = \case
+  LI64 -> "i64"
+  LI32 -> "i32"
+  LI16 -> "i16"
+  LI1 -> "i1"
+  LI8 -> "i8"
+  LPtr -> "ptr"
+  LArray count ty -> "[" <> Text.pack (show count) <> " x " <> renderLLVMType ty <> "]"
+  LStruct fields -> "{ " <> Text.intercalate ", " (map renderLLVMType fields) <> " }"
+  LVoid -> "void"
+
+renderForeignCallConv :: S.ForeignCallConv -> Text
+renderForeignCallConv = \case
+  S.ForeignCCall -> "ccall"
+  S.ForeignStdCall -> "stdcall"
+  S.ForeignCPlusPlus -> "cplusplus"
+  S.ForeignJvm -> "jvm"
+  S.ForeignDotNet -> "dotnet"
+  S.ForeignOtherCallConv occurrence -> occurrence
+
+renderForeignImportEntityKind :: S.ForeignImportEntityKind -> Text
+renderForeignImportEntityKind = \case
+  S.ForeignImportDefault -> "default"
+  S.ForeignImportStatic _ symbol -> "static " <> symbol
+  S.ForeignImportAddress _ symbol -> "address " <> symbol
+  S.ForeignImportDynamic -> "dynamic"
+  S.ForeignImportWrapper -> "wrapper"
+  S.ForeignImportUnknown raw -> "unknown " <> raw
+
+uniqueTexts :: [Text] -> [Text]
+uniqueTexts =
+  reverse . snd . foldl step (Set.empty, [])
+ where
+  step (seen, acc) value
+    | value `Set.member` seen = (seen, acc)
+    | otherwise = (Set.insert value seen, value : acc)
+
 runtimeFunctions :: [LLVMFunction]
 runtimeFunctions =
   [ processLifetimeAllocFunction
@@ -1008,6 +2027,7 @@ runtimeFunctions =
   , makeIntFunction
   , makeBoolFunction
   , makeCharFunction
+  , makePointerFunction
   , makeStringFunction
   , makeDataFunction
   , makeFunctionFunction
@@ -1016,8 +2036,17 @@ runtimeFunctions =
   , expectIntFunction
   , expectBoolFunction
   , expectCharFunction
+  , expectPointerFunction
   , expectStringFunction
   , expectFunctionFunction
+  , newStablePtrFunction
+  , deRefStablePtrFunction
+  , freeStablePtrFunction
+  , makeForeignPtrFunction
+  , foreignPtrAddressFunction
+  , addForeignPtrFinalizerFunction
+  , finalizeForeignPtrFunction
+  , touchForeignPtrFunction
   , makeCharListFromCStringFunction
   , showIntFunction
   , putStrLnFunction
@@ -1098,6 +2127,15 @@ makeCharFunction =
     [(LI64, Register "value")]
     [ (0, LI64, OConstInt LI64 tagChar)
     , (1, LI64, OLocal LI64 (Register "value"))
+    ]
+
+makePointerFunction :: LLVMFunction
+makePointerFunction =
+  makeValueFunction
+    makePointerFunctionName
+    [(LPtr, Register "value")]
+    [ (0, LI64, OConstInt LI64 tagPointer)
+    , (2, LPtr, OLocal LPtr (Register "value"))
     ]
 
 makeStringFunction :: LLVMFunction
@@ -1252,6 +2290,10 @@ expectCharFunction =
     "char"
     (TRet LI32 (OLocal LI32 (Register "char_i32")))
 
+expectPointerFunction :: LLVMFunction
+expectPointerFunction =
+  expectPayloadFunction expectPointerFunctionName tagPointer LPtr "pointer" (TRet LPtr (OLocal LPtr (Register "payload")))
+
 expectStringFunction :: LLVMFunction
 expectStringFunction =
   expectPayloadFunction expectStringFunctionName tagString LPtr "string" (TRet LPtr (OLocal LPtr (Register "payload")))
@@ -1259,6 +2301,252 @@ expectStringFunction =
 expectFunctionFunction :: LLVMFunction
 expectFunctionFunction =
   expectPayloadFunction expectFunctionName tagFunction LPtr "fun" (TRet LPtr (OLocal LPtr (Register "forced")))
+
+newStablePtrFunction :: LLVMFunction
+newStablePtrFunction =
+  LLVMFunction
+    { functionName = newStablePtrFunctionName
+    , functionReturnType = LPtr
+    , functionParams = [(LPtr, Register "value")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "record")) LPtr (DirectCall processLifetimeAllocFunctionName) False [(LI64, OConstInt LI64 stablePtrSize)]
+            , IGetElementPtr (Register "value_slot") stablePtrType (OLocal LPtr (Register "record")) (stablePtrField 0)
+            , IStore LPtr (OLocal LPtr (Register "value")) (OLocal LPtr (Register "value_slot"))
+            , IGetElementPtr (Register "alive_slot") stablePtrType (OLocal LPtr (Register "record")) (stablePtrField 1)
+            , IStore LI64 (OConstInt LI64 1) (OLocal LPtr (Register "alive_slot"))
+            , ICall (Just (Register "boxed")) LPtr (DirectCall makePointerFunctionName) False [(LPtr, OLocal LPtr (Register "record"))]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "boxed")))
+        ]
+    }
+
+deRefStablePtrFunction :: LLVMFunction
+deRefStablePtrFunction =
+  stablePtrCheckedFunction deRefStablePtrFunctionName LPtr (TRet LPtr (OLocal LPtr (Register "value")))
+    [ IGetElementPtr (Register "value_slot") stablePtrType (OLocal LPtr (Register "record")) (stablePtrField 0)
+    , ILoad (Register "value") LPtr (OLocal LPtr (Register "value_slot"))
+    ]
+
+freeStablePtrFunction :: LLVMFunction
+freeStablePtrFunction =
+  stablePtrCheckedFunction freeStablePtrFunctionName LVoid TRetVoid
+    [ IStore LI64 (OConstInt LI64 0) (OLocal LPtr (Register "alive_slot"))
+    , IGetElementPtr (Register "value_slot") stablePtrType (OLocal LPtr (Register "record")) (stablePtrField 0)
+    , IStore LPtr OConstNull (OLocal LPtr (Register "value_slot"))
+    ]
+
+stablePtrCheckedFunction :: Text -> LLVMType -> LLVMTerminator -> [LLVMInstruction] -> LLVMFunction
+stablePtrCheckedFunction name returnType okTerminator okInstructions =
+  LLVMFunction
+    { functionName = name
+    , functionReturnType = returnType
+    , functionParams = [(LPtr, Register "stable")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "record")) LPtr (DirectCall expectPointerFunctionName) False [(LPtr, OLocal LPtr (Register "stable"))]
+            , IGetElementPtr (Register "alive_slot") stablePtrType (OLocal LPtr (Register "record")) (stablePtrField 1)
+            , ILoad (Register "alive") LI64 (OLocal LPtr (Register "alive_slot"))
+            , IIcmp (Register "is_alive") ICmpEq LI64 (OLocal LI64 (Register "alive")) (OConstInt LI64 1)
+            ]
+            (TCondBr (OLocal LI1 (Register "is_alive")) "ok" "abort")
+        , LLVMBlock "ok" okInstructions okTerminator
+        , LLVMBlock
+            "abort"
+            [ICall Nothing LVoid (DirectCall "abort") False []]
+            TUnreachable
+        ]
+    }
+
+makeForeignPtrFunction :: LLVMFunction
+makeForeignPtrFunction =
+  LLVMFunction
+    { functionName = makeForeignPtrFunctionName
+    , functionReturnType = LPtr
+    , functionParams = [(LPtr, Register "raw"), (LPtr, Register "finalizer")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "record")) LPtr (DirectCall processLifetimeAllocFunctionName) False [(LI64, OConstInt LI64 foreignPtrSize)]
+            , ICall (Just (Register "slots")) LPtr (DirectCall processLifetimeAllocFunctionName) False [(LI64, OConstInt LI64 foreignPtrFinalizerSlotsSize)]
+            , IGetElementPtr (Register "raw_slot") foreignPtrType (OLocal LPtr (Register "record")) (foreignPtrField 0)
+            , IStore LPtr (OLocal LPtr (Register "raw")) (OLocal LPtr (Register "raw_slot"))
+            , IGetElementPtr (Register "finalized_slot") foreignPtrType (OLocal LPtr (Register "record")) (foreignPtrField 1)
+            , IStore LI64 (OConstInt LI64 0) (OLocal LPtr (Register "finalized_slot"))
+            , IGetElementPtr (Register "count_slot") foreignPtrType (OLocal LPtr (Register "record")) (foreignPtrField 2)
+            , IGetElementPtr (Register "slot0") foreignPtrFinalizerSlotsType (OLocal LPtr (Register "slots")) (foreignPtrFinalizerSlot 0)
+            , IStore LPtr (OLocal LPtr (Register "finalizer")) (OLocal LPtr (Register "slot0"))
+            , IIcmp (Register "finalizer_is_null") ICmpEq LPtr (OLocal LPtr (Register "finalizer")) OConstNull
+            ]
+            (TCondBr (OLocal LI1 (Register "finalizer_is_null")) "no_finalizer" "store_initial_finalizer")
+        , LLVMBlock
+            "no_finalizer"
+            [IStore LI64 (OConstInt LI64 0) (OLocal LPtr (Register "count_slot"))]
+            (TBr "finish")
+        , LLVMBlock
+            "store_initial_finalizer"
+            [IStore LI64 (OConstInt LI64 1) (OLocal LPtr (Register "count_slot"))]
+            (TBr "finish")
+        , LLVMBlock
+            "finish"
+            [ IGetElementPtr (Register "slots_slot") foreignPtrType (OLocal LPtr (Register "record")) (foreignPtrField 3)
+            , IStore LPtr (OLocal LPtr (Register "slots")) (OLocal LPtr (Register "slots_slot"))
+            , ICall (Just (Register "boxed")) LPtr (DirectCall makePointerFunctionName) False [(LPtr, OLocal LPtr (Register "record"))]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "boxed")))
+        ]
+    }
+
+foreignPtrAddressFunction :: LLVMFunction
+foreignPtrAddressFunction =
+  foreignPtrCheckedFunction foreignPtrAddressFunctionName LPtr (TRet LPtr (OLocal LPtr (Register "raw")))
+    [ IGetElementPtr (Register "raw_slot") foreignPtrType (OLocal LPtr (Register "record")) (foreignPtrField 0)
+    , ILoad (Register "raw") LPtr (OLocal LPtr (Register "raw_slot"))
+    ]
+
+addForeignPtrFinalizerFunction :: LLVMFunction
+addForeignPtrFinalizerFunction =
+  LLVMFunction
+    { functionName = addForeignPtrFinalizerFunctionName
+    , functionReturnType = LVoid
+    , functionParams = [(LPtr, Register "foreign_ptr"), (LPtr, Register "finalizer")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "record")) LPtr (DirectCall expectPointerFunctionName) False [(LPtr, OLocal LPtr (Register "foreign_ptr"))]
+            , IGetElementPtr (Register "finalized_slot") foreignPtrType (OLocal LPtr (Register "record")) (foreignPtrField 1)
+            , ILoad (Register "finalized") LI64 (OLocal LPtr (Register "finalized_slot"))
+            , IIcmp (Register "is_finalized") ICmpEq LI64 (OLocal LI64 (Register "finalized")) (OConstInt LI64 1)
+            ]
+            (TCondBr (OLocal LI1 (Register "is_finalized")) "abort" "check_null")
+        , LLVMBlock
+            "check_null"
+            [IIcmp (Register "is_null") ICmpEq LPtr (OLocal LPtr (Register "finalizer")) OConstNull]
+            (TCondBr (OLocal LI1 (Register "is_null")) "abort" "check_capacity")
+        , LLVMBlock
+            "check_capacity"
+            [ IGetElementPtr (Register "count_slot") foreignPtrType (OLocal LPtr (Register "record")) (foreignPtrField 2)
+            , ILoad (Register "count") LI64 (OLocal LPtr (Register "count_slot"))
+            , IIcmp (Register "has_capacity") ICmpSlt LI64 (OLocal LI64 (Register "count")) (OConstInt LI64 (fromIntegral foreignPtrFinalizerCapacity))
+            ]
+            (TCondBr (OLocal LI1 (Register "has_capacity")) "store" "abort")
+        , LLVMBlock
+            "store"
+            [ IGetElementPtr (Register "slots_slot") foreignPtrType (OLocal LPtr (Register "record")) (foreignPtrField 3)
+            , ILoad (Register "slots") LPtr (OLocal LPtr (Register "slots_slot"))
+            , IGetElementPtr (Register "slot") foreignPtrFinalizerSlotsType (OLocal LPtr (Register "slots")) [(LI32, OConstInt LI32 0), (LI64, OLocal LI64 (Register "count"))]
+            , IStore LPtr (OLocal LPtr (Register "finalizer")) (OLocal LPtr (Register "slot"))
+            , IAdd (Register "next_count") LI64 (OLocal LI64 (Register "count")) (OConstInt LI64 1)
+            , IStore LI64 (OLocal LI64 (Register "next_count")) (OLocal LPtr (Register "count_slot"))
+            ]
+            TRetVoid
+        , LLVMBlock
+            "abort"
+            [ICall Nothing LVoid (DirectCall "abort") False []]
+            TUnreachable
+        ]
+    }
+
+finalizeForeignPtrFunction :: LLVMFunction
+finalizeForeignPtrFunction =
+  LLVMFunction
+    { functionName = finalizeForeignPtrFunctionName
+    , functionReturnType = LVoid
+    , functionParams = [(LPtr, Register "foreign_ptr")]
+    , functionBlocks = finalizeForeignPtrBlocks
+    }
+
+touchForeignPtrFunction :: LLVMFunction
+touchForeignPtrFunction =
+  LLVMFunction
+    { functionName = touchForeignPtrFunctionName
+    , functionReturnType = LVoid
+    , functionParams = [(LPtr, Register "foreign_ptr")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ICall Nothing LPtr (DirectCall expectPointerFunctionName) False [(LPtr, OLocal LPtr (Register "foreign_ptr"))]]
+            TRetVoid
+        ]
+    }
+
+foreignPtrCheckedFunction :: Text -> LLVMType -> LLVMTerminator -> [LLVMInstruction] -> LLVMFunction
+foreignPtrCheckedFunction name returnType okTerminator okInstructions =
+  LLVMFunction
+    { functionName = name
+    , functionReturnType = returnType
+    , functionParams = [(LPtr, Register "foreign_ptr")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "record")) LPtr (DirectCall expectPointerFunctionName) False [(LPtr, OLocal LPtr (Register "foreign_ptr"))]
+            , IGetElementPtr (Register "finalized_slot") foreignPtrType (OLocal LPtr (Register "record")) (foreignPtrField 1)
+            , ILoad (Register "finalized") LI64 (OLocal LPtr (Register "finalized_slot"))
+            , IIcmp (Register "is_finalized") ICmpEq LI64 (OLocal LI64 (Register "finalized")) (OConstInt LI64 1)
+            ]
+            (TCondBr (OLocal LI1 (Register "is_finalized")) "abort" "ok")
+        , LLVMBlock "ok" okInstructions okTerminator
+        , LLVMBlock
+            "abort"
+            [ICall Nothing LVoid (DirectCall "abort") False []]
+            TUnreachable
+        ]
+    }
+
+finalizeForeignPtrBlocks :: [LLVMBlock]
+finalizeForeignPtrBlocks =
+  [ LLVMBlock
+      "entry"
+      [ ICall (Just (Register "record")) LPtr (DirectCall expectPointerFunctionName) False [(LPtr, OLocal LPtr (Register "foreign_ptr"))]
+      , IGetElementPtr (Register "finalized_slot") foreignPtrType (OLocal LPtr (Register "record")) (foreignPtrField 1)
+      , ILoad (Register "finalized") LI64 (OLocal LPtr (Register "finalized_slot"))
+      , IIcmp (Register "is_finalized") ICmpEq LI64 (OLocal LI64 (Register "finalized")) (OConstInt LI64 1)
+      ]
+      (TCondBr (OLocal LI1 (Register "is_finalized")) "done" "start")
+  , LLVMBlock
+      "start"
+      [ IStore LI64 (OConstInt LI64 1) (OLocal LPtr (Register "finalized_slot"))
+      , IGetElementPtr (Register "raw_slot") foreignPtrType (OLocal LPtr (Register "record")) (foreignPtrField 0)
+      , ILoad (Register "raw") LPtr (OLocal LPtr (Register "raw_slot"))
+      , IGetElementPtr (Register "count_slot") foreignPtrType (OLocal LPtr (Register "record")) (foreignPtrField 2)
+      , ILoad (Register "count") LI64 (OLocal LPtr (Register "count_slot"))
+      , IGetElementPtr (Register "slots_slot") foreignPtrType (OLocal LPtr (Register "record")) (foreignPtrField 3)
+      , ILoad (Register "slots") LPtr (OLocal LPtr (Register "slots_slot"))
+      ]
+      (TBr (foreignPtrFinalizerCheckLabel (foreignPtrFinalizerCapacity - 1)))
+  ]
+    <> concatMap finalizerBlocks (reverse [0 .. foreignPtrFinalizerCapacity - 1])
+    <> [LLVMBlock "done" [] TRetVoid]
+ where
+  finalizerBlocks index =
+    let indexText = Text.pack (show index)
+        checkLabel = foreignPtrFinalizerCheckLabel index
+        callLabel = foreignPtrFinalizerCallLabel index
+        nextLabel
+          | index == 0 = "done"
+          | otherwise = foreignPtrFinalizerCheckLabel (index - 1)
+     in [ LLVMBlock
+            checkLabel
+            [IIcmp (Register ("has_finalizer_" <> indexText)) ICmpSlt LI64 (OConstInt LI64 (fromIntegral index)) (OLocal LI64 (Register "count"))]
+            (TCondBr (OLocal LI1 (Register ("has_finalizer_" <> indexText))) callLabel nextLabel)
+        , LLVMBlock
+            callLabel
+            [ IGetElementPtr (Register ("slot_" <> indexText)) foreignPtrFinalizerSlotsType (OLocal LPtr (Register "slots")) (foreignPtrFinalizerSlot index)
+            , ILoad (Register ("finalizer_" <> indexText)) LPtr (OLocal LPtr (Register ("slot_" <> indexText)))
+            , ICall Nothing LVoid (IndirectCall (OLocal LPtr (Register ("finalizer_" <> indexText)))) False [(LPtr, OLocal LPtr (Register "raw"))]
+            ]
+            (TBr nextLabel)
+        ]
+
+foreignPtrFinalizerCheckLabel :: Int -> Text
+foreignPtrFinalizerCheckLabel index =
+  "check_finalizer_" <> Text.pack (show index)
+
+foreignPtrFinalizerCallLabel :: Int -> Text
+foreignPtrFinalizerCallLabel index =
+  "call_finalizer_" <> Text.pack (show index)
 
 showIntFunction :: LLVMFunction
 showIntFunction =
@@ -1588,6 +2876,10 @@ expectPayloadFunction name expectedTag _ prefix successTerminator =
     [ IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
     , ILoad (Register "payload") LPtr (OLocal LPtr (Register "payload_ptr"))
     ]
+  payloadInstructions "pointer" =
+    [ IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
+    , ILoad (Register "payload") LPtr (OLocal LPtr (Register "payload_ptr"))
+    ]
   payloadInstructions _ =
     []
 
@@ -1598,6 +2890,14 @@ objectType =
 objectSize :: Integer
 objectSize =
   48
+
+foreignWrapperPoolSize :: Int
+foreignWrapperPoolSize =
+  64
+
+foreignPtrFinalizerCapacity :: Int
+foreignPtrFinalizerCapacity =
+  8
 
 objectField :: Int -> [(LLVMType, LLVMOperand)]
 objectField index =
@@ -1611,7 +2911,43 @@ objectField3 = objectField 3
 objectField4 = objectField 4
 objectField5 = objectField 5
 
-tagInt, tagBool, tagFunction, tagThunk, tagBlackHole, tagIndirection, tagData, tagChar, tagString :: Integer
+stablePtrType :: LLVMType
+stablePtrType =
+  LStruct [LPtr, LI64]
+
+stablePtrSize :: Integer
+stablePtrSize =
+  16
+
+stablePtrField :: Int -> [(LLVMType, LLVMOperand)]
+stablePtrField index =
+  [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 (fromIntegral index))]
+
+foreignPtrType :: LLVMType
+foreignPtrType =
+  LStruct [LPtr, LI64, LI64, LPtr]
+
+foreignPtrSize :: Integer
+foreignPtrSize =
+  32
+
+foreignPtrFinalizerSlotsType :: LLVMType
+foreignPtrFinalizerSlotsType =
+  LArray foreignPtrFinalizerCapacity LPtr
+
+foreignPtrFinalizerSlotsSize :: Integer
+foreignPtrFinalizerSlotsSize =
+  fromIntegral foreignPtrFinalizerCapacity * 8
+
+foreignPtrField :: Int -> [(LLVMType, LLVMOperand)]
+foreignPtrField index =
+  [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 (fromIntegral index))]
+
+foreignPtrFinalizerSlot :: Int -> [(LLVMType, LLVMOperand)]
+foreignPtrFinalizerSlot index =
+  [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 (fromIntegral index))]
+
+tagInt, tagBool, tagFunction, tagThunk, tagBlackHole, tagIndirection, tagData, tagChar, tagString, tagPointer :: Integer
 tagInt = 0
 tagBool = 1
 tagFunction = 2
@@ -1621,6 +2957,7 @@ tagIndirection = 5
 tagData = 6
 tagChar = 7
 tagString = 8
+tagPointer = 9
 
 updatableCode, singleEntryCode :: Integer
 updatableCode = 0
@@ -1635,12 +2972,13 @@ constructorRuntimeTag :: RName -> Integer
 constructorRuntimeTag =
   fromIntegral . nameUnique
 
-processLifetimeAllocFunctionName, allocObjectFunctionName, makeIntFunctionName, makeBoolFunctionName, makeCharFunctionName, makeStringFunctionName, makeDataFunctionName :: Text
+processLifetimeAllocFunctionName, allocObjectFunctionName, makeIntFunctionName, makeBoolFunctionName, makeCharFunctionName, makePointerFunctionName, makeStringFunctionName, makeDataFunctionName :: Text
 processLifetimeAllocFunctionName = "hegglog_hs_alloc_process_lifetime"
 allocObjectFunctionName = "hegglog_hs_alloc_object"
 makeIntFunctionName = "hegglog_hs_make_int"
 makeBoolFunctionName = "hegglog_hs_make_bool"
 makeCharFunctionName = "hegglog_hs_make_char"
+makePointerFunctionName = "hegglog_hs_make_ptr"
 makeStringFunctionName = "hegglog_hs_make_string"
 makeDataFunctionName = "hegglog_hs_make_data"
 
@@ -1649,10 +2987,11 @@ makeFunctionFunctionName = "hegglog_hs_make_function"
 makeThunkFunctionName = "hegglog_hs_make_thunk"
 forceFunctionName = "hegglog_hs_force"
 
-expectIntFunctionName, expectBoolFunctionName, expectCharFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, putStrLnFunctionName, getLineFunctionName, printCharListFunctionName :: Text
+expectIntFunctionName, expectBoolFunctionName, expectCharFunctionName, expectPointerFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, putStrLnFunctionName, getLineFunctionName, printCharListFunctionName :: Text
 expectIntFunctionName = "hegglog_hs_expect_int"
 expectBoolFunctionName = "hegglog_hs_expect_bool"
 expectCharFunctionName = "hegglog_hs_expect_char"
+expectPointerFunctionName = "hegglog_hs_expect_ptr"
 expectStringFunctionName = "hegglog_hs_expect_string"
 expectFunctionName = "hegglog_hs_expect_function"
 makeCharListFromCStringFunctionName = "hegglog_hs_make_char_list_from_cstring"
@@ -1660,6 +2999,18 @@ showIntFunctionName = "hegglog_hs_show_int"
 putStrLnFunctionName = "hegglog_hs_putstrln"
 getLineFunctionName = "hegglog_hs_getline"
 printCharListFunctionName = "hegglog_hs_print_char_list"
+
+newStablePtrFunctionName, deRefStablePtrFunctionName, freeStablePtrFunctionName :: Text
+newStablePtrFunctionName = "hegglog_hs_new_stable_ptr"
+deRefStablePtrFunctionName = "hegglog_hs_deref_stable_ptr"
+freeStablePtrFunctionName = "hegglog_hs_free_stable_ptr"
+
+makeForeignPtrFunctionName, foreignPtrAddressFunctionName, addForeignPtrFinalizerFunctionName, finalizeForeignPtrFunctionName, touchForeignPtrFunctionName :: Text
+makeForeignPtrFunctionName = "hegglog_hs_make_foreign_ptr"
+foreignPtrAddressFunctionName = "hegglog_hs_foreign_ptr_addr"
+addForeignPtrFinalizerFunctionName = "hegglog_hs_add_foreign_ptr_finalizer"
+finalizeForeignPtrFunctionName = "hegglog_hs_finalize_foreign_ptr"
+touchForeignPtrFunctionName = "hegglog_hs_touch_foreign_ptr"
 
 formatGlobals :: [LLVMGlobal]
 formatGlobals =
@@ -1707,6 +3058,10 @@ minInt64Value :: Integer
 minInt64Value =
   -9223372036854775808
 
+maxInt64Value :: Integer
+maxInt64Value =
+  9223372036854775807
+
 sanitizeName :: Text -> Text
 sanitizeName =
   Text.concatMap encode
@@ -1721,6 +3076,14 @@ sanitizeName =
 throwSTGLLVM :: STGLLVMError -> FunctionM a
 throwSTGLLVM =
   lift . lift . Left
+
+liftEitherSTGLLVM :: Either STGLLVMError a -> FunctionM a
+liftEitherSTGLLVM =
+  either throwSTGLLVM pure
+
+liftEitherModule :: Either STGLLVMError a -> ModuleM a
+liftEitherModule =
+  either (lift . Left) pure
 
 mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = \case

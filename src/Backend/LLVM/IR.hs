@@ -22,6 +22,7 @@ newtype Register = Register {registerName :: Text}
 data LLVMType
   = LI64
   | LI32
+  | LI16
   | LI1
   | LI8
   | LPtr
@@ -54,6 +55,7 @@ data LLVMInstruction
   | IDiv Register LLVMType LLVMOperand LLVMOperand
   | IIcmp Register LLVMPredicate LLVMType LLVMOperand LLVMOperand
   | IZext Register LLVMOperand LLVMType
+  | ISext Register LLVMOperand LLVMType
   | ITrunc Register LLVMOperand LLVMType
   | IGetElementPtr Register LLVMType LLVMOperand [(LLVMType, LLVMOperand)]
   | ILoad Register LLVMType LLVMOperand

@@ -34,10 +34,8 @@ import Syntax.Span (SourceSpan, sourceSpan)
 import Text.Megaparsec
   ( MonadParsec (lookAhead, try)
   , ParseErrorBundle
-  , anySingle
   , choice
   , getSourcePos
-  , manyTill
   , option
   , parse
   , sepBy
@@ -45,7 +43,6 @@ import Text.Megaparsec
   , sepEndBy
   , sepEndBy1
   )
-import qualified Text.Megaparsec.Char as C
 
 data ModuleItem
   = ModuleImport ImportDecl
@@ -247,11 +244,116 @@ defaultDecl = do
 foreignDecl :: Parser Decl
 foreignDecl = do
   reserved "foreign"
-  rest <- Text.strip . Text.pack <$> manyTill anySingle (lookAhead endOfForeignDecl)
-  pure (ForeignDecl ("foreign " <> rest))
+  ForeignDecl <$> (foreignImportDecl <|> foreignExportDecl)
+
+foreignImportDecl :: Parser ForeignDeclInfo
+foreignImportDecl = do
+  reserved "import"
+  callConv <- foreignCallConv
+  safety <- option ForeignSafe (try foreignSafety)
+  entity <- option defaultForeignImportEntity (try foreignImportEntitySpec)
+  name <- bindingName
+  void (symbol "::")
+  ForeignImportDecl . ForeignImport callConv safety entity name <$> typeParser
+
+foreignExportDecl :: Parser ForeignDeclInfo
+foreignExportDecl = do
+  reserved "export"
+  callConv <- foreignCallConv
+  entity <- option defaultForeignExportEntity (try foreignExportEntitySpec)
+  name <- bindingName
+  void (symbol "::")
+  ForeignExportDecl . ForeignExport callConv entity name <$> typeParser
+
+foreignCallConv :: Parser ForeignCallConv
+foreignCallConv =
+  callConvFromText <$> varid
  where
-  endOfForeignDecl =
-    void C.eol <|> eof
+  callConvFromText = \case
+    "ccall" -> ForeignCCall
+    "stdcall" -> ForeignStdCall
+    "cplusplus" -> ForeignCPlusPlus
+    "jvm" -> ForeignJvm
+    "dotnet" -> ForeignDotNet
+    other -> ForeignOtherCallConv other
+
+foreignSafety :: Parser ForeignSafety
+foreignSafety = do
+  token <- varid
+  case token of
+    "safe" -> pure ForeignSafe
+    "unsafe" -> pure ForeignUnsafe
+    other -> fail ("unknown foreign import safety " <> Text.unpack other)
+
+foreignImportEntitySpec :: Parser ForeignImportEntity
+foreignImportEntitySpec = do
+  raw <- stringLiteral
+  pure
+    ForeignImportEntity
+      { foreignImportEntityRaw = Just raw
+      , foreignImportEntityKind = parseForeignImportEntity raw
+      }
+
+foreignExportEntitySpec :: Parser ForeignExportEntity
+foreignExportEntitySpec = do
+  raw <- stringLiteral
+  pure
+    ForeignExportEntity
+      { foreignExportEntityRaw = Just raw
+      , foreignExportEntitySymbol = if Text.null raw then Nothing else Just raw
+      }
+
+defaultForeignImportEntity :: ForeignImportEntity
+defaultForeignImportEntity =
+  ForeignImportEntity
+    { foreignImportEntityRaw = Nothing
+    , foreignImportEntityKind = ForeignImportDefault
+    }
+
+defaultForeignExportEntity :: ForeignExportEntity
+defaultForeignExportEntity =
+  ForeignExportEntity
+    { foreignExportEntityRaw = Nothing
+    , foreignExportEntitySymbol = Nothing
+    }
+
+parseForeignImportEntity :: Text -> ForeignImportEntityKind
+parseForeignImportEntity raw =
+  case Text.words raw of
+    [] ->
+      ForeignImportUnknown raw
+    ["dynamic"] ->
+      ForeignImportDynamic
+    ["wrapper"] ->
+      ForeignImportWrapper
+    "static" : rest ->
+      parseStaticImportEntity raw rest
+    rest ->
+      parseStaticImportEntity raw rest
+ where
+  parseStaticImportEntity rawText tokens =
+    case tokens of
+      [] ->
+        ForeignImportUnknown rawText
+      headerToken : symbolTokens
+        | Just header <- parseHeader headerToken ->
+            parseImportSymbol rawText (Just header) (Text.unwords symbolTokens)
+      symbolTokens ->
+        parseImportSymbol rawText Nothing (Text.unwords symbolTokens)
+
+  parseImportSymbol rawText header symbolText
+    | Text.null symbolText =
+        ForeignImportUnknown rawText
+    | Just ffiSymbol <- Text.stripPrefix "&" symbolText =
+        if Text.null ffiSymbol then ForeignImportUnknown rawText else ForeignImportAddress header ffiSymbol
+    | otherwise =
+        ForeignImportStatic header symbolText
+
+  parseHeader token
+    | "[" `Text.isPrefixOf` token && "]" `Text.isSuffixOf` token =
+        Just (Text.dropEnd 1 (Text.drop 1 token))
+    | otherwise =
+        Nothing
 
 functionBinding :: Parser Decl
 functionBinding = do
@@ -598,6 +700,7 @@ typeAtom =
   withSpan setHsTypeSpan $
     choice
     [ try parenType
+    , try (TyCon "[]" <$ symbol "[]")
     , TyList <$> (symbol "[" *> typeParser <* symbol "]")
     , TyCon <$> qconid
     , TyVar <$> varid

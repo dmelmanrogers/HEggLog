@@ -13,12 +13,13 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Core.Syntax
 import Haskell2010.Names (renderRName)
+import qualified Haskell2010.Syntax as S
 import Haskell2010.Syntax (Literal (..), ModuleName (..))
 
 renderCoreModule :: CoreModule -> Text
-renderCoreModule (CoreModule maybeName _ binds) =
+renderCoreModule (CoreModule maybeName _ binds foreignExports) =
   Text.unlines $
-    header <> map renderCoreBind binds
+    header <> map renderCoreBind binds <> map renderForeignExport foreignExports
  where
   header =
     case maybeName of
@@ -90,6 +91,17 @@ renderCoreExpr = \case
           <> ")"
       )
       ty
+  CForeignCall foreignImport arguments ty ->
+    withType
+      ( "foreign-call "
+          <> renderForeignImport foreignImport
+          <> "("
+          <> Text.intercalate ", " (map renderCoreExpr arguments)
+          <> ")"
+      )
+      ty
+  CForeignImportValue foreignImport ty ->
+    withType ("foreign-import " <> renderForeignImport foreignImport) ty
 
 renderCoreAlt :: CoreAlt -> Text
 renderCoreAlt (CoreAlt altCon binders body) =
@@ -122,6 +134,74 @@ renderCorePrimOp = \case
   PrimIOThen -> "thenIO#"
   PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"
+  PrimIOFail -> "failIO#"
+  PrimNewStablePtr -> "newStablePtr#"
+  PrimDeRefStablePtr -> "deRefStablePtr#"
+  PrimFreeStablePtr -> "freeStablePtr#"
+  PrimCastStablePtrToPtr -> "castStablePtrToPtr#"
+  PrimCastPtrToStablePtr -> "castPtrToStablePtr#"
+  PrimNewForeignPtr -> "newForeignPtr#"
+  PrimNewForeignPtr_ -> "newForeignPtr_#"
+  PrimAddForeignPtrFinalizer -> "addForeignPtrFinalizer#"
+  PrimFinalizeForeignPtr -> "finalizeForeignPtr#"
+  PrimWithForeignPtr -> "withForeignPtr#"
+  PrimTouchForeignPtr -> "touchForeignPtr#"
+
+renderForeignImport :: CoreForeignImport -> Text
+renderForeignImport foreignImport =
+  renderRName (coreForeignImportName foreignImport)
+    <> "["
+    <> renderForeignCallConv (coreForeignImportCallConv foreignImport)
+    <> ", "
+    <> renderForeignSafety (coreForeignImportSafety foreignImport)
+    <> ", "
+    <> renderForeignImportEntity (coreForeignImportEntity foreignImport)
+    <> "]"
+
+renderForeignExport :: CoreForeignExport -> Text
+renderForeignExport foreignExport =
+  "foreign-export "
+    <> renderRName (coreForeignExportName foreignExport)
+    <> "["
+    <> renderForeignCallConv (coreForeignExportCallConv foreignExport)
+    <> ", "
+    <> renderForeignExportEntity (coreForeignExportEntity foreignExport)
+    <> "] :: "
+    <> renderCoreType (coreForeignExportType foreignExport)
+
+renderForeignCallConv :: S.ForeignCallConv -> Text
+renderForeignCallConv = \case
+  S.ForeignCCall -> "ccall"
+  S.ForeignStdCall -> "stdcall"
+  S.ForeignCPlusPlus -> "cplusplus"
+  S.ForeignJvm -> "jvm"
+  S.ForeignDotNet -> "dotnet"
+  S.ForeignOtherCallConv occurrence -> occurrence
+
+renderForeignSafety :: S.ForeignSafety -> Text
+renderForeignSafety = \case
+  S.ForeignSafe -> "safe"
+  S.ForeignUnsafe -> "unsafe"
+
+renderForeignImportEntity :: S.ForeignImportEntity -> Text
+renderForeignImportEntity entity =
+  case S.foreignImportEntityKind entity of
+    S.ForeignImportDefault -> "default"
+    S.ForeignImportStatic header symbol -> "static " <> renderMaybeHeader header <> symbol
+    S.ForeignImportAddress header symbol -> "address " <> renderMaybeHeader header <> symbol
+    S.ForeignImportDynamic -> "dynamic"
+    S.ForeignImportWrapper -> "wrapper"
+    S.ForeignImportUnknown raw -> "unknown " <> raw
+ where
+  renderMaybeHeader = \case
+    Nothing -> ""
+    Just header -> "[" <> header <> "] "
+
+renderForeignExportEntity :: S.ForeignExportEntity -> Text
+renderForeignExportEntity entity =
+  case S.foreignExportEntitySymbol entity of
+    Nothing -> "default"
+    Just symbol -> symbol
 
 renderCoreType :: CoreType -> Text
 renderCoreType =

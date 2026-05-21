@@ -49,6 +49,9 @@ data STGValue
   | STGChar Char
   | STGString Text
   | STGIO [Text] STGValue
+  | STGPointer (Maybe STGValue)
+  | STGStablePtr STGValue
+  | STGForeignPtr STGValue
   | STGData RName [STGHeapAddress]
   | STGFunctionValue STGHeapAddress
   deriving stock (Show, Eq, Ord)
@@ -67,6 +70,7 @@ data STGEvalError
   | STGEvalUnknownHeapAddress STGHeapAddress
   | STGEvalBlackHole (Maybe RName)
   | STGEvalTypeError Text
+  | STGEvalUnsupportedForeign Text
   | STGEvalArityMismatch RName Int Int
   | STGEvalDivisionByZero
   | STGEvalIntError IntError
@@ -178,6 +182,17 @@ evalExpr env = \case
     evalCaseAlternative env binder alternatives scrutineeValue
   STGPrim op arguments _ ->
     evalPrimitive env op arguments
+  STGForeignCall foreignImport arguments _ -> do
+    _ <- traverse (evalAtom env) arguments
+    throwEval
+      ( STGEvalUnsupportedForeign
+          ("foreign call `" <> renderRName (coreForeignImportName foreignImport) <> "` requires native FFI ABI support")
+      )
+  STGForeignImportValue foreignImport _ ->
+    throwEval
+      ( STGEvalUnsupportedForeign
+          ("foreign import `" <> renderRName (coreForeignImportName foreignImport) <> "` requires native FFI ABI support")
+      )
 
 evalAtom :: RuntimeEnv -> STGAtom -> EvalM STGValue
 evalAtom env = \case
@@ -202,7 +217,7 @@ evalLiteral = \case
     Right (STGString value)
 
 allocateProgramEnv :: STGProgram -> EvalM RuntimeEnv
-allocateProgramEnv (STGProgram _ binds) =
+allocateProgramEnv (STGProgram _ binds _foreignExports) =
   foldM allocateBind Map.empty binds
 
 allocateBind :: RuntimeEnv -> STGBind -> EvalM RuntimeEnv
@@ -440,11 +455,43 @@ evalPrimitive env op arguments = do
           typeError ("expected STG IO action from bind continuation, got " <> renderSTGValue other)
     (PrimIOReturn, [value]) ->
       pure (STGIO [] value)
+    (PrimIOFail, [value]) ->
+      stgStringText value >>= \message -> typeError ("IO fail: " <> message)
+    (PrimNewStablePtr, [value]) ->
+      pure (STGIO [] (STGStablePtr value))
+    (PrimDeRefStablePtr, [STGStablePtr value]) ->
+      pure (STGIO [] value)
+    (PrimFreeStablePtr, [STGStablePtr _]) ->
+      pure (STGIO [] (STGData unitDataConName []))
+    (PrimCastStablePtrToPtr, [STGStablePtr value]) ->
+      pure (STGPointer (Just value))
+    (PrimCastPtrToStablePtr, [STGPointer (Just value)]) ->
+      pure (STGStablePtr value)
+    (PrimNewForeignPtr, [_finalizer, pointer]) ->
+      pure (STGIO [] (STGForeignPtr pointer))
+    (PrimNewForeignPtr_, [pointer]) ->
+      pure (STGIO [] (STGForeignPtr pointer))
+    (PrimAddForeignPtrFinalizer, [_finalizer, STGForeignPtr _]) ->
+      pure (STGIO [] (STGData unitDataConName []))
+    (PrimFinalizeForeignPtr, [STGForeignPtr _]) ->
+      pure (STGIO [] (STGData unitDataConName []))
+    (PrimWithForeignPtr, [STGForeignPtr pointer, STGFunctionValue functionAddress]) -> do
+      pointerAddress <- allocateClosure (ValueClosure pointer)
+      action <- enterFunctionAddressWithArguments withForeignPtrContinuationName functionAddress [pointerAddress]
+      case action of
+        STGIO chunks result ->
+          pure (STGIO chunks result)
+        other ->
+          typeError ("expected STG IO action from withForeignPtr continuation, got " <> renderSTGValue other)
+    (PrimTouchForeignPtr, [STGForeignPtr _]) ->
+      pure (STGIO [] (STGData unitDataConName []))
     _ ->
       throwEval (STGEvalTypeError ("invalid STG primitive operands for " <> renderCorePrimOpName op))
  where
   ioBindContinuationName =
     RName TermNamespace "$io_bind_continuation" (-3921) False
+  withForeignPtrContinuationName =
+    RName TermNamespace "$with_foreign_ptr_continuation" (-3922) False
   checkedIntValue =
     \case
       Right value -> Right (STGInt value)
@@ -579,6 +626,12 @@ renderSTGValue = \case
     Text.pack (show (Text.unpack value))
   STGIO chunks _ ->
     "<STG IO " <> Text.pack (show (Text.unpack (Text.concat chunks))) <> ">"
+  STGPointer {} ->
+    "<STG Ptr>"
+  STGStablePtr {} ->
+    "<STG StablePtr>"
+  STGForeignPtr {} ->
+    "<STG ForeignPtr>"
   STGData name fields ->
     renderRName name <> "/" <> Text.pack (show (length fields))
   STGFunctionValue address ->
@@ -607,6 +660,8 @@ renderSTGEvalError = \case
   STGEvalBlackHole (Just name) ->
     "entered an evaluating STG thunk for `" <> renderRName name <> "`"
   STGEvalTypeError message ->
+    message
+  STGEvalUnsupportedForeign message ->
     message
   STGEvalArityMismatch callee expected actual ->
     "STG function `"
@@ -640,3 +695,15 @@ renderCorePrimOpName = \case
   PrimIOThen -> "thenIO#"
   PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"
+  PrimIOFail -> "failIO#"
+  PrimNewStablePtr -> "newStablePtr#"
+  PrimDeRefStablePtr -> "deRefStablePtr#"
+  PrimFreeStablePtr -> "freeStablePtr#"
+  PrimCastStablePtrToPtr -> "castStablePtrToPtr#"
+  PrimCastPtrToStablePtr -> "castPtrToStablePtr#"
+  PrimNewForeignPtr -> "newForeignPtr#"
+  PrimNewForeignPtr_ -> "newForeignPtr_#"
+  PrimAddForeignPtrFinalizer -> "addForeignPtrFinalizer#"
+  PrimFinalizeForeignPtr -> "finalizeForeignPtr#"
+  PrimWithForeignPtr -> "withForeignPtr#"
+  PrimTouchForeignPtr -> "touchForeignPtr#"

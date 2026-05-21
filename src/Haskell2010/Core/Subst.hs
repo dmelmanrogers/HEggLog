@@ -77,6 +77,11 @@ substExpr target replacement expression =
     CPrimOp op arguments ty ->
       let (arguments', supplyAfterArguments) = substExprs supply arguments
        in (CPrimOp op arguments' ty, supplyAfterArguments)
+    CForeignCall foreignImport arguments ty ->
+      let (arguments', supplyAfterArguments) = substExprs supply arguments
+       in (CForeignCall foreignImport arguments' ty, supplyAfterArguments)
+    expression'@CForeignImportValue {} ->
+      (expression', supply)
 
   substBind supply bind body =
     case bind of
@@ -220,6 +225,10 @@ renameBound old new = \case
     CCoerce (renameBound old new expression) ty
   CPrimOp op arguments ty ->
     CPrimOp op (map (renameBound old new) arguments) ty
+  CForeignCall foreignImport arguments ty ->
+    CForeignCall foreignImport (map (renameBound old new) arguments) ty
+  expression@CForeignImportValue {} ->
+    expression
 
 renameBind :: RName -> RName -> CoreBind -> CoreBind
 renameBind old new = \case
@@ -260,6 +269,14 @@ allNamesExpr = \case
     allNamesExpr expression <> allNamesType ty
   CPrimOp _ arguments ty ->
     Set.unions (map allNamesExpr arguments) <> allNamesType ty
+  CForeignCall foreignImport arguments ty ->
+    allNamesForeignImport foreignImport <> Set.unions (map allNamesExpr arguments) <> allNamesType ty
+  CForeignImportValue foreignImport ty ->
+    allNamesForeignImport foreignImport <> allNamesType ty
+
+allNamesForeignImport :: CoreForeignImport -> Set.Set RName
+allNamesForeignImport foreignImport =
+  Set.insert (coreForeignImportName foreignImport) (allNamesType (coreForeignImportType foreignImport))
 
 allNamesBind :: CoreBind -> Set.Set RName
 allNamesBind = \case

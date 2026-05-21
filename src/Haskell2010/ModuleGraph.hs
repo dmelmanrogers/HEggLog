@@ -19,6 +19,7 @@ import qualified Data.Text.IO as Text.IO
 import Haskell2010.Parser (parseSourceModule)
 import Haskell2010.Pretty (renderModuleName)
 import Haskell2010.Renamed
+import qualified Haskell2010.StandardLibrary as StandardLibrary
 import Haskell2010.Syntax
 import System.FilePath ((<.>), (</>), joinPath, normalise, takeDirectory)
 import Text.Megaparsec (errorBundlePretty)
@@ -180,8 +181,8 @@ moduleNamePath rootDirectory (ModuleName parts) =
   rootDirectory </> joinPath (map Text.unpack parts) <.> "hs"
 
 isBuiltinModule :: ModuleName -> Bool
-isBuiltinModule (ModuleName parts) =
-  parts == ["Prelude"]
+isBuiltinModule moduleName =
+  Map.member moduleName StandardLibrary.standardLibraryModuleInterfaces
 
 cyclePath :: ModuleName -> [ModuleName] -> [ModuleName]
 cyclePath repeated active =
@@ -205,6 +206,10 @@ wholeProgramModule modules =
             , rModuleExports = rModuleExports finalRoot
             , rModuleImports = concatMap rModuleImports modules
             , rModuleFixities = Map.unions (map rModuleFixities modules)
+            -- Haskell 2010 imports all instances along the transitive import
+            -- chain. Keeping every dependency declaration in the flattened
+            -- module makes instance dictionaries available to typechecking and
+            -- later lowering even when the declaring module exports no names.
             , rModuleDecls = concatMap rModuleDecls modules
             }
  where

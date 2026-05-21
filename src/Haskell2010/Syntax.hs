@@ -43,6 +43,14 @@ module Haskell2010.Syntax
       , RecordCon
       )
   , Fixity (..)
+  , ForeignCallConv (..)
+  , ForeignDeclInfo (..)
+  , ForeignExport (..)
+  , ForeignExportEntity (..)
+  , ForeignImport (..)
+  , ForeignImportEntity (..)
+  , ForeignImportEntityKind (..)
+  , ForeignSafety (..)
   , HsModule (..)
   , HsType
       ( TyVar
@@ -138,7 +146,64 @@ data DeclNode
   | ClassDeclNode [HsType] Text Text [Decl]
   | InstanceDeclNode [HsType] HsType [Decl]
   | DefaultDeclNode [HsType]
-  | ForeignDeclNode Text
+  | ForeignDeclNode ForeignDeclInfo
+  deriving stock (Show, Eq, Ord)
+
+data ForeignDeclInfo
+  = ForeignImportDecl ForeignImport
+  | ForeignExportDecl ForeignExport
+  deriving stock (Show, Eq, Ord)
+
+data ForeignImport = ForeignImport
+  { foreignImportCallConv :: ForeignCallConv
+  , foreignImportSafety :: ForeignSafety
+  , foreignImportEntity :: ForeignImportEntity
+  , foreignImportName :: Text
+  , foreignImportType :: HsType
+  }
+  deriving stock (Show, Eq, Ord)
+
+data ForeignExport = ForeignExport
+  { foreignExportCallConv :: ForeignCallConv
+  , foreignExportEntity :: ForeignExportEntity
+  , foreignExportName :: Text
+  , foreignExportType :: HsType
+  }
+  deriving stock (Show, Eq, Ord)
+
+data ForeignCallConv
+  = ForeignCCall
+  | ForeignStdCall
+  | ForeignCPlusPlus
+  | ForeignJvm
+  | ForeignDotNet
+  | ForeignOtherCallConv Text
+  deriving stock (Show, Eq, Ord)
+
+data ForeignSafety
+  = ForeignSafe
+  | ForeignUnsafe
+  deriving stock (Show, Eq, Ord)
+
+data ForeignImportEntity = ForeignImportEntity
+  { foreignImportEntityRaw :: Maybe Text
+  , foreignImportEntityKind :: ForeignImportEntityKind
+  }
+  deriving stock (Show, Eq, Ord)
+
+data ForeignImportEntityKind
+  = ForeignImportDefault
+  | ForeignImportStatic (Maybe Text) Text
+  | ForeignImportAddress (Maybe Text) Text
+  | ForeignImportDynamic
+  | ForeignImportWrapper
+  | ForeignImportUnknown Text
+  deriving stock (Show, Eq, Ord)
+
+data ForeignExportEntity = ForeignExportEntity
+  { foreignExportEntityRaw :: Maybe Text
+  , foreignExportEntitySymbol :: Maybe Text
+  }
   deriving stock (Show, Eq, Ord)
 
 pattern TypeSignature :: [Text] -> HsType -> Decl
@@ -191,10 +256,10 @@ pattern DefaultDecl types <- SpannedDecl _ (DefaultDeclNode types)
   where
     DefaultDecl types = SpannedDecl Nothing (DefaultDeclNode types)
 
-pattern ForeignDecl :: Text -> Decl
-pattern ForeignDecl text <- SpannedDecl _ (ForeignDeclNode text)
+pattern ForeignDecl :: ForeignDeclInfo -> Decl
+pattern ForeignDecl info <- SpannedDecl _ (ForeignDeclNode info)
   where
-    ForeignDecl text = SpannedDecl Nothing (ForeignDeclNode text)
+    ForeignDecl info = SpannedDecl Nothing (ForeignDeclNode info)
 
 {-# COMPLETE TypeSignature, FunctionBinding, PatternBinding, FixityDecl, DataDecl, NewtypeDecl, TypeSynonym, ClassDecl, InstanceDecl, DefaultDecl, ForeignDecl #-}
 

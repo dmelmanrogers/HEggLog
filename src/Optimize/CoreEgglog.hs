@@ -160,6 +160,10 @@ optimizeExpr config validationEnv env expression = do
         CCoerce <$> optimizeExpr config validationEnv env inner <*> pure ty
       CPrimOp op arguments ty ->
         CPrimOp op <$> traverse (optimizeExpr config validationEnv env) arguments <*> pure ty
+      CForeignCall foreignImport arguments ty ->
+        CForeignCall foreignImport <$> traverse (optimizeExpr config validationEnv env) arguments <*> pure ty
+      CForeignImportValue {} ->
+        pure expression
   tryEgglogRewrite config env rebuilt >>= tryKnownCaseRewrite validationEnv env
  where
   optimizeAlt altEnvBase (CoreAlt altCon binders body) = do
@@ -682,6 +686,18 @@ corePrimToANF = \case
   PrimIOThen -> Nothing
   PrimIOBind -> Nothing
   PrimIOReturn -> Nothing
+  PrimIOFail -> Nothing
+  PrimNewStablePtr -> Nothing
+  PrimDeRefStablePtr -> Nothing
+  PrimFreeStablePtr -> Nothing
+  PrimCastStablePtrToPtr -> Nothing
+  PrimCastPtrToStablePtr -> Nothing
+  PrimNewForeignPtr -> Nothing
+  PrimNewForeignPtr_ -> Nothing
+  PrimAddForeignPtrFinalizer -> Nothing
+  PrimFinalizeForeignPtr -> Nothing
+  PrimWithForeignPtr -> Nothing
+  PrimTouchForeignPtr -> Nothing
 
 anfPrimToCore :: BinOp -> CorePrimOp
 anfPrimToCore = \case
@@ -747,7 +763,7 @@ scopeFromBind bind =
   Map.fromList [(coreBinderName binder, coreBinderType binder) | binder <- bindersOf bind]
 
 moduleCost :: CoreModule -> Int
-moduleCost (CoreModule _ _ binds) =
+moduleCost (CoreModule _ _ binds _foreignExports) =
   sum (map bindCost binds)
 
 bindCost :: CoreBind -> Int
@@ -771,10 +787,14 @@ expressionCost = \case
     expressionCost expression
   CPrimOp _ arguments _ ->
     2 + sum (map expressionCost arguments)
+  CForeignCall _ arguments _ ->
+    3 + sum (map expressionCost arguments)
+  CForeignImportValue {} ->
+    2
 
 nextUniqueAfterModule :: CoreModule -> Int
-nextUniqueAfterModule (CoreModule _ _ binds) =
-  maximum (1000000 : concatMap uniquesInBind binds) + 1
+nextUniqueAfterModule (CoreModule _ _ binds foreignExports) =
+  maximum (1000000 : concatMap uniquesInBind binds <> map (nameUnique . coreForeignExportName) foreignExports) + 1
 
 nextUniqueAfterExpr :: CoreExpr -> Int
 nextUniqueAfterExpr expression =
@@ -802,6 +822,10 @@ uniquesInExpr = \case
   CCoerce expression _ ->
     uniquesInExpr expression
   CPrimOp _ arguments _ -> concatMap uniquesInExpr arguments
+  CForeignCall foreignImport arguments _ ->
+    uniqueInForeignImport foreignImport <> concatMap uniquesInExpr arguments
+  CForeignImportValue foreignImport _ ->
+    uniqueInForeignImport foreignImport
 
 uniquesInAlt :: CoreAlt -> [Int]
 uniquesInAlt (CoreAlt altCon binders body) =
@@ -810,6 +834,10 @@ uniquesInAlt (CoreAlt altCon binders body) =
   altUnique = \case
     ConstructorAlt name -> [nameUnique name]
     _ -> []
+
+uniqueInForeignImport :: CoreForeignImport -> [Int]
+uniqueInForeignImport foreignImport =
+  [nameUnique (coreForeignImportName foreignImport)]
 
 uniqueTexts :: [Text] -> [Text]
 uniqueTexts =

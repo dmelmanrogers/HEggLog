@@ -38,6 +38,9 @@ data CoreValue
   | CoreChar Char
   | CoreString Text
   | CoreIO [Text] CoreValue
+  | CorePointer (Maybe CoreValue)
+  | CoreStablePtr CoreValue
+  | CoreForeignPtr CoreValue
   | CoreClosure Env CoreBinder CoreExpr
   | CoreTypeClosure Env [RName] CoreExpr
   | CoreConstructor RName [CoreThunk]
@@ -54,6 +57,7 @@ data CoreEvalError
   | CoreEvalDivisionByZero
   | CoreEvalIntError IntError
   | CoreEvalNoMatchingAlternative CoreValue
+  | CoreEvalUnsupportedForeign Text
   deriving stock (Show)
 
 type Env = Map.Map RName CoreThunk
@@ -154,6 +158,11 @@ evalExpr coreEnv env = \case
     evalExpr coreEnv env expression
   CPrimOp op arguments _ ->
     traverse (evalExpr coreEnv env) arguments >>= evalPrimitive coreEnv op
+  CForeignCall foreignImport arguments _ -> do
+    _ <- traverse (evalExpr coreEnv env) arguments
+    Left (CoreEvalUnsupportedForeign ("foreign call `" <> renderRName (coreForeignImportName foreignImport) <> "` requires native FFI ABI support"))
+  CForeignImportValue foreignImport _ ->
+    Left (CoreEvalUnsupportedForeign ("foreign import `" <> renderRName (coreForeignImportName foreignImport) <> "` requires native FFI ABI support"))
 
 evalDataConstructor ::
   CoreValidate.CoreValidationEnv ->
@@ -321,6 +330,35 @@ evalPrimitive coreEnv op values =
           Left (CoreEvalTypeError ("expected Core IO action from bind continuation, got " <> renderCoreValue other))
     (PrimIOReturn, [value]) ->
       Right (CoreIO [] value)
+    (PrimIOFail, [value]) ->
+      coreStringText coreEnv value >>= \message -> Left (CoreEvalTypeError ("IO fail: " <> message))
+    (PrimNewStablePtr, [value]) ->
+      Right (CoreIO [] (CoreStablePtr value))
+    (PrimDeRefStablePtr, [CoreStablePtr value]) ->
+      Right (CoreIO [] value)
+    (PrimFreeStablePtr, [CoreStablePtr _]) ->
+      Right (CoreIO [] (CoreData unitDataConName []))
+    (PrimCastStablePtrToPtr, [CoreStablePtr value]) ->
+      Right (CorePointer (Just value))
+    (PrimCastPtrToStablePtr, [CorePointer (Just value)]) ->
+      Right (CoreStablePtr value)
+    (PrimNewForeignPtr, [_finalizer, pointer]) ->
+      Right (CoreIO [] (CoreForeignPtr pointer))
+    (PrimNewForeignPtr_, [pointer]) ->
+      Right (CoreIO [] (CoreForeignPtr pointer))
+    (PrimAddForeignPtrFinalizer, [_finalizer, CoreForeignPtr _]) ->
+      Right (CoreIO [] (CoreData unitDataConName []))
+    (PrimFinalizeForeignPtr, [CoreForeignPtr _]) ->
+      Right (CoreIO [] (CoreData unitDataConName []))
+    (PrimWithForeignPtr, [CoreForeignPtr pointer, CoreClosure closureEnv binder body]) -> do
+      action <- evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated pointer) closureEnv) body
+      case action of
+        CoreIO chunks result ->
+          Right (CoreIO chunks result)
+        other ->
+          Left (CoreEvalTypeError ("expected Core IO action from withForeignPtr continuation, got " <> renderCoreValue other))
+    (PrimTouchForeignPtr, [CoreForeignPtr _]) ->
+      Right (CoreIO [] (CoreData unitDataConName []))
     _ ->
       Left (CoreEvalTypeError ("invalid Core primitive operands for " <> renderCorePrimOpName op))
  where
@@ -390,6 +428,12 @@ renderCoreValue = \case
     Text.pack (show (Text.unpack value))
   CoreIO chunks _ ->
     "<Core IO " <> Text.pack (show (Text.unpack (Text.concat chunks))) <> ">"
+  CorePointer {} ->
+    "<Core Ptr>"
+  CoreStablePtr {} ->
+    "<Core StablePtr>"
+  CoreForeignPtr {} ->
+    "<Core ForeignPtr>"
   CoreClosure {} ->
     "<Core function>"
   CoreTypeClosure {} ->
@@ -428,6 +472,8 @@ renderCoreEvalError = \case
     renderIntError err
   CoreEvalNoMatchingAlternative value ->
     "no Core case alternative matched " <> renderCoreValue value
+  CoreEvalUnsupportedForeign message ->
+    message
 
 renderCorePrimOpName :: CorePrimOp -> Text
 renderCorePrimOpName = \case
@@ -447,3 +493,15 @@ renderCorePrimOpName = \case
   PrimIOThen -> "thenIO#"
   PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"
+  PrimIOFail -> "failIO#"
+  PrimNewStablePtr -> "newStablePtr#"
+  PrimDeRefStablePtr -> "deRefStablePtr#"
+  PrimFreeStablePtr -> "freeStablePtr#"
+  PrimCastStablePtrToPtr -> "castStablePtrToPtr#"
+  PrimCastPtrToStablePtr -> "castPtrToStablePtr#"
+  PrimNewForeignPtr -> "newForeignPtr#"
+  PrimNewForeignPtr_ -> "newForeignPtr_#"
+  PrimAddForeignPtrFinalizer -> "addForeignPtrFinalizer#"
+  PrimFinalizeForeignPtr -> "finalizeForeignPtr#"
+  PrimWithForeignPtr -> "withForeignPtr#"
+  PrimTouchForeignPtr -> "touchForeignPtr#"

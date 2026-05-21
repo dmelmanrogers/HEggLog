@@ -51,6 +51,11 @@ data CoreValidationError
   | CorePrimitiveArityMismatch CorePrimOp Int Int
   | CorePrimitiveArgumentMismatch CorePrimOp Int CoreType CoreType
   | CorePrimitiveResultMismatch CorePrimOp CoreType CoreType
+  | CoreForeignCallArityMismatch RName Int Int
+  | CoreForeignCallArgumentMismatch RName Int CoreType CoreType
+  | CoreForeignCallResultMismatch RName CoreType CoreType
+  | CoreForeignExportUnbound RName
+  | CoreForeignExportTypeMismatch RName CoreType CoreType
   | CoreInvalidCoercion CoreType CoreType
   deriving stock (Show, Eq, Ord)
 
@@ -108,10 +113,11 @@ moduleValidationEnv coreModule =
     }
 
 validateModule :: CoreValidationEnv -> CoreModule -> Either [CoreValidationError] ()
-validateModule env (CoreModule _ _ binds) =
+validateModule env (CoreModule _ _ binds exports) =
   collectValidations
     [ failWith duplicateErrors
     , collectValidations (map (validateScopedBind env moduleScope) binds)
+    , collectValidations (map (validateForeignExport moduleScope) exports)
     ]
  where
   moduleBinders =
@@ -120,6 +126,22 @@ validateModule env (CoreModule _ _ binds) =
     Map.union (scopeFromBinders moduleBinders) (coreValueTypes env)
   duplicateErrors =
     map CoreDuplicateBinder (duplicates (concatMap bindBinderNames binds))
+
+validateForeignExport :: Scope -> CoreForeignExport -> Either [CoreValidationError] ()
+validateForeignExport moduleScope foreignExport =
+  case Map.lookup (coreForeignExportName foreignExport) moduleScope of
+    Nothing ->
+      Left [CoreForeignExportUnbound (coreForeignExportName foreignExport)]
+    Just actualTy
+      | normalizeCoreType (coreForeignExportType foreignExport) == normalizeCoreType actualTy ->
+          Right ()
+      | otherwise ->
+          Left
+            [ CoreForeignExportTypeMismatch
+                (coreForeignExportName foreignExport)
+                (coreForeignExportType foreignExport)
+                actualTy
+            ]
 
 validateExpr :: CoreExpr -> Either [CoreValidationError] ()
 validateExpr =
@@ -198,6 +220,12 @@ validateScopedExpr env scope = \case
     collectValidations $
       map (validateScopedExpr env scope) arguments
         <> validatePrimitive op arguments ty
+  CForeignCall foreignImport arguments ty ->
+    collectValidations $
+      map (validateScopedExpr env scope) arguments
+        <> validateForeignCall foreignImport arguments ty
+  CForeignImportValue foreignImport ty ->
+    checkType (coreForeignImportType foreignImport) ty
 
 validateScopedBind :: CoreValidationEnv -> Scope -> CoreBind -> Either [CoreValidationError] ()
 validateScopedBind env scope = \case
@@ -298,6 +326,18 @@ validatePrimitive op arguments resultTy =
     PrimIOThen -> validateIOThenPrimitive op arguments resultTy
     PrimIOBind -> validateIOBindPrimitive op arguments resultTy
     PrimIOReturn -> validateIOReturnPrimitive op arguments resultTy
+    PrimIOFail -> validateIOFailPrimitive op arguments resultTy
+    PrimNewStablePtr -> validateNewStablePtrPrimitive op arguments resultTy
+    PrimDeRefStablePtr -> validateDeRefStablePtrPrimitive op arguments resultTy
+    PrimFreeStablePtr -> validateFreeStablePtrPrimitive op arguments resultTy
+    PrimCastStablePtrToPtr -> validateCastStablePtrToPtrPrimitive op arguments resultTy
+    PrimCastPtrToStablePtr -> validateCastPtrToStablePtrPrimitive op arguments resultTy
+    PrimNewForeignPtr -> validateNewForeignPtrPrimitive op arguments resultTy
+    PrimNewForeignPtr_ -> validateNewForeignPtrNoFinalizerPrimitive op arguments resultTy
+    PrimAddForeignPtrFinalizer -> validateAddForeignPtrFinalizerPrimitive op arguments resultTy
+    PrimFinalizeForeignPtr -> validateFinalizeForeignPtrPrimitive op arguments resultTy
+    PrimWithForeignPtr -> validateWithForeignPtrPrimitive op arguments resultTy
+    PrimTouchForeignPtr -> validateTouchForeignPtrPrimitive op arguments resultTy
     PrimEq ->
       [ checkPrimitiveArity op 2 arguments
       , validatePrimitiveEq op arguments
@@ -320,9 +360,39 @@ validatePrimitiveEq :: CorePrimOp -> [CoreExpr] -> Either [CoreValidationError] 
 validatePrimitiveEq op arguments =
   case map exprType arguments of
     [lhsTy, rhsTy]
-      | lhsTy == rhsTy -> Right ()
+      | normalizeCoreType lhsTy == normalizeCoreType rhsTy -> Right ()
       | otherwise -> Left [CorePrimitiveArgumentMismatch op 1 lhsTy rhsTy]
     _ -> Right ()
+
+validateForeignCall :: CoreForeignImport -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateForeignCall foreignImport arguments resultTy
+  | expectedArity /= actualArity =
+      [Left [CoreForeignCallArityMismatch name expectedArity actualArity]]
+  | otherwise =
+      zipWith
+        (checkForeignCallArgument name)
+        [0 ..]
+        (zip expectedArguments (map exprType arguments))
+        <> [checkForeignCallResult name expectedResult resultTy]
+ where
+  name =
+    coreForeignImportName foreignImport
+  (expectedArguments, expectedResult) =
+    splitFunctionType (coreForeignImportType foreignImport)
+  expectedArity =
+    length expectedArguments
+  actualArity =
+    length arguments
+
+splitFunctionType :: CoreType -> ([CoreType], CoreType)
+splitFunctionType =
+  go []
+ where
+  go arguments = \case
+    CTyFun argument result ->
+      go (arguments <> [argument]) result
+    result ->
+      (arguments, result)
 
 validateIOThenPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
 validateIOThenPrimitive op arguments resultTy =
@@ -354,7 +424,7 @@ validateIOBindPrimitive op arguments resultTy =
       [actionTy, continuationTy]
         | Just actionResultTy <- ioResultType actionTy
         , CTyFun continuationArgTy continuationResultTy <- continuationTy
-        , continuationArgTy == actionResultTy
+        , normalizeCoreType continuationArgTy == normalizeCoreType actionResultTy
         , Just _ <- ioResultType continuationResultTy ->
             checkPrimitiveResult op continuationResultTy resultTy
         | Just actionResultTy <- ioResultType actionTy ->
@@ -363,6 +433,185 @@ validateIOBindPrimitive op arguments resultTy =
             Left [CorePrimitiveArgumentMismatch op 0 (ioTy (CTyVar unknownIOTypeVariable)) actionTy]
       _ -> Right ()
   ]
+
+validateIOFailPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateIOFailPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [messageTy]
+        | normalizeCoreType messageTy == stringTy
+        , Just _ <- ioResultType resultTy ->
+            Right ()
+        | normalizeCoreType messageTy == stringTy ->
+            Left [CorePrimitiveResultMismatch op (ioTy (CTyVar unknownIOTypeVariable)) resultTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 stringTy messageTy]
+      _ -> Right ()
+  ]
+
+validateNewStablePtrPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateNewStablePtrPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [valueTy] -> checkPrimitiveResult op (ioTy (stablePtrTy valueTy)) resultTy
+      _ -> Right ()
+  ]
+
+validateDeRefStablePtrPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateDeRefStablePtrPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [stableTy]
+        | Just payloadTy <- stablePtrPayloadType stableTy ->
+            checkPrimitiveResult op (ioTy payloadTy) resultTy
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (stablePtrTy unknownForeignTypeVariableTy) stableTy]
+      _ -> Right ()
+  ]
+
+validateFreeStablePtrPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateFreeStablePtrPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [stableTy]
+        | Just _ <- stablePtrPayloadType stableTy ->
+            checkPrimitiveResult op (ioTy unitTy) resultTy
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (stablePtrTy unknownForeignTypeVariableTy) stableTy]
+      _ -> Right ()
+  ]
+
+validateCastStablePtrToPtrPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateCastStablePtrToPtrPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [stableTy]
+        | Just _ <- stablePtrPayloadType stableTy ->
+            checkPrimitiveResult op (ptrTy unitTy) resultTy
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (stablePtrTy unknownForeignTypeVariableTy) stableTy]
+      _ -> Right ()
+  ]
+
+validateCastPtrToStablePtrPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateCastPtrToStablePtrPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [pointerTy]
+        | normalizeCoreType pointerTy == normalizeCoreType (ptrTy unitTy) ->
+            Right ()
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ptrTy unitTy) pointerTy]
+      _ -> Right ()
+  , case stablePtrPayloadType resultTy of
+      Just _ -> Right ()
+      Nothing -> Left [CorePrimitiveResultMismatch op (stablePtrTy unknownForeignTypeVariableTy) resultTy]
+  ]
+
+validateNewForeignPtrPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateNewForeignPtrPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 2 arguments
+  , case map exprType arguments of
+      [finalizerTy, pointerTy]
+        | Just payloadTy <- ptrPayloadType pointerTy
+        , normalizeCoreType finalizerTy == normalizeCoreType (foreignFinalizerPtrTy payloadTy) ->
+            checkPrimitiveResult op (ioTy (foreignPtrTy payloadTy)) resultTy
+        | Just payloadTy <- ptrPayloadType pointerTy ->
+            Left [CorePrimitiveArgumentMismatch op 0 (foreignFinalizerPtrTy payloadTy) finalizerTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 1 (ptrTy unknownForeignTypeVariableTy) pointerTy]
+      _ -> Right ()
+  ]
+
+validateNewForeignPtrNoFinalizerPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateNewForeignPtrNoFinalizerPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [pointerTy]
+        | Just payloadTy <- ptrPayloadType pointerTy ->
+            checkPrimitiveResult op (ioTy (foreignPtrTy payloadTy)) resultTy
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ptrTy unknownForeignTypeVariableTy) pointerTy]
+      _ -> Right ()
+  ]
+
+validateAddForeignPtrFinalizerPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateAddForeignPtrFinalizerPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 2 arguments
+  , case map exprType arguments of
+      [finalizerTy, foreignTy]
+        | Just payloadTy <- foreignPtrPayloadType foreignTy
+        , normalizeCoreType finalizerTy == normalizeCoreType (foreignFinalizerPtrTy payloadTy) ->
+            checkPrimitiveResult op (ioTy unitTy) resultTy
+        | Just payloadTy <- foreignPtrPayloadType foreignTy ->
+            Left [CorePrimitiveArgumentMismatch op 0 (foreignFinalizerPtrTy payloadTy) finalizerTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 1 (foreignPtrTy unknownForeignTypeVariableTy) foreignTy]
+      _ -> Right ()
+  ]
+
+validateFinalizeForeignPtrPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateFinalizeForeignPtrPrimitive op arguments resultTy =
+  validateForeignPtrUnitPrimitive op arguments resultTy
+
+validateTouchForeignPtrPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateTouchForeignPtrPrimitive op arguments resultTy =
+  validateForeignPtrUnitPrimitive op arguments resultTy
+
+validateForeignPtrUnitPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateForeignPtrUnitPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [foreignTy]
+        | Just _ <- foreignPtrPayloadType foreignTy ->
+            checkPrimitiveResult op (ioTy unitTy) resultTy
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (foreignPtrTy unknownForeignTypeVariableTy) foreignTy]
+      _ -> Right ()
+  ]
+
+validateWithForeignPtrPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateWithForeignPtrPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 2 arguments
+  , case map exprType arguments of
+      [foreignTy, continuationTy]
+        | Just payloadTy <- foreignPtrPayloadType foreignTy
+        , CTyFun pointerArgTy continuationResultTy <- normalizeCoreType continuationTy
+        , normalizeCoreType pointerArgTy == normalizeCoreType (ptrTy payloadTy)
+        , Just _ <- ioResultType continuationResultTy ->
+            checkPrimitiveResult op continuationResultTy resultTy
+        | Just payloadTy <- foreignPtrPayloadType foreignTy ->
+            Left [CorePrimitiveArgumentMismatch op 1 (CTyFun (ptrTy payloadTy) (ioTy unknownForeignTypeVariableTy)) continuationTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (foreignPtrTy unknownForeignTypeVariableTy) foreignTy]
+      _ -> Right ()
+  ]
+
+ptrPayloadType :: CoreType -> Maybe CoreType
+ptrPayloadType = \case
+  CTyApp (CTyCon name) payloadTy
+    | nameOcc name == "Ptr" -> Just payloadTy
+  _ -> Nothing
+
+stablePtrPayloadType :: CoreType -> Maybe CoreType
+stablePtrPayloadType = \case
+  CTyApp (CTyCon name) payloadTy
+    | nameOcc name == "StablePtr" -> Just payloadTy
+  _ -> Nothing
+
+foreignPtrPayloadType :: CoreType -> Maybe CoreType
+foreignPtrPayloadType = \case
+  CTyApp (CTyCon name) payloadTy
+    | nameOcc name == "ForeignPtr" -> Just payloadTy
+  _ -> Nothing
+
+foreignFinalizerPtrTy :: CoreType -> CoreType
+foreignFinalizerPtrTy payloadTy =
+  funPtrTy (CTyFun (ptrTy payloadTy) (ioTy unitTy))
+
+unknownForeignTypeVariableTy :: CoreType
+unknownForeignTypeVariableTy =
+  CTyVar (RName TypeVariableNamespace "$foreign" (-7998) True)
 
 ioResultType :: CoreType -> Maybe CoreType
 ioResultType = \case
@@ -463,22 +712,22 @@ validateTypeBinder name
 
 checkType :: CoreType -> CoreType -> Either [CoreValidationError] ()
 checkType expected actual
-  | expected == actual = Right ()
+  | normalizeCoreType expected == normalizeCoreType actual = Right ()
   | otherwise = Left [CoreTypeMismatch expected actual]
 
 checkAppArgument :: CoreType -> CoreType -> Either [CoreValidationError] ()
 checkAppArgument expected actual
-  | expected == actual = Right ()
+  | normalizeCoreType expected == normalizeCoreType actual = Right ()
   | otherwise = Left [CoreAppArgumentMismatch expected actual]
 
 checkAltType :: CoreAltCon -> CoreType -> CoreType -> Either [CoreValidationError] ()
 checkAltType altCon expected actual
-  | expected == actual = Right ()
+  | normalizeCoreType expected == normalizeCoreType actual = Right ()
   | otherwise = Left [CoreAlternativeTypeMismatch altCon expected actual]
 
 checkCaseBinder :: CoreType -> CoreType -> Either [CoreValidationError] ()
 checkCaseBinder expected actual
-  | expected == actual = Right ()
+  | normalizeCoreType expected == normalizeCoreType actual = Right ()
   | otherwise = Left [CoreCaseBinderMismatch expected actual]
 
 checkAltArity :: CoreAltCon -> Int -> [CoreBinder] -> Either [CoreValidationError] ()
@@ -488,7 +737,7 @@ checkAltArity altCon expected binders
 
 checkAltPatternType :: CoreAltCon -> CoreType -> CoreType -> Either [CoreValidationError] ()
 checkAltPatternType altCon expected actual
-  | expected == actual = Right ()
+  | normalizeCoreType expected == normalizeCoreType actual = Right ()
   | otherwise = Left [CoreAlternativeTypeMismatch altCon expected actual]
 
 checkConstructorArity :: RName -> [CoreType] -> [CoreBinder] -> Either [CoreValidationError] ()
@@ -498,7 +747,7 @@ checkConstructorArity name expectedFields binders
 
 checkConstructorField :: RName -> Int -> (CoreType, CoreBinder) -> Either [CoreValidationError] ()
 checkConstructorField name index (expected, binder)
-  | expected == coreBinderType binder = Right ()
+  | normalizeCoreType expected == normalizeCoreType (coreBinderType binder) = Right ()
   | otherwise = Left [CoreConstructorFieldMismatch name index expected (coreBinderType binder)]
 
 checkPrimitiveArity :: CorePrimOp -> Int -> [CoreExpr] -> Either [CoreValidationError] ()
@@ -508,13 +757,23 @@ checkPrimitiveArity op expected arguments
 
 checkPrimitiveArgument :: CorePrimOp -> Int -> (CoreType, CoreType) -> Either [CoreValidationError] ()
 checkPrimitiveArgument op index (expected, actual)
-  | expected == actual = Right ()
+  | normalizeCoreType expected == normalizeCoreType actual = Right ()
   | otherwise = Left [CorePrimitiveArgumentMismatch op index expected actual]
 
 checkPrimitiveResult :: CorePrimOp -> CoreType -> CoreType -> Either [CoreValidationError] ()
 checkPrimitiveResult op expected actual
-  | expected == actual = Right ()
+  | normalizeCoreType expected == normalizeCoreType actual = Right ()
   | otherwise = Left [CorePrimitiveResultMismatch op expected actual]
+
+checkForeignCallArgument :: RName -> Int -> (CoreType, CoreType) -> Either [CoreValidationError] ()
+checkForeignCallArgument name index (expected, actual)
+  | normalizeCoreType expected == normalizeCoreType actual = Right ()
+  | otherwise = Left [CoreForeignCallArgumentMismatch name index expected actual]
+
+checkForeignCallResult :: RName -> CoreType -> CoreType -> Either [CoreValidationError] ()
+checkForeignCallResult name expected actual
+  | normalizeCoreType expected == normalizeCoreType actual = Right ()
+  | otherwise = Left [CoreForeignCallResultMismatch name expected actual]
 
 defaultAlternativeErrors :: [CoreAlt] -> [CoreValidationError]
 defaultAlternativeErrors alternatives =
@@ -554,6 +813,10 @@ exprBinderNames = \case
     exprBinderNames expression
   CPrimOp _ arguments _ ->
     concatMap exprBinderNames arguments
+  CForeignCall _ arguments _ ->
+    concatMap exprBinderNames arguments
+  CForeignImportValue {} ->
+    []
 
 bindBinderNames :: CoreBind -> [RName]
 bindBinderNames = \case
@@ -573,7 +836,7 @@ substCoreType substitution = \case
   CTyCon name ->
     CTyCon name
   CTyApp fn arg ->
-    CTyApp (substCoreType substitution fn) (substCoreType substitution arg)
+    normalizeCoreType (CTyApp (substCoreType substitution fn) (substCoreType substitution arg))
   CTyFun arg result ->
     CTyFun (substCoreType substitution arg) (substCoreType substitution result)
   CTyForall variables body ->
@@ -583,6 +846,17 @@ substCoreType substitution = \case
   CTyList elementTy ->
     CTyList (substCoreType substitution elementTy)
 
+normalizeCoreType :: CoreType -> CoreType
+normalizeCoreType = \case
+  CTyApp (CTyCon name) elementTy
+    | name == listTyConName -> CTyList (normalizeCoreType elementTy)
+  CTyApp fn arg -> CTyApp (normalizeCoreType fn) (normalizeCoreType arg)
+  CTyFun arg result -> CTyFun (normalizeCoreType arg) (normalizeCoreType result)
+  CTyForall variables body -> CTyForall variables (normalizeCoreType body)
+  CTyTuple fields -> CTyTuple (map normalizeCoreType fields)
+  CTyList elementTy -> CTyList (normalizeCoreType elementTy)
+  other -> other
+
 matchCoreType ::
   Set.Set RName ->
   Map.Map RName CoreType ->
@@ -590,7 +864,7 @@ matchCoreType ::
   CoreType ->
   Maybe (Map.Map RName CoreType)
 matchCoreType variables substitutions expected actual =
-  case expected of
+  case normalizeCoreType expected of
     CTyVar name
       | name `Set.member` variables ->
           case Map.lookup name substitutions of
@@ -604,31 +878,31 @@ matchCoreType variables substitutions expected actual =
       | expected == actual -> Just substitutions
       | otherwise -> Nothing
     CTyApp expectedFn expectedArg ->
-      case actual of
+      case normalizeCoreType actual of
         CTyApp actualFn actualArg ->
           matchCoreType variables substitutions expectedFn actualFn
             >>= \next -> matchCoreType variables next expectedArg actualArg
         _ -> Nothing
     CTyFun expectedArg expectedResult ->
-      case actual of
+      case normalizeCoreType actual of
         CTyFun actualArg actualResult ->
           matchCoreType variables substitutions expectedArg actualArg
             >>= \next -> matchCoreType variables next expectedResult actualResult
         _ -> Nothing
     CTyForall expectedVars expectedBody ->
-      case actual of
+      case normalizeCoreType actual of
         CTyForall actualVars actualBody
           | expectedVars == actualVars ->
               matchCoreType variables substitutions expectedBody actualBody
         _ -> Nothing
     CTyTuple expectedFields ->
-      case actual of
+      case normalizeCoreType actual of
         CTyTuple actualFields
           | length expectedFields == length actualFields ->
               foldMMatch variables substitutions expectedFields actualFields
         _ -> Nothing
     CTyList expectedElement ->
-      case actual of
+      case normalizeCoreType actual of
         CTyList actualElement ->
           matchCoreType variables substitutions expectedElement actualElement
         _ -> Nothing
@@ -755,6 +1029,38 @@ renderValidationError = \case
     "Core primitive "
       <> renderCorePrimOp op
       <> " result mismatch: expected "
+      <> renderCoreType expected
+      <> ", got "
+      <> renderCoreType actual
+  CoreForeignCallArityMismatch name expected actual ->
+    "Core foreign call `"
+      <> renderRName name
+      <> "` arity mismatch: expected "
+      <> renderInt expected
+      <> ", got "
+      <> renderInt actual
+  CoreForeignCallArgumentMismatch name index expected actual ->
+    "Core foreign call `"
+      <> renderRName name
+      <> "` argument "
+      <> renderInt index
+      <> " mismatch: expected "
+      <> renderCoreType expected
+      <> ", got "
+      <> renderCoreType actual
+  CoreForeignCallResultMismatch name expected actual ->
+    "Core foreign call `"
+      <> renderRName name
+      <> "` result mismatch: expected "
+      <> renderCoreType expected
+      <> ", got "
+      <> renderCoreType actual
+  CoreForeignExportUnbound name ->
+    "Core foreign export target is unbound: " <> renderRName name
+  CoreForeignExportTypeMismatch name expected actual ->
+    "Core foreign export `"
+      <> renderRName name
+      <> "` type mismatch: expected "
       <> renderCoreType expected
       <> ", got "
       <> renderCoreType actual
