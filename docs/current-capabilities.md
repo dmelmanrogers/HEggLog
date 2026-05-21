@@ -245,7 +245,8 @@ Current status:
 - Haskell 2010 standard library layout: implemented for the current executable
   subset as generated/importable `Prelude`, `Control.Monad`, `Data.Int`,
   `Data.List`, `Data.Maybe`, `Data.Word`, `System.IO`, and implemented
-  `Foreign.*` module interfaces; broader standard modules remain reserved and documented in
+  `Foreign.*` module interfaces; `Control.Monad` includes real `Functor(fmap)`
+  support for `[]`, `Maybe`, and `IO`; broader standard modules remain reserved and documented in
   [haskell2010-standard-library-layout.md](haskell2010-standard-library-layout.md)
 
 Progress is tracked in

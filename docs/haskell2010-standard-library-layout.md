@@ -25,7 +25,7 @@ graph path until that module has an implemented surface.
 | Module | Status | Generated surface |
 | --- | --- | --- |
 | `Prelude` | implemented for current executable subset | supported built-in data constructors, classes, class methods, list functions, IO functions, tuple/list/unit types, `Thing(..)` children, and Prelude fixities |
-| `Control.Monad` | partial generated interface | `Monad(..)` for `return`, `(>>=)`, `(>>)`, and `fail`, plus method fixities |
+| `Control.Monad` | partial generated interface | `Functor(fmap)` plus `Monad(..)` for `return`, `(>>=)`, `(>>)`, and `fail`, with method fixities where applicable |
 | `Data.Int` | partial generated interface | `Int8`, `Int16`, `Int32`, `Int64` type names for the supported scalar foreign-type surface |
 | `Data.List` | partial generated interface | `(++)`, `head`, `tail`, `null`, `length`, `map`, `reverse`, `foldl`, `foldr`, and `filter`, plus `(++)` fixity |
 | `Data.Maybe` | partial generated interface | `Maybe(..)` with `Nothing` and `Just` |

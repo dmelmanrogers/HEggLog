@@ -269,7 +269,9 @@ controlMonadInterface =
   standardLibraryInterfaceWith
     controlMonadModuleName
     controlMonadNames
-    [((ClassNamespace, "Monad"), fmap (TermNamespace,) [">>=", ">>", "return", "fail"])]
+    [ ((ClassNamespace, "Functor"), fmap (TermNamespace,) ["fmap"])
+    , ((ClassNamespace, "Monad"), fmap (TermNamespace,) [">>=", ">>", "return", "fail"])
+    ]
     (standardLibraryFixitiesFor controlMonadNames)
 
 dataIntInterface :: ModuleInterface
@@ -380,8 +382,9 @@ standardLibraryNames =
 
 controlMonadNames :: [(Namespace, Text)]
 controlMonadNames =
-  (ClassNamespace, "Monad")
-    : fmap (TermNamespace,) [">>=", ">>", "return", "fail"]
+  (ClassNamespace, "Functor")
+    : (ClassNamespace, "Monad")
+    : fmap (TermNamespace,) ["fmap", ">>=", ">>", "return", "fail"]
 
 dataIntNames :: [(Namespace, Text)]
 dataIntNames =

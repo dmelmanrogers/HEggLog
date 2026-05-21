@@ -1,7 +1,7 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after PRELUDE-020 added generated
-standard-library module interface coverage. The suite covers
+Recorded for the mandatory wet-test suite after the PRELUDE-020 audit tightened
+generated standard-library module interface coverage. The suite covers
 the existing `.hg` native compiler baseline and Haskell 2010 executable-subset
 `.hs` programs that compile to native executables, compare lazy runtime
 behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
@@ -9,7 +9,7 @@ optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-21 07:44:13 UTC`
+- Date/time: `2026-05-21 08:14:15 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -33,7 +33,8 @@ Summary:
 This update adds a dedicated Haskell 2010 native case for PRELUDE-020:
 `haskell2010-standard-library-modules` imports generated `Data.List`,
 `Data.Maybe`, `Control.Monad`, and `System.IO` interfaces with explicit import
-lists and emits LLVM compiled through clang.
+lists, including `Functor(fmap)` execution for `[]`, `Maybe`, and `IO`, and
+emits LLVM compiled through clang.
 
 ## Case Table
 
@@ -127,9 +128,9 @@ lists and emits LLVM compiled through clang.
 | haskell2010-prelude-functions | `test/e2e/programs/haskell2010/prelude-functions.hs` | success | native/default | `5\n21\n7\n1\n[2,3]\nTrue\nFalse\n42\nok` | stdout matched, stderr empty, exit 0 | pass |
 | haskell2010-prelude-functions | `test/e2e/programs/haskell2010/prelude-functions.hs` | success | native/no-egglog | `5\n21\n7\n1\n[2,3]\nTrue\nFalse\n42\nok` | stdout matched, stderr empty, exit 0 | pass |
 | haskell2010-prelude-functions | `test/e2e/programs/haskell2010/prelude-functions.hs` | success | emit-llvm/default | `5\n21\n7\n1\n[2,3]\nTrue\nFalse\n42\nok` | LLVM compiled through clang, stdout matched, stderr empty, exit 0 | pass |
-| haskell2010-standard-library-modules | `test/e2e/programs/haskell2010/standard-library-modules.hs` | success | native/default | `9\n4\nTrue\nstdlib` | stdout `9\n4\nTrue\nstdlib`, stderr empty, exit 0 | pass |
-| haskell2010-standard-library-modules | `test/e2e/programs/haskell2010/standard-library-modules.hs` | success | native/no-egglog | `9\n4\nTrue\nstdlib` | stdout `9\n4\nTrue\nstdlib`, stderr empty, exit 0 | pass |
-| haskell2010-standard-library-modules | `test/e2e/programs/haskell2010/standard-library-modules.hs` | success | emit-llvm/default | `9\n4\nTrue\nstdlib` | LLVM compiled through clang, stdout `9\n4\nTrue\nstdlib`, stderr empty, exit 0 | pass |
+| haskell2010-standard-library-modules | `test/e2e/programs/haskell2010/standard-library-modules.hs` | success | native/default | `9\n9\n5\nTrue\nstdlib` | stdout `9\n9\n5\nTrue\nstdlib`, stderr empty, exit 0 | pass |
+| haskell2010-standard-library-modules | `test/e2e/programs/haskell2010/standard-library-modules.hs` | success | native/no-egglog | `9\n9\n5\nTrue\nstdlib` | stdout `9\n9\n5\nTrue\nstdlib`, stderr empty, exit 0 | pass |
+| haskell2010-standard-library-modules | `test/e2e/programs/haskell2010/standard-library-modules.hs` | success | emit-llvm/default | `9\n9\n5\nTrue\nstdlib` | LLVM compiled through clang, stdout `9\n9\n5\nTrue\nstdlib`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/default | `20` | stdout `20`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/no-egglog | `20` | stdout `20`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | emit-llvm/default | `20` | LLVM compiled through clang, stdout `20`, stderr empty, exit 0 | pass |

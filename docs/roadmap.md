@@ -74,8 +74,9 @@ Completed Haskell 2010 roadmap work:
 - PRELUDE-020 standard library module expansion: implemented with generated
   importable interfaces for `Control.Monad`, `Data.Int`, `Data.List`,
   `Data.Maybe`, `Data.Word`, `System.IO`, and implemented `Foreign.*` module
-  slices, while keeping reserved Report modules unimportable until they have
-  real support.
+  slices, including real `Functor(fmap)` support for `[]`, `Maybe`, and `IO`,
+  while keeping reserved Report modules unimportable until they have real
+  support.
 - PRELUDE-002/MOD-010 implicit Prelude import behavior: implemented with
   synthetic `import Prelude` insertion only when no explicit `Prelude` import
   exists, explicit Prelude import-list/hiding/qualified filtering, and native

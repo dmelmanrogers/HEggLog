@@ -94,7 +94,8 @@ ADT-007 completed record update expressions for the supported record subset.
 The following chunk is Prelude, deriving, and typeclass library completion:
 TC-029, TC-030, and TEST-CONF-015. PRELUDE-019 is complete for `($)`, `(.)`,
 `flip`, `head`, `tail`, `null`, `fst`, and `snd`; PRELUDE-020 is complete for
-generated/importable standard-library module interfaces that have real support.
+generated/importable standard-library module interfaces that have real support,
+including `Control.Monad` `Functor(fmap)` for `[]`, `Maybe`, and `IO`.
 The remaining tasks cover report-shaped `Show`, `Read`, and library
 conformance closure.
 

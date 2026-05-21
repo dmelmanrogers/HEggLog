@@ -1275,6 +1275,12 @@ testHaskell2010StandardLibraryPreludeInterface =
         "standard Prelude exports Monad class"
         (interfaceExportsName H2010Names.ClassNamespace "Monad" interface)
       assertBool
+        "standard Prelude exports Functor class"
+        (interfaceExportsName H2010Names.ClassNamespace "Functor" interface)
+      assertBool
+        "standard Prelude exposes Functor fmap child"
+        (interfaceExportsChild H2010Names.ClassNamespace "Functor" H2010Names.TermNamespace "fmap" interface)
+      assertBool
         "standard Prelude exposes Maybe Just child"
         (interfaceExportsChild H2010Names.TypeNamespace "Maybe" H2010Names.ConstructorNamespace "Just" interface)
       assertBool
@@ -1308,6 +1314,11 @@ testHaskell2010StandardLibraryExpandedInterfaces = do
     (interfaceExportsChild H2010Names.TypeNamespace "Maybe" H2010Names.ConstructorNamespace "Nothing" dataMaybe)
 
   controlMonad <- requireInterface (H2010.ModuleName ["Control", "Monad"])
+  assertBool "Control.Monad exports Functor" (interfaceExportsName H2010Names.ClassNamespace "Functor" controlMonad)
+  assertBool "Control.Monad exports fmap" (interfaceExportsName H2010Names.TermNamespace "fmap" controlMonad)
+  assertBool
+    "Control.Monad exposes Functor fmap child"
+    (interfaceExportsChild H2010Names.ClassNamespace "Functor" H2010Names.TermNamespace "fmap" controlMonad)
   assertBool "Control.Monad exports Monad" (interfaceExportsName H2010Names.ClassNamespace "Monad" controlMonad)
   assertBool "Control.Monad exports return" (interfaceExportsName H2010Names.TermNamespace "return" controlMonad)
   assertBool
@@ -8494,7 +8505,7 @@ haskell2010StandardLibraryModulesSource =
   "module Main where\n\
   \import Data.List ((++), foldl, head, map, null)\n\
   \import Data.Maybe (Maybe(..))\n\
-  \import Control.Monad (return)\n\
+  \import Control.Monad (Functor(..), return)\n\
   \import System.IO (IO, putStrLn, print)\n\
   \emptyInts :: [Int]\n\
   \emptyInts = []\n\
@@ -8507,15 +8518,17 @@ haskell2010StandardLibraryModulesSource =
   \main :: IO ()\n\
   \main = do\n\
   \  print (sumList (map (+ 1) [1, 2, 3]))\n\
-  \  print (describe (Just (head ([4] ++ [5]))))\n\
+  \  print (sumList (fmap (+ 1) [1, 2, 3]))\n\
+  \  print (describe (fmap (+ 1) (Just (head ([4] ++ [5])))))\n\
   \  print (null emptyInts)\n\
-  \  putStrLn \"stdlib\"\n\
+  \  fmap id (putStrLn \"stdlib\")\n\
   \  return ()\n"
 
 haskell2010StandardLibraryModulesOutput :: Text
 haskell2010StandardLibraryModulesOutput =
   "9\n\
-  \4\n\
+  \9\n\
+  \5\n\
   \True\n\
   \stdlib\n"
 

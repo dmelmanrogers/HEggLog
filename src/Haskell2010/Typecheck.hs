@@ -410,6 +410,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
   builtinEqSupportBinds <- builtinEqSupportCoreBinds classesForCore
   builtinOrdSupportBinds <- builtinOrdSupportCoreBinds classesForCore
   builtinShowSupportBinds <- builtinShowSupportCoreBinds classesForCore
+  builtinFunctorSupportBinds <- builtinFunctorSupportCoreBinds classesForCore
   builtinMonadSupportBinds <- builtinMonadSupportCoreBinds classesForCore
   builtinInstanceCoreBinds <- traverse (builtinInstanceDictionaryToCore classesForCore) builtinInstances
   instanceCoreBinds <- traverse (instanceDictionaryToCore (substitution finalState) classesForCore instances) typedInstances
@@ -425,7 +426,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
           { coreModuleName = rModuleName sourceModule
           , coreModuleConstructors = coreConstructors
           , coreModuleBinds =
-              case preludeCoreBinds <> classCoreBinds <> recordCoreBinds <> builtinEqSupportBinds <> builtinOrdSupportBinds <> builtinShowSupportBinds <> builtinMonadSupportBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> foreignCoreBinds <> sourceCoreBinds of
+              case preludeCoreBinds <> classCoreBinds <> recordCoreBinds <> builtinEqSupportBinds <> builtinOrdSupportBinds <> builtinShowSupportBinds <> builtinFunctorSupportBinds <> builtinMonadSupportBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> foreignCoreBinds <> sourceCoreBinds of
                 [] -> []
                 [one] -> [one]
                 many -> [CoreRec (concatMap bindPairs many)]
@@ -1075,6 +1076,7 @@ builtinClassInfos =
     , (builtinShowClassName, showInfo)
     , (builtinEnumClassName, enumInfo)
     , (builtinBoundedClassName, boundedInfo)
+    , (builtinFunctorClassName, functorInfo)
     , (builtinMonadClassName, monadInfo)
     ]
  where
@@ -1192,6 +1194,25 @@ builtinClassInfos =
       , ("maxBound", -1452, boundedATy)
       ]
 
+  functorF = preludeTypeVariable "f" (-1391)
+  functorA = preludeTypeVariable "a" (-1201)
+  functorB = preludeTypeVariable "b" (-1202)
+  functorFTy = TyVar functorF
+  functorATy = TyVar functorA
+  functorBTy = TyVar functorB
+  functorInfo =
+    builtinClassInfoWithKind
+      builtinFunctorClassName
+      functorF
+      (KindArrow StarKind StarKind)
+      []
+      [ BuiltinMethodSpec
+          "fmap"
+          (-1491)
+          [functorA, functorB]
+          (TyFun (TyFun functorATy functorBTy) (TyFun (TyApp functorFTy functorATy) (TyApp functorFTy functorBTy)))
+      ]
+
   monadM = preludeTypeVariable "m" (-1361)
   monadA = preludeTypeVariable "a" (-1362)
   monadB = preludeTypeVariable "b" (-1363)
@@ -1277,6 +1298,10 @@ builtinBoundedClassName :: RName
 builtinBoundedClassName =
   preludeClassName "Bounded" (-1350)
 
+builtinFunctorClassName :: RName
+builtinFunctorClassName =
+  preludeClassName "Functor" (-1390)
+
 builtinMonadClassName :: RName
 builtinMonadClassName =
   preludeClassName "Monad" (-1360)
@@ -1297,6 +1322,7 @@ canonicalClassName name
         "Show" -> builtinShowClassName
         "Enum" -> builtinEnumClassName
         "Bounded" -> builtinBoundedClassName
+        "Functor" -> builtinFunctorClassName
         "Monad" -> builtinMonadClassName
         _ -> name
   | otherwise = name
@@ -1319,6 +1345,7 @@ builtinClassInfoByOccurrence occurrence = do
           "Show" -> builtinShowClassName
           "Enum" -> builtinEnumClassName
           "Bounded" -> builtinBoundedClassName
+          "Functor" -> builtinFunctorClassName
           "Monad" -> builtinMonadClassName
           _ -> RName ClassNamespace occurrence 0 True
   case Map.lookup className classes of
@@ -1695,6 +1722,7 @@ supportedPreludeValueOccurrences =
   , "$"
   , "."
   , "flip"
+  , "fmap"
   , "map"
   , "foldr"
   , "foldl"
@@ -8193,6 +8221,7 @@ builtinInstanceDictionaries classes =
     , maybe [] showInstances (Map.lookup builtinShowClassName classes)
     , maybe [] enumInstances (Map.lookup builtinEnumClassName classes)
     , maybe [] boundedInstances (Map.lookup builtinBoundedClassName classes)
+    , maybe [] functorInstances (Map.lookup builtinFunctorClassName classes)
     , maybe [] monadInstances (Map.lookup builtinMonadClassName classes)
     ]
  where
@@ -8361,6 +8390,24 @@ builtinInstanceDictionaries classes =
         [boolMinBoundMethod, boolMaxBoundMethod]
     ]
 
+  functorInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        (TyCon ioTyConName)
+        (preludeTermName "$fFunctorIO" (-1591))
+        [ioFunctorFmapMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        (TyCon maybeTyConName)
+        (preludeTermName "$fFunctorMaybe" (-1592))
+        [maybeFunctorFmapMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        (TyCon listTyConName)
+        (preludeTermName "$fFunctorList" (-1593))
+        [listFunctorFmapMethod]
+    ]
+
   monadInstances info =
     [ BuiltinInstanceDictionary
         (classInfoName info)
@@ -8411,6 +8458,8 @@ isBuiltinStructuralInstanceConstraint wanted =
     (className, [TyList _])
       | className == builtinShowClassName -> True
     (className, [TyCon typeName])
+      | className == builtinFunctorClassName && typeName == listTyConName -> True
+    (className, [TyCon typeName])
       | className == builtinMonadClassName && typeName == listTyConName -> True
     _ -> False
 
@@ -8426,6 +8475,9 @@ overlapsBuiltinStructuralInstanceConstraint wanted =
     (className, [argument])
       | className == builtinShowClassName ->
           typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$show_list_overlap" (-1599))))
+    (className, [argument])
+      | className == builtinFunctorClassName ->
+          typesMayUnify argument (TyCon listTyConName)
     (className, [argument])
       | className == builtinMonadClassName ->
           typesMayUnify argument (TyCon listTyConName)
@@ -8869,6 +8921,78 @@ stringShowMethod =
   unaryMethod "$show_string" (-1891) stringTy stringTy $ \value ->
     consCharCore '"' (CApp (CVar showStringCharsName showStringCharsCoreType) value stringTy)
 
+ioFunctorFmapMethod :: CoreExpr
+ioFunctorFmapMethod =
+  CTypeLam [a, b] (lam function (CTyFun aTy bTy) (lam action ioA body)) ioFunctorFmapCoreType
+ where
+  a = preludeTypeVariable "a" (-1201)
+  b = preludeTypeVariable "b" (-1202)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  ioA = ioTy aTy
+  ioB = ioTy bTy
+  function = builtinLocalTermName "$io_functor_fmap_f" (-2260)
+  action = builtinLocalTermName "$io_functor_fmap_action" (-2261)
+  value = builtinLocalTermName "$io_functor_fmap_value" (-2262)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  var name ty = CVar name ty
+  mappedValue =
+    CApp (var function (CTyFun aTy bTy)) (var value aTy) bTy
+  continuation =
+    CLam (CoreBinder value aTy) (CPrimOp PrimIOReturn [mappedValue] ioB) (CTyFun aTy ioB)
+  body =
+    CPrimOp PrimIOBind [var action ioA, continuation] ioB
+
+maybeFunctorFmapMethod :: CoreExpr
+maybeFunctorFmapMethod =
+  CTypeLam [a, b] (lam function (CTyFun aTy bTy) (lam value maybeA body)) maybeFunctorFmapCoreType
+ where
+  a = preludeTypeVariable "a" (-1201)
+  b = preludeTypeVariable "b" (-1202)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  maybeA = CTyApp (CTyCon maybeTyConName) aTy
+  maybeB = CTyApp (CTyCon maybeTyConName) bTy
+  function = builtinLocalTermName "$maybe_functor_fmap_f" (-2263)
+  value = builtinLocalTermName "$maybe_functor_fmap_value" (-2264)
+  justValue = builtinLocalTermName "$maybe_functor_fmap_just" (-2265)
+  caseName = builtinLocalTermName "$maybe_functor_fmap_case" (-2266)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  body =
+    CCase
+      (CVar value maybeA)
+      (CoreBinder caseName maybeA)
+      [ CoreAlt (ConstructorAlt maybeNothingDataConName) [] (nothingCore bTy)
+      , CoreAlt
+          (ConstructorAlt maybeJustDataConName)
+          [CoreBinder justValue aTy]
+          (justCore bTy (CApp (CVar function (CTyFun aTy bTy)) (CVar justValue aTy) bTy))
+      ]
+      maybeB
+
+listFunctorFmapMethod :: CoreExpr
+listFunctorFmapMethod =
+  CTypeLam [a, b] (lam functionName (CTyFun aTy bTy) (lam xsName listA body)) listFunctorFmapCoreType
+ where
+  a = preludeTypeVariable "a" (-1201)
+  b = preludeTypeVariable "b" (-1202)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  listA = CTyList aTy
+  listB = CTyList bTy
+  functionName = builtinLocalTermName "$list_functor_fmap_f" (-2267)
+  xsName = builtinLocalTermName "$list_functor_fmap_xs" (-2268)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  body =
+    CApp
+      ( CApp
+          (CTypeApp (CVar functorListMapName listFunctorFmapCoreType) [aTy, bTy] (CTyFun (CTyFun aTy bTy) (CTyFun listA listB)))
+          (CVar functionName (CTyFun aTy bTy))
+          (CTyFun listA listB)
+      )
+      (CVar xsName listA)
+      listB
+
 ioMonadBindMethod :: CoreExpr
 ioMonadBindMethod =
   CTypeLam [a, b] (lam first ioA (lam continuation (CTyFun aTy ioB) (CPrimOp PrimIOBind [var first ioA, var continuation (CTyFun aTy ioB)] ioB))) ioMonadBindCoreType
@@ -9047,6 +9171,27 @@ maybeMonadBindCoreType = monadBindFieldCoreType (CTyCon maybeTyConName)
 maybeMonadThenCoreType = monadThenFieldCoreType (CTyCon maybeTyConName)
 maybeMonadReturnCoreType = monadReturnFieldCoreType (CTyCon maybeTyConName)
 maybeMonadFailCoreType = monadFailFieldCoreType (CTyCon maybeTyConName)
+
+ioFunctorFmapCoreType, maybeFunctorFmapCoreType, listFunctorFmapCoreType :: CoreType
+ioFunctorFmapCoreType = functorFmapFieldCoreType (CTyCon ioTyConName)
+maybeFunctorFmapCoreType = functorFmapFieldCoreType (CTyCon maybeTyConName)
+listFunctorFmapCoreType = functorFmapFieldCoreType listTyConCore
+
+functorFmapFieldCoreType :: CoreType -> CoreType
+functorFmapFieldCoreType functorTy =
+  CTyForall [a, b] (CTyFun (CTyFun aTy bTy) (CTyFun functorA functorB))
+ where
+  a = preludeTypeVariable "a" (-1201)
+  b = preludeTypeVariable "b" (-1202)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  functorA = applyFunctorCoreType functorTy aTy
+  functorB = applyFunctorCoreType functorTy bTy
+
+applyFunctorCoreType :: CoreType -> CoreType -> CoreType
+applyFunctorCoreType functorTy argumentTy
+  | functorTy == listTyConCore = CTyList argumentTy
+  | otherwise = CTyApp functorTy argumentTy
 
 listMonadThenCoreType, listMonadReturnCoreType, listMonadFailCoreType :: CoreType
 listMonadThenCoreType = monadThenFieldCoreType listTyConCore
@@ -9902,6 +10047,58 @@ showListDictionaryCorePair info = do
       body = CApp typedConstructor method showDictListA
       rhs = CTypeLam [a] (CLam (CoreBinder dictName showDictA) body (CTyFun showDictA showDictListA)) showListDictionaryCoreType
   pure (CoreBinder showListDictionaryName showListDictionaryCoreType, rhs)
+
+builtinFunctorSupportCoreBinds :: Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
+builtinFunctorSupportCoreBinds classes
+  | builtinFunctorClassName `Map.member` classes =
+      Right [CoreRec [functorListMapCorePair]]
+  | otherwise =
+      Right []
+
+functorListMapName :: RName
+functorListMapName =
+  preludeTermName "$functor_list_map" (-2250)
+
+functorListMapCorePair :: (CoreBinder, CoreExpr)
+functorListMapCorePair =
+  (CoreBinder functorListMapName listFunctorFmapCoreType, CTypeLam [a, b] (lam functionName (CTyFun aTy bTy) (lam xsName listA body)) listFunctorFmapCoreType)
+ where
+  a = preludeTypeVariable "a" (-1201)
+  b = preludeTypeVariable "b" (-1202)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  listA = CTyList aTy
+  listB = CTyList bTy
+  functionName = builtinLocalTermName "$functor_list_map_f" (-2251)
+  xsName = builtinLocalTermName "$functor_list_map_xs" (-2252)
+  headName = builtinLocalTermName "$functor_list_map_head" (-2253)
+  tailName = builtinLocalTermName "$functor_list_map_tail" (-2254)
+  caseName = builtinLocalTermName "$functor_list_map_case" (-2255)
+  lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
+  function = CVar functionName (CTyFun aTy bTy)
+  recursiveTail =
+    CApp
+      ( CApp
+          (CTypeApp (CVar functorListMapName listFunctorFmapCoreType) [aTy, bTy] (CTyFun (CTyFun aTy bTy) (CTyFun listA listB)))
+          function
+          (CTyFun listA listB)
+      )
+      (CVar tailName listA)
+      listB
+  body =
+    listCaseCore
+      (CVar xsName listA)
+      caseName
+      aTy
+      listB
+      (nilCore bTy)
+      headName
+      tailName
+      ( consCore
+          bTy
+          (CApp function (CVar headName aTy) bTy)
+          recursiveTail
+      )
 
 builtinMonadSupportCoreBinds :: Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
 builtinMonadSupportCoreBinds classes

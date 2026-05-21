@@ -1,6 +1,6 @@
 module Main where
 
-import Control.Monad (return)
+import Control.Monad (Functor (..), return)
 import Data.List ((++), foldl, head, map, null)
 import Data.Maybe (Maybe (..))
 import System.IO (IO, print, putStrLn)
@@ -20,7 +20,8 @@ describe value =
 main :: IO ()
 main = do
   print (sumList (map (+ 1) [1, 2, 3]))
-  print (describe (Just (head ([4] ++ [5]))))
+  print (sumList (fmap (+ 1) [1, 2, 3]))
+  print (describe (fmap (+ 1) (Just (head ([4] ++ [5])))))
   print (null emptyInts)
-  putStrLn "stdlib"
+  fmap id (putStrLn "stdlib")
   return ()

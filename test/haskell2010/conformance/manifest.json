@@ -236,7 +236,7 @@
       "sourceFile": "test/haskell2010/conformance/modules/standard-library-modules.hs",
       "category": "modules",
       "expectedStatus": "native-success",
-      "expectedStdout": "9\n4\nTrue\nstdlib\n",
+      "expectedStdout": "9\n9\n5\nTrue\nstdlib\n",
       "requiredStage": "native",
       "compilerModes": [
         "default",

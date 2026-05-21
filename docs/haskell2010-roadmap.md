@@ -657,7 +657,8 @@ Completed immediate tasks:
 - PRELUDE-020 standard library module expansion, including generated/importable
   interfaces for `Control.Monad`, `Data.Int`, `Data.List`, `Data.Maybe`,
   `Data.Word`, `System.IO`, and implemented `Foreign.*` module slices, with
-  reserved Report modules kept unimportable until real support exists.
+  `Control.Monad` exposing real `Functor(fmap)` support for `[]`, `Maybe`, and
+  `IO`, and reserved Report modules kept unimportable until real support exists.
 - PRELUDE-002/MOD-010 implicit Prelude import behavior, including synthetic
   `import Prelude` insertion only when no explicit `Prelude` import exists,
   explicit Prelude import-list/hiding/qualified filtering, and native

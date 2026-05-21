@@ -13235,7 +13235,8 @@ Notes:
   shared `ModuleInterface` export, child-export, fixity, and instance slots;
   no reserved module is importable as an empty placeholder. Native e2e and
   conformance fixtures cover explicit imports from `Data.List`, `Data.Maybe`,
-  `Control.Monad`, and `System.IO`; the old unsupported package/search-path
+  `Control.Monad`, and `System.IO`, including `Functor(fmap)` execution for
+  lists, `Maybe`, and `IO`; the old unsupported package/search-path
   fixture now targets reserved `Data.Char` so unsupported standard-library
   modules still fail explicitly. The standard-library layout doc identifies
   every Haskell 2010 Libraries module as implemented, partial, reserved, or

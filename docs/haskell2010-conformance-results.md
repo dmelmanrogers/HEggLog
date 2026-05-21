@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-21 07:44:13 UTC
+Date/time: 2026-05-21 08:14:15 UTC
 
-Commit hash tested: working tree with PRELUDE-020 standard-library module expansion changes.
+Commit hash tested: working tree with PRELUDE-020 standard-library module expansion audit changes.
 
 Primary conformance command run:
 
@@ -110,8 +110,8 @@ default and `--no-egglog` modes.
 PRELUDE-020 is now covered by native conformance and e2e fixtures.
 `modules.standard-library-modules` checks generated/importable interfaces for
 `Data.List`, `Data.Maybe`, `Control.Monad`, and `System.IO` with explicit
-import lists, `Maybe(..)` child exports, imported fixities, ordinary
-Prelude-backed semantics, and default plus `--no-egglog` native execution. The
+import lists, `Functor(fmap)` and `Maybe(..)` child exports, imported fixities,
+ordinary Prelude-backed semantics, and default plus `--no-egglog` native execution. The
 unsupported package/search-path fixture now imports reserved `Data.Char` so
 unimplemented standard-library modules continue to fail explicitly.
 
