@@ -105,6 +105,14 @@ standardPreludeNames =
     , "abs"
     , "signum"
     , "fromInteger"
+    , "toRational"
+    , "quot"
+    , "rem"
+    , "div"
+    , "mod"
+    , "quotRem"
+    , "divMod"
+    , "toInteger"
     , "++"
     , ">>="
     , ">>"
@@ -129,8 +137,8 @@ standardPreludeNames =
     , "otherwise"
     ]
     <> fmap (ConstructorNamespace,) ["True", "False", "Nothing", "Just", "Left", "Right", "LT", "EQ", "GT", ":"]
-    <> fmap (TypeNamespace,) ["Int", "Integer", "Bool", "Char", "String", "[]", "IO", "CString", "Maybe", "Either", "Ordering", "()"]
-    <> fmap (ClassNamespace,) ["Eq", "Ord", "Show", "Read", "Num", "Enum", "Bounded", "Functor", "Monad"]
+    <> fmap (TypeNamespace,) ["Int", "Integer", "Rational", "Bool", "Char", "String", "[]", "IO", "CString", "Maybe", "Either", "Ordering", "()"]
+    <> fmap (ClassNamespace,) ["Eq", "Ord", "Show", "Read", "Num", "Real", "Integral", "Enum", "Bounded", "Functor", "Monad"]
 
 standardPreludeExportNames :: [RName]
 standardPreludeExportNames =
@@ -148,6 +156,8 @@ standardPreludeExportChildren =
     , classified "Ord" ["compare", "<", "<=", ">", ">=", "max", "min"]
     , classified "Show" ["show"]
     , classified "Num" ["+", "-", "*", "negate", "abs", "signum", "fromInteger"]
+    , classified "Real" ["toRational"]
+    , classified "Integral" ["quot", "rem", "div", "mod", "quotRem", "divMod", "toInteger"]
     , classified "Enum" ["succ", "pred", "toEnum", "fromEnum", "enumFrom", "enumFromThen", "enumFromTo", "enumFromThenTo"]
     , classified "Bounded" ["minBound", "maxBound"]
     , classified "Functor" ["fmap"]

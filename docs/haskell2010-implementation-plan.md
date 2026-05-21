@@ -121,7 +121,8 @@ is built alongside them.
     classes, concrete context-free instances, structured explicit constraints,
     structured placeholder diagnostics for unsupported constraint contexts,
     generated dictionary constructors/selectors, built-in `Eq Int`, `Eq Bool`,
-    `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`,
+    `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Real Int`,
+    `Integral Int`, `Show Int`,
     `Show Bool`, `Show Char`, exact `Show String`, and generated structural
     list `Show` dictionaries, derived `Eq`/`Ord`/`Show` dictionaries for supported
     data/newtype declarations, structural list `Eq`, and structural list `Ord`,
@@ -130,7 +131,8 @@ is built alongside them.
     documented executable-subset monomorphism/defaulting behavior,
     Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
     Instance contexts, derived `Read`, the full `showsPrec`/`showList` hierarchy,
-    and additional numeric classes remain planned.
+    Fractional/Floating classes, arbitrary-precision `Integer`, and full
+    `Ratio`/`Rational` behavior remain planned.
 15. Guarded RHS/case alternatives and as-pattern aliases. Completed for
     multi-branch guards, guarded case alternatives, as-pattern alias binding,
     Core/STG/native no-match behavior for guard fallthrough, and wet-tested

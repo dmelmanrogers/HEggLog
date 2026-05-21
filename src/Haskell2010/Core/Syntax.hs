@@ -144,6 +144,7 @@ data CorePrimOp
   | PrimSub
   | PrimMul
   | PrimDiv
+  | PrimRem
   | PrimEq
   | PrimLt
   | PrimNegate

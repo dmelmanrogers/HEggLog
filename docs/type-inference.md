@@ -144,11 +144,12 @@ for standard-class defaulting before generalization, while explicitly signed
 bindings and functions with value parameters keep their result metavariables
 protected from this defaulting pass. This matches the current executable
 `Int`-defaulting behavior for numeric/simple class constraints, now including
-standard-class compatibility with `Enum`/`Bounded` when a `Num` constraint is
-present, without claiming complete Haskell 2010 monomorphism-restriction
-coverage for every pattern binding and class-library form. Full MR conformance
-should be revisited when broader pattern bindings and the remaining numeric
-class hierarchy are in place.
+standard-class compatibility with `Enum`/`Bounded` and with the supported
+`Real`/`Integral` hierarchy when a `Num` constraint is present, without
+claiming complete Haskell 2010 monomorphism-restriction coverage for every
+pattern binding and class-library form. Full MR conformance should be revisited
+when broader pattern bindings, Fractional/Floating classes, arbitrary-precision
+`Integer`, and full `Ratio`/`Rational` behavior are in place.
 
 TYPE-020 preserves source attribution for Haskell 2010 typecheck failures.
 Parsed declarations, expressions, patterns, statements, alternatives,

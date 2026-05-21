@@ -315,6 +315,7 @@ validatePrimitive op arguments resultTy =
     PrimSub -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
     PrimMul -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
     PrimDiv -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
+    PrimRem -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
     PrimLt -> validateFixedPrimitive op [intTy, intTy] boolTy arguments resultTy
     PrimNegate -> validateFixedPrimitive op [intTy] intTy arguments resultTy
     PrimCharToInt -> validateFixedPrimitive op [charTy] intTy arguments resultTy

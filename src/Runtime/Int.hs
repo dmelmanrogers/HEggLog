@@ -11,6 +11,7 @@ module Runtime.Int
   , minHIntInteger
   , mkHIntLiteral
   , mulHInt
+  , remHInt
   , renderHInt
   , renderIntError
   , subHInt
@@ -74,6 +75,11 @@ mulHInt =
 divHInt :: HInt -> HInt -> Either IntError HInt
 divHInt lhs rhs =
   checkedBinOp Div quot lhs rhs
+
+remHInt :: HInt -> HInt -> Either IntError HInt
+remHInt lhs rhs
+  | hintToInteger lhs == minHIntInteger && hintToInteger rhs == (-1) = Left (IntOverflow Div lhs rhs)
+  | otherwise = checkedBinOp Div rem lhs rhs
 
 ltHInt :: HInt -> HInt -> Bool
 ltHInt lhs rhs =

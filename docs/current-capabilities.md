@@ -82,7 +82,7 @@ overlapping-instance rejection, structured placeholder diagnostics for remaining
 source-spanned typecheck diagnostics including delayed dictionary failures,
 documented nullary-binding monomorphism/defaulting behavior, boxed `Char`
 literals and literal cases, scalar `main :: Char` output, and built-in
-`Eq Int`, `Eq Bool`, `Eq Char`, structural `Eq [a]`, `Ord Int`, `Ord Bool`, `Ord Char`, structural `Ord [a]`, and executable `Num Int`
+`Eq Int`, `Eq Bool`, `Eq Char`, structural `Eq [a]`, `Ord Int`, `Ord Bool`, `Ord Char`, structural `Ord [a]`, executable `Num Int`, executable `Real Int`, and executable `Integral Int`
 class methods, plus guarded RHSs, guarded case alternatives, as-pattern
 aliases, and guard-fallthrough no-match behavior, plus the first IO printing/input
 slice for `IO`, `main :: IO ()`,
@@ -188,7 +188,7 @@ Current status:
   default class methods, overlapping-instance rejection, dictionary constructors/selectors,
   dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Eq Char`,
   `Ord Int`, `Ord Bool`, `Ord Char`, structural list `Ord`, derived `Eq`/`Ord`/`Show`/`Enum`/`Bounded`,
-  `Num Int`, `Show Int`, `Show Bool`, `Show Char`,
+  `Num Int`, `Real Int`, `Integral Int`, `Show Int`, `Show Bool`, `Show Char`,
   `Show String`, structural list `Show`, `Enum Int`, `Enum Char`,
   `Bounded Int`, `Bounded Char`, `Bounded Bool`, and higher-kinded `Monad`
   dictionaries for `IO`, `Maybe`, and lists, plus source-spanned Haskell 2010
@@ -262,8 +262,8 @@ source matrix closure, and ADT-007 completed record
 update expressions.
 
 The following coherent chunk is Prelude, deriving, and typeclass library
-completion: TC-029, TC-030, TC-033, PRELUDE-009,
-PRELUDE-019, PRELUDE-020, and TEST-CONF-015. Remaining FFI closure is tracked
+completion: TC-029, TC-030, PRELUDE-009, PRELUDE-019,
+PRELUDE-020, and TEST-CONF-015. Remaining FFI closure is tracked
 separately by FFI-010 through FFI-013.
 
 ## Carry-Forward Infrastructure

@@ -37,14 +37,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 112 |
-| Haskell source files in corpus | 119 |
-| HUnit test cases executed | 149 |
-| Native-success fixtures | 76 |
+| Manifest conformance fixtures | 114 |
+| Haskell source files in corpus | 121 |
+| HUnit test cases executed | 152 |
+| Native-success fixtures | 77 |
 | Native-runtime-error fixtures | 4 |
-| Compile-error fixtures | 26 |
+| Compile-error fixtures | 27 |
 | Unsupported-documented fixtures | 6 |
-| Native subprocess compile/run checks | 117 |
+| Native subprocess compile/run checks | 119 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -87,6 +87,13 @@ including field-wise `minBound`/`maxBound` dictionaries. The negative
 `derived-bounded-mixed-constructors` fixture rejects declarations that are
 neither enumerations nor single-constructor shapes.
 
+TC-033 is now covered by native and negative conformance fixtures.
+`prelude.numeric-hierarchy` checks executable `Real Int` and `Integral Int`
+dictionaries for `toRational`, `quot`, `rem`, `div`, `mod`, `quotRem`,
+`divMod`, `toInteger`, and supported `Integer` default declarations in default
+and `--no-egglog` modes. The negative `invalid-default-type` fixture rejects a
+non-numeric default declaration with an explicit diagnostic.
+
 ## Category Summary
 
 | Category | Manifest fixtures | Status |
@@ -101,9 +108,9 @@ neither enumerations nor single-constructor shapes.
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
 | `modules` | 6 | single-module, same-directory import, implicit/explicit/qualified Prelude import, and source-instance import/export tests exist |
-| `negative` | 26 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
+| `negative` | 27 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid default declarations, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
-| `prelude` | 13 | list functions, append, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
+| `prelude` | 14 | list functions, append, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
 | `typeclasses` | 11 | user dictionary, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, derived Enum, and derived Bounded tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |

@@ -674,6 +674,7 @@ corePrimToANF = \case
   PrimSub -> Just Sub
   PrimMul -> Just Mul
   PrimDiv -> Just Div
+  PrimRem -> Nothing
   PrimEq -> Just Eq
   PrimLt -> Just Lt
   PrimNegate -> Nothing

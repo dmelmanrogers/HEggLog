@@ -387,6 +387,10 @@ typecheckModuleToCoreWithWarnings sourceModule = do
       pure (bindings, env, instances, foreignCoreBinds, foreignCoreExports)
   let classes = classInfos finalState
       classesForCore = usedClassInfos classes (substitution finalState) typedBindings typedInstances
+      coreTupleArities =
+        if builtinRealClassName `Map.member` classesForCore || builtinIntegralClassName `Map.member` classesForCore
+          then Set.insert 2 tupleArities
+          else tupleArities
       builtinInstances = builtinInstanceDictionaries classesForCore
       instances =
         builtinInstanceDictionaryRefs builtinInstances
@@ -410,7 +414,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
   preludeCoreBinds <- preludeCoreBindings (preludeValues <> classPreludeSupportNames classesForCore)
   let sourceCoreBinds = maybe [] (: []) (bindingGroupCoreBind typedBindings coreBinds)
   coreConstructors <-
-    Map.union (tupleConstructorInfos tupleArities)
+    Map.union (tupleConstructorInfos coreTupleArities)
       <$> constructorInfosToCore
         (substitution finalState)
         (filterClassDictionaryConstructors classes classesForCore (dataConstructors finalState))
@@ -1064,6 +1068,8 @@ builtinClassInfos =
     [ (builtinEqClassName, eqInfo)
     , (builtinOrdClassName, ordInfo)
     , (builtinNumClassName, numInfo)
+    , (builtinRealClassName, realInfo)
+    , (builtinIntegralClassName, integralInfo)
     , (builtinShowClassName, showInfo)
     , (builtinEnumClassName, enumInfo)
     , (builtinBoundedClassName, boundedInfo)
@@ -1113,6 +1119,36 @@ builtinClassInfos =
       , ("abs", -1425, TyFun numATy numATy)
       , ("signum", -1426, TyFun numATy numATy)
       , ("fromInteger", -1427, TyFun intMonoType numATy)
+      ]
+
+  realA = preludeTypeVariable "a" (-1371)
+  realATy = TyVar realA
+  realInfo =
+    builtinClassInfo
+      builtinRealClassName
+      realA
+      [ singleClassConstraint builtinNumClassName realATy
+      , singleClassConstraint builtinOrdClassName realATy
+      ]
+      [("toRational", -1471, TyFun realATy rationalMonoType)]
+
+  integralA = preludeTypeVariable "a" (-1381)
+  integralATy = TyVar integralA
+  integralPairTy = TyTuple [integralATy, integralATy]
+  integralInfo =
+    builtinClassInfo
+      builtinIntegralClassName
+      integralA
+      [ singleClassConstraint builtinRealClassName integralATy
+      , singleClassConstraint builtinEnumClassName integralATy
+      ]
+      [ ("quot", -1481, TyFun integralATy (TyFun integralATy integralATy))
+      , ("rem", -1482, TyFun integralATy (TyFun integralATy integralATy))
+      , ("div", -1483, TyFun integralATy (TyFun integralATy integralATy))
+      , ("mod", -1484, TyFun integralATy (TyFun integralATy integralATy))
+      , ("quotRem", -1485, TyFun integralATy (TyFun integralATy integralPairTy))
+      , ("divMod", -1486, TyFun integralATy (TyFun integralATy integralPairTy))
+      , ("toInteger", -1487, TyFun integralATy intMonoType)
       ]
 
   showA = preludeTypeVariable "a" (-1331)
@@ -1219,6 +1255,14 @@ builtinNumClassName :: RName
 builtinNumClassName =
   preludeClassName "Num" (-1320)
 
+builtinRealClassName :: RName
+builtinRealClassName =
+  preludeClassName "Real" (-1370)
+
+builtinIntegralClassName :: RName
+builtinIntegralClassName =
+  preludeClassName "Integral" (-1380)
+
 builtinShowClassName :: RName
 builtinShowClassName =
   preludeClassName "Show" (-1330)
@@ -1246,6 +1290,8 @@ canonicalClassName name
         "Eq" -> builtinEqClassName
         "Ord" -> builtinOrdClassName
         "Num" -> builtinNumClassName
+        "Real" -> builtinRealClassName
+        "Integral" -> builtinIntegralClassName
         "Show" -> builtinShowClassName
         "Enum" -> builtinEnumClassName
         "Bounded" -> builtinBoundedClassName
@@ -1266,6 +1312,8 @@ builtinClassInfoByOccurrence occurrence = do
           "Eq" -> builtinEqClassName
           "Ord" -> builtinOrdClassName
           "Num" -> builtinNumClassName
+          "Real" -> builtinRealClassName
+          "Integral" -> builtinIntegralClassName
           "Show" -> builtinShowClassName
           "Enum" -> builtinEnumClassName
           "Bounded" -> builtinBoundedClassName
@@ -1693,6 +1741,14 @@ supportedPreludeValueOccurrences =
   , "abs"
   , "signum"
   , "fromInteger"
+  , "toRational"
+  , "quot"
+  , "rem"
+  , "div"
+  , "mod"
+  , "quotRem"
+  , "divMod"
+  , "toInteger"
   ]
 
 inferBindingGroup :: TypeEnv -> [RDecl] -> InferM ([TypedBinding], TypeEnv)
@@ -1928,7 +1984,16 @@ isStandardDefaultingClass className =
 
 standardDefaultingClasses :: Set.Set RName
 standardDefaultingClasses =
-  Set.fromList [builtinEqClassName, builtinOrdClassName, builtinEnumClassName, builtinBoundedClassName, builtinNumClassName, builtinShowClassName]
+  Set.fromList
+    [ builtinEqClassName
+    , builtinOrdClassName
+    , builtinEnumClassName
+    , builtinBoundedClassName
+    , builtinNumClassName
+    , builtinRealClassName
+    , builtinIntegralClassName
+    , builtinShowClassName
+    ]
 
 refreshBindingReferences :: Subst -> Map.Map RName Scheme -> TypedBinding -> TypedBinding
 refreshBindingReferences subst schemes binding =
@@ -6285,8 +6350,10 @@ builtinTypeConstructorMonoType name =
     Just _ ->
       case nameOcc name of
         "Int" -> pure intMonoType
+        "Integer" -> pure intMonoType
         "Bool" -> pure boolMonoType
         "Char" -> pure charMonoType
+        "Rational" -> pure rationalMonoType
         "String" -> pure stringMonoType
         "[]" -> pure (TyCon listTyConName)
         "IO" -> pure (TyCon ioTyConName)
@@ -6309,8 +6376,10 @@ builtinTypeConstructorInfo name
       typeConstructorInfo
         <$> case nameOcc name of
           "Int" -> Just 0
+          "Integer" -> Just 0
           "Bool" -> Just 0
           "Char" -> Just 0
+          "Rational" -> Just 0
           "String" -> Just 0
           "[]" -> Just 1
           "IO" -> Just 1
@@ -6732,12 +6801,6 @@ preludeCorePair name =
   notX = preludeTermName "$not_x" (-3004)
   notCase = preludeTermName "$not_case" (-3005)
 
-  mapF = preludeTermName "$map_f" (-3010)
-  mapXs = preludeTermName "$map_xs" (-3011)
-  mapY = preludeTermName "$map_y" (-3012)
-  mapYs = preludeTermName "$map_ys" (-3013)
-  mapCase = preludeTermName "$map_case" (-3014)
-
   foldrF = preludeTermName "$foldr_f" (-3020)
   foldrZ = preludeTermName "$foldr_z" (-3021)
   foldrXs = preludeTermName "$foldr_xs" (-3022)
@@ -6818,6 +6881,13 @@ preludeCorePair name =
   mapRhs functionName =
     CTypeLam [a, b] (lam mapF (CTyFun aTy bTy) (lam mapXs listA mapBody)) mapTy
    where
+    mapF = scopedName "$map_f" 10
+    mapXs = scopedName "$map_xs" 11
+    mapY = scopedName "$map_y" 12
+    mapYs = scopedName "$map_ys" 13
+    mapCase = scopedName "$map_case" 14
+    scopedName occurrence offset =
+      builtinLocalTermName occurrence (nameUnique functionName * 100 + offset)
     recursive =
       apply
         (apply (specialize functionName mapTy [aTy, bTy] (CTyFun (CTyFun aTy bTy) (CTyFun listA listB))) (var mapF (CTyFun aTy bTy)) (CTyFun listA listB))
@@ -7303,11 +7373,17 @@ applyCore :: CoreExpr -> CoreExpr -> CoreType -> CoreExpr
 applyCore fn arg resultTy =
   CApp fn arg resultTy
 
-intAdd, intSub, intLt :: CoreExpr -> CoreExpr -> CoreExpr
+intAdd, intSub, intMul, intQuot, intRem, intLt :: CoreExpr -> CoreExpr -> CoreExpr
 intAdd lhs rhs =
   CPrimOp PrimAdd [lhs, rhs] intTy
 intSub lhs rhs =
   CPrimOp PrimSub [lhs, rhs] intTy
+intMul lhs rhs =
+  CPrimOp PrimMul [lhs, rhs] intTy
+intQuot lhs rhs =
+  CPrimOp PrimDiv [lhs, rhs] intTy
+intRem lhs rhs =
+  CPrimOp PrimRem [lhs, rhs] intTy
 intLt lhs rhs =
   CPrimOp PrimLt [lhs, rhs] boolTy
 
@@ -7887,6 +7963,8 @@ builtinInstanceDictionaries classes =
     [ maybe [] eqInstances (Map.lookup builtinEqClassName classes)
     , maybe [] ordInstances (Map.lookup builtinOrdClassName classes)
     , maybe [] numInstances (Map.lookup builtinNumClassName classes)
+    , maybe [] realInstances (Map.lookup builtinRealClassName classes)
+    , maybe [] integralInstances (Map.lookup builtinIntegralClassName classes)
     , maybe [] showInstances (Map.lookup builtinShowClassName classes)
     , maybe [] enumInstances (Map.lookup builtinEnumClassName classes)
     , maybe [] boundedInstances (Map.lookup builtinBoundedClassName classes)
@@ -7962,6 +8040,29 @@ builtinInstanceDictionaries classes =
         , intAbsMethod
         , intSignumMethod
         , intFromIntegerMethod
+        ]
+    ]
+
+  realInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fRealInt" (-1571))
+        [intToRationalMethod]
+    ]
+
+  integralInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fIntegralInt" (-1581))
+        [ intQuotMethod
+        , intRemMethod
+        , intDivMethod
+        , intModMethod
+        , intQuotRemMethod
+        , intDivModMethod
+        , intToIntegerMethod
         ]
     ]
 
@@ -8353,6 +8454,90 @@ intSignumMethod =
 intFromIntegerMethod :: CoreExpr
 intFromIntegerMethod =
   unaryMethod "$fromInteger_int" (-1861) intTy intTy id
+
+intToRationalMethod :: CoreExpr
+intToRationalMethod =
+  unaryMethod "$toRational_int" (-1862) intTy rationalCoreType $ \value ->
+    tuple2IntCore value oneInt
+
+intQuotMethod :: CoreExpr
+intQuotMethod =
+  binaryPrimMethod "$quot_int" (-1863) intTy intTy PrimDiv
+
+intRemMethod :: CoreExpr
+intRemMethod =
+  binaryPrimMethod "$rem_int" (-1864) intTy intTy PrimRem
+
+intDivMethod :: CoreExpr
+intDivMethod =
+  binaryMethod "$div_int" (-1865) intTy intTy (intDivCoreWith "$div_int" (-18650))
+
+intModMethod :: CoreExpr
+intModMethod =
+  binaryMethod "$mod_int" (-1866) intTy intTy (intModCoreWith "$mod_int" (-18660))
+
+intQuotRemMethod :: CoreExpr
+intQuotRemMethod =
+  binaryMethod "$quotRem_int" (-1867) intTy rationalCoreType $ \lhs rhs ->
+    tuple2IntCore (intQuot lhs rhs) (intRem lhs rhs)
+
+intDivModMethod :: CoreExpr
+intDivModMethod =
+  binaryMethod "$divMod_int" (-1868) intTy rationalCoreType $ \lhs rhs ->
+    letCore dName intTy (intDivCoreWith "$divMod_int" (-18680) lhs rhs) $
+      letCore mName intTy (intSub lhs (intMul dVar rhs)) $
+        tuple2IntCore dVar mVar
+ where
+  dName = builtinLocalTermName "$divMod_int_d" (-18688)
+  mName = builtinLocalTermName "$divMod_int_m" (-18689)
+  dVar = CVar dName intTy
+  mVar = CVar mName intTy
+
+intToIntegerMethod :: CoreExpr
+intToIntegerMethod =
+  unaryMethod "$toInteger_int" (-1869) intTy intTy id
+
+intDivCoreWith :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
+intDivCoreWith occurrence unique lhs rhs =
+  letCore qName intTy (intQuot lhs rhs) $
+    letCore rName intTy (intRem lhs rhs) $
+      intDivFromQuotRem occurrence (unique - 3) lhs rhs qVar rVar
+ where
+  qName = builtinLocalTermName (occurrence <> "_q") (unique - 1)
+  rName = builtinLocalTermName (occurrence <> "_r") (unique - 2)
+  qVar = CVar qName intTy
+  rVar = CVar rName intTy
+
+intModCoreWith :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
+intModCoreWith occurrence unique lhs rhs =
+  letCore dName intTy (intDivCoreWith occurrence (unique - 10) lhs rhs) $
+    intSub lhs (intMul dVar rhs)
+ where
+  dName = builtinLocalTermName (occurrence <> "_d") (unique - 1)
+  dVar = CVar dName intTy
+
+intDivFromQuotRem :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+intDivFromQuotRem occurrence unique lhs rhs quotient remainder =
+  boolCaseCore (occurrence <> "_adjust") unique needsAdjust intTy (intSub quotient oneInt) quotient
+ where
+  remainderNonZero =
+    boolNotCore (occurrence <> "_rem_nonzero") (unique - 1) (CPrimOp PrimEq [remainder, zeroInt] boolTy)
+  signsDiffer =
+    boolXorCore (occurrence <> "_signs_differ") (unique - 2) (intLt lhs zeroInt) (intLt rhs zeroInt)
+  needsAdjust =
+    boolAndCore (occurrence <> "_needs_adjust") (unique - 4) remainderNonZero signsDiffer
+
+rationalCoreType :: CoreType
+rationalCoreType =
+  CTyTuple [intTy, intTy]
+
+tuple2IntCore :: CoreExpr -> CoreExpr -> CoreExpr
+tuple2IntCore lhs rhs =
+  constructorApp (tupleDataConName 2) [intTy, intTy] [lhs, rhs] rationalCoreType
+
+letCore :: RName -> CoreType -> CoreExpr -> CoreExpr -> CoreExpr
+letCore name ty rhs body =
+  CLet (CoreNonRec (CoreBinder name ty) rhs) body (exprType body)
 
 intSuccMethod :: CoreExpr
 intSuccMethod =
@@ -8759,6 +8944,20 @@ unaryMethod occurrence unique argumentTy resultTy body =
 boolNotCore :: Text -> Int -> CoreExpr -> CoreExpr
 boolNotCore binderOccurrence binderUnique scrutinee =
   boolCaseCore binderOccurrence binderUnique scrutinee boolTy (CCon falseDataConName boolTy) (CCon trueDataConName boolTy)
+
+boolAndCore :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
+boolAndCore binderOccurrence binderUnique lhs rhs =
+  boolCaseCore binderOccurrence binderUnique lhs boolTy rhs (CCon falseDataConName boolTy)
+
+boolXorCore :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
+boolXorCore binderOccurrence binderUnique lhs rhs =
+  boolCaseCore
+    binderOccurrence
+    binderUnique
+    lhs
+    boolTy
+    (boolNotCore (binderOccurrence <> "_not") (binderUnique - 1) rhs)
+    rhs
 
 boolCaseCore :: Text -> Int -> CoreExpr -> CoreType -> CoreExpr -> CoreExpr -> CoreExpr
 boolCaseCore binderOccurrence binderUnique scrutinee resultTy trueBody falseBody =
@@ -10220,6 +10419,10 @@ orderingMonoType =
 stringMonoType :: MonoType
 stringMonoType =
   coreTypeToMono stringTy
+
+rationalMonoType :: MonoType
+rationalMonoType =
+  TyTuple [intMonoType, intMonoType]
 
 ioMonoType :: MonoType -> MonoType
 ioMonoType resultTy =

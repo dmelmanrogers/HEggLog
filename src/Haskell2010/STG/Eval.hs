@@ -35,6 +35,7 @@ import Runtime.Int
   , ltHInt
   , mkHIntLiteral
   , mulHInt
+  , remHInt
   , renderHInt
   , renderIntError
   , subHInt
@@ -420,6 +421,11 @@ evalPrimitive env op arguments = do
           throwEval STGEvalDivisionByZero
     (PrimDiv, [STGInt lhs, STGInt rhs]) ->
       liftEither (checkedIntValue (divHInt lhs rhs))
+    (PrimRem, [STGInt _, STGInt rhs])
+      | hintToInteger rhs == 0 ->
+          throwEval STGEvalDivisionByZero
+    (PrimRem, [STGInt lhs, STGInt rhs]) ->
+      liftEither (checkedIntValue (remHInt lhs rhs))
     (PrimEq, [lhs, rhs]) ->
       liftEither (STGBool <$> valueEquals lhs rhs)
     (PrimLt, [STGInt lhs, STGInt rhs]) ->
@@ -683,6 +689,7 @@ renderCorePrimOpName = \case
   PrimSub -> "-"
   PrimMul -> "*"
   PrimDiv -> "/"
+  PrimRem -> "rem"
   PrimEq -> "=="
   PrimLt -> "<"
   PrimNegate -> "negate#"

@@ -402,6 +402,7 @@ emitPrim env op arguments =
     (PrimSub, [lhs, rhs]) -> emitIntBinary env "llvm.ssub.with.overflow.i64" lhs rhs >>= emitMakeIntOperand
     (PrimMul, [lhs, rhs]) -> emitIntBinary env "llvm.smul.with.overflow.i64" lhs rhs >>= emitMakeIntOperand
     (PrimDiv, [lhs, rhs]) -> emitCheckedDiv env lhs rhs >>= emitMakeIntOperand
+    (PrimRem, [lhs, rhs]) -> emitCheckedRem env lhs rhs >>= emitMakeIntOperand
     (PrimLt, [lhs, rhs]) -> do
       lhsValue <- emitExpectAtomInt env lhs
       rhsValue <- emitExpectAtomInt env rhs
@@ -1066,6 +1067,21 @@ emitCheckCharCode value = do
 
 emitCheckedDiv :: ValueEnv -> STGAtom -> STGAtom -> FunctionM LLVMOperand
 emitCheckedDiv env lhs rhs = do
+  (lhsValue, rhsValue) <- emitCheckedDivOperands env lhs rhs
+  valueReg <- freshRegister "div"
+  emit (IDiv valueReg LI64 lhsValue rhsValue)
+  pure (OLocal LI64 valueReg)
+
+emitCheckedRem :: ValueEnv -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitCheckedRem env lhs rhs = do
+  (lhsValue, rhsValue) <- emitCheckedDivOperands env lhs rhs
+  quotientReg <- freshRegister "rem_quot"
+  emit (IDiv quotientReg LI64 lhsValue rhsValue)
+  quotientProduct <- emitCheckedIntPrim "llvm.smul.with.overflow.i64" (OLocal LI64 quotientReg) rhsValue
+  emitCheckedSub lhsValue quotientProduct
+
+emitCheckedDivOperands :: ValueEnv -> STGAtom -> STGAtom -> FunctionM (LLVMOperand, LLVMOperand)
+emitCheckedDivOperands env lhs rhs = do
   lhsValue <- emitExpectAtomInt env lhs
   rhsValue <- emitExpectAtomInt env rhs
   zeroReg <- freshRegister "div_zero"
@@ -1094,9 +1110,7 @@ emitCheckedDiv env lhs rhs = do
   emitAbort
 
   startBlock okLabel
-  valueReg <- freshRegister "div"
-  emit (IDiv valueReg LI64 lhsValue rhsValue)
-  pure (OLocal LI64 valueReg)
+  pure (lhsValue, rhsValue)
 
 emitCase :: ValueEnv -> STGBinder -> [STGAlt] -> LLVMOperand -> FunctionM LLVMOperand
 emitCase env binder alternatives scrutineeObject = do

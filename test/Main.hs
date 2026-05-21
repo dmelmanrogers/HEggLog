@@ -191,6 +191,7 @@ testGroups =
       , pureTest "typechecks broader Show dictionaries" testHaskell2010Core0BroadShow
       , pureTest "typechecks Prelude append" testHaskell2010Core0Append
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
+      , pureTest "typechecks Real and Integral numeric methods" testHaskell2010Core0NumericHierarchy
       , pureTest "documents monomorphism restriction defaulting policy" testHaskell2010MonomorphismRestrictionDefaulting
       , pureTest "typechecks multi-module imports" testHaskell2010Core0MultiModuleImports
       , pureTest "typechecks transitive instance imports" testHaskell2010Core0ModuleInstanceImports
@@ -243,6 +244,7 @@ testGroups =
       , pureTest "evaluates broader Show dictionaries" testHaskell2010Core0EvalBroadShow
       , pureTest "evaluates Prelude append" testHaskell2010Core0EvalAppend
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
+      , pureTest "evaluates Real and Integral numeric methods" testHaskell2010Core0EvalNumericHierarchy
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
       , pureTest "evaluates transitive instance imports" testHaskell2010Core0EvalModuleInstanceImports
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
@@ -297,6 +299,7 @@ testGroups =
       , pureTest "preserves broader Show semantics" testHaskell2010CoreToSTGBroadShow
       , pureTest "preserves Prelude append semantics" testHaskell2010CoreToSTGAppend
       , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
+      , pureTest "preserves Real and Integral numeric methods" testHaskell2010CoreToSTGNumericHierarchy
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
       , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
       , pureTest "preserves normal IO example semantics" testHaskell2010CoreToSTGIONormalExamples
@@ -324,6 +327,7 @@ testGroups =
       , pureTest "emits Char runtime LLVM" testHaskell2010NativeCharRuntime
       , pureTest "emits String as Char lists in native LLVM" testHaskell2010NativeStringCharList
       , pureTest "emits arithmetic sequence LLVM" testHaskell2010NativeArithmeticSequences
+      , pureTest "emits numeric hierarchy LLVM" testHaskell2010NativeNumericHierarchy
       , pureTest "emits Enum Bounded LLVM" testHaskell2010NativeEnumBounded
       , pureTest "emits derived Eq LLVM" testHaskell2010NativeDerivedEq
       , pureTest "emits derived Ord LLVM" testHaskell2010NativeDerivedOrd
@@ -2097,6 +2101,17 @@ testHaskell2010Core0NumericDefaulting = do
   assertBool "Prelude Show Int instance dictionary is emitted" (containsBindingOccurrence "$fShowInt" coreModule)
   expectCoreEvalIO "numeric defaulting Core oracle" "7\n47\n" =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0NumericHierarchy :: Either String ()
+testHaskell2010Core0NumericHierarchy = do
+  coreModule <- typecheckHaskell2010 haskell2010NumericHierarchySource
+  assertBool "Prelude Real dictionary constructor is recorded" (containsConstructorOccurrence "$MkRealDict" coreModule)
+  assertBool "Prelude Integral dictionary constructor is recorded" (containsConstructorOccurrence "$MkIntegralDict" coreModule)
+  assertBool "Prelude Real Int instance dictionary is emitted" (containsBindingOccurrence "$fRealInt" coreModule)
+  assertBool "Prelude Integral Int instance dictionary is emitted" (containsBindingOccurrence "$fIntegralInt" coreModule)
+  assertBool "Prelude quot selector is emitted" (containsBindingOccurrence "quot" coreModule)
+  assertBool "Prelude divMod selector is emitted" (containsBindingOccurrence "divMod" coreModule)
+  expectCoreEvalIO "numeric hierarchy Core oracle" haskell2010NumericHierarchyOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010MonomorphismRestrictionDefaulting :: Either String ()
 testHaskell2010MonomorphismRestrictionDefaulting = do
   coreModule <- typecheckHaskell2010 haskell2010MonomorphismRestrictionSource
@@ -3068,6 +3083,13 @@ testHaskell2010Core0EvalNumericDefaulting =
     "7\n47\n"
     =<< evalHaskell2010Binding "main" haskell2010NumericDefaultingSource
 
+testHaskell2010Core0EvalNumericHierarchy :: Either String ()
+testHaskell2010Core0EvalNumericHierarchy =
+  expectCoreEvalIO
+    "Core-0 numeric hierarchy evaluation"
+    haskell2010NumericHierarchyOutput
+    =<< evalHaskell2010Binding "main" haskell2010NumericHierarchySource
+
 testHaskell2010Core0EvalMultiModuleImports :: Either String ()
 testHaskell2010Core0EvalMultiModuleImports =
   expectCoreEvalInt
@@ -3459,6 +3481,10 @@ testHaskell2010CoreToSTGNumericDefaulting :: Either String ()
 testHaskell2010CoreToSTGNumericDefaulting =
   checkCoreToSTGIO "Core-to-STG numeric defaulting" "7\n47\n" haskell2010NumericDefaultingSource
 
+testHaskell2010CoreToSTGNumericHierarchy :: Either String ()
+testHaskell2010CoreToSTGNumericHierarchy =
+  checkCoreToSTGIO "Core-to-STG numeric hierarchy" haskell2010NumericHierarchyOutput haskell2010NumericHierarchySource
+
 testHaskell2010CoreToSTGMultiModuleImports :: Either String ()
 testHaskell2010CoreToSTGMultiModuleImports = do
   coreModule <- typecheckHaskell2010Modules haskell2010MultiModuleSources
@@ -3609,6 +3635,13 @@ testHaskell2010NativeArithmeticSequences = do
   llvmText <- compileHaskell2010NativeText haskell2010ArithmeticSequencesSource
   assertBool "native arithmetic sequences lower Char ordinals" ("zext i32" `Text.isInfixOf` llvmText)
   assertBool "native arithmetic sequences rebox generated Chars" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeNumericHierarchy :: Either String ()
+testHaskell2010NativeNumericHierarchy = do
+  llvmText <- compileHaskell2010NativeText haskell2010NumericHierarchySource
+  assertBool "native Integral quot/div emits signed division" ("sdiv i64" `Text.isInfixOf` llvmText)
+  assertBool "native Integral rem/mod emits checked remainder arithmetic" ("@llvm.smul.with.overflow.i64" `Text.isInfixOf` llvmText)
+  assertBool "native Integral div/mod emits checked adjustment arithmetic" ("@llvm.ssub.with.overflow.i64" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeEnumBounded :: Either String ()
 testHaskell2010NativeEnumBounded = do
@@ -7369,6 +7402,7 @@ haskell2010NativeSuccessExamples =
   , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
   , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
+  , ("numeric-hierarchy", haskell2010NumericHierarchySource, Text.unpack haskell2010NumericHierarchyOutput)
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("io-normal-examples", haskell2010IONormalExamplesSource, Text.unpack haskell2010IONormalExamplesOutput)
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
@@ -7410,6 +7444,7 @@ haskell2010NativeExecutableExamples =
   , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
   , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
+  , ("numeric-hierarchy", haskell2010NumericHierarchySource, Text.unpack haskell2010NumericHierarchyOutput)
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("io-normal-examples", haskell2010IONormalExamplesSource, Text.unpack haskell2010IONormalExamplesOutput)
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
@@ -8231,6 +8266,49 @@ haskell2010NumericDefaultingSource =
   \  print (1 + 2 * 3)\n\
   \  print (twice defaulted + viaFromInteger)\n\
   \  return ()\n"
+
+haskell2010NumericHierarchySource :: Text
+haskell2010NumericHierarchySource =
+  "module Main where\n\
+  \default (Integer, Int)\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (quot 17 5)\n\
+  \  print (rem 17 5)\n\
+  \  print (div (0 - 17) 5)\n\
+  \  print (mod (0 - 17) 5)\n\
+  \  print (quot (0 - 17) 5)\n\
+  \  print (rem (0 - 17) 5)\n\
+  \  case quotRem 17 5 of\n\
+  \    (q, r) -> do\n\
+  \      print q\n\
+  \      print r\n\
+  \  case divMod (0 - 17) 5 of\n\
+  \    (d, m) -> do\n\
+  \      print d\n\
+  \      print m\n\
+  \  case toRational (7 :: Int) of\n\
+  \    (n, d) -> do\n\
+  \      print n\n\
+  \      print d\n\
+  \  print (toInteger (7 :: Int))\n\
+  \  return ()\n"
+
+haskell2010NumericHierarchyOutput :: Text
+haskell2010NumericHierarchyOutput =
+  "3\n\
+  \2\n\
+  \-4\n\
+  \3\n\
+  \-3\n\
+  \-2\n\
+  \3\n\
+  \2\n\
+  \-4\n\
+  \3\n\
+  \7\n\
+  \1\n\
+  \7\n"
 
 haskell2010MonomorphismRestrictionSource :: Text
 haskell2010MonomorphismRestrictionSource =

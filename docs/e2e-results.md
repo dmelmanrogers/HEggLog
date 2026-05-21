@@ -119,6 +119,9 @@ modes and emits LLVM compiled through clang.
 | haskell2010-numeric-defaulting | `test/e2e/programs/haskell2010/numeric-defaulting.hs` | success | native/default | `7\n47` | stdout `7\n47`, stderr empty, exit 0 | pass |
 | haskell2010-numeric-defaulting | `test/e2e/programs/haskell2010/numeric-defaulting.hs` | success | native/no-egglog | `7\n47` | stdout `7\n47`, stderr empty, exit 0 | pass |
 | haskell2010-numeric-defaulting | `test/e2e/programs/haskell2010/numeric-defaulting.hs` | success | emit-llvm/default | `7\n47` | LLVM compiled through clang, stdout `7\n47`, stderr empty, exit 0 | pass |
+| haskell2010-numeric-hierarchy | `test/e2e/programs/haskell2010/numeric-hierarchy.hs` | success | native/default | `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7` | stdout `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7`, stderr empty, exit 0 | pass |
+| haskell2010-numeric-hierarchy | `test/e2e/programs/haskell2010/numeric-hierarchy.hs` | success | native/no-egglog | `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7` | stdout `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7`, stderr empty, exit 0 | pass |
+| haskell2010-numeric-hierarchy | `test/e2e/programs/haskell2010/numeric-hierarchy.hs` | success | emit-llvm/default | `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7` | LLVM compiled through clang, stdout `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/default | `20` | stdout `20`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/no-egglog | `20` | stdout `20`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | emit-llvm/default | `20` | LLVM compiled through clang, stdout `20`, stderr empty, exit 0 | pass |

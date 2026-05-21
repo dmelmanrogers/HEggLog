@@ -35,7 +35,7 @@ recursive non-variable pattern bindings through the Core recursion model,
 user-defined single-parameter classes with concrete instances and explicit
 constrained functions, boxed native `Char` literals and literal cases, scalar
 `main :: Char` output, and built-in Prelude dictionaries for `Eq Int`,
-`Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, and executable `Num Int`
+`Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, executable `Num Int`, executable `Real Int`, and executable `Integral Int`
 methods. Modules receive the built-in Prelude surface implicitly unless they
 declare an explicit `import Prelude`, and explicit Prelude imports can restrict,
 hide, or qualify names according to the current module import semantics. The
@@ -67,7 +67,8 @@ implemented:
 - remaining source-surface implementation closure
 - instance contexts, derived `Read`, and the full
   `showsPrec`/`showList` hierarchy
-- broader numeric hierarchy/defaulting and Prelude/library subset
+- Fractional/Floating classes, arbitrary-precision `Integer`, full
+  `Ratio`/`Rational` behavior, and broader Prelude/library subset
 - standard-library module expansion beyond the currently generated interfaces
 - Haskell source desugaring and negative fixtures beyond the current executable subset
 - broader IO, including handles, rich recoverable IO errors, and effects beyond line-oriented stdin/stdout
@@ -90,9 +91,8 @@ fixtures, TEST-CONF-014 completed machine-checked source matrix closure, and
 ADT-007 completed record update expressions for the supported record subset.
 
 The following chunk is Prelude, deriving, and typeclass library completion:
-TC-029, TC-030, TC-033, PRELUDE-009, PRELUDE-019,
-PRELUDE-020, and TEST-CONF-015. Those tasks cover report-shaped `Show`, `Read`,
-broader numeric classes/defaulting, missing Prelude functions,
+TC-029, TC-030, PRELUDE-009, PRELUDE-019, PRELUDE-020, and TEST-CONF-015.
+Those tasks cover report-shaped `Show`, `Read`, missing Prelude functions,
 standard-library module expansion, and library conformance closure.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
@@ -195,16 +195,20 @@ context-free instances, explicit source constraints, and method calls by
 emitting dictionary constructor values, selector functions, and explicit Core
 dictionary arguments. Derived `Eq` and `Ord` synthesize supported data/newtype
 dictionaries, including recursive, parameterized, `String`-field, and list-backed
-cases. Built-in `Eq Int`, `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, structural `Eq [a]`, structural `Ord [a]`, and
-`Num Int` dictionaries cover `(==)`, `(/=)`, `compare`, `(<)`, `(<=)`, `(>)`,
-`(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`, and `signum`.
+cases. Built-in `Eq Int`, `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`,
+`Ord Char`, structural `Eq [a]`, structural `Ord [a]`, `Num Int`, `Real Int`,
+and `Integral Int` dictionaries cover `(==)`, `(/=)`, `compare`, `(<)`,
+`(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`,
+`signum`, `toRational`, `quot`, `rem`, `div`, `mod`, `quotRem`, `divMod`,
+and `toInteger`.
 Built-in `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and
 generated structural list `Show` cover `show` and `print` for the supported
 scalar/string/list executable subset. Derived `Bounded` dictionaries now cover
 all-nullary enumerations plus single-constructor products, records, and
 newtypes with field-wise `minBound`/`maxBound` calls.
 `fromInteger` is part of the executable `Num Int` dictionary, integer literals
-elaborate through it, and ambiguous numeric constraints default to `Int`.
+elaborate through it, and ambiguous numeric constraints default to `Int`,
+including the supported `Real`/`Integral` superclass hierarchy.
 The current monomorphism-restriction decision is documented for the executable
 subset: unsigned nullary value bindings without signatures can default direct
 standard-class constraints before generalization, while signed bindings and
@@ -364,7 +368,8 @@ and compiled to native executables through the existing clang toolchain.
     wet-tested default/no-egglog CLI runs.
 14. Built-in Prelude class dictionary coverage. Completed for `Eq Int`,
     `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, executable `Num Int`,
-    `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and generated
+    executable `Real Int`, executable `Integral Int`, `Show Int`, `Show Bool`,
+    `Show Char`, exact `Show String`, and generated
     structural list `Show` methods,
     including generated built-in dictionaries/selectors, overloaded
     comparison/arithmetic/show method desugaring, Core/STG lowering/evaluation,

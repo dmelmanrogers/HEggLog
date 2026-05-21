@@ -139,21 +139,24 @@ Current initial Haskell 2010 class capabilities:
 - instance lookup
 - dictionary-passing elaboration
 - generated built-in dictionaries for `Eq Int`, `Eq Bool`, `Eq Char`,
-  `Ord Int`, `Ord Bool`, executable `Num Int`, `Show Int`, `Show Bool`,
-  `Show Char`, exact `Show String`, and structural list `Show`
+  `Ord Int`, `Ord Bool`, executable `Num Int`, executable `Real Int`,
+  executable `Integral Int`, `Show Int`, `Show Bool`, `Show Char`, exact
+  `Show String`, and structural list `Show`
 - dictionary-backed built-in methods: `(==)`, `(/=)`, `compare`, `(<)`,
   `(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`,
-  `signum`, `fromInteger`, and `show`
+  `signum`, `fromInteger`, `toRational`, `quot`, `rem`, `div`, `mod`,
+  `quotRem`, `divMod`, `toInteger`, and `show`
 - overloaded integer literals through `fromInteger`
 - numeric defaulting to executable `Int` for ambiguous standard-class numeric
-  constraints in the supported `Eq`/`Ord`/`Num`/`Show` slice
+  constraints in the supported `Eq`/`Ord`/`Num`/`Real`/`Integral`/`Show` slice
 - executable-subset monomorphism/defaulting policy for unsigned nullary value
   bindings without signatures
 
 Remaining planned Haskell 2010 capabilities:
 
 - instance contexts, method-specific constraints, and remaining deriving classes
-- full `showsPrec`/`showList`, additional numeric classes, and fuller Prelude hierarchy
+- full `showsPrec`/`showList`, Fractional/Floating and full Ratio numeric
+  behavior, and fuller Prelude hierarchy
 - kind checking for type constructors and classes
 
 The typechecker emits typed Core or rejects the program. It must not accept a
@@ -194,15 +197,17 @@ patterns, list and tuple expressions/types, built-in `Maybe`, `Either`, and
 `Ordering`, generated Core Prelude bindings for `id`, `const`, `not`,
 `otherwise`, `map`, `foldr`, `length`, `filter`, `reverse`, and `(++)`, short-circuit
 Bool operators, recursive top-level/local binding groups, primitive `/`, and
-dictionary-backed `Eq`/`Ord`/`Num` methods, boxed `Char` literals and cases, guarded RHSs, guarded case
+dictionary-backed `Eq`/`Ord`/`Num`/`Real`/`Integral` methods, boxed `Char`
+literals and cases, guarded RHSs, guarded case
 alternatives, as-pattern aliases, and guard-fallthrough no-match behavior. It
 also covers the initial type
 class dictionary slice: user-defined single-parameter classes, concrete
 context-free instances, explicit constrained functions, generated dictionary
 constructors/selectors, dictionary-passed method calls, and built-in `Eq Int`,
 `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`,
-`Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and structural list
-`Show` dictionaries. It also covers `IO`, `main :: IO ()`, `putStrLn`,
+executable `Real Int`, executable `Integral Int`, `Show Int`, `Show Bool`,
+`Show Char`, exact `Show String`, and structural list `Show` dictionaries. It
+also covers `IO`, `main :: IO ()`, `putStrLn`,
 `print`, `return`, `(>>)`, `(>>=)`, expression `do`, and `<-` bind-statement
 sequencing with local `let`. It also covers `fromInteger`, overloaded integer literals, numeric
 defaulting to executable `Int`, inferred constrained helper schemes, and

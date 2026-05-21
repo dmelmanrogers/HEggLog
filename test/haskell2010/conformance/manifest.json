@@ -593,6 +593,19 @@
       "notes": "Executable arithmetic sequences for Int and Char, including ascending, descending, and lazily consumed open Int ranges."
     },
     {
+      "name": "prelude.numeric-hierarchy",
+      "sourceFile": "test/haskell2010/conformance/prelude/numeric-hierarchy.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Executable Real Int and Integral Int dictionaries cover quot/rem/div/mod, pair-returning quotient methods, toInteger, integer-rational conversion, and Integer default declarations."
+    },
+    {
       "name": "prelude.enum-bounded",
       "sourceFile": "test/haskell2010/conformance/prelude/enum-bounded.hs",
       "category": "prelude",
@@ -1010,6 +1023,15 @@
       "expectedDiagnosticCategory": "requires an enumeration or a single constructor",
       "requiredStage": "typecheck",
       "notes": "Derived Bounded is rejected for declarations that are neither all-nullary enumerations nor single-constructor products."
+    },
+    {
+      "name": "negative.invalid-default-type",
+      "sourceFile": "test/haskell2010/conformance/negative/invalid-default-type.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "default type",
+      "requiredStage": "typecheck",
+      "notes": "Default declarations reject non-numeric default types instead of silently falling back."
     },
     {
       "name": "typeclasses.superclass-default-method",

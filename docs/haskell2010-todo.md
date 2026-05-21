@@ -219,11 +219,10 @@ Complete: SURFACE-001, SURFACE-002, and SURFACE-003.
 
 1. TC-029 — report-shaped Show hierarchy.
 2. TC-030 — Read implementation.
-3. TC-033 — numeric class hierarchy expansion.
-4. PRELUDE-009 — foldl.
-5. PRELUDE-019 — Prelude function completion.
-6. PRELUDE-020 — standard library module expansion.
-7. TEST-CONF-015 — library conformance closure.
+3. PRELUDE-009 — foldl.
+4. PRELUDE-019 — Prelude function completion.
+5. PRELUDE-020 — standard library module expansion.
+6. TEST-CONF-015 — library conformance closure.
 
 ## Remaining FFI closure chunk
 
@@ -13332,7 +13331,7 @@ Notes:
 ## TC-033 — numeric class hierarchy expansion
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -13381,7 +13380,17 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete. The built-in numeric hierarchy now includes report-shaped `Real`
+  and `Integral` classes above the existing executable `Num Int` path. The
+  `Int` dictionaries implement `toRational`, `quot`, `rem`, `div`, `mod`,
+  `quotRem`, `divMod`, and `toInteger`, with Core/STG/native lowering for a
+  checked remainder primitive and Haskell 2010 `quot`/`rem` versus `div`/`mod`
+  semantics. Defaulting recognizes `Real` and `Integral` constraints in the
+  supported standard-class numeric universe, `Integer` defaults continue to
+  map to the checked executable `Int` representation, and invalid default
+  declarations remain explicit compile errors. Fractional, floating,
+  arbitrary-precision `Integer`, and full `Ratio`/`Rational` behavior remain
+  tracked as future library/runtime work rather than being silently claimed.
 
 ## PRELUDE-001 — Prelude module strategy
 

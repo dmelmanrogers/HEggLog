@@ -7467,7 +7467,7 @@
     {
       "id": "TC-033",
       "title": "numeric class hierarchy expansion",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TC-017",
@@ -7494,7 +7494,8 @@
         "docs/type-inference.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. The built-in numeric hierarchy now includes report-shaped `Real` and `Integral` classes above the existing executable `Num Int` path. The `Int` dictionaries implement `toRational`, `quot`, `rem`, `div`, `mod`, `quotRem`, `divMod`, and `toInteger`, with Core/STG/native lowering for a checked remainder primitive and Haskell 2010 `quot`/`rem` versus `div`/`mod` semantics. Defaulting recognizes `Real` and `Integral` constraints in the supported standard-class numeric universe, `Integer` defaults continue to map to the checked executable `Int` representation, and invalid default declarations remain explicit compile errors. Fractional, floating, arbitrary-precision `Integer`, and full `Ratio`/`Rational` behavior remain tracked as future library/runtime work rather than being silently claimed."
     },
     {
       "id": "PRELUDE-001",

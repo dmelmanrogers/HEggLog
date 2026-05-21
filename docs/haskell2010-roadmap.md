@@ -340,13 +340,17 @@ Haskell 2010 AST, and class constraints carry their source attribution so
 delayed dictionary failures still render with a concrete source span.
 
 The built-in executable Prelude class slice now supports `Eq Int`, `Eq Bool`,
-`Eq Char`, `Ord Int`, `Ord Bool`, `Num Int`, `Show Int`, `Show Bool`,
-`Show Char`, exact `Show String`, and generated structural list `Show`:
+`Eq Char`, `Ord Int`, `Ord Bool`, `Num Int`, `Real Int`, `Integral Int`,
+`Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and generated
+structural list `Show`:
 `(==)`, `(/=)`, `compare`, `(<)`, `(<=)`, `(>)`, `(>=)`, `max`, `min`, `(+)`,
-`(-)`, `(*)`, `negate`, `abs`, `signum`, `fromInteger`, and `show` lower
+`(-)`, `(*)`, `negate`, `abs`, `signum`, `fromInteger`, `toRational`,
+`quot`, `rem`, `div`, `mod`, `quotRem`, `divMod`, `toInteger`, and `show` lower
 through generated dictionaries and selectors. Integer literals elaborate through `fromInteger`,
 ambiguous numeric constraints default to the executable `Int` type, structural
-`Show [a]` constraints participate in numeric-list defaulting, and binding
+`Show [a]` constraints participate in numeric-list defaulting, `Real` and
+`Integral` constraints participate in the supported standard-class defaulting
+universe, and binding
 groups are dependency-sorted before generalization so helper functions can be
 specialized by later bindings. TYPE-019 fixes the current MR decision:
 unsigned nullary value bindings without signatures can default direct standard
@@ -355,7 +359,8 @@ parameters are protected. `/` remains the existing checked `Int` division
 primitive rather than a `Fractional` method.
 Remaining Phase 12 work includes instance contexts, method-specific
 constraints/type variables, coherence diagnostics, derived `Read`,
-the full `showsPrec`/`showList` hierarchy, and additional numeric classes.
+the full `showsPrec`/`showList` hierarchy, Fractional/Floating classes,
+arbitrary-precision `Integer`, and full `Ratio`/`Rational` behavior.
 
 Deliverables:
 
@@ -366,7 +371,7 @@ Deliverables:
 Acceptance criteria:
 
 - `Eq` and `Ord` methods work for supported built-in instances
-- executable `Num Int` methods work through dictionaries
+- executable `Num Int`, `Real Int`, and `Integral Int` methods work through dictionaries
 - `Show` works for the supported scalar, string, and list executable subset
 - overloaded numeric literals work for supported numeric types
 - initial dictionary-passing Core validates for user-defined classes
@@ -622,13 +627,11 @@ is to make the standard library and derived-instance behavior look like Haskell
    escaping.
 2. TC-030 — implement `Read`, including `ReadS`, `readsPrec`, `readList`,
    lexical read parsing, standard instances, and derived `Read`.
-3. TC-033 — broaden the numeric class hierarchy and defaulting rules beyond
-   the current executable `Int` path.
-4. PRELUDE-009 and PRELUDE-019 — fill missing Prelude functions, starting with
+3. PRELUDE-009 and PRELUDE-019 — fill missing Prelude functions, starting with
    `foldl`, and expand `PRELUDE-018` with corresponding conformance fixtures.
-5. PRELUDE-020 — broaden generated/importable standard-library module layout
+4. PRELUDE-020 — broaden generated/importable standard-library module layout
    beyond `Prelude` where the Haskell 2010 Report requires it.
-6. TEST-CONF-015 — keep every newly claimed class, function, deriving rule, and
+5. TEST-CONF-015 — keep every newly claimed class, function, deriving rule, and
    module backed by manifest-tracked positive and negative fixtures.
 
 ### Remaining FFI Closure
@@ -728,7 +731,8 @@ Completed immediate tasks:
   Core/STG preservation tests, native LLVM execution, and default/no-egglog
   native wet tests.
 - Haskell 2010 built-in Prelude class dictionary coverage for `Eq Int`,
-  `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, and executable `Num Int` methods, including
+  `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, executable `Num Int`,
+  executable `Real Int`, and executable `Integral Int` methods, including
   generated built-in dictionaries/selectors, overloaded comparison/arithmetic
   operator desugaring, Core/STG preservation tests, native LLVM execution, and
   default/no-egglog native wet tests.

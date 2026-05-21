@@ -55,8 +55,8 @@ The next chunk is Prelude, deriving, and typeclass library completion.
 TEST-CONF-014 source matrix closure is complete and now enforced by the
 conformance validator.
 
-The next library chunk is TC-029, TC-030, TC-033,
-PRELUDE-009, PRELUDE-019, PRELUDE-020, and TEST-CONF-015. Remaining FFI
+The next library chunk is TC-029, TC-030, PRELUDE-009,
+PRELUDE-019, PRELUDE-020, and TEST-CONF-015. Remaining FFI
 closure is FFI-010 through FFI-013.
 
 Completed Haskell 2010 roadmap work:
@@ -137,7 +137,8 @@ Completed Haskell 2010 roadmap work:
   dictionary arguments, STG/native lowering, and default/no-egglog wet tests.
 - Haskell 2010 built-in Prelude class dictionaries: implemented for `Eq Int`,
   `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, executable `Num Int`,
-  `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and generated
+  executable `Real Int`, executable `Integral Int`, `Show Int`, `Show Bool`,
+  `Show Char`, exact `Show String`, and generated
   structural list `Show` methods, including overloaded comparison/arithmetic/show method
   desugaring, Core/STG/native lowering, and default/no-egglog wet tests.
 - Haskell 2010 numeric literals/defaulting: implemented for dictionary-backed

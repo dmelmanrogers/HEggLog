@@ -122,6 +122,7 @@ renderCorePrimOp = \case
   PrimSub -> "-"
   PrimMul -> "*"
   PrimDiv -> "div#"
+  PrimRem -> "rem#"
   PrimEq -> "=="
   PrimLt -> "<"
   PrimNegate -> "negate#"

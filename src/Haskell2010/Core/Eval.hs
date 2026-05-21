@@ -27,6 +27,7 @@ import Runtime.Int
   , ltHInt
   , mkHIntLiteral
   , mulHInt
+  , remHInt
   , renderHInt
   , renderIntError
   , subHInt
@@ -296,6 +297,11 @@ evalPrimitive coreEnv op values =
           Left CoreEvalDivisionByZero
     (PrimDiv, [CoreInt lhs, CoreInt rhs]) ->
       checkedIntValue (divHInt lhs rhs)
+    (PrimRem, [CoreInt _, CoreInt rhs])
+      | hintToInteger rhs == 0 ->
+          Left CoreEvalDivisionByZero
+    (PrimRem, [CoreInt lhs, CoreInt rhs]) ->
+      checkedIntValue (remHInt lhs rhs)
     (PrimEq, [lhs, rhs]) ->
       CoreBool <$> valueEquals lhs rhs
     (PrimLt, [CoreInt lhs, CoreInt rhs]) ->
@@ -481,6 +487,7 @@ renderCorePrimOpName = \case
   PrimSub -> "-"
   PrimMul -> "*"
   PrimDiv -> "/"
+  PrimRem -> "rem"
   PrimEq -> "=="
   PrimLt -> "<"
   PrimNegate -> "negate#"
