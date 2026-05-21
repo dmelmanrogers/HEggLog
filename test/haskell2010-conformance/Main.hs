@@ -49,6 +49,7 @@ data ConformanceCase = ConformanceCase
   , caseNotes :: Text
   , caseCompilerModes :: [CompilerMode]
   , caseStdin :: Text
+  , caseExtraObjects :: [FilePath]
   }
   deriving stock (Show, Eq)
 
@@ -67,6 +68,7 @@ instance FromJSON ConformanceCase where
         <*> object .: "notes"
         <*> ((object .:? "compilerModes") .!= [DefaultCompilerMode])
         <*> ((object .:? "stdin") .!= "")
+        <*> ((object .:? "extraObjects") .!= [])
 
 data ExpectedStatus
   = ParsePass
@@ -123,7 +125,7 @@ main = do
   putStrLn ("hegglog: " <> hegglog)
   putStrLn ("clang: " <> clang)
   putManifestSummary (manifestCases manifest)
-  testResult <- runTestTT (TestList (tests hegglog (manifestCases manifest)))
+  testResult <- runTestTT (TestList (tests hegglog clang (manifestCases manifest)))
   unless (errors testResult == 0 && failures testResult == 0) exitFailure
 
 readManifest :: FilePath -> IO Manifest
@@ -135,17 +137,17 @@ readManifest path = do
     Right manifest ->
       pure manifest
 
-tests :: FilePath -> [ConformanceCase] -> [Test]
-tests hegglog =
-  concatMap (caseTests hegglog)
+tests :: FilePath -> FilePath -> [ConformanceCase] -> [Test]
+tests hegglog clang =
+  concatMap (caseTests hegglog clang)
 
-caseTests :: FilePath -> ConformanceCase -> [Test]
-caseTests hegglog conformanceCase =
+caseTests :: FilePath -> FilePath -> ConformanceCase -> [Test]
+caseTests hegglog clang conformanceCase =
   case caseExpectedStatus conformanceCase of
     NativeSuccess ->
-      [modeTest mode (runNativeSuccessCase hegglog conformanceCase mode) | mode <- caseCompilerModes conformanceCase]
+      [modeTest mode (runNativeSuccessCase hegglog clang conformanceCase mode) | mode <- caseCompilerModes conformanceCase]
     NativeRuntimeError ->
-      [modeTest mode (runNativeRuntimeErrorCase hegglog conformanceCase mode) | mode <- caseCompilerModes conformanceCase]
+      [modeTest mode (runNativeRuntimeErrorCase hegglog clang conformanceCase mode) | mode <- caseCompilerModes conformanceCase]
     CompileError ->
       [modeTest DefaultCompilerMode (runCompileErrorCase hegglog conformanceCase)]
     UnsupportedDocumented ->
@@ -162,30 +164,43 @@ caseTests hegglog conformanceCase =
   modeTest mode assertion =
     TestLabel (Text.unpack (caseName conformanceCase) <> " " <> modeLabel mode) (TestCase assertion)
 
-runNativeSuccessCase :: FilePath -> ConformanceCase -> CompilerMode -> Assertion
-runNativeSuccessCase hegglog conformanceCase mode =
+runNativeSuccessCase :: FilePath -> FilePath -> ConformanceCase -> CompilerMode -> Assertion
+runNativeSuccessCase hegglog clang conformanceCase mode =
   withSystemTempDirectory "hegglog-haskell2010-conformance" $ \tmpDir -> do
     expectedStdout <- requiredExpectedStdout conformanceCase
-    let outputPath = tmpDir </> safeCaseFileName conformanceCase <> "-" <> modeLabel mode
-        args = compileExecutableArgs conformanceCase outputPath mode
-    compileResult <- runCommand hegglog args
-    assertExitSuccess ("native compile " <> showCommand hegglog args) compileResult
+    outputPath <- buildNativeCase hegglog clang conformanceCase mode tmpDir
     assertExecutableExists outputPath
     runResult <- runCommandWithInput outputPath [] (caseStdin conformanceCase)
     assertExitSuccess ("native run " <> outputPath) runResult
     assertEqual "native stdout" (Text.unpack expectedStdout) (resultStdout runResult)
     assertEqual "native stderr" "" (resultStderr runResult)
 
-runNativeRuntimeErrorCase :: FilePath -> ConformanceCase -> CompilerMode -> Assertion
-runNativeRuntimeErrorCase hegglog conformanceCase mode =
+runNativeRuntimeErrorCase :: FilePath -> FilePath -> ConformanceCase -> CompilerMode -> Assertion
+runNativeRuntimeErrorCase hegglog clang conformanceCase mode =
   withSystemTempDirectory "hegglog-haskell2010-conformance-runtime-error" $ \tmpDir -> do
-    let outputPath = tmpDir </> safeCaseFileName conformanceCase <> "-" <> modeLabel mode
-        args = compileExecutableArgs conformanceCase outputPath mode
-    compileResult <- runCommand hegglog args
-    assertExitSuccess ("runtime-error compile " <> showCommand hegglog args) compileResult
+    outputPath <- buildNativeCase hegglog clang conformanceCase mode tmpDir
     assertExecutableExists outputPath
     runResult <- runCommand outputPath []
     assertNonZeroExit ("runtime-error run " <> outputPath) runResult
+
+buildNativeCase :: FilePath -> FilePath -> ConformanceCase -> CompilerMode -> FilePath -> IO FilePath
+buildNativeCase hegglog clang conformanceCase mode tmpDir
+  | null (caseExtraObjects conformanceCase) = do
+      let outputPath = tmpDir </> safeCaseFileName conformanceCase <> "-" <> modeLabel mode
+          args = compileExecutableArgs conformanceCase outputPath mode
+      compileResult <- runCommand hegglog args
+      assertExitSuccess ("native compile " <> showCommand hegglog args) compileResult
+      pure outputPath
+  | otherwise = do
+      let outputPath = tmpDir </> safeCaseFileName conformanceCase <> "-" <> modeLabel mode
+          llvmPath = tmpDir </> safeCaseFileName conformanceCase <> "-" <> modeLabel mode <> ".ll"
+          compileArgs = ["compile", caseSourceFile conformanceCase, "--emit-llvm", "-o", llvmPath] <> modeArgs mode
+          linkArgs = llvmPath : caseExtraObjects conformanceCase <> ["-o", outputPath]
+      compileResult <- runCommand hegglog compileArgs
+      assertExitSuccess ("native LLVM compile " <> showCommand hegglog compileArgs) compileResult
+      linkResult <- runCommand clang linkArgs
+      assertExitSuccess ("native link " <> showCommand clang linkArgs) linkResult
+      pure outputPath
 
 runCompileErrorCase :: FilePath -> ConformanceCase -> Assertion
 runCompileErrorCase =

@@ -141,6 +141,46 @@
       "notes": "Same-directory module graph with qualified import, export list, and constructor child import."
     },
     {
+      "name": "modules.implicit-prelude",
+      "sourceFile": "test/haskell2010/conformance/modules/implicit-prelude.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "implicit\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Modules without an explicit Prelude import receive names as if by import Prelude."
+    },
+    {
+      "name": "modules.explicit-prelude-import",
+      "sourceFile": "test/haskell2010/conformance/modules/explicit-prelude-import.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "explicit\n42\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "An explicit Prelude import suppresses the implicit import and restricts unqualified names to the import list."
+    },
+    {
+      "name": "modules.qualified-prelude",
+      "sourceFile": "test/haskell2010/conformance/modules/qualified-prelude.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "qualified\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "A qualified explicit Prelude import suppresses implicit unqualified Prelude names while keeping qualified access."
+    },
+    {
+      "name": "modules.instance-import-export",
+      "sourceFile": "test/haskell2010/conformance/modules/instance-import-main.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "42\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Instances cross empty export lists and empty import lists through a transitive import chain."
+    },
+    {
       "name": "declarations.top-level-function",
       "sourceFile": "test/haskell2010/conformance/declarations/top-level-function.hs",
       "category": "declarations",
@@ -483,6 +523,15 @@
       "notes": "Native getLine reads stdin line-by-line, strips line terminators, returns ordinary String values, and composes with append, length, putStrLn, print, and do-bind."
     },
     {
+      "name": "io.fail",
+      "sourceFile": "test/haskell2010/conformance/io/fail.hs",
+      "category": "io",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Explicit IO fail compiles through the Monad IO dictionary and exits nonzero at runtime."
+    },
+    {
       "name": "egglog.known-constructor",
       "sourceFile": "test/haskell2010/conformance/egglog/known-constructor.hs",
       "category": "egglog",
@@ -491,6 +540,81 @@
       "requiredStage": "native",
       "compilerModes": ["default", "no-egglog"],
       "notes": "Known-constructor Core optimizer case must agree with --no-egglog."
+    },
+    {
+      "name": "typeclasses.monad",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/monad.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-success",
+      "expectedStdout": "monad\n[11,21,12,22]\n[1,3]\n7\nmaybe fail\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Haskell 2010 Monad dictionaries drive IO, Maybe, and list do-notation, including fail on refutable do-bind patterns."
+    },
+    {
+      "name": "typeclasses.monad-explicit-fail",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/monad-explicit-fail.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-success",
+      "expectedStdout": "[]\nmaybe explicit fail\n7\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "notes": "Explicit fail uses the Monad Maybe and Monad list dictionaries without going through refutable do-bind desugaring."
+    },
+    {
+      "name": "ffi.static-ccall",
+      "sourceFile": "test/haskell2010/conformance/ffi/static-ccall.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "12\n10\n42\n42\n11\nB\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "extraObjects": ["test/native/haskell2010/ffi_helpers.c"],
+      "notes": "Static foreign import ccall declarations lower through LLVM, link against C helpers, marshal Int/Bool/Char values, and sequence IO effects."
+    },
+    {
+      "name": "ffi.pointer-address",
+      "sourceFile": "test/haskell2010/conformance/ffi/pointer-address.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "77\n123\n99\n42\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "extraObjects": ["test/native/haskell2010/ffi_helpers.c"],
+      "notes": "Ptr/FunPtr imports cover static data addresses, function addresses, pointer arguments, pointer results, mutation through IO, and function-pointer arguments."
+    },
+    {
+      "name": "ffi.dynamic-wrapper",
+      "sourceFile": "test/haskell2010/conformance/ffi/dynamic-wrapper.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "11\n21\n40\n42\n15\n22\n3\n4\n11\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "extraObjects": ["test/native/haskell2010/ffi_helpers.c"],
+      "notes": "dynamic imports emit indirect FunPtr calls and wrapper imports create C-callable callbacks that re-enter Haskell closures."
+    },
+    {
+      "name": "ffi.foreign-export",
+      "sourceFile": "test/haskell2010/conformance/ffi/foreign-export.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "42\n5\n12\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "extraObjects": ["test/native/haskell2010/ffi_export_helpers.c"],
+      "notes": "foreign export ccall generates C-callable entrypoints for supported pure and IO functions and links C helpers that call back into Haskell."
+    },
+    {
+      "name": "ffi.stable-foreignptr-finalizers",
+      "sourceFile": "test/haskell2010/conformance/ffi/stable-foreignptr-finalizers.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "ok\n",
+      "requiredStage": "native",
+      "compilerModes": ["default", "no-egglog"],
+      "extraObjects": ["test/native/haskell2010/ffi_helpers.c"],
+      "notes": "StablePtr and manual ForeignPtr APIs compile natively with stable pointer dereference/free, casts, withForeignPtr, finalizer registration, reverse-order dispatch, and idempotent finalization."
     },
     {
       "name": "negative.type-error",
@@ -537,6 +661,78 @@
       "expectedDiagnosticCategory": "parse",
       "requiredStage": "parse",
       "notes": "Malformed layout must fail during Haskell 2010 parsing."
+    },
+    {
+      "name": "negative.duplicate-monad-io",
+      "sourceFile": "test/haskell2010/conformance/negative/duplicate-monad-io.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "duplicate built-in instance",
+      "requiredStage": "typecheck",
+      "notes": "User instances must not overlap or duplicate the Haskell 2010 built-in Monad IO dictionary."
+    },
+    {
+      "name": "negative.missing-instance-import",
+      "sourceFile": "test/haskell2010/conformance/negative/missing-instance-import.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "unsolved type-class constraint",
+      "requiredStage": "typecheck",
+      "notes": "A class and type import do not make an instance visible unless an import chain reaches the instance-declaring module."
+    },
+    {
+      "name": "negative.prelude-empty-import",
+      "sourceFile": "test/haskell2010/conformance/negative/prelude-empty-import.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "unbound",
+      "requiredStage": "rename",
+      "notes": "An explicit empty Prelude import suppresses the implicit Prelude import."
+    },
+    {
+      "name": "negative.prelude-qualified-unqualified-use",
+      "sourceFile": "test/haskell2010/conformance/negative/prelude-qualified-unqualified-use.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "unbound",
+      "requiredStage": "rename",
+      "notes": "A qualified Prelude import does not bind Prelude names for unqualified use."
+    },
+    {
+      "name": "negative.ffi-foreignptr-direct",
+      "sourceFile": "test/haskell2010/conformance/negative/ffi-foreignptr-direct.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "foreign import",
+      "requiredStage": "typecheck",
+      "notes": "ForeignPtr is an ownership wrapper, not a direct C ABI argument type; code must use withForeignPtr to expose Ptr."
+    },
+    {
+      "name": "negative.ffi-wrapper-bad-shape",
+      "sourceFile": "test/haskell2010/conformance/negative/ffi-wrapper-bad-shape.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "wrapper",
+      "requiredStage": "typecheck",
+      "notes": "foreign import ccall wrapper must wrap a function type and return IO (FunPtr ft)."
+    },
+    {
+      "name": "negative.ffi-export-missing-target",
+      "sourceFile": "test/haskell2010/conformance/negative/ffi-export-missing-target.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "unbound",
+      "requiredStage": "rename",
+      "notes": "foreign export must reference an existing top-level Haskell binding."
+    },
+    {
+      "name": "negative.ffi-unsupported-callconv",
+      "sourceFile": "test/haskell2010/conformance/negative/ffi-unsupported-callconv.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "unsupported",
+      "requiredStage": "typecheck",
+      "notes": "Reserved non-C calling conventions are represented structurally but rejected until target-specific support is implemented."
     },
     {
       "name": "typeclasses.superclass-default-method",

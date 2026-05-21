@@ -20,6 +20,12 @@ cabal test all
 printf '== cabal check ==\n'
 cabal check
 
+printf '== Haskell 2010 conformance manifest/matrix validation ==\n'
+python3 scripts/validate-haskell2010-conformance.py
+
+printf '== Haskell 2010 backlog validation ==\n'
+python3 scripts/validate-haskell2010-todo.py
+
 printf '== git diff --check ==\n'
 git diff --check
 

@@ -36,15 +36,18 @@ import qualified Haskell2010.Core.Subst as H2010CoreSubst
 import qualified Haskell2010.Core.Syntax as H2010Core
 import qualified Haskell2010.Core.Validate as H2010CoreValidate
 import qualified Haskell2010.ModuleGraph as H2010ModuleGraph
+import qualified Haskell2010.ModuleInterface as H2010ModuleInterface
 import qualified Haskell2010.Names as H2010Names
 import qualified Haskell2010.Native as H2010Native
 import qualified Haskell2010.Parser as H2010Parser
 import qualified Haskell2010.Renamed as H2010Renamed
 import qualified Haskell2010.Renamer as H2010Renamer
 import qualified Haskell2010.STG.Eval as H2010STGEval
+import qualified Haskell2010.STG.LLVM as H2010STGLLVM
 import qualified Haskell2010.STG.Lower as H2010STGLower
 import qualified Haskell2010.STG.Syntax as H2010STG
 import qualified Haskell2010.STG.Validate as H2010STGValidate
+import qualified Haskell2010.StandardLibrary as H2010StandardLibrary
 import qualified Haskell2010.Syntax as H2010
 import qualified Haskell2010.Typecheck as H2010Typecheck
 import IR.ANF
@@ -105,6 +108,7 @@ testGroups =
       , pureTest "Haskell 2010 module header, imports, and declarations parse" testHaskell2010ModuleParsing
       , pureTest "Haskell 2010 layout blocks parse" testHaskell2010LayoutParsing
       , pureTest "Haskell 2010 expression surface forms parse" testHaskell2010ExpressionSurfaceParsing
+      , pureTest "Haskell 2010 foreign declarations parse structurally" testHaskell2010ForeignDeclarationParsing
       , pureTest "Haskell 2010 record field syntax parses" testHaskell2010RecordFieldSyntaxParsing
       , pureTest "Haskell 2010 malformed layout is rejected" testHaskell2010MalformedLayout
       , pureTest "Haskell 2010 imports after declarations are rejected" testHaskell2010ImportAfterDecl
@@ -121,7 +125,14 @@ testGroups =
       , pureTest "rejects chained non-associative operators" testHaskell2010RenamerNonAssociativeFixity
       , pureTest "detects ambiguous explicit imports" testHaskell2010RenamerAmbiguousImport
       , pureTest "resolves qualified explicit imports" testHaskell2010RenamerQualifiedImport
+      , pureTest "applies implicit Prelude imports" testHaskell2010RenamerImplicitPrelude
+      , pureTest "honors explicit Prelude import specs" testHaskell2010RenamerExplicitPreludeSpecs
+      , pureTest "honors qualified Prelude imports" testHaskell2010RenamerQualifiedPrelude
+      , pureTest "combines cumulative Prelude imports" testHaskell2010RenamerCumulativePreludeImports
+      , pureTest "exposes Prelude through standard library interface" testHaskell2010StandardLibraryPreludeInterface
+      , pureTest "renames Haskell 2010 foreign declarations" testHaskell2010RenamerForeignDeclarations
       , pureTest "resolves module graph imports through exports" testHaskell2010RenamerModuleGraphExports
+      , pureTest "exports and imports instances through module interfaces" testHaskell2010RenamerModuleGraphInstances
       , ioTest "detects module graph import cycles" testHaskell2010ModuleGraphCycle
       ]
   , TestGroup
@@ -141,6 +152,7 @@ testGroups =
       [ pureTest "represents type constructor kinds" testHaskell2010KindRepresentation
       , pureTest "infers higher-kinded type constructors" testHaskell2010KindChecksHigherKindedConstructors
       , pureTest "rejects kind-mismatched source types" testHaskell2010KindRejectsMismatch
+      , pureTest "checks higher-kinded class constraint arguments" testHaskell2010KindChecksMonadConstraint
       , pureTest "expands type synonyms" testHaskell2010TypeSynonymExpansion
       , pureTest "infers higher-kinded type synonym parameters" testHaskell2010TypeSynonymKindInference
       , pureTest "rejects recursive type synonyms" testHaskell2010TypeSynonymRejectsCycles
@@ -174,9 +186,11 @@ testGroups =
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
       , pureTest "documents monomorphism restriction defaulting policy" testHaskell2010MonomorphismRestrictionDefaulting
       , pureTest "typechecks multi-module imports" testHaskell2010Core0MultiModuleImports
+      , pureTest "typechecks transitive instance imports" testHaskell2010Core0ModuleInstanceImports
       , pureTest "typechecks IO printing" testHaskell2010Core0IOPrinting
       , pureTest "typechecks normal IO examples" testHaskell2010Core0IONormalExamples
       , pureTest "typechecks IO getLine" testHaskell2010Core0IOGetLine
+      , pureTest "typechecks higher-kinded Monad constraints and dictionaries" testHaskell2010Core0Monad
       , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
       , pureTest "desugars operator sections to Core lambdas" testHaskell2010Core0Sections
       , pureTest "typechecks arithmetic sequences" testHaskell2010Core0ArithmeticSequences
@@ -188,6 +202,9 @@ testGroups =
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       , pureTest "renders Haskell 2010 type errors with source spans" testHaskell2010TypeErrorDiagnosticsWithSpans
+      , pureTest "typechecks Haskell 2010 FFI signatures before lowering" testHaskell2010ForeignTypechecking
+      , pureTest "typechecks StablePtr ForeignPtr and finalizer APIs" testHaskell2010ForeignPtrStablePtrTypechecking
+      , pureTest "rejects invalid Haskell 2010 FFI signature shapes" testHaskell2010RejectsInvalidForeignTypechecking
       , pureTest "records Haskell 2010 exhaustiveness warning placeholders" testHaskell2010ExhaustivenessWarningPlaceholders
       , ioTest "property-checks generated Haskell 2010 inference programs" $
           checkProperty propHaskell2010InferenceValidPrograms
@@ -215,9 +232,11 @@ testGroups =
       , pureTest "evaluates Prelude append" testHaskell2010Core0EvalAppend
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
+      , pureTest "evaluates transitive instance imports" testHaskell2010Core0EvalModuleInstanceImports
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
       , pureTest "evaluates normal IO examples" testHaskell2010Core0EvalIONormalExamples
       , pureTest "evaluates IO getLine with empty interpreter stdin" testHaskell2010Core0EvalIOGetLine
+      , pureTest "evaluates Monad IO Maybe and list do-notation" testHaskell2010Core0EvalMonad
       , pureTest "evaluates guards and as-patterns" testHaskell2010Core0EvalGuardsAndAsPatterns
       , pureTest "evaluates operator sections" testHaskell2010Core0EvalSections
       , pureTest "evaluates arithmetic sequences" testHaskell2010Core0EvalArithmeticSequences
@@ -293,6 +312,11 @@ testGroups =
       , pureTest "emits Prelude append LLVM" testHaskell2010NativeAppend
       , pureTest "emits IO getLine LLVM" testHaskell2010NativeGetLine
       , pureTest "emits list comprehension LLVM" testHaskell2010NativeListComprehensions
+      , ioTest "native static ccall imports link and run" testHaskell2010NativeStaticCCall
+      , ioTest "native pointer and address imports link and run" testHaskell2010NativePointerAddressCCall
+      , ioTest "native dynamic and wrapper imports link and run" testHaskell2010NativeDynamicWrapperCCall
+      , ioTest "native foreign exports link and run" testHaskell2010NativeForeignExportCCall
+      , ioTest "native StablePtr ForeignPtr finalizers link and run" testHaskell2010NativeStableForeignPtrFinalizers
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
       , ioTest "native executable preserves lazy Core-0 semantics" testHaskell2010NativeExecutableExecution
       , ioTest "native getLine reads stdin" testHaskell2010NativeGetLineExecution
@@ -747,6 +771,36 @@ testHaskell2010ExpressionSurfaceParsing = do
     H2010.ForeignDecl {} -> True
     _ -> False
 
+testHaskell2010ForeignDeclarationParsing :: Either String ()
+testHaskell2010ForeignDeclarationParsing = do
+  parsed <-
+    parseHaskell2010
+      "module ForeignSurface where\n\
+      \foreign import ccall unsafe \"static [stdlib.h] abs\" c_abs :: Int -> IO Int\n\
+      \foreign import ccall safe \"[errno.h] &errno\" c_errno :: Ptr Int\n\
+      \foreign import ccall \"dynamic\" mkFun :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
+      \foreign import ccall \"wrapper\" wrapFun :: (Int -> IO Int) -> IO (FunPtr (Int -> IO Int))\n\
+      \foreign export ccall \"hs_identity\" identity :: Int -> Int\n\
+      \identity x = x\n"
+  case H2010.moduleDecls parsed of
+    [ H2010.ForeignDecl (H2010.ForeignImportDecl cAbs)
+      , H2010.ForeignDecl (H2010.ForeignImportDecl cErrno)
+      , H2010.ForeignDecl (H2010.ForeignImportDecl dynamicImport)
+      , H2010.ForeignDecl (H2010.ForeignImportDecl wrapperImport)
+      , H2010.ForeignDecl (H2010.ForeignExportDecl exported)
+      , H2010.FunctionBinding "identity" _ _ []
+      ] -> do
+        expectEqual "ccall import convention" H2010.ForeignCCall (H2010.foreignImportCallConv cAbs)
+        expectEqual "unsafe import safety" H2010.ForeignUnsafe (H2010.foreignImportSafety cAbs)
+        expectEqual "static import entity" (H2010.ForeignImportStatic (Just "stdlib.h") "abs") (H2010.foreignImportEntityKind (H2010.foreignImportEntity cAbs))
+        expectEqual "foreign import binds parsed name" "c_abs" (H2010.foreignImportName cAbs)
+        expectEqual "address import entity" (H2010.ForeignImportAddress (Just "errno.h") "errno") (H2010.foreignImportEntityKind (H2010.foreignImportEntity cErrno))
+        expectEqual "dynamic import entity" H2010.ForeignImportDynamic (H2010.foreignImportEntityKind (H2010.foreignImportEntity dynamicImport))
+        expectEqual "wrapper import entity" H2010.ForeignImportWrapper (H2010.foreignImportEntityKind (H2010.foreignImportEntity wrapperImport))
+        expectEqual "export entity symbol" (Just "hs_identity") (H2010.foreignExportEntitySymbol (H2010.foreignExportEntity exported))
+        expectEqual "foreign export references parsed name" "identity" (H2010.foreignExportName exported)
+    other -> Left ("unexpected Haskell 2010 foreign declarations: " <> show other)
+
 testHaskell2010RecordFieldSyntaxParsing :: Either String ()
 testHaskell2010RecordFieldSyntaxParsing = do
   parsed <-
@@ -948,6 +1002,189 @@ testHaskell2010RenamerQualifiedImport = do
       assertBool "qualified import is external" (H2010Names.nameExternal importedX)
     other -> Left ("unexpected qualified import module: " <> show other)
 
+testHaskell2010RenamerImplicitPrelude :: Either String ()
+testHaskell2010RenamerImplicitPrelude = do
+  renamed <-
+    renameHaskell2010
+      "module Implicit where\n\
+      \x = map\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar mapName)) []] -> do
+      expectEqual "implicit Prelude occurrence" "map" (H2010Names.nameOcc mapName)
+      assertBool "implicit Prelude name is external" (H2010Names.nameExternal mapName)
+    other -> Left ("unexpected implicit Prelude module: " <> show other)
+
+testHaskell2010RenamerExplicitPreludeSpecs :: Either String ()
+testHaskell2010RenamerExplicitPreludeSpecs = do
+  renamed <-
+    renameHaskell2010
+      "module Explicit where\n\
+      \import Prelude (map)\n\
+      \x = map\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar mapName)) []] -> do
+      expectEqual "explicit Prelude occurrence" "map" (H2010Names.nameOcc mapName)
+      assertBool "explicit Prelude name is external" (H2010Names.nameExternal mapName)
+    other -> Left ("unexpected explicit Prelude module: " <> show other)
+  expectRenameError
+    "explicit Prelude import suppresses omitted names"
+    (H2010Renamer.UnboundName H2010Names.TermNamespace "foldr")
+    "module Explicit where\n\
+    \import Prelude (map)\n\
+    \y = foldr\n"
+  expectRenameError
+    "empty Prelude import suppresses implicit Prelude"
+    (H2010Renamer.UnboundName H2010Names.TermNamespace "map")
+    "module Empty where\n\
+    \import Prelude ()\n\
+    \y = map\n"
+  expectRenameError
+    "Prelude hiding suppresses hidden name"
+    (H2010Renamer.UnboundName H2010Names.TermNamespace "map")
+    "module Hide where\n\
+    \import Prelude hiding (map)\n\
+    \y = map\n"
+
+testHaskell2010RenamerQualifiedPrelude :: Either String ()
+testHaskell2010RenamerQualifiedPrelude = do
+  renamed <-
+    renameHaskell2010
+      "module QualifiedPrelude where\n\
+      \import qualified Prelude\n\
+      \x = Prelude.map\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar mapName)) []] -> do
+      expectEqual "qualified Prelude occurrence" "map" (H2010Names.nameOcc mapName)
+      assertBool "qualified Prelude name is external" (H2010Names.nameExternal mapName)
+    other -> Left ("unexpected qualified Prelude module: " <> show other)
+  expectRenameError
+    "qualified Prelude import does not bind unqualified names"
+    (H2010Renamer.UnboundName H2010Names.TermNamespace "map")
+    "module QualifiedPrelude where\n\
+    \import qualified Prelude\n\
+    \x = map\n"
+
+testHaskell2010RenamerCumulativePreludeImports :: Either String ()
+testHaskell2010RenamerCumulativePreludeImports = do
+  renamed <-
+    renameHaskell2010
+      "module CumulativePrelude where\n\
+      \import Prelude (map)\n\
+      \import Prelude (foldr)\n\
+      \x = map\n\
+      \y = foldr\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [ H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar mapName)) []
+      , H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar foldrName)) []
+      ] -> do
+        expectEqual "cumulative Prelude map" "map" (H2010Names.nameOcc mapName)
+        expectEqual "cumulative Prelude foldr" "foldr" (H2010Names.nameOcc foldrName)
+        assertBool "cumulative Prelude map is external" (H2010Names.nameExternal mapName)
+        assertBool "cumulative Prelude foldr is external" (H2010Names.nameExternal foldrName)
+    other -> Left ("unexpected cumulative Prelude module: " <> show other)
+  duplicateRenamed <-
+    renameHaskell2010
+      "module DuplicatePrelude where\n\
+      \import Prelude (map)\n\
+      \import Prelude (map)\n\
+      \x = map\n"
+  case H2010Renamed.rModuleDecls duplicateRenamed of
+    [H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar mapName)) []] ->
+      expectEqual "duplicate Prelude imports resolve once" "map" (H2010Names.nameOcc mapName)
+    other -> Left ("unexpected duplicate Prelude module: " <> show other)
+
+testHaskell2010StandardLibraryPreludeInterface :: Either String ()
+testHaskell2010StandardLibraryPreludeInterface =
+  case Map.lookup H2010StandardLibrary.standardPreludeModuleName H2010StandardLibrary.standardLibraryModuleInterfaces of
+    Nothing ->
+      Left "standard library does not expose Prelude"
+    Just interface -> do
+      expectEqual
+        "standard Prelude module name"
+        H2010StandardLibrary.standardPreludeModuleName
+        (H2010ModuleInterface.interfaceModuleName interface)
+      assertBool "standard Prelude exports map" (exportsName H2010Names.TermNamespace "map" interface)
+      assertBool "standard Prelude exports IO type" (exportsName H2010Names.TypeNamespace "IO" interface)
+      assertBool "standard Prelude exports Monad class" (exportsName H2010Names.ClassNamespace "Monad" interface)
+      assertBool "standard Prelude exposes Maybe Just child" (exportsChild H2010Names.TypeNamespace "Maybe" H2010Names.ConstructorNamespace "Just" interface)
+      assertBool "standard Prelude exposes Monad return child" (exportsChild H2010Names.ClassNamespace "Monad" H2010Names.TermNamespace "return" interface)
+      expectEqual "standard Prelude bind fixity" (Just (H2010.Fixity H2010.InfixL 1)) (Map.lookup ">>=" (H2010ModuleInterface.interfaceFixities interface))
+      expectEqual "standard Prelude interface does not expose generated built-in instances" [] (H2010ModuleInterface.interfaceInstances interface)
+ where
+  exportsName namespace occurrence interface =
+    any
+      (\name -> H2010Names.nameNamespace name == namespace && H2010Names.nameOcc name == occurrence)
+      (H2010ModuleInterface.interfaceExports interface)
+
+  exportsChild parentNamespace parentOcc childNamespace childOcc interface =
+    or
+      [ any
+          (\child -> H2010Names.nameNamespace child == childNamespace && H2010Names.nameOcc child == childOcc)
+          (Map.findWithDefault [] parent (H2010ModuleInterface.interfaceChildren interface))
+      | parent <- H2010ModuleInterface.interfaceExports interface
+      , H2010Names.nameNamespace parent == parentNamespace
+      , H2010Names.nameOcc parent == parentOcc
+      ]
+
+testHaskell2010RenamerForeignDeclarations :: Either String ()
+testHaskell2010RenamerForeignDeclarations = do
+  renamed <-
+    renameHaskell2010
+      "module ForeignRenamer (c_abs) where\n\
+      \foreign import ccall unsafe \"static [stdlib.h] abs\" c_abs :: Int -> IO Int\n\
+      \main = c_abs\n"
+  case H2010Renamed.rModuleDecls renamed of
+    [ H2010Renamed.RForeignDecl (H2010Renamed.RForeignImportDecl foreignImport)
+      , H2010Renamed.RFunctionBinding _ [] (H2010Renamed.RUnguarded (H2010Renamed.RVar importedName)) []
+      ] -> do
+        expectEqual "foreign import renamed occurrence" "c_abs" (H2010Names.nameOcc (H2010Renamed.rForeignImportName foreignImport))
+        expectEqual "foreign import is the referenced top-level name" (H2010Renamed.rForeignImportName foreignImport) importedName
+        expectEqual "foreign import renamed type preserves IO result" "IO" =<< foreignImportResultConstructor foreignImport
+    other -> Left ("unexpected renamed foreign import module: " <> show other)
+  exported <-
+    renameHaskell2010
+      "module ForeignExport where\n\
+      \identity x = x\n\
+      \foreign export ccall \"hs_identity\" identity :: Int -> Int\n"
+  case H2010Renamed.rModuleDecls exported of
+    [ H2010Renamed.RFunctionBinding identityName _ _ _
+      , H2010Renamed.RForeignDecl (H2010Renamed.RForeignExportDecl foreignExport)
+      ] ->
+        expectEqual "foreign export resolves existing top-level binding" identityName (H2010Renamed.rForeignExportName foreignExport)
+    other -> Left ("unexpected renamed foreign export module: " <> show other)
+  modules <- parseHaskell2010ModuleSources haskell2010ForeignImportModuleSources
+  renamedWithInterfaces <-
+    mapLeft
+      (Text.unpack . H2010Renamer.renderRenameError)
+      (H2010Renamer.renameModuleGraphWithInterfaces modules)
+  provider <- lookupInterface "ForeignProvider" renamedWithInterfaces
+  assertBool "foreign import is exported through module interface" (exportsTerm "c_abs" provider)
+  case renameHaskell2010Raw "module BadForeignExport where\nforeign export ccall \"missing\" missing :: Int\n" of
+    Left (H2010Renamer.UnboundName H2010Names.TermNamespace "missing") -> Right ()
+    Left err -> Left ("expected unbound foreign export diagnostic, got " <> show err)
+    Right bad -> Left ("unbound foreign export renamed unexpectedly: " <> show bad)
+ where
+  foreignImportResultConstructor foreignImport =
+    case H2010Renamed.rForeignImportType foreignImport of
+      H2010Renamed.RTyFun _ (H2010Renamed.RTyApp (H2010Renamed.RTyCon ioName) _) ->
+        Right (H2010Names.nameOcc ioName)
+      other ->
+        Left ("unexpected renamed foreign import type: " <> show other)
+
+  lookupInterface moduleName renamedWithInterfaces =
+    case
+      List.find
+        ((== H2010.ModuleName [moduleName]) . H2010ModuleInterface.interfaceModuleName . snd)
+        renamedWithInterfaces
+      of
+        Just (_, interface) -> Right interface
+        Nothing -> Left ("missing interface for module " <> Text.unpack moduleName)
+
+  exportsTerm occurrence interface =
+    any
+      (\name -> H2010Names.nameNamespace name == H2010Names.TermNamespace && H2010Names.nameOcc name == occurrence)
+      (H2010ModuleInterface.interfaceExports interface)
+
 testHaskell2010RenamerModuleGraphExports :: Either String ()
 testHaskell2010RenamerModuleGraphExports = do
   modules <- parseHaskell2010ModuleSources haskell2010MultiModuleSources
@@ -968,6 +1205,32 @@ testHaskell2010RenamerModuleGraphExports = do
     Left (H2010Renamer.UnboundName H2010Names.TermNamespace "hidden") -> Right ()
     Left err -> Left ("expected hidden export rejection, got " <> show err)
     Right renamed -> Left ("hidden import renamed unexpectedly: " <> show renamed)
+
+testHaskell2010RenamerModuleGraphInstances :: Either String ()
+testHaskell2010RenamerModuleGraphInstances = do
+  modules <- parseHaskell2010ModuleSources haskell2010InstanceImportSources
+  renamedWithInterfaces <-
+    mapLeft
+      (Text.unpack . H2010Renamer.renderRenameError)
+      (H2010Renamer.renameModuleGraphWithInterfaces modules)
+  provider <- lookupInterface "InstanceProvider" renamedWithInterfaces
+  bridge <- lookupInterface "InstanceBridge" renamedWithInterfaces
+  mainInterface <- lookupInterface "Main" renamedWithInterfaces
+  let providerInstances = H2010ModuleInterface.interfaceInstances provider
+      bridgeInstances = H2010ModuleInterface.interfaceInstances bridge
+      mainInstances = H2010ModuleInterface.interfaceInstances mainInterface
+  expectEqual "empty export-list provider still exports one instance" 1 (length providerInstances)
+  expectEqual "empty import-list bridge re-exports provider instances" providerInstances bridgeInstances
+  expectEqual "import chain makes provider instance visible to main" providerInstances mainInstances
+ where
+  lookupInterface moduleName renamedWithInterfaces =
+    case
+      List.find
+        ((== H2010.ModuleName [moduleName]) . H2010ModuleInterface.interfaceModuleName . snd)
+        renamedWithInterfaces
+      of
+        Just (_, interface) -> Right interface
+        Nothing -> Left ("missing interface for module " <> Text.unpack moduleName)
 
 testHaskell2010ModuleGraphCycle :: IO (Either String ())
 testHaskell2010ModuleGraphCycle = do
@@ -1272,6 +1535,26 @@ testHaskell2010KindRejectsMismatch =
         | H2010Typecheck.KindMismatch {} <- haskell2010TypecheckErrorDetail err -> Right ()
       Left err -> Left ("expected kind mismatch, got: " <> show err)
       Right coreModule -> Left ("kind-mismatched source typechecked unexpectedly: " <> show coreModule)
+
+testHaskell2010KindChecksMonadConstraint :: Either String ()
+testHaskell2010KindChecksMonadConstraint = do
+  _ <-
+    typecheckHaskell2010
+      "module Core0 where\n\
+      \same :: Monad m => m Int -> m Int\n\
+      \same value = value\n\
+      \main = 0\n"
+  case
+    typecheckHaskell2010Raw
+      "module Core0 where\n\
+      \bad :: Monad Int => Int\n\
+      \bad = 0\n\
+      \main = 0\n"
+    of
+      Left err
+        | H2010Typecheck.KindMismatch {} <- haskell2010TypecheckErrorDetail err -> Right ()
+      Left err -> Left ("expected Monad kind mismatch, got: " <> show err)
+      Right coreModule -> Left ("Monad Int source typechecked unexpectedly: " <> show coreModule)
 
 testHaskell2010TypeSynonymExpansion :: Either String ()
 testHaskell2010TypeSynonymExpansion =
@@ -1677,6 +1960,12 @@ testHaskell2010Core0MultiModuleImports = do
   assertBool "imported constructor metadata is emitted" (containsConstructorOccurrence "Box" coreModule)
   expectCoreEvalInt "multi-module Core oracle" 24 =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0ModuleInstanceImports :: Either String ()
+testHaskell2010Core0ModuleInstanceImports = do
+  coreModule <- typecheckHaskell2010Modules haskell2010InstanceImportSources
+  assertBool "source instance dictionary is emitted from hidden provider" (containsBindingPrefix "$fMeasureBox" coreModule)
+  expectCoreEvalInt "transitive instance-import Core oracle" 42 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0IOPrinting :: Either String ()
 testHaskell2010Core0IOPrinting = do
   coreModule <- typecheckHaskell2010 haskell2010IOPrintingSource
@@ -1704,6 +1993,16 @@ testHaskell2010Core0IOGetLine = do
   assertBool "Prelude getLine binding is emitted" (containsBindingOccurrence "getLine" coreModule)
   assertBool "Prelude append binding is emitted for getLine output formatting" (containsBindingOccurrence "++" coreModule)
   expectCoreEvalIO "IO getLine empty-stdin Core oracle" haskell2010IOGetLineEmptyOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0Monad :: Either String ()
+testHaskell2010Core0Monad = do
+  coreModule <- typecheckHaskell2010 haskell2010MonadSource
+  assertBool "Prelude Monad dictionary constructor is recorded" (containsConstructorOccurrence "$MkMonadDict" coreModule)
+  assertBool "Prelude Monad IO instance dictionary is emitted" (containsBindingOccurrence "$fMonadIO" coreModule)
+  assertBool "Prelude Monad Maybe instance dictionary is emitted" (containsBindingOccurrence "$fMonadMaybe" coreModule)
+  assertBool "Prelude Monad list instance dictionary is emitted" (containsBindingOccurrence "$fMonadList" coreModule)
+  assertBool "Prelude fail selector is emitted" (containsBindingOccurrence "fail" coreModule)
+  expectCoreEvalIO "Monad Core oracle" haskell2010MonadOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
 testHaskell2010Core0GuardsAndAsPatterns :: Either String ()
 testHaskell2010Core0GuardsAndAsPatterns = do
@@ -1871,6 +2170,494 @@ testHaskell2010TypeErrorDiagnosticsWithSpans =
           ("unsolved type-class constraint" `Text.isInfixOf` H2010Typecheck.renderTypecheckError err)
       Left err -> Left ("expected source-spanned type error, got: " <> show err)
       Right coreModule -> Left ("ill-typed source typechecked unexpectedly: " <> show coreModule)
+
+testHaskell2010ForeignTypechecking :: Either String ()
+testHaskell2010ForeignTypechecking = do
+  expectForeignImportCoreSTG
+    "static import over Haskell Int"
+    (ForeignCallIR True)
+    "module Core0 where\n\
+    \foreign import ccall \"abs\" c_abs :: Int -> IO Int\n\
+    \main = do\n\
+    \  value <- c_abs 1\n\
+    \  print value\n"
+  expectForeignCallEvaluatesArguments
+  expectForeignImportDeclaration
+    "static import over Foreign.C.Types"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"abs\" c_abs :: CInt -> IO CInt\n\
+    \main = 1\n"
+    "declare i32 @abs(i32)"
+  expectForeignImportDeclaration
+    "static unsigned import over Foreign.C.Types"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CUInt)\n\
+    \foreign import ccall \"hegglog_ffi_identity_u32\" c_id_u32 :: CUInt -> IO CUInt\n\
+    \main = 1\n"
+    "declare i32 @hegglog_ffi_identity_u32(i32)"
+  expectForeignImportCoreSTG
+    "dynamic import shape"
+    (ForeignCallIR False)
+    "module Core0 where\n\
+    \import Foreign (FunPtr)\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"dynamic\" mkFun :: FunPtr (CInt -> IO CInt) -> CInt -> IO CInt\n\
+    \main = 1\n"
+  expectForeignImportCoreSTG
+    "wrapper import shape"
+    (ForeignCallIR False)
+    "module Core0 where\n\
+    \import Foreign (FunPtr)\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"wrapper\" wrapFun :: (CInt -> IO CInt) -> IO (FunPtr (CInt -> IO CInt))\n\
+    \main = 1\n"
+  expectForeignImportCoreSTG
+    "address import shape"
+    ForeignImportValueIR
+    "module Core0 where\n\
+    \import Foreign (Ptr)\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"&errno\" c_errno :: Ptr CInt\n\
+    \main = 1\n"
+  expectForeignImportValueDeclaration
+    "address import native declaration"
+    "module Core0 where\n\
+    \import Foreign (Ptr)\n\
+    \foreign import ccall \"&hegglog_ffi_global_i64\" c_global :: Ptr Int\n\
+    \main = 1\n"
+    "@hegglog_ffi_global_i64 = external global i8"
+  expectForeignImportCoreSTG
+    "opaque Foreign.C.Types names"
+    ForeignImportValueIR
+    "module Core0 where\n\
+    \import Foreign (Ptr)\n\
+    \import Foreign.C.Types (CFile)\n\
+    \foreign import ccall \"&stdin\" c_stdin :: Ptr CFile\n\
+    \main = 1\n"
+  expectForeignImportCoreSTG
+    "type synonym expansion and local newtype validation"
+    (ForeignCallIR False)
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \type MyCInt = CInt\n\
+    \newtype FD = FD MyCInt\n\
+    \foreign import ccall \"fd\" c_fd :: FD -> IO MyCInt\n\
+    \main = 1\n"
+  expectForeignExportCoreSTG
+    "foreign export metadata and native entrypoint"
+    "module Core0 where\n\
+    \identity :: Int -> Int\n\
+    \identity x = x\n\
+    \foreign export ccall \"hs_identity\" identity :: Int -> Int\n\
+    \main = 1\n"
+    "hs_identity"
+ where
+  expectForeignImportCoreSTG label expectedIR source = do
+    case typecheckHaskell2010Raw source of
+      Right coreModule -> do
+        assertBool (label <> ": Core contains expected foreign IR") (coreModuleHasForeignIR expectedIR coreModule)
+        stgProgram <-
+          mapLeft
+            (Text.unpack . H2010STGLower.renderSTGLowerError)
+            (H2010STGLower.lowerCoreModule coreModule)
+        assertBool (label <> ": STG contains expected foreign IR") (stgProgramHasForeignIR expectedIR stgProgram)
+        case expectedIR of
+          ForeignCallIR True ->
+            expectForeignRuntimeUnsupported label coreModule stgProgram
+          ForeignCallIR False ->
+            Right ()
+          ForeignImportValueIR ->
+            Right ()
+      Left err ->
+        Left (label <> ": expected FFI Core/STG IR, got typecheck diagnostic: " <> Text.unpack (H2010Typecheck.renderTypecheckError err))
+
+  expectForeignExportCoreSTG label source expectedSymbol =
+    case typecheckHaskell2010Raw source of
+      Right coreModule -> do
+        assertBool
+          (label <> ": Core carries foreign export metadata")
+          ( any
+              ((== Just expectedSymbol) . H2010.foreignExportEntitySymbol . H2010Core.coreForeignExportEntity)
+              (H2010Core.coreModuleForeignExports coreModule)
+          )
+        stgProgram <-
+          mapLeft
+            (Text.unpack . H2010STGLower.renderSTGLowerError)
+            (H2010STGLower.lowerCoreModule coreModule)
+        assertBool
+          (label <> ": STG carries foreign export metadata")
+          ( any
+              ((== Just expectedSymbol) . H2010.foreignExportEntitySymbol . H2010Core.coreForeignExportEntity)
+              (H2010STG.stgProgramForeignExports stgProgram)
+          )
+        case H2010STGLLVM.lowerSTGProgramToLLVM "main" stgProgram of
+          Right llvmModule ->
+            assertBool
+              (label <> ": native backend defines exported C symbol")
+              (any ((== expectedSymbol) . LIR.functionName) (LIR.moduleFunctions llvmModule))
+          Left err ->
+            Left (label <> ": expected native foreign export lowering, got " <> Text.unpack (H2010STGLLVM.renderSTGLLVMError err))
+      Left err ->
+        Left (label <> ": expected foreign export Core/STG metadata, got typecheck diagnostic: " <> Text.unpack (H2010Typecheck.renderTypecheckError err))
+
+  expectForeignRuntimeUnsupported label coreModule stgProgram = do
+    case H2010CoreEval.evalCoreModuleBindingByOccurrence "main" coreModule of
+      Left err
+        | "foreign call" `Text.isInfixOf` H2010CoreEval.renderCoreEvalError err ->
+            Right ()
+      Left err ->
+        Left (label <> ": expected Core foreign-call runtime boundary, got " <> Text.unpack (H2010CoreEval.renderCoreEvalError err))
+      Right value ->
+        Left (label <> ": Core foreign call evaluated unexpectedly to " <> Text.unpack (H2010CoreEval.renderCoreValue value))
+    case H2010STGEval.evalSTGProgramBindingByOccurrence "main" stgProgram of
+      Left err
+        | "foreign call" `Text.isInfixOf` H2010STGEval.renderSTGEvalError err ->
+            Right ()
+      Left err ->
+        Left (label <> ": expected STG foreign-call runtime boundary, got " <> Text.unpack (H2010STGEval.renderSTGEvalError err))
+      Right value ->
+        Left (label <> ": STG foreign call evaluated unexpectedly to " <> Text.unpack (H2010STGEval.renderSTGValue value))
+    case H2010STGLLVM.lowerSTGProgramToLLVM "main" stgProgram of
+      Right llvmModule ->
+        assertBool
+          (label <> ": native FFI declares static ccall symbol")
+          ("declare i64 @abs(i64)" `elem` LIR.moduleDeclarations llvmModule)
+      Left err ->
+        Left (label <> ": expected native static ccall lowering, got " <> Text.unpack (H2010STGLLVM.renderSTGLLVMError err))
+
+  expectForeignImportDeclaration label source expectedDeclaration =
+    case typecheckHaskell2010Raw source of
+      Right coreModule -> do
+        assertBool (label <> ": Core contains static foreign call IR") (coreModuleHasForeignIR (ForeignCallIR True) coreModule)
+        stgProgram <-
+          mapLeft
+            (Text.unpack . H2010STGLower.renderSTGLowerError)
+            (H2010STGLower.lowerCoreModule coreModule)
+        assertBool (label <> ": STG contains static foreign call IR") (stgProgramHasForeignIR (ForeignCallIR True) stgProgram)
+        case H2010STGLLVM.lowerSTGProgramToLLVM "main" stgProgram of
+          Right llvmModule ->
+            assertBool
+              (label <> ": native FFI declares expected static ccall ABI")
+              (expectedDeclaration `elem` LIR.moduleDeclarations llvmModule)
+          Left err ->
+            Left (label <> ": expected native static ccall declaration lowering, got " <> Text.unpack (H2010STGLLVM.renderSTGLLVMError err))
+      Left err ->
+        Left (label <> ": expected FFI Core/STG IR, got typecheck diagnostic: " <> Text.unpack (H2010Typecheck.renderTypecheckError err))
+
+  expectForeignImportValueDeclaration label source expectedDeclaration =
+    case typecheckHaskell2010Raw source of
+      Right coreModule -> do
+        assertBool (label <> ": Core contains foreign import value IR") (coreModuleHasForeignIR ForeignImportValueIR coreModule)
+        stgProgram <-
+          mapLeft
+            (Text.unpack . H2010STGLower.renderSTGLowerError)
+            (H2010STGLower.lowerCoreModule coreModule)
+        assertBool (label <> ": STG contains foreign import value IR") (stgProgramHasForeignIR ForeignImportValueIR stgProgram)
+        case H2010STGLLVM.lowerSTGProgramToLLVM "main" stgProgram of
+          Right llvmModule ->
+            assertBool
+              (label <> ": native FFI declares expected address symbol")
+              (expectedDeclaration `elem` LIR.moduleDeclarations llvmModule)
+          Left err ->
+            Left (label <> ": expected native address declaration lowering, got " <> Text.unpack (H2010STGLLVM.renderSTGLLVMError err))
+      Left err ->
+        Left (label <> ": expected FFI Core/STG IR, got typecheck diagnostic: " <> Text.unpack (H2010Typecheck.renderTypecheckError err))
+
+  expectForeignCallEvaluatesArguments = do
+    coreModule <-
+      mapLeft
+        (Text.unpack . H2010Typecheck.renderTypecheckError)
+        ( typecheckHaskell2010Raw
+            "module Core0 where\n\
+            \foreign import ccall \"abs\" c_abs :: Int -> IO Int\n\
+            \bad = 1 / 0\n\
+            \main = c_abs bad\n"
+        )
+    case H2010CoreEval.evalCoreModuleBindingByOccurrence "main" coreModule of
+      Left H2010CoreEval.CoreEvalDivisionByZero ->
+        Right ()
+      Left err ->
+        Left ("foreign call Core argument strictness: expected division by zero, got " <> Text.unpack (H2010CoreEval.renderCoreEvalError err))
+      Right value ->
+        Left ("foreign call Core argument strictness: evaluated unexpectedly to " <> Text.unpack (H2010CoreEval.renderCoreValue value))
+    stgProgram <-
+      mapLeft
+        (Text.unpack . H2010STGLower.renderSTGLowerError)
+        (H2010STGLower.lowerCoreModule coreModule)
+    case H2010STGEval.evalSTGProgramBindingByOccurrence "main" stgProgram of
+      Left H2010STGEval.STGEvalDivisionByZero ->
+        Right ()
+      Left err ->
+        Left ("foreign call STG argument strictness: expected division by zero, got " <> Text.unpack (H2010STGEval.renderSTGEvalError err))
+      Right value ->
+        Left ("foreign call STG argument strictness: evaluated unexpectedly to " <> Text.unpack (H2010STGEval.renderSTGValue value))
+
+testHaskell2010ForeignPtrStablePtrTypechecking :: Either String ()
+testHaskell2010ForeignPtrStablePtrTypechecking = do
+  coreModule <-
+    typecheckHaskell2010
+      "module Core0 where\n\
+      \import Foreign (Ptr, FunPtr, StablePtr, ForeignPtr, newStablePtr, deRefStablePtr, freeStablePtr, castStablePtrToPtr, castPtrToStablePtr, newForeignPtr, newForeignPtr_, addForeignPtrFinalizer, finalizeForeignPtr, withForeignPtr, touchForeignPtr)\n\
+      \foreign import ccall \"&hegglog_ffi_global_i64\" c_global :: Ptr Int\n\
+      \foreign import ccall \"&hegglog_ffi_count_i64_finalizer\" c_finalizer :: FunPtr (Ptr Int -> IO ())\n\
+      \foreign import ccall \"hegglog_ffi_read_i64_ptr\" c_read :: Ptr Int -> IO Int\n\
+      \stableRoundTrip :: Int -> IO Int\n\
+      \stableRoundTrip value = do\n\
+      \  stable <- newStablePtr value\n\
+      \  first <- deRefStablePtr stable\n\
+      \  let raw = castStablePtrToPtr stable\n\
+      \  second <- deRefStablePtr (castPtrToStablePtr raw)\n\
+      \  freeStablePtr stable\n\
+      \  return (first + second)\n\
+      \foreignRoundTrip :: IO Int\n\
+      \foreignRoundTrip = do\n\
+      \  managed <- newForeignPtr c_finalizer c_global\n\
+      \  addForeignPtrFinalizer c_finalizer managed\n\
+      \  value <- withForeignPtr managed c_read\n\
+      \  touchForeignPtr managed\n\
+      \  finalizeForeignPtr managed\n\
+      \  unmanaged <- newForeignPtr_ c_global\n\
+      \  withForeignPtr unmanaged c_read\n\
+      \main = do\n\
+      \  stableRoundTrip 21\n\
+      \  foreignRoundTrip\n"
+  stgProgram <-
+    mapLeft
+      (Text.unpack . H2010STGLower.renderSTGLowerError)
+      (H2010STGLower.lowerCoreModule coreModule)
+  assertBool "StablePtr primitive appears in Core" (coreModuleHasPrim H2010Core.PrimNewStablePtr coreModule)
+    *> assertBool "ForeignPtr primitive appears in Core" (coreModuleHasPrim H2010Core.PrimWithForeignPtr coreModule)
+    *> assertBool "StablePtr primitive appears in STG" (stgProgramHasPrim H2010Core.PrimNewStablePtr stgProgram)
+    *> assertBool "ForeignPtr primitive appears in STG" (stgProgramHasPrim H2010Core.PrimWithForeignPtr stgProgram)
+
+data ForeignIRExpectation
+  = ForeignCallIR Bool
+  | ForeignImportValueIR
+  deriving stock (Show, Eq)
+
+coreModuleHasForeignIR :: ForeignIRExpectation -> H2010Core.CoreModule -> Bool
+coreModuleHasForeignIR expected (H2010Core.CoreModule _ _ binds _foreignExports) =
+  any (coreBindHasForeignIR expected) binds
+
+coreBindHasForeignIR :: ForeignIRExpectation -> H2010Core.CoreBind -> Bool
+coreBindHasForeignIR expected = \case
+  H2010Core.CoreNonRec _ rhs ->
+    coreExprHasForeignIR expected rhs
+  H2010Core.CoreRec pairs ->
+    any (coreExprHasForeignIR expected . snd) pairs
+
+coreExprHasForeignIR :: ForeignIRExpectation -> H2010Core.CoreExpr -> Bool
+coreExprHasForeignIR expected = \case
+  H2010Core.CForeignCall {} ->
+    case expected of
+      ForeignCallIR {} -> True
+      ForeignImportValueIR -> False
+  H2010Core.CForeignImportValue {} ->
+    expected == ForeignImportValueIR
+  H2010Core.CLam _ body _ ->
+    coreExprHasForeignIR expected body
+  H2010Core.CApp callee argument _ ->
+    coreExprHasForeignIR expected callee || coreExprHasForeignIR expected argument
+  H2010Core.CTypeLam _ body _ ->
+    coreExprHasForeignIR expected body
+  H2010Core.CTypeApp callee _ _ ->
+    coreExprHasForeignIR expected callee
+  H2010Core.CLet bind body _ ->
+    coreBindHasForeignIR expected bind || coreExprHasForeignIR expected body
+  H2010Core.CCase scrutinee _ alternatives _ ->
+    coreExprHasForeignIR expected scrutinee || any (coreAltHasForeignIR expected) alternatives
+  H2010Core.CCoerce expression _ ->
+    coreExprHasForeignIR expected expression
+  H2010Core.CPrimOp _ arguments _ ->
+    any (coreExprHasForeignIR expected) arguments
+  H2010Core.CVar {} ->
+    False
+  H2010Core.CLit {} ->
+    False
+  H2010Core.CCon {} ->
+    False
+
+coreAltHasForeignIR :: ForeignIRExpectation -> H2010Core.CoreAlt -> Bool
+coreAltHasForeignIR expected (H2010Core.CoreAlt _ _ body) =
+  coreExprHasForeignIR expected body
+
+coreModuleHasPrim :: H2010Core.CorePrimOp -> H2010Core.CoreModule -> Bool
+coreModuleHasPrim expected (H2010Core.CoreModule _ _ binds _foreignExports) =
+  any (coreBindHasPrim expected) binds
+
+coreBindHasPrim :: H2010Core.CorePrimOp -> H2010Core.CoreBind -> Bool
+coreBindHasPrim expected = \case
+  H2010Core.CoreNonRec _ rhs ->
+    coreExprHasPrim expected rhs
+  H2010Core.CoreRec pairs ->
+    any (coreExprHasPrim expected . snd) pairs
+
+coreExprHasPrim :: H2010Core.CorePrimOp -> H2010Core.CoreExpr -> Bool
+coreExprHasPrim expected = \case
+  H2010Core.CPrimOp op arguments _ ->
+    op == expected || any (coreExprHasPrim expected) arguments
+  H2010Core.CLam _ body _ ->
+    coreExprHasPrim expected body
+  H2010Core.CApp callee argument _ ->
+    coreExprHasPrim expected callee || coreExprHasPrim expected argument
+  H2010Core.CTypeLam _ body _ ->
+    coreExprHasPrim expected body
+  H2010Core.CTypeApp callee _ _ ->
+    coreExprHasPrim expected callee
+  H2010Core.CLet bind body _ ->
+    coreBindHasPrim expected bind || coreExprHasPrim expected body
+  H2010Core.CCase scrutinee _ alternatives _ ->
+    coreExprHasPrim expected scrutinee || any (coreAltHasPrim expected) alternatives
+  H2010Core.CCoerce expression _ ->
+    coreExprHasPrim expected expression
+  H2010Core.CForeignCall _ arguments _ ->
+    any (coreExprHasPrim expected) arguments
+  H2010Core.CVar {} -> False
+  H2010Core.CLit {} -> False
+  H2010Core.CCon {} -> False
+  H2010Core.CForeignImportValue {} -> False
+
+coreAltHasPrim :: H2010Core.CorePrimOp -> H2010Core.CoreAlt -> Bool
+coreAltHasPrim expected (H2010Core.CoreAlt _ _ body) =
+  coreExprHasPrim expected body
+
+stgProgramHasForeignIR :: ForeignIRExpectation -> H2010STG.STGProgram -> Bool
+stgProgramHasForeignIR expected (H2010STG.STGProgram _ binds _foreignExports) =
+  any (stgBindHasForeignIR expected) binds
+
+stgBindHasForeignIR :: ForeignIRExpectation -> H2010STG.STGBind -> Bool
+stgBindHasForeignIR expected = \case
+  H2010STG.STGNonRec _ rhs ->
+    stgRhsHasForeignIR expected rhs
+  H2010STG.STGRec pairs ->
+    any (stgRhsHasForeignIR expected . snd) pairs
+
+stgRhsHasForeignIR :: ForeignIRExpectation -> H2010STG.STGRhs -> Bool
+stgRhsHasForeignIR expected = \case
+  H2010STG.STGFunction _ body ->
+    stgExprHasForeignIR expected body
+  H2010STG.STGThunk _ body ->
+    stgExprHasForeignIR expected body
+  H2010STG.STGConstructor {} ->
+    False
+
+stgExprHasForeignIR :: ForeignIRExpectation -> H2010STG.STGExpr -> Bool
+stgExprHasForeignIR expected = \case
+  H2010STG.STGForeignCall {} ->
+    case expected of
+      ForeignCallIR {} -> True
+      ForeignImportValueIR -> False
+  H2010STG.STGForeignImportValue {} ->
+    expected == ForeignImportValueIR
+  H2010STG.STGLet bind body _ ->
+    stgBindHasForeignIR expected bind || stgExprHasForeignIR expected body
+  H2010STG.STGCase scrutinee _ alternatives _ ->
+    stgExprHasForeignIR expected scrutinee || any (stgAltHasForeignIR expected) alternatives
+  H2010STG.STGAtom {} ->
+    False
+  H2010STG.STGApp {} ->
+    False
+  H2010STG.STGPrim {} ->
+    False
+
+stgAltHasForeignIR :: ForeignIRExpectation -> H2010STG.STGAlt -> Bool
+stgAltHasForeignIR expected (H2010STG.STGAlt _ _ body) =
+  stgExprHasForeignIR expected body
+
+stgProgramHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGProgram -> Bool
+stgProgramHasPrim expected (H2010STG.STGProgram _ binds _foreignExports) =
+  any (stgBindHasPrim expected) binds
+
+stgBindHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGBind -> Bool
+stgBindHasPrim expected = \case
+  H2010STG.STGNonRec _ rhs ->
+    stgRhsHasPrim expected rhs
+  H2010STG.STGRec pairs ->
+    any (stgRhsHasPrim expected . snd) pairs
+
+stgRhsHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGRhs -> Bool
+stgRhsHasPrim expected = \case
+  H2010STG.STGFunction _ body ->
+    stgExprHasPrim expected body
+  H2010STG.STGThunk _ body ->
+    stgExprHasPrim expected body
+  H2010STG.STGConstructor {} ->
+    False
+
+stgExprHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGExpr -> Bool
+stgExprHasPrim expected = \case
+  H2010STG.STGPrim op _ _ ->
+    op == expected
+  H2010STG.STGLet bind body _ ->
+    stgBindHasPrim expected bind || stgExprHasPrim expected body
+  H2010STG.STGCase scrutinee _ alternatives _ ->
+    stgExprHasPrim expected scrutinee || any (stgAltHasPrim expected) alternatives
+  H2010STG.STGAtom {} -> False
+  H2010STG.STGApp {} -> False
+  H2010STG.STGForeignCall {} -> False
+  H2010STG.STGForeignImportValue {} -> False
+
+stgAltHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGAlt -> Bool
+stgAltHasPrim expected (H2010STG.STGAlt _ _ body) =
+  stgExprHasPrim expected body
+
+testHaskell2010RejectsInvalidForeignTypechecking :: Either String ()
+testHaskell2010RejectsInvalidForeignTypechecking = do
+  expectForeignTypeError
+    "address import rejects scalar target"
+    "foreign import address must have type Ptr a or FunPtr a"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"&errno\" c_errno :: CInt\n\
+    \main = 1\n"
+  expectForeignTypeError
+    "dynamic import rejects non-FunPtr source"
+    "foreign import dynamic must have type FunPtr ft -> ft"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"dynamic\" bad :: CInt -> CInt\n\
+    \main = 1\n"
+  expectForeignTypeError
+    "wrapper import rejects missing FunPtr result"
+    "foreign import wrapper must have type ft -> IO (FunPtr ft)"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"wrapper\" bad :: CInt -> IO CInt\n\
+    \main = 1\n"
+  expectForeignTypeError
+    "static import rejects String arguments"
+    "non-marshallable foreign argument"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"strlen\" c_strlen :: String -> IO CInt\n\
+    \main = 1\n"
+  expectForeignTypeError
+    "foreign import rejects non-Haskell-2010 calling conventions"
+    "foreign import calling convention `jvm`"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import jvm \"foreign\" foreign_value :: CInt -> CInt\n\
+    \main = 1\n"
+  expectForeignTypeError
+    "foreign export type must match exported binding"
+    "type mismatch"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \identity :: Int -> Int\n\
+    \identity x = x\n\
+    \foreign export ccall \"identity\" identity :: CInt -> CInt\n\
+    \main = 1\n"
+ where
+  expectForeignTypeError label expected source =
+    case typecheckHaskell2010Raw source of
+      Left err
+        | expected `Text.isInfixOf` H2010Typecheck.renderTypecheckError err ->
+            Right ()
+      Left err ->
+        Left (label <> ": expected diagnostic containing " <> show expected <> ", got: " <> Text.unpack (H2010Typecheck.renderTypecheckError err))
+      Right coreModule ->
+        Left (label <> ": invalid foreign declaration typechecked unexpectedly: " <> show coreModule)
 
 testHaskell2010ExhaustivenessWarningPlaceholders :: Either String ()
 testHaskell2010ExhaustivenessWarningPlaceholders = do
@@ -2065,6 +2852,14 @@ testHaskell2010Core0EvalMultiModuleImports =
     =<< evalHaskell2010CoreModuleBinding "main"
     =<< typecheckHaskell2010Modules haskell2010MultiModuleSources
 
+testHaskell2010Core0EvalModuleInstanceImports :: Either String ()
+testHaskell2010Core0EvalModuleInstanceImports =
+  expectCoreEvalInt
+    "Core-0 transitive instance-import evaluation"
+    42
+    =<< evalHaskell2010CoreModuleBinding "main"
+    =<< typecheckHaskell2010Modules haskell2010InstanceImportSources
+
 testHaskell2010Core0EvalIOPrinting :: Either String ()
 testHaskell2010Core0EvalIOPrinting =
   expectCoreEvalIO
@@ -2085,6 +2880,13 @@ testHaskell2010Core0EvalIOGetLine =
     "Core-0 IO getLine empty-stdin evaluation"
     haskell2010IOGetLineEmptyOutput
     =<< evalHaskell2010Binding "main" haskell2010IOGetLineSource
+
+testHaskell2010Core0EvalMonad :: Either String ()
+testHaskell2010Core0EvalMonad =
+  expectCoreEvalIO
+    "Core-0 Monad evaluation"
+    haskell2010MonadOutput
+    =<< evalHaskell2010Binding "main" haskell2010MonadSource
 
 testHaskell2010Core0EvalGuardsAndAsPatterns :: Either String ()
 testHaskell2010Core0EvalGuardsAndAsPatterns =
@@ -2585,6 +3387,281 @@ testHaskell2010NativeListComprehensions :: Either String ()
 testHaskell2010NativeListComprehensions = do
   llvmText <- compileHaskell2010NativeText haskell2010ListComprehensionsSource
   assertBool "native list comprehensions branch on guards and patterns" ("br i1" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeStaticCCall :: IO (Either String ())
+testHaskell2010NativeStaticCCall = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} ->
+      case compileHaskell2010Native haskell2010StaticCCallSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          createDirectoryIfMissing True ".context/native-tests"
+          let llvmText = H2010Native.haskell2010LLVMText result
+              outputPath = ".context/native-tests/haskell2010-static-ccall"
+              helperPath = "test/native/haskell2010/ffi_helpers.c"
+          pureChecks <-
+            pure $
+              assertBool
+                "static ccall declares pure i64 helper"
+                ("declare i64 @hegglog_ffi_add_i64(i64, i64)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "static ccall declares void IO helper"
+                  ("declare void @hegglog_ffi_reset()" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "static ccall emits direct pure helper call"
+                  ("call i64 @hegglog_ffi_add_i64" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "static ccall emits direct void helper call"
+                  ("call void @hegglog_ffi_reset()" `Text.isInfixOf` llvmText)
+          case pureChecks of
+            Left err ->
+              pure (Left err)
+            Right () -> do
+              buildResult <- LLVMTools.buildNativeExecutableWithObjects tools llvmText [helperPath] outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    expectEqual "Haskell 2010 static ccall stdout" (Text.unpack haskell2010StaticCCallOutput) stdoutText
+                  LLVMTools.NativeRunFailed code stdoutText stderrText ->
+                    Left
+                      ( "Haskell 2010 static ccall execution failed for "
+                          <> outputPath
+                          <> " with "
+                          <> show code
+                          <> "\nstdout:\n"
+                          <> stdoutText
+                          <> "\nstderr:\n"
+                          <> stderrText
+                      )
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("Haskell 2010 static ccall execution I/O error for " <> outputPath <> ": " <> message)
+
+testHaskell2010NativePointerAddressCCall :: IO (Either String ())
+testHaskell2010NativePointerAddressCCall = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} ->
+      case compileHaskell2010Native haskell2010PointerAddressCCallSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          createDirectoryIfMissing True ".context/native-tests"
+          let llvmText = H2010Native.haskell2010LLVMText result
+              outputPath = ".context/native-tests/haskell2010-pointer-address-ccall"
+              helperPath = "test/native/haskell2010/ffi_helpers.c"
+          pureChecks <-
+            pure $
+              assertBool
+                "address import declares external data symbol"
+                ("@hegglog_ffi_global_i64 = external global i8" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "function address import declares function pointer target"
+                  ("declare i64 @hegglog_ffi_inc_i64(i64)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "pointer argument ccall uses ptr ABI"
+                  ("declare i64 @hegglog_ffi_read_i64_ptr(ptr)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "pointer result ccall uses ptr ABI"
+                  ("declare ptr @hegglog_ffi_select_i64_ptr(i1)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "pointer runtime boxes raw addresses"
+                  ("call ptr @hegglog_hs_make_ptr(ptr @hegglog_ffi_global_i64)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "foreign pointer arguments are unboxed before calls"
+                  ("call ptr @hegglog_hs_expect_ptr" `Text.isInfixOf` llvmText)
+          case pureChecks of
+            Left err ->
+              pure (Left err)
+            Right () -> do
+              buildResult <- LLVMTools.buildNativeExecutableWithObjects tools llvmText [helperPath] outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    expectEqual "Haskell 2010 pointer/address ccall stdout" (Text.unpack haskell2010PointerAddressCCallOutput) stdoutText
+                  LLVMTools.NativeRunFailed code stdoutText stderrText ->
+                    Left
+                      ( "Haskell 2010 pointer/address ccall execution failed for "
+                          <> outputPath
+                          <> " with "
+                          <> show code
+                          <> "\nstdout:\n"
+                          <> stdoutText
+                          <> "\nstderr:\n"
+                          <> stderrText
+                      )
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("Haskell 2010 pointer/address ccall execution I/O error for " <> outputPath <> ": " <> message)
+
+testHaskell2010NativeDynamicWrapperCCall :: IO (Either String ())
+testHaskell2010NativeDynamicWrapperCCall = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} ->
+      case compileHaskell2010Native haskell2010DynamicWrapperCCallSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          createDirectoryIfMissing True ".context/native-tests"
+          let llvmText = H2010Native.haskell2010LLVMText result
+              outputPath = ".context/native-tests/haskell2010-dynamic-wrapper-ccall"
+              helperPath = "test/native/haskell2010/ffi_helpers.c"
+          pureChecks <-
+            pure $
+              assertBool
+                "dynamic import emits an indirect foreign call"
+                ("call i64 %ptr" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "wrapper import emits a callback entrypoint"
+                  ("define i64 @hegglog_hs_ffi_wrapper_" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "wrapper import stores the Haskell callback closure"
+                  (" = internal global [64 x ptr] zeroinitializer" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "wrapper callback re-enters Haskell function closures"
+                  ("call ptr @hegglog_hs_expect_function" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "wrapper result is boxed as a FunPtr"
+                  ("call ptr @hegglog_hs_make_ptr(ptr %wrapper_fn" `Text.isInfixOf` llvmText)
+          case pureChecks of
+            Left err ->
+              pure (Left err)
+            Right () -> do
+              buildResult <- LLVMTools.buildNativeExecutableWithObjects tools llvmText [helperPath] outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    expectEqual "Haskell 2010 dynamic/wrapper ccall stdout" (Text.unpack haskell2010DynamicWrapperCCallOutput) stdoutText
+                  LLVMTools.NativeRunFailed code stdoutText stderrText ->
+                    Left
+                      ( "Haskell 2010 dynamic/wrapper ccall execution failed for "
+                          <> outputPath
+                          <> " with "
+                          <> show code
+                          <> "\nstdout:\n"
+                          <> stdoutText
+                          <> "\nstderr:\n"
+                          <> stderrText
+                      )
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("Haskell 2010 dynamic/wrapper ccall execution I/O error for " <> outputPath <> ": " <> message)
+
+testHaskell2010NativeForeignExportCCall :: IO (Either String ())
+testHaskell2010NativeForeignExportCCall = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} ->
+      case compileHaskell2010Native haskell2010ForeignExportCCallSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          createDirectoryIfMissing True ".context/native-tests"
+          let llvmText = H2010Native.haskell2010LLVMText result
+              outputPath = ".context/native-tests/haskell2010-foreign-export-ccall"
+              helperPath = "test/native/haskell2010/ffi_export_helpers.c"
+          pureChecks <-
+            pure $
+              assertBool
+                "foreign export defines pure C entrypoint"
+                ("define i64 @hegglog_hs_export_add(i64 %arg0, i64 %arg1)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "foreign export defines IO C entrypoint"
+                  ("define i64 @hegglog_hs_export_io(i64 %arg0)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "foreign export boxes C arguments"
+                  ("call ptr @hegglog_hs_make_int(i64 %arg0)" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "foreign export unboxes Haskell results"
+                  ("call i64 @hegglog_hs_expect_int" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "foreign export helper import is declared"
+                  ("declare i64 @hegglog_ffi_call_export_add(i64, i64)" `Text.isInfixOf` llvmText)
+          case pureChecks of
+            Left err ->
+              pure (Left err)
+            Right () -> do
+              buildResult <- LLVMTools.buildNativeExecutableWithObjects tools llvmText [helperPath] outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    expectEqual "Haskell 2010 foreign export ccall stdout" (Text.unpack haskell2010ForeignExportCCallOutput) stdoutText
+                  LLVMTools.NativeRunFailed code stdoutText stderrText ->
+                    Left
+                      ( "Haskell 2010 foreign export ccall execution failed for "
+                          <> outputPath
+                          <> " with "
+                          <> show code
+                          <> "\nstdout:\n"
+                          <> stdoutText
+                          <> "\nstderr:\n"
+                          <> stderrText
+                      )
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("Haskell 2010 foreign export ccall execution I/O error for " <> outputPath <> ": " <> message)
+
+testHaskell2010NativeStableForeignPtrFinalizers :: IO (Either String ())
+testHaskell2010NativeStableForeignPtrFinalizers = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} ->
+      case compileHaskell2010Native haskell2010StableForeignPtrFinalizersSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          createDirectoryIfMissing True ".context/native-tests"
+          let llvmText = H2010Native.haskell2010LLVMText result
+              outputPath = ".context/native-tests/haskell2010-stable-foreign-ptr-finalizers"
+              helperPath = "test/native/haskell2010/ffi_helpers.c"
+          pureChecks <-
+            pure $
+              assertBool
+                "StablePtr creation uses runtime ownership record"
+                ("call ptr @hegglog_hs_new_stable_ptr" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "StablePtr dereference validates liveness"
+                  ("call ptr @hegglog_hs_deref_stable_ptr" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "ForeignPtr creation uses runtime ownership record"
+                  ("call ptr @hegglog_hs_make_foreign_ptr" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "ForeignPtr finalization calls runtime finalizer dispatch"
+                  ("call void @hegglog_hs_finalize_foreign_ptr" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "ForeignPtr finalizers dispatch through function pointers"
+                  ("call void %finalizer_" `Text.isInfixOf` llvmText)
+          case pureChecks of
+            Left err ->
+              pure (Left err)
+            Right () -> do
+              buildResult <- LLVMTools.buildNativeExecutableWithObjects tools llvmText [helperPath] outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    expectEqual "Haskell 2010 StablePtr ForeignPtr stdout" (Text.unpack haskell2010StableForeignPtrFinalizersOutput) stdoutText
+                  LLVMTools.NativeRunFailed code stdoutText stderrText ->
+                    Left
+                      ( "Haskell 2010 StablePtr ForeignPtr execution failed for "
+                          <> outputPath
+                          <> " with "
+                          <> show code
+                          <> "\nstdout:\n"
+                          <> stdoutText
+                          <> "\nstderr:\n"
+                          <> stderrText
+                      )
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("Haskell 2010 StablePtr ForeignPtr execution I/O error for " <> outputPath <> ": " <> message)
 
 testHaskell2010NativeLLVMExecution :: IO (Either String ())
 testHaskell2010NativeLLVMExecution = do
@@ -6054,6 +7131,164 @@ haskell2010NativeExecutableExamples =
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   ]
 
+haskell2010StaticCCallSource :: Text
+haskell2010StaticCCallSource =
+  "module Main where\n\
+  \foreign import ccall \"hegglog_ffi_add_i64\" c_add :: Int -> Int -> Int\n\
+  \foreign import ccall \"hegglog_ffi_reset\" c_reset :: IO ()\n\
+  \foreign import ccall \"hegglog_ffi_accum\" c_accum :: Int -> IO Int\n\
+  \foreign import ccall \"hegglog_ffi_current\" c_current :: IO Int\n\
+  \foreign import ccall \"hegglog_ffi_bool_to_i64\" c_bool_to_i64 :: Bool -> Int\n\
+  \foreign import ccall \"hegglog_ffi_next_char\" c_next_char :: Char -> Char\n\
+  \main = do\n\
+  \  print (c_add 7 5)\n\
+  \  c_reset\n\
+  \  first <- c_accum 10\n\
+  \  second <- c_accum 32\n\
+  \  current <- c_current\n\
+  \  print first\n\
+  \  print second\n\
+  \  print current\n\
+  \  print (c_bool_to_i64 True)\n\
+  \  putStrLn [c_next_char 'A']\n"
+
+haskell2010StaticCCallOutput :: Text
+haskell2010StaticCCallOutput =
+  "12\n10\n42\n42\n11\nB\n"
+
+haskell2010PointerAddressCCallSource :: Text
+haskell2010PointerAddressCCallSource =
+  "module Main where\n\
+  \import Foreign (Ptr, FunPtr)\n\
+  \foreign import ccall \"&hegglog_ffi_global_i64\" c_global :: Ptr Int\n\
+  \foreign import ccall \"&hegglog_ffi_inc_i64\" c_inc_ptr :: FunPtr (Int -> IO Int)\n\
+  \foreign import ccall \"hegglog_ffi_read_i64_ptr\" c_read :: Ptr Int -> IO Int\n\
+  \foreign import ccall \"hegglog_ffi_write_i64_ptr\" c_write :: Ptr Int -> Int -> IO ()\n\
+  \foreign import ccall \"hegglog_ffi_select_i64_ptr\" c_select :: Bool -> IO (Ptr Int)\n\
+  \foreign import ccall \"hegglog_ffi_apply_i64\" c_apply :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
+  \main = do\n\
+  \  before <- c_read c_global\n\
+  \  print before\n\
+  \  c_write c_global 123\n\
+  \  after <- c_read c_global\n\
+  \  print after\n\
+  \  selected <- c_select True\n\
+  \  selectedValue <- c_read selected\n\
+  \  print selectedValue\n\
+  \  applied <- c_apply c_inc_ptr 41\n\
+  \  print applied\n"
+
+haskell2010PointerAddressCCallOutput :: Text
+haskell2010PointerAddressCCallOutput =
+  "77\n123\n99\n42\n"
+
+haskell2010DynamicWrapperCCallSource :: Text
+haskell2010DynamicWrapperCCallSource =
+  "module Main where\n\
+  \import Foreign (FunPtr)\n\
+  \foreign import ccall \"dynamic\" mkIntFun :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
+  \foreign import ccall \"dynamic\" mkPureFun :: FunPtr (Int -> Int) -> Int -> Int\n\
+  \foreign import ccall \"wrapper\" wrapIntFun :: (Int -> IO Int) -> IO (FunPtr (Int -> IO Int))\n\
+  \foreign import ccall \"wrapper\" wrapPureFun :: (Int -> Int) -> IO (FunPtr (Int -> Int))\n\
+  \foreign import ccall \"&hegglog_ffi_inc_i64\" c_inc_ptr :: FunPtr (Int -> IO Int)\n\
+  \foreign import ccall \"&hegglog_ffi_inc_i64\" c_inc_pure_ptr :: FunPtr (Int -> Int)\n\
+  \foreign import ccall \"hegglog_ffi_apply_i64\" c_apply :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
+  \foreign import ccall \"hegglog_ffi_apply_i64\" c_apply_pure :: FunPtr (Int -> Int) -> Int -> IO Int\n\
+  \foreign import ccall \"hegglog_ffi_apply_twice_i64\" c_apply_twice :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
+  \callback :: Int -> IO Int\n\
+  \callback value = do\n\
+  \  print value\n\
+  \  return (value + 2)\n\
+  \callback2 :: Int -> IO Int\n\
+  \callback2 value = return (value + 10)\n\
+  \pureCallback :: Int -> Int\n\
+  \pureCallback value = value + 20\n\
+  \main = do\n\
+  \  direct <- mkIntFun c_inc_ptr 10\n\
+  \  print direct\n\
+  \  print (mkPureFun c_inc_pure_ptr 20)\n\
+  \  callbackPtr <- wrapIntFun callback\n\
+  \  callbackPtr2 <- wrapIntFun callback2\n\
+  \  pureCallbackPtr <- wrapPureFun pureCallback\n\
+  \  once <- c_apply callbackPtr 40\n\
+  \  print once\n\
+  \  other <- c_apply callbackPtr2 5\n\
+  \  print other\n\
+  \  pureApplied <- c_apply_pure pureCallbackPtr 2\n\
+  \  print pureApplied\n\
+  \  twice <- c_apply_twice callbackPtr 3\n\
+  \  print twice\n"
+
+haskell2010DynamicWrapperCCallOutput :: Text
+haskell2010DynamicWrapperCCallOutput =
+  "11\n21\n40\n42\n15\n22\n3\n4\n11\n"
+
+haskell2010ForeignExportCCallSource :: Text
+haskell2010ForeignExportCCallSource =
+  "module Main where\n\
+  \foreign import ccall \"hegglog_ffi_call_export_add\" c_call_add :: Int -> Int -> IO Int\n\
+  \foreign import ccall \"hegglog_ffi_call_export_io\" c_call_io :: Int -> IO Int\n\
+  \exportedAdd :: Int -> Int -> Int\n\
+  \exportedAdd lhs rhs = lhs + rhs\n\
+  \exportedIO :: Int -> IO Int\n\
+  \exportedIO value = do\n\
+  \  print value\n\
+  \  return (value + 7)\n\
+  \foreign export ccall \"hegglog_hs_export_add\" exportedAdd :: Int -> Int -> Int\n\
+  \foreign export ccall \"hegglog_hs_export_io\" exportedIO :: Int -> IO Int\n\
+  \main = do\n\
+  \  add <- c_call_add 10 32\n\
+  \  print add\n\
+  \  io <- c_call_io 5\n\
+  \  print io\n"
+
+haskell2010ForeignExportCCallOutput :: Text
+haskell2010ForeignExportCCallOutput =
+  "42\n5\n12\n"
+
+haskell2010StableForeignPtrFinalizersSource :: Text
+haskell2010StableForeignPtrFinalizersSource =
+  "module Main where\n\
+  \import Foreign (Ptr, FunPtr, StablePtr, ForeignPtr, newStablePtr, deRefStablePtr, freeStablePtr, castStablePtrToPtr, castPtrToStablePtr, newForeignPtr, addForeignPtrFinalizer, finalizeForeignPtr, withForeignPtr, touchForeignPtr)\n\
+  \foreign import ccall \"&hegglog_ffi_global_i64\" c_global :: Ptr Int\n\
+  \foreign import ccall \"&hegglog_ffi_count_i64_finalizer\" c_finalizer :: FunPtr (Ptr Int -> IO ())\n\
+  \foreign import ccall \"hegglog_ffi_reset_finalizers\" c_reset_finalizers :: IO ()\n\
+  \foreign import ccall \"hegglog_ffi_finalizer_total_value\" c_finalizer_total :: IO Int\n\
+  \foreign import ccall \"hegglog_ffi_expect_i64\" c_expect :: Int -> Int -> IO ()\n\
+  \foreign import ccall \"hegglog_ffi_read_i64_ptr\" c_read :: Ptr Int -> IO Int\n\
+  \foreign import ccall \"hegglog_ffi_write_i64_ptr\" c_write :: Ptr Int -> Int -> IO ()\n\
+  \stableRoundTrip :: Int -> IO Int\n\
+  \stableRoundTrip value = do\n\
+  \  stable <- newStablePtr value\n\
+  \  first <- deRefStablePtr stable\n\
+  \  let raw = castStablePtrToPtr stable\n\
+  \  second <- deRefStablePtr (castPtrToStablePtr raw)\n\
+  \  freeStablePtr stable\n\
+  \  return (first + second)\n\
+  \foreignRoundTrip :: IO Int\n\
+  \foreignRoundTrip = do\n\
+  \  c_reset_finalizers\n\
+  \  c_write c_global 5\n\
+  \  managed <- newForeignPtr c_finalizer c_global\n\
+  \  first <- withForeignPtr managed c_read\n\
+  \  c_write c_global 7\n\
+  \  addForeignPtrFinalizer c_finalizer managed\n\
+  \  touchForeignPtr managed\n\
+  \  finalizeForeignPtr managed\n\
+  \  finalizeForeignPtr managed\n\
+  \  total <- c_finalizer_total\n\
+  \  return (first + total)\n\
+  \main = do\n\
+  \  stable <- stableRoundTrip 21\n\
+  \  c_expect stable 42\n\
+  \  foreignValue <- foreignRoundTrip\n\
+  \  c_expect foreignValue 19\n\
+  \  putStrLn \"ok\"\n"
+
+haskell2010StableForeignPtrFinalizersOutput :: Text
+haskell2010StableForeignPtrFinalizersOutput =
+  "ok\n"
+
 haskell2010ArithmeticSource :: Text
 haskell2010ArithmeticSource =
   "module Main where\n\
@@ -6075,6 +7310,7 @@ haskell2010PrimitiveArithmeticCoreModule =
                 H2010Core.intTy
             )
         ]
+    , H2010Core.coreModuleForeignExports = []
     }
 
 haskell2010KnownBoolCaseCoreModule :: H2010Core.CoreModule
@@ -6094,6 +7330,7 @@ haskell2010KnownBoolCaseCoreModule =
                 H2010Core.intTy
             )
         ]
+    , H2010Core.coreModuleForeignExports = []
     }
 
 haskell2010PolymorphicIdentitySource :: Text
@@ -6596,6 +7833,50 @@ haskell2010HiddenImportSources =
     )
   ]
 
+haskell2010ForeignImportModuleSources :: [(FilePath, Text)]
+haskell2010ForeignImportModuleSources =
+  [ ( "ForeignProvider.hs"
+    , "module ForeignProvider (c_abs) where\n\
+      \foreign import ccall \"abs\" c_abs :: Int -> IO Int\n"
+    )
+  , ( "Main.hs"
+    , "module Main where\n\
+      \import ForeignProvider (c_abs)\n\
+      \main = c_abs\n"
+    )
+  ]
+
+haskell2010InstanceImportSources :: [(FilePath, Text)]
+haskell2010InstanceImportSources =
+  [ ( "InstanceClass.hs"
+    , "module InstanceClass (Measure(..)) where\n\
+      \class Measure a where\n\
+      \  measure :: a -> Int\n"
+    )
+  , ( "InstanceType.hs"
+    , "module InstanceType (Box(..)) where\n\
+      \data Box = Box Int\n"
+    )
+  , ( "InstanceProvider.hs"
+    , "module InstanceProvider () where\n\
+      \import InstanceClass (Measure(..))\n\
+      \import InstanceType (Box(..))\n\
+      \instance Measure Box where\n\
+      \  measure (Box n) = n + 1\n"
+    )
+  , ( "InstanceBridge.hs"
+    , "module InstanceBridge () where\n\
+      \import InstanceProvider ()\n"
+    )
+  , ( "Main.hs"
+    , "module Main where\n\
+      \import InstanceClass (Measure(..))\n\
+      \import InstanceType (Box(..))\n\
+      \import InstanceBridge ()\n\
+      \main = measure (Box 41)\n"
+    )
+  ]
+
 haskell2010IOPrintingSource :: Text
 haskell2010IOPrintingSource =
   "module Main where\n\
@@ -6654,6 +7935,44 @@ haskell2010IOGetLineOutput =
 haskell2010IOGetLineEmptyOutput :: Text
 haskell2010IOGetLineEmptyOutput =
   "first=\nsecond=\n0\n"
+
+haskell2010MonadSource :: Text
+haskell2010MonadSource =
+  "module Main where\n\
+  \listPairs :: [Int]\n\
+  \listPairs = do\n\
+  \  x <- [1, 2]\n\
+  \  y <- [10, 20]\n\
+  \  return (x + y)\n\
+  \listFail :: [Int]\n\
+  \listFail = do\n\
+  \  Just x <- [Just 1, Nothing, Just 3]\n\
+  \  return x\n\
+  \maybeValue :: Maybe Int\n\
+  \maybeValue = do\n\
+  \  x <- Just 5\n\
+  \  y <- return 2\n\
+  \  return (x + y)\n\
+  \maybeFail :: Maybe Int\n\
+  \maybeFail = do\n\
+  \  Just x <- Just Nothing\n\
+  \  return x\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  putStrLn \"monad\"\n\
+  \  print listPairs\n\
+  \  print listFail\n\
+  \  case maybeValue of\n\
+  \    Just value -> print value\n\
+  \    Nothing -> putStrLn \"missing\"\n\
+  \  case maybeFail of\n\
+  \    Just value -> print value\n\
+  \    Nothing -> putStrLn \"maybe fail\"\n\
+  \  return ()\n"
+
+haskell2010MonadOutput :: Text
+haskell2010MonadOutput =
+  "monad\n[11,21,12,22]\n[1,3]\n7\nmaybe fail\n"
 
 haskell2010GuardAsPatternSource :: Text
 haskell2010GuardAsPatternSource =
@@ -6822,7 +8141,7 @@ stgThunkBinding binder updateFlag expression =
 
 stgMainProgram :: H2010STG.STGExpr -> H2010STG.STGProgram
 stgMainProgram expression =
-  H2010STG.STGProgram Map.empty [stgThunkBinding stgMainBinder H2010STG.Updatable expression]
+  H2010STG.STGProgram Map.empty [stgThunkBinding stgMainBinder H2010STG.Updatable expression] []
 
 stgMainBinder :: H2010STG.STGBinder
 stgMainBinder =
@@ -6839,6 +8158,7 @@ stgLazyFunctionArgumentProgram =
     [ H2010STG.STGNonRec constBinder constRhs
     , stgThunkBinding stgMainBinder H2010STG.Updatable mainBody
     ]
+    []
  where
   constBinder =
     stgBinder
@@ -6891,6 +8211,7 @@ stgBlackHoleProgram =
         ]
     , stgThunkBinding stgMainBinder H2010STG.Updatable (H2010STG.STGAtom (stgVar stgRecursiveBinder))
     ]
+    []
 
 expectCoreValidationError ::
   String ->
