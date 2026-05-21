@@ -262,9 +262,8 @@ source matrix closure, and ADT-007 completed record
 update expressions.
 
 The following coherent chunk is Prelude, deriving, and typeclass library
-completion: TC-029, TC-030, PRELUDE-009, PRELUDE-019,
-PRELUDE-020, and TEST-CONF-015. Remaining FFI closure is tracked
-separately by FFI-010 through FFI-013.
+completion: TC-029, TC-030, PRELUDE-019, PRELUDE-020, and TEST-CONF-015.
+Remaining FFI closure is tracked separately by FFI-010 through FFI-013.
 
 ## Carry-Forward Infrastructure
 

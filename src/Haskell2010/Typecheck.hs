@@ -1692,6 +1692,7 @@ supportedPreludeValueOccurrences =
   , "otherwise"
   , "map"
   , "foldr"
+  , "foldl"
   , "length"
   , "filter"
   , "reverse"
@@ -4925,6 +4926,13 @@ preludeValueScheme name
                     []
                     (TyFun (TyFun aTy (TyFun bTy bTy)) (TyFun bTy (TyFun listA bTy)))
                 )
+            "foldl" ->
+              Just
+                ( Scheme
+                    [a, b]
+                    []
+                    (TyFun (TyFun bTy (TyFun aTy bTy)) (TyFun bTy (TyFun listA bTy)))
+                )
             "length" -> Just (Scheme [a] [] (TyFun listA intMonoType))
             "filter" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun listA listA)))
             "reverse" -> Just (Scheme [a] [] (TyFun listA listA))
@@ -6679,6 +6687,8 @@ preludeCorePair name =
       Just (binderFor name mapTy, mapRhs name)
     "foldr" ->
       Just (binderFor name foldrTy, foldrRhs name)
+    "foldl" ->
+      Just (binderFor name foldlTy, foldlRhs name)
     "length" ->
       Just (binderFor name lengthTy, lengthRhs name)
     "filter" ->
@@ -6775,6 +6785,7 @@ preludeCorePair name =
   notTy = CTyFun boolTy boolTy
   mapTy = CTyForall [a, b] (CTyFun (CTyFun aTy bTy) (CTyFun listA listB))
   foldrTy = CTyForall [a, b] (CTyFun (CTyFun aTy (CTyFun bTy bTy)) (CTyFun bTy (CTyFun listA bTy)))
+  foldlTy = CTyForall [a, b] (CTyFun (CTyFun bTy (CTyFun aTy bTy)) (CTyFun bTy (CTyFun listA bTy)))
   lengthTy = CTyForall [a] (CTyFun listA intTy)
   filterTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun listA listA))
   reverseTy = CTyForall [a] (CTyFun listA listA)
@@ -6807,6 +6818,13 @@ preludeCorePair name =
   foldrY = preludeTermName "$foldr_y" (-3023)
   foldrYs = preludeTermName "$foldr_ys" (-3024)
   foldrCase = preludeTermName "$foldr_case" (-3025)
+
+  foldlF = preludeTermName "$foldl_f" (-3090)
+  foldlZ = preludeTermName "$foldl_z" (-3091)
+  foldlXs = preludeTermName "$foldl_xs" (-3092)
+  foldlY = preludeTermName "$foldl_y" (-3093)
+  foldlYs = preludeTermName "$foldl_ys" (-3094)
+  foldlCase = preludeTermName "$foldl_case" (-3095)
 
   lengthXs = preludeTermName "$length_xs" (-3030)
   lengthY = preludeTermName "$length_y" (-3031)
@@ -6937,6 +6955,38 @@ preludeCorePair name =
         foldrY
         foldrYs
         foldedHead
+
+  foldlRhs functionName =
+    CTypeLam [a, b] (lam foldlF (CTyFun bTy (CTyFun aTy bTy)) (lam foldlZ bTy (lam foldlXs listA foldlBody))) foldlTy
+   where
+    nextAcc =
+      apply
+        (apply (var foldlF (CTyFun bTy (CTyFun aTy bTy))) (var foldlZ bTy) (CTyFun aTy bTy))
+        (var foldlY aTy)
+        bTy
+    recursive =
+      apply
+        ( apply
+            ( apply
+                (specialize functionName foldlTy [aTy, bTy] (CTyFun (CTyFun bTy (CTyFun aTy bTy)) (CTyFun bTy (CTyFun listA bTy))))
+                (var foldlF (CTyFun bTy (CTyFun aTy bTy)))
+                (CTyFun bTy (CTyFun listA bTy))
+            )
+            nextAcc
+            (CTyFun listA bTy)
+        )
+        (var foldlYs listA)
+        bTy
+    foldlBody =
+      listCase
+        (var foldlXs listA)
+        foldlCase
+        aTy
+        bTy
+        (var foldlZ bTy)
+        foldlY
+        foldlYs
+        recursive
 
   lengthRhs functionName =
     CTypeLam [a] (lam lengthXs listA lengthBody) lengthTy

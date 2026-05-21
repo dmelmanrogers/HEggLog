@@ -219,10 +219,9 @@ Complete: SURFACE-001, SURFACE-002, and SURFACE-003.
 
 1. TC-029 — report-shaped Show hierarchy.
 2. TC-030 — Read implementation.
-3. PRELUDE-009 — foldl.
-4. PRELUDE-019 — Prelude function completion.
-5. PRELUDE-020 — standard library module expansion.
-6. TEST-CONF-015 — library conformance closure.
+3. PRELUDE-019 — Prelude function completion.
+4. PRELUDE-020 — standard library module expansion.
+5. TEST-CONF-015 — library conformance closure.
 
 ## Remaining FFI closure chunk
 
@@ -13796,7 +13795,7 @@ Notes:
 ## PRELUDE-009 — foldl
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -13825,7 +13824,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- foldl is implemented, completed, or explicitly documented according to status `not started`.
+- foldl is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -13840,7 +13839,12 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M12 (Prelude and libraries). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Complete. Generated Prelude `foldl` now has the Haskell 2010 source shape
+  `(b -> a -> b) -> b -> [a] -> b`, elaborates to recursive Core, lowers
+  through STG/native, and preserves lazy accumulator behavior for ignored
+  accumulator arguments. Core, STG, LLVM/native, e2e, and conformance fixtures
+  cover left-to-right accumulator order, polymorphic accumulator/list element
+  types, empty-list behavior, and native default/no-egglog execution.
 
 ## PRELUDE-010 — length
 
@@ -14309,7 +14313,7 @@ Blocks:
 - none
 
 Scope:
-- Fill high-value missing Prelude functions beyond the currently generated executable subset, starting with `foldl` and then tracking each newly claimed function in the matrix.
+- Fill high-value missing Prelude functions beyond the currently generated executable subset, continuing after `foldl` and tracking each newly claimed function in the matrix.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -14325,7 +14329,7 @@ Files likely touched:
 - `docs/haskell2010-todo.md`
 
 Acceptance criteria:
-- Fill high-value missing Prelude functions beyond the currently generated executable subset, starting with `foldl` and then tracking each newly claimed function in the matrix.
+- Fill high-value missing Prelude functions beyond the currently generated executable subset, continuing after `foldl` and tracking each newly claimed function in the matrix.
 - Implemented functions use ordinary Haskell 2010 source/Core/STG/library semantics rather than backend-specific shortcuts where practical.
 - Strictness, laziness, error behavior, and list-fusion-sensitive behavior are documented for every supported function.
 - Native and conformance fixtures cover each newly claimed Prelude function.

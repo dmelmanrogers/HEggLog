@@ -195,7 +195,7 @@ application, local `let`, `if`, Bool and user-constructor `case`, custom
 `data` declarations, polymorphic constructors, nested/list/tuple constructor
 patterns, list and tuple expressions/types, built-in `Maybe`, `Either`, and
 `Ordering`, generated Core Prelude bindings for `id`, `const`, `not`,
-`otherwise`, `map`, `foldr`, `length`, `filter`, `reverse`, and `(++)`, short-circuit
+`otherwise`, `map`, `foldr`, `foldl`, `length`, `filter`, `reverse`, and `(++)`, short-circuit
 Bool operators, recursive top-level/local binding groups, primitive `/`, and
 dictionary-backed `Eq`/`Ord`/`Num`/`Real`/`Integral` methods, boxed `Char`
 literals and cases, guarded RHSs, guarded case

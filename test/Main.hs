@@ -190,6 +190,7 @@ testGroups =
       , pureTest "typechecks String as Char lists" testHaskell2010Core0StringCharList
       , pureTest "typechecks broader Show dictionaries" testHaskell2010Core0BroadShow
       , pureTest "typechecks Prelude append" testHaskell2010Core0Append
+      , pureTest "typechecks Prelude foldl" testHaskell2010Core0Foldl
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
       , pureTest "typechecks Real and Integral numeric methods" testHaskell2010Core0NumericHierarchy
       , pureTest "documents monomorphism restriction defaulting policy" testHaskell2010MonomorphismRestrictionDefaulting
@@ -243,6 +244,7 @@ testGroups =
       , pureTest "evaluates String as Char lists" testHaskell2010Core0EvalStringCharList
       , pureTest "evaluates broader Show dictionaries" testHaskell2010Core0EvalBroadShow
       , pureTest "evaluates Prelude append" testHaskell2010Core0EvalAppend
+      , pureTest "evaluates Prelude foldl" testHaskell2010Core0EvalFoldl
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
       , pureTest "evaluates Real and Integral numeric methods" testHaskell2010Core0EvalNumericHierarchy
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
@@ -298,6 +300,7 @@ testGroups =
       , pureTest "preserves String as Char lists" testHaskell2010CoreToSTGStringCharList
       , pureTest "preserves broader Show semantics" testHaskell2010CoreToSTGBroadShow
       , pureTest "preserves Prelude append semantics" testHaskell2010CoreToSTGAppend
+      , pureTest "preserves Prelude foldl semantics" testHaskell2010CoreToSTGFoldl
       , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
       , pureTest "preserves Real and Integral numeric methods" testHaskell2010CoreToSTGNumericHierarchy
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
@@ -335,6 +338,7 @@ testGroups =
       , pureTest "emits derived Enum LLVM" testHaskell2010NativeDerivedEnum
       , pureTest "emits derived Bounded LLVM" testHaskell2010NativeDerivedBounded
       , pureTest "emits Prelude append LLVM" testHaskell2010NativeAppend
+      , pureTest "emits Prelude foldl LLVM" testHaskell2010NativeFoldl
       , pureTest "emits user-defined operator LLVM" testHaskell2010NativeUserDefinedOperators
       , pureTest "emits IO getLine LLVM" testHaskell2010NativeGetLine
       , pureTest "emits list comprehension LLVM" testHaskell2010NativeListComprehensions
@@ -2092,6 +2096,12 @@ testHaskell2010Core0Append = do
   assertBool "Prelude append binding is emitted" (containsBindingOccurrence "++" coreModule)
   expectCoreEvalIO "Prelude append Core oracle" haskell2010AppendOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0Foldl :: Either String ()
+testHaskell2010Core0Foldl = do
+  coreModule <- typecheckHaskell2010 haskell2010FoldlSource
+  assertBool "Prelude foldl binding is emitted" (containsBindingOccurrence "foldl" coreModule)
+  expectCoreEvalIO "Prelude foldl Core oracle" haskell2010FoldlOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0NumericDefaulting :: Either String ()
 testHaskell2010Core0NumericDefaulting = do
   coreModule <- typecheckHaskell2010 haskell2010NumericDefaultingSource
@@ -3076,6 +3086,13 @@ testHaskell2010Core0EvalAppend =
     haskell2010AppendOutput
     =<< evalHaskell2010Binding "main" haskell2010AppendSource
 
+testHaskell2010Core0EvalFoldl :: Either String ()
+testHaskell2010Core0EvalFoldl =
+  expectCoreEvalIO
+    "Core-0 Prelude foldl evaluation"
+    haskell2010FoldlOutput
+    =<< evalHaskell2010Binding "main" haskell2010FoldlSource
+
 testHaskell2010Core0EvalNumericDefaulting :: Either String ()
 testHaskell2010Core0EvalNumericDefaulting =
   expectCoreEvalIO
@@ -3477,6 +3494,10 @@ testHaskell2010CoreToSTGAppend :: Either String ()
 testHaskell2010CoreToSTGAppend =
   checkCoreToSTGIO "Core-to-STG Prelude append" haskell2010AppendOutput haskell2010AppendSource
 
+testHaskell2010CoreToSTGFoldl :: Either String ()
+testHaskell2010CoreToSTGFoldl =
+  checkCoreToSTGIO "Core-to-STG Prelude foldl" haskell2010FoldlOutput haskell2010FoldlSource
+
 testHaskell2010CoreToSTGNumericDefaulting :: Either String ()
 testHaskell2010CoreToSTGNumericDefaulting =
   checkCoreToSTGIO "Core-to-STG numeric defaulting" "7\n47\n" haskell2010NumericDefaultingSource
@@ -3685,6 +3706,12 @@ testHaskell2010NativeAppend = do
   llvmText <- compileHaskell2010NativeText haskell2010AppendSource
   assertBool "native Prelude append emits list case dispatch" ("case_data_match" `Text.isInfixOf` llvmText)
   assertBool "native Prelude append keeps String values as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeFoldl :: Either String ()
+testHaskell2010NativeFoldl = do
+  llvmText <- compileHaskell2010NativeText haskell2010FoldlSource
+  assertBool "native Prelude foldl emits generated binding" ("foldl" `Text.isInfixOf` llvmText)
+  assertBool "native Prelude foldl emits list case dispatch" ("case_data_match" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeUserDefinedOperators :: Either String ()
 testHaskell2010NativeUserDefinedOperators = do
@@ -7401,6 +7428,7 @@ haskell2010NativeSuccessExamples =
   , ("string-char-patterns", haskell2010StringCharPatternsSource, "6\n")
   , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
   , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
+  , ("prelude-foldl", haskell2010FoldlSource, Text.unpack haskell2010FoldlOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("numeric-hierarchy", haskell2010NumericHierarchySource, Text.unpack haskell2010NumericHierarchyOutput)
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
@@ -7443,6 +7471,7 @@ haskell2010NativeExecutableExamples =
   , ("string-char-patterns", haskell2010StringCharPatternsSource, "6\n")
   , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
   , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
+  , ("prelude-foldl", haskell2010FoldlSource, Text.unpack haskell2010FoldlOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("numeric-hierarchy", haskell2010NumericHierarchySource, Text.unpack haskell2010NumericHierarchyOutput)
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
@@ -8253,6 +8282,40 @@ haskell2010AppendOutput =
   \[True,False]\n\
   \hey\n\
   \heglog\n"
+
+haskell2010FoldlSource :: Text
+haskell2010FoldlSource =
+  "module Main where\n\
+  \twist :: Int -> Int -> Int\n\
+  \twist acc x = acc * 10 + x\n\
+  \minus :: Int -> Int -> Int\n\
+  \minus acc x = acc - x\n\
+  \snoc :: String -> Char -> String\n\
+  \snoc acc x = acc ++ [x]\n\
+  \count :: Int -> Bool -> Int\n\
+  \count acc flag = if flag then acc + 1 else acc\n\
+  \explode :: Int -> Bool -> Int\n\
+  \explode _ _ = 1 / 0\n\
+  \ignoreLeft :: Int -> Int -> Int\n\
+  \ignoreLeft _ x = x\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (foldl twist 0 [1, 2, 3, 4])\n\
+  \  print (foldl minus 0 [1, 2, 3])\n\
+  \  putStrLn (foldl snoc \"\" ['a', 'b', 'c', 'd'])\n\
+  \  print (foldl count 0 [True, False, True])\n\
+  \  print (foldl explode 7 [])\n\
+  \  print (foldl ignoreLeft (1 / 0) [5])\n\
+  \  return ()\n"
+
+haskell2010FoldlOutput :: Text
+haskell2010FoldlOutput =
+  "1234\n\
+  \-6\n\
+  \abcd\n\
+  \2\n\
+  \7\n\
+  \5\n"
 
 haskell2010NumericDefaultingSource :: Text
 haskell2010NumericDefaultingSource =

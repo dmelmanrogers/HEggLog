@@ -124,6 +124,7 @@ standardPreludeNames =
     , "fmap"
     , "map"
     , "foldr"
+    , "foldl"
     , "length"
     , "filter"
     , "reverse"

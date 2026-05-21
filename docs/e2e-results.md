@@ -122,6 +122,9 @@ modes and emits LLVM compiled through clang.
 | haskell2010-numeric-hierarchy | `test/e2e/programs/haskell2010/numeric-hierarchy.hs` | success | native/default | `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7` | stdout `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7`, stderr empty, exit 0 | pass |
 | haskell2010-numeric-hierarchy | `test/e2e/programs/haskell2010/numeric-hierarchy.hs` | success | native/no-egglog | `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7` | stdout `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7`, stderr empty, exit 0 | pass |
 | haskell2010-numeric-hierarchy | `test/e2e/programs/haskell2010/numeric-hierarchy.hs` | success | emit-llvm/default | `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7` | LLVM compiled through clang, stdout `3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-foldl | `test/e2e/programs/haskell2010/prelude-foldl.hs` | success | native/default | `1234\n-6\nabcd\n2\n7\n5` | stdout `1234\n-6\nabcd\n2\n7\n5`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-foldl | `test/e2e/programs/haskell2010/prelude-foldl.hs` | success | native/no-egglog | `1234\n-6\nabcd\n2\n7\n5` | stdout `1234\n-6\nabcd\n2\n7\n5`, stderr empty, exit 0 | pass |
+| haskell2010-prelude-foldl | `test/e2e/programs/haskell2010/prelude-foldl.hs` | success | emit-llvm/default | `1234\n-6\nabcd\n2\n7\n5` | LLVM compiled through clang, stdout `1234\n-6\nabcd\n2\n7\n5`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/default | `20` | stdout `20`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/no-egglog | `20` | stdout `20`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | emit-llvm/default | `20` | LLVM compiled through clang, stdout `20`, stderr empty, exit 0 | pass |

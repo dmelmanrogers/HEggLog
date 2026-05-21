@@ -37,14 +37,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 114 |
-| Haskell source files in corpus | 121 |
-| HUnit test cases executed | 152 |
-| Native-success fixtures | 77 |
+| Manifest conformance fixtures | 115 |
+| Haskell source files in corpus | 122 |
+| HUnit test cases executed | 154 |
+| Native-success fixtures | 78 |
 | Native-runtime-error fixtures | 4 |
 | Compile-error fixtures | 27 |
 | Unsupported-documented fixtures | 6 |
-| Native subprocess compile/run checks | 119 |
+| Native subprocess compile/run checks | 121 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -94,6 +94,11 @@ dictionaries for `toRational`, `quot`, `rem`, `div`, `mod`, `quotRem`,
 and `--no-egglog` modes. The negative `invalid-default-type` fixture rejects a
 non-numeric default declaration with an explicit diagnostic.
 
+PRELUDE-009 is now covered by native conformance and e2e fixtures.
+`prelude.foldl` checks generated `foldl` for left-to-right accumulator order,
+polymorphic accumulator/list element types, empty-list behavior, and lazy
+ignored accumulator arguments in default and `--no-egglog` modes.
+
 ## Category Summary
 
 | Category | Manifest fixtures | Status |
@@ -110,7 +115,7 @@ non-numeric default declaration with an explicit diagnostic.
 | `modules` | 6 | single-module, same-directory import, implicit/explicit/qualified Prelude import, and source-instance import/export tests exist |
 | `negative` | 27 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid default declarations, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
-| `prelude` | 14 | list functions, append, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
+| `prelude` | 15 | list functions, append, foldl, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
 | `typeclasses` | 11 | user dictionary, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, derived Enum, and derived Bounded tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |

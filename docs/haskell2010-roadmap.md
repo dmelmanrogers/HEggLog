@@ -278,7 +278,7 @@ Core validator/evaluator, STG lowering/evaluator, native LLVM path, and wet
 tests now cover built-in list, tuple, unit, `Maybe`, `Either`, and `Ordering`
 constructors; list and tuple expressions/patterns/types; short-circuiting
 `&&`/`||`; and generated Core bindings for `id`, `const`, `not`, `otherwise`,
-`map`, `foldr`, `length`, `filter`, `reverse`, and `(++)`.
+`map`, `foldr`, `foldl`, `length`, `filter`, `reverse`, and `(++)`.
 
 Deliverables:
 
@@ -290,7 +290,7 @@ Acceptance criteria:
 
 - list programs compile
 - tuple programs compile
-- `map`, `foldr`, `length`, `filter`, `reverse`, and `(++)` examples compile
+- `map`, `foldr`, `foldl`, `length`, `filter`, `reverse`, and `(++)` examples compile
 - wet tests cover list recursion and tuple destructuring
 
 ### Phase 11 - Recursion
@@ -627,8 +627,8 @@ is to make the standard library and derived-instance behavior look like Haskell
    escaping.
 2. TC-030 — implement `Read`, including `ReadS`, `readsPrec`, `readList`,
    lexical read parsing, standard instances, and derived `Read`.
-3. PRELUDE-009 and PRELUDE-019 — fill missing Prelude functions, starting with
-   `foldl`, and expand `PRELUDE-018` with corresponding conformance fixtures.
+3. PRELUDE-019 — fill remaining high-value missing Prelude functions and
+   expand `PRELUDE-018` with corresponding conformance fixtures.
 4. PRELUDE-020 — broaden generated/importable standard-library module layout
    beyond `Prelude` where the Haskell 2010 Report requires it.
 5. TEST-CONF-015 — keep every newly claimed class, function, deriving rule, and
@@ -718,7 +718,7 @@ Completed immediate tasks:
   list, tuple, unit, `Maybe`, `Either`, and `Ordering` constructors/types,
   list and tuple expression/pattern lowering, short-circuiting `&&`/`||`, and
   generated Core Prelude bindings for `id`, `const`, `not`, `otherwise`, `map`,
-  `foldr`, `length`, `filter`, `reverse`, and `(++)`, with Core/STG/native and wet
+  `foldr`, `foldl`, `length`, `filter`, `reverse`, and `(++)`, with Core/STG/native and wet
   coverage.
 - Haskell 2010 recursion coverage for the executable subset, including
   singleton self-recursive Core emission, local recursive `let` bindings,

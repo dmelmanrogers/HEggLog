@@ -480,6 +480,19 @@
       "notes": "Prelude (++) appends lists and strings and works through infix use, prefix use, and operator sections."
     },
     {
+      "name": "prelude.foldl",
+      "sourceFile": "test/haskell2010/conformance/prelude/foldl.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "1234\n-6\nabcd\n2\n7\n5\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Generated Prelude foldl covers left-to-right accumulator order, polymorphic accumulator/list element types, empty-list behavior, and lazy ignored accumulators."
+    },
+    {
       "name": "prelude.prelude-classes",
       "sourceFile": "test/haskell2010/conformance/prelude/prelude-classes.hs",
       "category": "prelude",

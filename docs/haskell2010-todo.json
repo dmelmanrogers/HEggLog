@@ -7717,7 +7717,7 @@
     {
       "id": "PRELUDE-009",
       "title": "foldl",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "PRELUDE-DATA-003",
@@ -7726,7 +7726,7 @@
       "blocks": [],
       "milestone": "M12",
       "acceptance_criteria": [
-        "foldl is implemented, completed, or explicitly documented according to status `not started`.",
+        "foldl is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -7739,7 +7739,8 @@
         "docs/current-capabilities.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. Generated Prelude `foldl` now has the Haskell 2010 source shape `(b -> a -> b) -> b -> [a] -> b`, elaborates to recursive Core, lowers through STG/native, and preserves lazy accumulator behavior for ignored accumulator arguments. Core, STG, LLVM/native, e2e, and conformance fixtures cover left-to-right accumulator order, polymorphic accumulator/list element types, empty-list behavior, and native default/no-egglog execution."
     },
     {
       "id": "PRELUDE-010",
@@ -7999,7 +8000,7 @@
       "blocks": [],
       "milestone": "M12",
       "acceptance_criteria": [
-        "Fill high-value missing Prelude functions beyond the currently generated executable subset, starting with `foldl` and then tracking each newly claimed function in the matrix.",
+        "Fill high-value missing Prelude functions beyond the currently generated executable subset, continuing after `foldl` and tracking each newly claimed function in the matrix.",
         "Implemented functions use ordinary Haskell 2010 source/Core/STG/library semantics rather than backend-specific shortcuts where practical.",
         "Strictness, laziness, error behavior, and list-fusion-sensitive behavior are documented for every supported function.",
         "Native and conformance fixtures cover each newly claimed Prelude function.",
