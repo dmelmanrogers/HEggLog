@@ -11008,7 +11008,9 @@
       "milestone": "M19",
       "acceptance_criteria": [
         "Every newly claimed standard class, derived instance, Prelude function, and standard-library module has manifest-backed positive and negative coverage.",
+        "Chapter 9 Prelude and the Part II Haskell 2010 Libraries module inventory are reconciled against the tracker before additional library surface is claimed.",
         "Unsupported library features remain explicit unsupported-documented cases until implemented.",
+        "The closure audit explicitly accounts for report-shaped Show/Read, remaining Prelude classes/functions, Control.Monad, Data.Array, Data.Bits, Data.Char, Data.Complex, Data.Int, Data.Ix, Data.List, Data.Maybe, Data.Ratio, Data.Word, Numeric, System.Environment, System.Exit, System.IO, System.IO.Error, and the FFI-owned Foreign.* modules.",
         "The conformance results summary reports library coverage by class/function/module instead of only by broad category.",
         "Docs, tracker, matrix, and manifest agree on library support boundaries.",
         "The validator catches manifest cases that are missing from the matrix or docs coverage summary."
@@ -11023,7 +11025,8 @@
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-conformance-results.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "This is the Report-facing library closure task. It must use the Haskell 2010 Chapter 9 Prelude and Part II Libraries inventory as the source of truth, turning every unsupported class, function, module, or FFI library surface into an explicit tracker/matrix entry before further library support is claimed."
     },
     {
       "id": "DOC-001",

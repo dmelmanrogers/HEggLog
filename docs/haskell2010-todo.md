@@ -221,6 +221,24 @@ Complete: SURFACE-001, SURFACE-002, and SURFACE-003.
 2. TC-030 — Read implementation.
 3. TEST-CONF-015 — library conformance closure.
 
+TEST-CONF-015 is the Report-facing closure task for the standard-library
+surface, not just a fixture chore. It must reconcile Chapter 9 Prelude and the
+Part II Haskell 2010 Libraries module inventory against the tracker before
+additional library implementation continues, so missing work is recorded
+explicitly instead of rediscovered ad hoc.
+
+Its audit scope includes:
+
+- report-shaped `Show` (`showsPrec`, `shows`, `show`, `showList`) and `Read`
+  (`ReadS`, `readsPrec`, `readList`, `reads`, `read`)
+- remaining Prelude classes, functions, and derived-instance behavior not yet
+  implemented
+- `Control.Monad`, `Data.Array`, `Data.Bits`, `Data.Char`, `Data.Complex`,
+  `Data.Int`, `Data.Ix`, `Data.List`, `Data.Maybe`, `Data.Ratio`, `Data.Word`,
+  `Numeric`, `System.Environment`, `System.Exit`, `System.IO`, and
+  `System.IO.Error`
+- remaining `Foreign.*` modules tracked by FFI-010 through FFI-013
+
 Completed in this chunk: PRELUDE-019 — Prelude function completion;
 PRELUDE-020 — standard library module expansion.
 

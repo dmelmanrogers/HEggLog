@@ -630,7 +630,15 @@ is to make the standard library and derived-instance behavior look like Haskell
 2. TC-030 — implement `Read`, including `ReadS`, `readsPrec`, `readList`,
    lexical read parsing, standard instances, and derived `Read`.
 3. TEST-CONF-015 — keep every newly claimed class, function, deriving rule, and
-   module backed by manifest-tracked positive and negative fixtures.
+   module backed by manifest-tracked positive and negative fixtures, and run a
+   Report-facing reconciliation against Chapter 9 Prelude plus the Part II
+   library module inventory before any additional standard-library surface is
+   treated as supported.
+
+This chunk must not treat the current generated library modules as the end
+state. They are importable checkpoints on the path to the full Haskell 2010
+Report surface, and unsupported Report modules or values must stay explicit in
+the tracker, conformance matrix, and generated module boundary.
 
 ### Remaining FFI Closure
 

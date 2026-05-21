@@ -28,6 +28,11 @@ implemented rows retain their regression and conformance obligations.
 | Egglog Core optimizer | schema, encoding, extraction, facts, rewrites, provenance, optimized/unoptimized wet tests | `EGG-CORE-001`, `EGG-CORE-002`, `EGG-CORE-003`, `EGG-CORE-004`, `EGG-CORE-005`, `EGG-CORE-006`, `EGG-CORE-007`, `EGG-CORE-008`, `EGG-CORE-009`, `EGG-CORE-010`, `EGG-CORE-011`, `EGG-CORE-012`, `EGG-CORE-013`, `EGG-CORE-014`, `EGG-CORE-015`, `EGG-CORE-016`, `EGG-CORE-017`, `EGG-CORE-018`, `EGG-CORE-019`, `EGG-CORE-020` |
 | Diagnostics, CLI, release, conformance closure | diagnostics, command model, conformance manifest/results, CI/release quality | `DIAG-001`, `DIAG-016`, `CLI-001`, `CLI-016`, `TEST-CONF-001`, `TEST-CONF-012`, `TEST-CONF-013`, `TEST-CONF-014`, `TEST-CONF-015`, `DOC-001`, `DOC-002`, `REL-001`, `REL-014` |
 
+For the Prelude/libraries area, `TEST-CONF-015` is the required Haskell 2010
+Report reconciliation pass: Chapter 9 Prelude and the Part II Libraries module
+inventory must both map to implemented rows or explicit unsupported/future
+tracker entries before additional library surface is claimed as supported.
+
 | Haskell 2010 area | Feature | Current status | Planned milestone | Parser | Renamer | Typechecker | Core | STG/runtime | LLVM/native | Tests | Notes/deviations |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Lexical/layout | identifiers | renamed | Phase 2/3 | parsed | renamed | not started | not started | not started | not started | parser and renamer tests | Haskell variable and constructor identifiers parse and resolve to unique names. |

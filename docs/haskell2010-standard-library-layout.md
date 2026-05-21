@@ -70,6 +70,11 @@ exported value/type/class surface is not yet real in the compiler.
 | `System.Exit` | reserved | future system/exit IO task |
 | `System.IO.Error` | reserved | future rich IO error task |
 
+`TEST-CONF-015` owns the next Report-wide reconciliation for this table. That
+pass must turn each reserved module and each partial generated interface into
+either implemented support with fixtures or a narrower numbered tracker item
+before the compiler claims more standard-library conformance.
+
 ## Instance Boundary
 
 `interfaceInstances` is part of `ModuleInterface` and is populated from renamed

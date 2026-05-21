@@ -44,7 +44,8 @@ importable module interface rather than as an ad hoc renamer fallback.
 Guarded RHSs, guarded case alternatives, as-pattern aliases, and
 guard-fallthrough no-match behavior are also implemented. The first IO printing/input
 slice is implemented for `IO`,
-`main :: IO ()`, `putStrLn`, `getLine`, `print`, higher-kinded `Monad`
+`main :: IO ()`, `putStrLn`, `getLine`, `print`, higher-kinded `Functor`
+dictionaries for `IO`, `Maybe`, and lists with `fmap`, higher-kinded `Monad`
 dictionaries for `IO`, `Maybe`, and lists, `return`, `(>>)`, `(>>=)`, `fail`,
 generic expression and bind-statement `do` sequencing with local `let`, and
 built-in `Show Int`/`Show Bool` dictionaries.
@@ -96,8 +97,10 @@ TC-029, TC-030, and TEST-CONF-015. PRELUDE-019 is complete for `($)`, `(.)`,
 `flip`, `head`, `tail`, `null`, `fst`, and `snd`; PRELUDE-020 is complete for
 generated/importable standard-library module interfaces that have real support,
 including `Control.Monad` `Functor(fmap)` for `[]`, `Maybe`, and `IO`.
-The remaining tasks cover report-shaped `Show`, `Read`, and library
-conformance closure.
+The remaining tasks cover report-shaped `Show`, `Read`, and a Report-facing
+library conformance closure pass that reconciles Chapter 9 Prelude plus the
+Part II library module inventory against the tracker before additional library
+surface is claimed.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
 through FFI-013 now own floating-point marshalling, link metadata, callback and
