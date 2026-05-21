@@ -55,7 +55,7 @@ The next chunk is Prelude, deriving, and typeclass library completion.
 TEST-CONF-014 source matrix closure is complete and now enforced by the
 conformance validator.
 
-The next library chunk is TC-029, TC-030, TC-032, TC-033,
+The next library chunk is TC-029, TC-030, TC-033,
 PRELUDE-009, PRELUDE-019, PRELUDE-020, and TEST-CONF-015. Remaining FFI
 closure is FFI-010 through FFI-013.
 
@@ -184,6 +184,10 @@ Completed Haskell 2010 roadmap work:
   `succ`/`pred`/`toEnum` bounds errors, `fromEnum`, range methods, negative
   invalid-deriving diagnostics, conformance fixtures, and default/no-egglog wet
   tests.
+- Haskell 2010 derived `Bounded`: implemented generated `Bounded`
+  dictionaries for all-nullary enumerations and single-constructor products,
+  records, and newtypes, with field-wise bounds, invalid mixed-constructor
+  diagnostics, conformance fixtures, and default/no-egglog wet tests.
 - Haskell 2010 list comprehensions: implemented executable list
   comprehensions with generator scoping, Bool guards, `let` qualifiers,
   nested generators, tuple/list/constructor/literal/refutable pattern

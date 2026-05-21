@@ -7435,7 +7435,7 @@
     {
       "id": "TC-032",
       "title": "derived Bounded",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TC-019",
@@ -7444,11 +7444,11 @@
       "blocks": [],
       "milestone": "M11",
       "acceptance_criteria": [
-        "Derived `Bounded` is generated for eligible enumerations, single-constructor product types, and supported newtype shapes according to Haskell 2010 rules.",
+        "Derived `Bounded` is generated for eligible all-nullary enumerations, single-constructor product types, records, and supported newtype shapes according to Haskell 2010 rules.",
         "Generated dictionaries implement `minBound` and `maxBound` with constructor-order and field-bound semantics where applicable.",
         "Invalid deriving cases fail with stable diagnostics.",
         "Native and conformance fixtures cover positive and negative derived `Bounded` cases.",
-        "The matrix distinguishes public built-in `Bounded` instances from derived `Bounded` until this task is complete."
+        "The matrix records both public built-in `Bounded` instances and derived `Bounded` support."
       ],
       "required_tests": [
         "typechecker unit tests",
@@ -7461,7 +7461,8 @@
         "docs/type-inference.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. All-nullary data declarations derive `Bounded` by selecting the first and last constructors in declaration order. Single-constructor product, record, and newtype declarations derive `minBound`/`maxBound` by applying the constructor to field-wise `minBound`/`maxBound` calls, which produces ordinary field `Bounded` constraints for parameterized products. Mixed or multi-constructor non-enumeration declarations are rejected with a stable diagnostic, and Core, STG, native, e2e, default Egglog, `--no-egglog`, and conformance fixtures cover the positive and negative paths."
     },
     {
       "id": "TC-033",

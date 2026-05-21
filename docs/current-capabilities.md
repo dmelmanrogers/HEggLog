@@ -76,6 +76,8 @@ calls, superclass dictionary fields/projection, default class methods,
 derived `Eq`/`Ord`/`Show` dictionaries for supported data/newtype declarations including
 parameterized, recursive, `String`-field, and list-backed cases,
 derived `Enum` dictionaries for nullary-constructor data declarations,
+derived `Bounded` dictionaries for all-nullary enumerations and
+single-constructor products, records, and newtypes,
 overlapping-instance rejection, structured placeholder diagnostics for remaining unsupported constraint contexts,
 source-spanned typecheck diagnostics including delayed dictionary failures,
 documented nullary-binding monomorphism/defaulting behavior, boxed `Char`
@@ -185,7 +187,7 @@ Current status:
   for remaining unsupported constraint contexts, superclass dictionaries,
   default class methods, overlapping-instance rejection, dictionary constructors/selectors,
   dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Eq Char`,
-  `Ord Int`, `Ord Bool`, `Ord Char`, structural list `Ord`, derived `Eq`/`Ord`/`Show`/`Enum`,
+  `Ord Int`, `Ord Bool`, `Ord Char`, structural list `Ord`, derived `Eq`/`Ord`/`Show`/`Enum`/`Bounded`,
   `Num Int`, `Show Int`, `Show Bool`, `Show Char`,
   `Show String`, structural list `Show`, `Enum Int`, `Enum Char`,
   `Bounded Int`, `Bounded Char`, `Bounded Bool`, and higher-kinded `Monad`
@@ -237,8 +239,8 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 103 manifest-tracked fixtures with
-  72 native-success cases, 3 native-runtime-error cases, 22 compile-error cases,
+  `haskell2010-conformance-test`; it contains 112 manifest-tracked fixtures with
+  76 native-success cases, 4 native-runtime-error cases, 26 compile-error cases,
   and 6 unsupported-documented cases
 - Haskell 2010 standard library layout: implemented for the current executable
   subset as a generated/importable `Prelude` module interface; broader standard
@@ -260,7 +262,7 @@ source matrix closure, and ADT-007 completed record
 update expressions.
 
 The following coherent chunk is Prelude, deriving, and typeclass library
-completion: TC-029, TC-030, TC-032, TC-033, PRELUDE-009,
+completion: TC-029, TC-030, TC-033, PRELUDE-009,
 PRELUDE-019, PRELUDE-020, and TEST-CONF-015. Remaining FFI closure is tracked
 separately by FFI-010 through FFI-013.
 
@@ -297,7 +299,7 @@ Current tests include:
   executes native artifacts, verifies stdout/stderr/exit codes, compares
   report-mode `Result: <value>` output, runs Haskell 2010 default Egglog and
   `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
-  programs, user-defined type class dictionary programs, derived `Eq`/`Ord`/`Show`/`Enum`
+  programs, user-defined type class dictionary programs, derived `Eq`/`Ord`/`Show`/`Enum`/`Bounded`
   programs, and built-in `Eq`/`Ord`/`Num`/`Show`/`Enum`/`Bounded` dictionary programs, numeric-defaulting and
   monomorphism/defaulting decision programs, multi-file module programs,
   implicit, explicit, and qualified Prelude import programs,

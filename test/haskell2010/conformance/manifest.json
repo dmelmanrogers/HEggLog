@@ -1003,6 +1003,15 @@
       "notes": "Derived Enum is rejected for data declarations whose constructors carry fields."
     },
     {
+      "name": "negative.derived-bounded-mixed-constructors",
+      "sourceFile": "test/haskell2010/conformance/negative/derived-bounded-mixed-constructors.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "requires an enumeration or a single constructor",
+      "requiredStage": "typecheck",
+      "notes": "Derived Bounded is rejected for declarations that are neither all-nullary enumerations nor single-constructor products."
+    },
+    {
       "name": "typeclasses.superclass-default-method",
       "sourceFile": "test/haskell2010/conformance/typeclasses/superclass-default-method.hs",
       "category": "typeclasses",
@@ -1062,6 +1071,19 @@
         "no-egglog"
       ],
       "notes": "Derived Enum succ on the maximum constructor compiles but fails at runtime, matching the Haskell 2010 derived Enum bounds rule."
+    },
+    {
+      "name": "typeclasses.derived-bounded",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/derived-bounded.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-success",
+      "expectedStdout": "0\n3\nPair (False) (North)\nPair (True) (West)\nRecord { low = (False), high = (North) }\nRecord { low = (True), high = (West) }\nFlag (False)\nFlag (True)\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Derived Bounded synthesizes enumeration bounds and single-constructor field-wise minBound/maxBound dictionaries for data, record, newtype, and parameterized product declarations."
     },
     {
       "name": "unsupported.instance-context",

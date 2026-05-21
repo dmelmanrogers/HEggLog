@@ -206,6 +206,17 @@ syntax now elaborates through the resolved `Enum` methods, so user-derived
 enumerations share the same dictionary path as built-in `Int` and `Char`
 ranges.
 
+TC-032 adds derived `Bounded` for the Haskell 2010 shapes supported by the
+current deriving pipeline. All-nullary data declarations synthesize
+`minBound` as the first constructor and `maxBound` as the last constructor.
+Single-constructor products, records, and newtypes synthesize constructor
+applications whose fields are populated by field-wise `minBound`/`maxBound`
+calls, so parameterized products acquire ordinary `Bounded` field constraints.
+Mixed or multi-constructor declarations with fields are rejected with a stable
+diagnostic. Generated derived methods are marked as compiler-generated for
+pattern-coverage purposes so user-facing exhaustiveness warnings are not
+polluted by internal dictionary bindings.
+
 ADT-005 adds the supported record-label subset. Record declarations introduce
 field selector names in the term namespace, record construction is typechecked
 against the constructor's labelled fields and currently requires every field

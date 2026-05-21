@@ -219,12 +219,11 @@ Complete: SURFACE-001, SURFACE-002, and SURFACE-003.
 
 1. TC-029 — report-shaped Show hierarchy.
 2. TC-030 — Read implementation.
-3. TC-032 — derived Bounded.
-4. TC-033 — numeric class hierarchy expansion.
-5. PRELUDE-009 — foldl.
-6. PRELUDE-019 — Prelude function completion.
-7. PRELUDE-020 — standard library module expansion.
-8. TEST-CONF-015 — library conformance closure.
+3. TC-033 — numeric class hierarchy expansion.
+4. PRELUDE-009 — foldl.
+5. PRELUDE-019 — Prelude function completion.
+6. PRELUDE-020 — standard library module expansion.
+7. TEST-CONF-015 — library conformance closure.
 
 ## Remaining FFI closure chunk
 
@@ -12653,7 +12652,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Complete for the current executable Prelude surface: `Bounded` is exported as a built-in class with `minBound` and `maxBound`, with built-in instances for `Int`, `Char`, and `Bool`. Derived `Bounded` remains tracked separately.
+- Milestone M11 (Type classes and dictionaries). Complete for the current executable Prelude surface: `Bounded` is exported as a built-in class with `minBound` and `maxBound`, with built-in instances for `Int`, `Char`, and `Bool`. Derived `Bounded` is now covered by TC-032.
 
 ## TC-020 — Monad
 
@@ -12915,7 +12914,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: supported data/newtype declarations can derive `Ord` when an `Eq` superclass dictionary is available, and structural list ordering supports string and list-backed fields. Derived `Show` is covered by TC-025 and derived `Enum` by TC-031; derived `Read` and `Bounded` remain separate tasks.
+- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: supported data/newtype declarations can derive `Ord` when an `Eq` superclass dictionary is available, and structural list ordering supports string and list-backed fields. Derived `Show` is covered by TC-025, derived `Enum` by TC-031, and derived `Bounded` by TC-032; derived `Read` remains separate in TC-030.
 
 ## TC-025 — derived Show
 
@@ -13280,7 +13279,7 @@ Notes:
 ## TC-032 — derived Bounded
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -13293,7 +13292,7 @@ Blocks:
 - none
 
 Scope:
-- Derived `Bounded` is generated for eligible enumerations, single-constructor product types, and supported newtype shapes according to Haskell 2010 rules.
+- Derived `Bounded` is generated for eligible all-nullary enumerations, single-constructor product types, records, and supported newtype shapes according to Haskell 2010 rules.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -13309,11 +13308,11 @@ Files likely touched:
 - `docs/haskell2010-todo.md`
 
 Acceptance criteria:
-- Derived `Bounded` is generated for eligible enumerations, single-constructor product types, and supported newtype shapes according to Haskell 2010 rules.
+- Derived `Bounded` is generated for eligible all-nullary enumerations, single-constructor product types, records, and supported newtype shapes according to Haskell 2010 rules.
 - Generated dictionaries implement `minBound` and `maxBound` with constructor-order and field-bound semantics where applicable.
 - Invalid deriving cases fail with stable diagnostics.
 - Native and conformance fixtures cover positive and negative derived `Bounded` cases.
-- The matrix distinguishes public built-in `Bounded` instances from derived `Bounded` until this task is complete.
+- The matrix records both public built-in `Bounded` instances and derived `Bounded` support.
 
 Required tests:
 - typechecker unit tests
@@ -13328,7 +13327,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete. All-nullary data declarations derive `Bounded` by selecting the first and last constructors in declaration order. Single-constructor product, record, and newtype declarations derive `minBound`/`maxBound` by applying the constructor to field-wise `minBound`/`maxBound` calls, which produces ordinary field `Bounded` constraints for parameterized products. Mixed or multi-constructor non-enumeration declarations are rejected with a stable diagnostic, and Core, STG, native, e2e, default Egglog, `--no-egglog`, and conformance fixtures cover the positive and negative paths.
 
 ## TC-033 — numeric class hierarchy expansion
 

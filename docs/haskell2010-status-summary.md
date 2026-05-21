@@ -65,7 +65,7 @@ implemented:
 - report-complete pattern coverage and runtime source attribution beyond the
   current executable-subset diagnostics
 - remaining source-surface implementation closure
-- instance contexts, derived `Read`/`Bounded`, and the full
+- instance contexts, derived `Read`, and the full
   `showsPrec`/`showList` hierarchy
 - broader numeric hierarchy/defaulting and Prelude/library subset
 - standard-library module expansion beyond the currently generated interfaces
@@ -90,10 +90,10 @@ fixtures, TEST-CONF-014 completed machine-checked source matrix closure, and
 ADT-007 completed record update expressions for the supported record subset.
 
 The following chunk is Prelude, deriving, and typeclass library completion:
-TC-029, TC-030, TC-032, TC-033, PRELUDE-009, PRELUDE-019,
+TC-029, TC-030, TC-033, PRELUDE-009, PRELUDE-019,
 PRELUDE-020, and TEST-CONF-015. Those tasks cover report-shaped `Show`, `Read`,
-derived `Bounded`, broader numeric classes/defaulting, missing Prelude
-functions, standard-library module expansion, and library conformance closure.
+broader numeric classes/defaulting, missing Prelude functions,
+standard-library module expansion, and library conformance closure.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
 through FFI-013 now own floating-point marshalling, link metadata, callback and
@@ -200,7 +200,9 @@ cases. Built-in `Eq Int`, `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char
 `(>=)`, `max`, `min`, `(+)`, `(-)`, `(*)`, `negate`, `abs`, and `signum`.
 Built-in `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and
 generated structural list `Show` cover `show` and `print` for the supported
-scalar/string/list executable subset.
+scalar/string/list executable subset. Derived `Bounded` dictionaries now cover
+all-nullary enumerations plus single-constructor products, records, and
+newtypes with field-wise `minBound`/`maxBound` calls.
 `fromInteger` is part of the executable `Num Int` dictionary, integer literals
 elaborate through it, and ambiguous numeric constraints default to `Int`.
 The current monomorphism-restriction decision is documented for the executable
@@ -222,10 +224,11 @@ now use a structured placeholder diagnostic for method-specific constraints,
 instance contexts, and expression type-signature constraints, so broader class
 features remain planned without silent fallback.
 `/` remains checked concrete `Int` division; derived `Show` is implemented for
-the executable data/newtype subset, and derived `Enum` is implemented for
+the executable data/newtype subset, derived `Enum` is implemented for
 nullary-constructor data declarations with report-shaped constructor ordering
-and bounds behavior, while the full report-compatible `showsPrec`/`showList`
-hierarchy remains planned.
+and bounds behavior, and derived `Bounded` is implemented for the eligible
+Haskell 2010 constructor shapes. The full report-compatible
+`showsPrec`/`showList` hierarchy remains planned.
 
 ## What Core Evaluates Today
 
@@ -420,6 +423,11 @@ and compiled to native executables through the existing clang toolchain.
     `fromEnum`, range methods, report-shaped runtime bounds errors, invalid
     field-constructor diagnostics, Core/STG/native oracles, conformance
     fixtures, and default/no-egglog wet tests.
+24. Derived `Bounded`. Completed for all-nullary enumerations and
+    single-constructor product, record, and newtype declarations, with
+    first/last constructor bounds, field-wise `minBound`/`maxBound` calls,
+    invalid mixed-constructor diagnostics, Core/STG/native oracles,
+    conformance fixtures, and default/no-egglog wet tests.
 
 ## Where Egglog Fits
 
@@ -448,7 +456,8 @@ source string literals as list-of-`Char` values, do-bind continuations, explicit
 `(>>=)`, boxed `Char` values, `Eq Char`/`Ord Char`
 primitive lowering, scalar `Char` root printing, built-in
 `Show Int`/`Show Bool`/`Show Char`/`Show String`/list results as lists,
-derived `Enum` dictionary calls and derived-enumeration ranges, checked
+derived `Enum` dictionary calls, derived-enumeration ranges, derived `Bounded`
+dictionary calls, checked
 primitives, executable list comprehensions, and invokes clang to produce native
 machine-code executables.
 
@@ -468,6 +477,6 @@ fixtures, TEST-CONF-014 source matrix closure, and ADT-007 record updates are
 complete and covered by focused tests/conformance fixtures.
 Already-completed typeclass expansion work, including
 superclass dictionaries, default methods, overlap rejection, public
-`Enum`/`Bounded`, derived `Enum`, numeric defaulting, the supported `Monad` class surface, and
+`Enum`/`Bounded`, derived `Enum`/`Bounded`, numeric defaulting, the supported `Monad` class surface, and
 MOD-009 instance import/export behavior should be preserved as regression
 baseline while those tasks proceed.

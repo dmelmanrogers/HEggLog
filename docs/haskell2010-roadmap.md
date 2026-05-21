@@ -622,16 +622,13 @@ is to make the standard library and derived-instance behavior look like Haskell
    escaping.
 2. TC-030 — implement `Read`, including `ReadS`, `readsPrec`, `readList`,
    lexical read parsing, standard instances, and derived `Read`.
-3. TC-032 — implement derived `Bounded` for eligible declarations, including
-   constructor ordering, field-bound semantics, and invalid deriving
-   diagnostics.
-4. TC-033 — broaden the numeric class hierarchy and defaulting rules beyond
+3. TC-033 — broaden the numeric class hierarchy and defaulting rules beyond
    the current executable `Int` path.
-5. PRELUDE-009 and PRELUDE-019 — fill missing Prelude functions, starting with
+4. PRELUDE-009 and PRELUDE-019 — fill missing Prelude functions, starting with
    `foldl`, and expand `PRELUDE-018` with corresponding conformance fixtures.
-6. PRELUDE-020 — broaden generated/importable standard-library module layout
+5. PRELUDE-020 — broaden generated/importable standard-library module layout
    beyond `Prelude` where the Haskell 2010 Report requires it.
-7. TEST-CONF-015 — keep every newly claimed class, function, deriving rule, and
+6. TEST-CONF-015 — keep every newly claimed class, function, deriving rule, and
    module backed by manifest-tracked positive and negative fixtures.
 
 ### Remaining FFI Closure
@@ -665,6 +662,7 @@ Completed immediate tasks:
 - TC-024 derived Ord, including generated `Ord` dictionaries, `Eq` superclass dictionaries, and structural list/string ordering.
 - TC-025 derived Show, including generated `Show` dictionaries for supported data/newtype declarations, records, recursive data, `String` fields, and list-backed contexts.
 - TC-031 derived Enum, including generated `Enum` dictionaries for nullary-constructor data declarations, declaration-order constructor indices, `succ`/`pred`/`toEnum` bounds errors, and range-method support.
+- TC-032 derived Bounded, including generated `Bounded` dictionaries for all-nullary enumerations and single-constructor products, records, and newtypes with field-wise bounds and invalid mixed-constructor diagnostics.
 - PRELUDE-013 append, including generated `(++)` over lists/strings, parenthesized operator variables, and operator sections.
 - IO-006 getLine, including generated `getLine :: IO String`, native stdin line reads, stdin-aware wet tests, and single-entry IO thunks to avoid sharing effects.
 - TC-020 Monad class surface, including higher-kinded `Monad`, built-in

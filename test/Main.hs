@@ -207,9 +207,11 @@ testGroups =
       , pureTest "typechecks derived Ord instances" testHaskell2010Core0DerivedOrd
       , pureTest "typechecks derived Show instances" testHaskell2010Core0DerivedShow
       , pureTest "typechecks derived Enum instances" testHaskell2010Core0DerivedEnum
+      , pureTest "typechecks derived Bounded instances" testHaskell2010Core0DerivedBounded
       , pureTest "typechecks list comprehensions" testHaskell2010Core0ListComprehensions
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
       , pureTest "rejects invalid derived Enum instances" testHaskell2010Core0RejectsInvalidDerivedEnum
+      , pureTest "rejects invalid derived Bounded instances" testHaskell2010Core0RejectsInvalidDerivedBounded
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       , pureTest "renders Haskell 2010 type errors with source spans" testHaskell2010TypeErrorDiagnosticsWithSpans
       , pureTest "typechecks Haskell 2010 FFI signatures before lowering" testHaskell2010ForeignTypechecking
@@ -257,6 +259,7 @@ testGroups =
       , pureTest "evaluates derived Show instances" testHaskell2010Core0EvalDerivedShow
       , pureTest "evaluates derived Enum instances" testHaskell2010Core0EvalDerivedEnum
       , pureTest "reports derived Enum bounds errors" testHaskell2010Core0EvalDerivedEnumRuntimeError
+      , pureTest "evaluates derived Bounded instances" testHaskell2010Core0EvalDerivedBounded
       , pureTest "evaluates list comprehensions" testHaskell2010Core0EvalListComprehensions
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
@@ -307,6 +310,7 @@ testGroups =
       , pureTest "preserves derived Ord semantics" testHaskell2010CoreToSTGDerivedOrd
       , pureTest "preserves derived Show semantics" testHaskell2010CoreToSTGDerivedShow
       , pureTest "preserves derived Enum semantics" testHaskell2010CoreToSTGDerivedEnum
+      , pureTest "preserves derived Bounded semantics" testHaskell2010CoreToSTGDerivedBounded
       , pureTest "preserves list comprehension semantics" testHaskell2010CoreToSTGListComprehensions
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves guard fallthrough errors" testHaskell2010CoreToSTGGuardFallthrough
@@ -325,6 +329,7 @@ testGroups =
       , pureTest "emits derived Ord LLVM" testHaskell2010NativeDerivedOrd
       , pureTest "emits derived Show LLVM" testHaskell2010NativeDerivedShow
       , pureTest "emits derived Enum LLVM" testHaskell2010NativeDerivedEnum
+      , pureTest "emits derived Bounded LLVM" testHaskell2010NativeDerivedBounded
       , pureTest "emits Prelude append LLVM" testHaskell2010NativeAppend
       , pureTest "emits user-defined operator LLVM" testHaskell2010NativeUserDefinedOperators
       , pureTest "emits IO getLine LLVM" testHaskell2010NativeGetLine
@@ -2254,6 +2259,16 @@ testHaskell2010Core0DerivedEnum = do
   assertBool "derived Enum keeps Int range helper support" (containsBindingOccurrence "$enumFromThenToInt" coreModule)
   expectCoreEvalIO "derived Enum Core oracle" haskell2010DerivedEnumOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0DerivedBounded :: Either String ()
+testHaskell2010Core0DerivedBounded = do
+  coreModule <- typecheckHaskell2010 haskell2010DerivedBoundedSource
+  assertBool "Prelude Bounded dictionary constructor is recorded" (containsConstructorOccurrence "$MkBoundedDict" coreModule)
+  assertBool "derived Bounded Direction dictionary is emitted" (containsBindingPrefix "$fBoundedDirection" coreModule)
+  assertBool "derived Bounded Pair dictionary is emitted" (containsBindingPrefix "$fBoundedPair" coreModule)
+  assertBool "derived Bounded record dictionary is emitted" (containsBindingPrefix "$fBoundedRecord" coreModule)
+  assertBool "derived Bounded newtype dictionary is emitted" (containsBindingPrefix "$fBoundedFlag" coreModule)
+  expectCoreEvalIO "derived Bounded Core oracle" haskell2010DerivedBoundedOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0ListComprehensions :: Either String ()
 testHaskell2010Core0ListComprehensions = do
   coreModule <- typecheckHaskell2010 haskell2010ListComprehensionsSource
@@ -2269,6 +2284,16 @@ testHaskell2010Core0RejectsInvalidDerivedEnum =
         ("requires only nullary constructors" `Text.isInfixOf` H2010Typecheck.renderTypecheckError err)
     Right coreModule ->
       Left ("invalid derived Enum unexpectedly typechecked:\n" <> show coreModule)
+
+testHaskell2010Core0RejectsInvalidDerivedBounded :: Either String ()
+testHaskell2010Core0RejectsInvalidDerivedBounded =
+  case typecheckHaskell2010Raw haskell2010InvalidDerivedBoundedSource of
+    Left err ->
+      assertBool
+        "invalid derived Bounded diagnostic mentions enumeration or single constructor"
+        ("requires an enumeration or a single constructor" `Text.isInfixOf` H2010Typecheck.renderTypecheckError err)
+    Right coreModule ->
+      Left ("invalid derived Bounded unexpectedly typechecked:\n" <> show coreModule)
 
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries :: Either String ()
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
@@ -3157,6 +3182,13 @@ testHaskell2010Core0EvalDerivedEnumRuntimeError =
     Left err -> Left ("expected derived Enum bounds runtime error, got: " <> show err)
     Right value -> Left ("derived Enum bounds error unexpectedly returned: " <> show value)
 
+testHaskell2010Core0EvalDerivedBounded :: Either String ()
+testHaskell2010Core0EvalDerivedBounded =
+  expectCoreEvalIO
+    "Core-0 derived Bounded evaluation"
+    haskell2010DerivedBoundedOutput
+    =<< evalHaskell2010Binding "main" haskell2010DerivedBoundedSource
+
 testHaskell2010Core0EvalListComprehensions :: Either String ()
 testHaskell2010Core0EvalListComprehensions =
   expectCoreEvalIO
@@ -3482,6 +3514,10 @@ testHaskell2010CoreToSTGDerivedEnum :: Either String ()
 testHaskell2010CoreToSTGDerivedEnum =
   checkCoreToSTGIO "Core-to-STG derived Enum" haskell2010DerivedEnumOutput haskell2010DerivedEnumSource
 
+testHaskell2010CoreToSTGDerivedBounded :: Either String ()
+testHaskell2010CoreToSTGDerivedBounded =
+  checkCoreToSTGIO "Core-to-STG derived Bounded" haskell2010DerivedBoundedOutput haskell2010DerivedBoundedSource
+
 testHaskell2010CoreToSTGListComprehensions :: Either String ()
 testHaskell2010CoreToSTGListComprehensions =
   checkCoreToSTGIO "Core-to-STG list comprehensions" haskell2010ListComprehensionsOutput haskell2010ListComprehensionsSource
@@ -3603,6 +3639,13 @@ testHaskell2010NativeDerivedEnum = do
   llvmText <- compileHaskell2010NativeText haskell2010DerivedEnumSource
   assertBool "native derived Enum emits generated dictionary" ("fEnumDirection" `Text.isInfixOf` llvmText)
   assertBool "native derived Enum emits Int range helper calls" ("enumFromThenToInt" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeDerivedBounded :: Either String ()
+testHaskell2010NativeDerivedBounded = do
+  llvmText <- compileHaskell2010NativeText haskell2010DerivedBoundedSource
+  assertBool "native derived Bounded emits generated product dictionary" ("fBoundedPair" `Text.isInfixOf` llvmText)
+  assertBool "native derived Bounded emits generated record dictionary" ("fBoundedRecord" `Text.isInfixOf` llvmText)
+  assertBool "native derived Bounded emits generated newtype dictionary" ("fBoundedFlag" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeAppend :: Either String ()
 testHaskell2010NativeAppend = do
@@ -4186,6 +4229,7 @@ haskell2010CoreEgglogNativeAgreementCases =
   , ("division-by-zero", haskell2010DivisionByZeroSource, ExpectedNativeRuntimeError)
   , ("derived-enum", haskell2010DerivedEnumSource, ExpectedNativeStdout (Text.unpack haskell2010DerivedEnumOutput))
   , ("derived-enum-runtime-error", haskell2010DerivedEnumRuntimeErrorSource, ExpectedNativeRuntimeError)
+  , ("derived-bounded", haskell2010DerivedBoundedSource, ExpectedNativeStdout (Text.unpack haskell2010DerivedBoundedOutput))
   ]
 
 noEgglogNativeOptions :: H2010Native.Haskell2010NativeOptions
@@ -7338,6 +7382,7 @@ haskell2010NativeSuccessExamples =
   , ("derived-ord", haskell2010DerivedOrdSource, "11\n")
   , ("derived-show", haskell2010DerivedShowSource, Text.unpack haskell2010DerivedShowOutput)
   , ("derived-enum", haskell2010DerivedEnumSource, Text.unpack haskell2010DerivedEnumOutput)
+  , ("derived-bounded", haskell2010DerivedBoundedSource, Text.unpack haskell2010DerivedBoundedOutput)
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-record-fields", haskell2010RecordFieldSource, "43\n")
@@ -7378,6 +7423,7 @@ haskell2010NativeExecutableExamples =
   , ("derived-ord", haskell2010DerivedOrdSource, "11\n")
   , ("derived-show", haskell2010DerivedShowSource, Text.unpack haskell2010DerivedShowOutput)
   , ("derived-enum", haskell2010DerivedEnumSource, Text.unpack haskell2010DerivedEnumOutput)
+  , ("derived-bounded", haskell2010DerivedBoundedSource, Text.unpack haskell2010DerivedBoundedOutput)
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   ]
 
@@ -7932,6 +7978,42 @@ haskell2010InvalidDerivedEnumSource :: Text
 haskell2010InvalidDerivedEnumSource =
   "module Main where\n\
   \data Box = Box Int deriving (Enum)\n\
+  \main = 0\n"
+
+haskell2010DerivedBoundedSource :: Text
+haskell2010DerivedBoundedSource =
+  "module Main where\n\
+  \data Direction = North | East | South | West deriving (Bounded, Enum, Eq, Show)\n\
+  \data Pair a b = Pair a b deriving (Bounded, Eq, Show)\n\
+  \data Record = Record { low :: Bool, high :: Direction } deriving (Bounded, Eq, Show)\n\
+  \newtype Flag = Flag Bool deriving (Bounded, Eq, Show)\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (fromEnum (minBound :: Direction))\n\
+  \  print (fromEnum (maxBound :: Direction))\n\
+  \  print (minBound :: Pair Bool Direction)\n\
+  \  print (maxBound :: Pair Bool Direction)\n\
+  \  print (minBound :: Record)\n\
+  \  print (maxBound :: Record)\n\
+  \  print (minBound :: Flag)\n\
+  \  print (maxBound :: Flag)\n\
+  \  return ()\n"
+
+haskell2010DerivedBoundedOutput :: Text
+haskell2010DerivedBoundedOutput =
+  "0\n\
+  \3\n\
+  \Pair (False) (North)\n\
+  \Pair (True) (West)\n\
+  \Record { low = (False), high = (North) }\n\
+  \Record { low = (True), high = (West) }\n\
+  \Flag (False)\n\
+  \Flag (True)\n"
+
+haskell2010InvalidDerivedBoundedSource :: Text
+haskell2010InvalidDerivedBoundedSource =
+  "module Main where\n\
+  \data Mixed = Empty | Box Int deriving (Bounded)\n\
   \main = 0\n"
 
 haskell2010ListComprehensionsSource :: Text

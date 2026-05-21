@@ -1,6 +1,6 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after TC-031 added derived `Enum`
+Recorded for the mandatory wet-test suite after TC-032 added derived `Bounded`
 native coverage. The suite covers
 the existing `.hg` native compiler baseline and Haskell 2010 executable-subset
 `.hs` programs that compile to native executables, compare lazy runtime
@@ -9,7 +9,7 @@ optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-21 05:25:19 UTC`
+- Date/time: `2026-05-21 05:47:13 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -18,24 +18,23 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 170
-- Source files: 66
-- Successful source cases: 55
+- HUnit checks: 173
+- Source files: 67
+- Successful source cases: 56
 - Runtime-error source cases: 8
 - Compile-error source cases: 3
-- Native compile/run checks: 122
-- Default Egglog native checks: 67
-- `--no-egglog` native checks: 55
-- Emit-LLVM checks: 36
+- Native compile/run checks: 124
+- Default Egglog native checks: 68
+- `--no-egglog` native checks: 56
+- Emit-LLVM checks: 37
 - Report/interpreter comparisons: 11
 - Failures: 0
 
-This update adds dedicated Haskell 2010 native cases for TC-031: a positive
-derived `Enum` program that exercises constructor indices, `succ`/`pred`,
-`toEnum`/`fromEnum`, range methods, and source range syntax, plus a runtime
-bounds-error program. The positive fixture runs in default and `--no-egglog`
-modes and emits LLVM compiled through clang; the runtime-error fixture is also
-checked in both native modes.
+This update adds dedicated Haskell 2010 native cases for TC-032: a positive
+derived `Bounded` program that exercises all-nullary enumerations,
+single-constructor products, records, newtypes, field-wise bounds, and
+`Show`/`Enum` interoperation. The fixture runs in default and `--no-egglog`
+modes and emits LLVM compiled through clang.
 
 ## Case Table
 
@@ -150,6 +149,9 @@ checked in both native modes.
 | haskell2010-derived-enum | `test/e2e/programs/haskell2010/derived-enum.hs` | success | native/default | `0\n2\n2\n1\nWest\n[1,2,3]\n[3,2,1,0]\n[1,2,3]\n[0,2]\n[3,2,1,0]\n[1,2,3]\n[3,2,1,0]\n0` | stdout matched, stderr empty, exit 0 | pass |
 | haskell2010-derived-enum | `test/e2e/programs/haskell2010/derived-enum.hs` | success | native/no-egglog | `0\n2\n2\n1\nWest\n[1,2,3]\n[3,2,1,0]\n[1,2,3]\n[0,2]\n[3,2,1,0]\n[1,2,3]\n[3,2,1,0]\n0` | stdout matched, stderr empty, exit 0 | pass |
 | haskell2010-derived-enum | `test/e2e/programs/haskell2010/derived-enum.hs` | success | emit-llvm/default | `0\n2\n2\n1\nWest\n[1,2,3]\n[3,2,1,0]\n[1,2,3]\n[0,2]\n[3,2,1,0]\n[1,2,3]\n[3,2,1,0]\n0` | LLVM compiled through clang, stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-derived-bounded | `test/e2e/programs/haskell2010/derived-bounded.hs` | success | native/default | `0\n3\nPair (False) (North)\nPair (True) (West)\nRecord { low = (False), high = (North) }\nRecord { low = (True), high = (West) }\nFlag (False)\nFlag (True)` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-derived-bounded | `test/e2e/programs/haskell2010/derived-bounded.hs` | success | native/no-egglog | `0\n3\nPair (False) (North)\nPair (True) (West)\nRecord { low = (False), high = (North) }\nRecord { low = (True), high = (West) }\nFlag (False)\nFlag (True)` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-derived-bounded | `test/e2e/programs/haskell2010/derived-bounded.hs` | success | emit-llvm/default | `0\n3\nPair (False) (North)\nPair (True) (West)\nRecord { low = (False), high = (North) }\nRecord { low = (True), high = (West) }\nFlag (False)\nFlag (True)` | LLVM compiled through clang, stdout matched, stderr empty, exit 0 | pass |
 | haskell2010-derived-enum-runtime-error | `test/e2e/programs/haskell2010/derived-enum-runtime-error.hs` | runtime-error | native/default | non-zero exit | runtime error forced by `fromEnum (succ West)` | pass |
 | haskell2010-derived-enum-runtime-error | `test/e2e/programs/haskell2010/derived-enum-runtime-error.hs` | runtime-error | native/no-egglog | non-zero exit | runtime error forced by `fromEnum (succ West)` | pass |
 | haskell2010-list-comprehensions | `test/e2e/programs/haskell2010/list-comprehensions.hs` | success | native/default | `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]` | stdout `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]`, stderr empty, exit 0 | pass |

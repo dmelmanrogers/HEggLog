@@ -116,6 +116,7 @@ data PatternExhaustivenessContext
   = CasePatternExhaustiveness
   | FunctionPatternExhaustiveness RName
   | LambdaPatternExhaustiveness
+  | GeneratedPatternExhaustiveness
   deriving stock (Show, Eq, Ord)
 
 data TypecheckResult = TypecheckResult
@@ -527,6 +528,8 @@ renderPatternCoverageMiss = \case
     " does not cover "
   LambdaPatternExhaustiveness ->
     " does not cover "
+  GeneratedPatternExhaustiveness ->
+    " does not cover "
 
 renderPatternRedundancy :: PatternExhaustivenessContext -> Text
 renderPatternRedundancy = \case
@@ -535,6 +538,8 @@ renderPatternRedundancy = \case
   FunctionPatternExhaustiveness {} ->
     " contains an unreachable alternative"
   LambdaPatternExhaustiveness ->
+    " contains an unreachable alternative"
+  GeneratedPatternExhaustiveness ->
     " contains an unreachable alternative"
 
 renderPatternExhaustivenessContext :: PatternExhaustivenessContext -> Text
@@ -545,6 +550,8 @@ renderPatternExhaustivenessContext = \case
     "function `" <> renderRName name <> "`"
   LambdaPatternExhaustiveness ->
     "lambda pattern"
+  GeneratedPatternExhaustiveness ->
+    "generated pattern"
 
 runInfer :: Map.Map RName TypeConstructorInfo -> InferM a -> Either TypecheckError (a, InferState)
 runInfer initialTypeConstructors action =
@@ -2676,6 +2683,10 @@ inferDerivedInstanceDictionaries env decls existing =
         dictionary <- inferDerivedEnumInstanceDictionary env typeName params constructors
         validateInstanceDictionary known dictionary
         pure (known <> [dictionary], derived <> [dictionary])
+    | className == builtinBoundedClassName = do
+        dictionary <- inferDerivedBoundedInstanceDictionary env typeName params constructors
+        validateInstanceDictionary known dictionary
+        pure (known <> [dictionary], derived <> [dictionary])
     | otherwise =
         throwTypecheck (UnsupportedCore0 ("derived class `" <> renderRName className <> "`"))
 
@@ -2689,11 +2700,19 @@ validateDerivedClasses derivingNames = do
       pure ()
   traverse_
     ( \className ->
-        unless (className `elem` [builtinEqClassName, builtinOrdClassName, builtinShowClassName, builtinEnumClassName]) $
+        unless (className `elem` supportedDerivedClasses) $
           throwTypecheck (UnsupportedCore0 ("derived class `" <> renderRName className <> "`"))
     )
     classNames
   pure classNames
+ where
+  supportedDerivedClasses =
+    [ builtinEqClassName
+    , builtinOrdClassName
+    , builtinShowClassName
+    , builtinEnumClassName
+    , builtinBoundedClassName
+    ]
 
 validateInstanceDictionary :: [TypedInstanceDictionary] -> TypedInstanceDictionary -> InferM ()
 validateInstanceDictionary existing dictionary = do
@@ -2814,6 +2833,33 @@ inferDerivedEnumInstanceDictionary env typeName params constructors = do
       , typedInstanceMethods = typedMethods
       }
 
+inferDerivedBoundedInstanceDictionary :: TypeEnv -> RName -> [RName] -> [RConDecl] -> InferM TypedInstanceDictionary
+inferDerivedBoundedInstanceDictionary env typeName params constructors = do
+  classes <- classInfos <$> get
+  info <-
+    case Map.lookup builtinBoundedClassName classes of
+      Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Bounded class")
+      Just classInfo -> pure classInfo
+  validateDerivedBoundedConstructors typeName constructors
+  fieldTypes <- concat <$> traverse (traverse sourceMonoType . conDeclFieldTypes) constructors
+  context <- List.nub . concat <$> traverse (derivedFieldConstraints "Bounded" builtinBoundedClassName typeName) fieldTypes
+  methodMap <- derivedBoundedMethodBindings constructors info
+  let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
+      replacements = Map.singleton (classInfoVariable info) instanceType
+      superclassConstraints = map (replaceConstraintTypeVars replacements) (classInfoSuperclasses info)
+  typedMethods <- traverse (inferInstanceMethod env info instanceType methodMap) (classInfoMethods info)
+  dictName <- instanceDictionaryName builtinBoundedClassName instanceType
+  pure
+    TypedInstanceDictionary
+      { typedInstanceClass = builtinBoundedClassName
+      , typedInstanceType = instanceType
+      , typedInstanceVariables = params
+      , typedInstanceContext = context
+      , typedInstanceDictName = dictName
+      , typedInstanceSuperclasses = superclassConstraints
+      , typedInstanceMethods = typedMethods
+      }
+
 validateDerivedEnumConstructors :: RName -> [RConDecl] -> InferM ()
 validateDerivedEnumConstructors typeName constructors =
   case constructors of
@@ -2833,6 +2879,23 @@ validateDerivedEnumConstructors typeName constructors =
                 <> "` has fields"
             )
         )
+
+validateDerivedBoundedConstructors :: RName -> [RConDecl] -> InferM ()
+validateDerivedBoundedConstructors typeName constructors =
+  case constructors of
+    [] ->
+      throwTypecheck (UnsupportedCore0 ("derived Bounded for `" <> renderRName typeName <> "` requires at least one constructor"))
+    [_] -> pure ()
+    _
+      | all (null . conDeclFieldTypes) constructors -> pure ()
+      | otherwise ->
+          throwTypecheck
+            ( UnsupportedCore0
+                ( "derived Bounded for `"
+                    <> renderRName typeName
+                    <> "` requires an enumeration or a single constructor"
+                )
+            )
 
 derivedFieldConstraints :: Text -> RName -> RName -> MonoType -> InferM [ClassConstraint]
 derivedFieldConstraints classOccurrence className selfTypeName fieldType =
@@ -3539,6 +3602,71 @@ derivedGreaterEqualName :: RName
 derivedGreaterEqualName =
   preludeTermName ">=" (-1414)
 
+data DerivedBoundedEndpoint = DerivedMinBound | DerivedMaxBound
+  deriving stock (Show, Eq, Ord)
+
+derivedBoundedMethodBindings :: [RConDecl] -> ClassInfo -> InferM (Map.Map RName SourceBinding)
+derivedBoundedMethodBindings constructors info = do
+  minMethod <- requireBoundedMethod "minBound"
+  maxMethod <- requireBoundedMethod "maxBound"
+  minBinding <- derivedBoundedBinding (classMethodName minMethod) DerivedMinBound constructors
+  maxBinding <- derivedBoundedBinding (classMethodName maxMethod) DerivedMaxBound constructors
+  pure (Map.fromList [(classMethodName minMethod, minBinding), (classMethodName maxMethod, maxBinding)])
+ where
+  requireBoundedMethod occurrence =
+    case List.find ((== occurrence) . nameOcc . classMethodName) (classInfoMethods info) of
+      Just method -> pure method
+      Nothing -> throwTypecheck (UnsupportedCore0 ("missing Bounded method `" <> occurrence <> "`"))
+
+derivedBoundedBinding :: RName -> DerivedBoundedEndpoint -> [RConDecl] -> InferM SourceBinding
+derivedBoundedBinding methodName endpoint constructors = do
+  boundExpr <- derivedBoundedExpr endpoint constructors
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = []
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs = RUnguarded boundExpr
+      , sourceBindingWhereDecls = []
+      }
+
+derivedBoundedExpr :: DerivedBoundedEndpoint -> [RConDecl] -> InferM RExpr
+derivedBoundedExpr endpoint constructors
+  | all (null . conDeclFieldTypes) constructors =
+      RCon <$> boundaryConstructorName endpoint constructors
+  | otherwise =
+      case constructors of
+        [constructor] -> pure (derivedBoundedProductExpr endpoint constructor)
+        [] -> throwTypecheck (UnsupportedCore0 "derived Bounded requires at least one constructor")
+        _ -> throwTypecheck (UnsupportedCore0 "derived Bounded requires an enumeration or a single constructor")
+
+boundaryConstructorName :: DerivedBoundedEndpoint -> [RConDecl] -> InferM RName
+boundaryConstructorName endpoint constructors =
+  case endpoint of
+    DerivedMinBound -> derivedEnumFirstConstructorName constructors
+    DerivedMaxBound -> derivedEnumLastConstructorName constructors
+
+derivedBoundedProductExpr :: DerivedBoundedEndpoint -> RConDecl -> RExpr
+derivedBoundedProductExpr endpoint constructor =
+  foldl RApp (RCon (conDeclName constructor)) fieldBounds
+ where
+  fieldBounds =
+    replicate (length (conDeclFieldTypes constructor)) (RVar (boundedEndpointName endpoint))
+
+boundedEndpointName :: DerivedBoundedEndpoint -> RName
+boundedEndpointName = \case
+  DerivedMinBound -> derivedMinBoundName
+  DerivedMaxBound -> derivedMaxBoundName
+
+derivedMinBoundName :: RName
+derivedMinBoundName =
+  preludeTermName "minBound" (-1451)
+
+derivedMaxBoundName :: RName
+derivedMaxBoundName =
+  preludeTermName "maxBound" (-1452)
+
 constraintsOverlap :: ClassConstraint -> ClassConstraint -> Bool
 constraintsOverlap lhs rhs =
   classConstraintClass lhs == classConstraintClass rhs
@@ -3672,10 +3800,14 @@ inferInstanceMethodBinding env info instanceType method binding =
   withTypecheckSpan (sourceBindingSpan binding) $ do
     let replacements = Map.singleton (classInfoVariable info) instanceType
         expected = replaceTypeVars replacements (classMethodFieldType method)
+        exhaustivenessContext =
+          case sourceBindingSpan binding of
+            Nothing -> GeneratedPatternExhaustiveness
+            Just _ -> FunctionPatternExhaustiveness (sourceBindingName binding)
     expr <-
       inferFunctionBindingExpr
         env
-        (FunctionPatternExhaustiveness (sourceBindingName binding))
+        exhaustivenessContext
         (sourceBindingPatterns binding)
         (sourceBindingRhs binding)
         (sourceBindingWhereDecls binding)
@@ -4949,6 +5081,8 @@ emptyPatternCoverageState =
     }
 
 warnForPatternCoverage :: PatternExhaustivenessContext -> MonoType -> [PatternCoverageRow] -> InferM ()
+warnForPatternCoverage GeneratedPatternExhaustiveness _ _ =
+  pure ()
 warnForPatternCoverage context scrutineeTy rows = do
   scrutineeTy' <- applyCurrent scrutineeTy
   warnForRedundantPatterns context scrutineeTy' rows

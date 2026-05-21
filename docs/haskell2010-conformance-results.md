@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-21 05:25:19 UTC
+Date/time: 2026-05-21 05:47:13 UTC
 
-Commit hash tested: working tree with TC-031 derived `Enum` changes.
+Commit hash tested: working tree with TC-032 derived `Bounded` changes.
 
 Primary conformance command run:
 
@@ -37,14 +37,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 110 |
-| Haskell source files in corpus | 117 |
-| HUnit test cases executed | 146 |
-| Native-success fixtures | 75 |
+| Manifest conformance fixtures | 112 |
+| Haskell source files in corpus | 119 |
+| HUnit test cases executed | 149 |
+| Native-success fixtures | 76 |
 | Native-runtime-error fixtures | 4 |
-| Compile-error fixtures | 25 |
+| Compile-error fixtures | 26 |
 | Unsupported-documented fixtures | 6 |
-| Native subprocess compile/run checks | 115 |
+| Native subprocess compile/run checks | 117 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -80,6 +80,13 @@ nullary-constructor data declarations, declaration-order constructor indices,
 `typeclasses.derived-enum-runtime-error` checks bounds failure at runtime, and
 `negative.derived-enum-field-constructor` rejects non-enumeration deriving.
 
+TC-032 is now covered by native and negative conformance fixtures.
+`typeclasses.derived-bounded` checks generated `Bounded` dictionaries for
+all-nullary enumerations, single-constructor products, records, and newtypes,
+including field-wise `minBound`/`maxBound` dictionaries. The negative
+`derived-bounded-mixed-constructors` fixture rejects declarations that are
+neither enumerations nor single-constructor shapes.
+
 ## Category Summary
 
 | Category | Manifest fixtures | Status |
@@ -94,10 +101,10 @@ nullary-constructor data declarations, declaration-order constructor indices,
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
 | `modules` | 6 | single-module, same-directory import, implicit/explicit/qualified Prelude import, and source-instance import/export tests exist |
-| `negative` | 25 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid derived Enum declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
+| `negative` | 26 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
 | `prelude` | 13 | list functions, append, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
-| `typeclasses` | 10 | user dictionary, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, and derived Enum tests exist |
+| `typeclasses` | 11 | user dictionary, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, derived Enum, and derived Bounded tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |
 | `unsupported` | 6 | unsupported features documented by failing cases, including TC-016 `Read` and constrained expression signatures |
