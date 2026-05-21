@@ -198,6 +198,14 @@ the current `Show` class intentionally exposes only `show` and not the full
 Haskell 2010 `showsPrec`/`showList` hierarchy, product fields are conservatively
 parenthesized until that method hierarchy is introduced.
 
+TC-031 adds derived `Enum` for nullary-constructor data declarations. Generated
+dictionaries number constructors in declaration order, synthesize `succ`,
+`pred`, `toEnum`, `fromEnum`, and the report-shaped range methods, and reject
+constructors with fields as invalid deriving targets. Arithmetic-sequence
+syntax now elaborates through the resolved `Enum` methods, so user-derived
+enumerations share the same dictionary path as built-in `Int` and `Char`
+ranges.
+
 ADT-005 adds the supported record-label subset. Record declarations introduce
 field selector names in the term namespace, record construction is typechecked
 against the constructor's labelled fields and currently requires every field

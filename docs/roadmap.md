@@ -55,7 +55,7 @@ The next chunk is Prelude, deriving, and typeclass library completion.
 TEST-CONF-014 source matrix closure is complete and now enforced by the
 conformance validator.
 
-The next library chunk is TC-029, TC-030, TC-031, TC-032, TC-033,
+The next library chunk is TC-029, TC-030, TC-032, TC-033,
 PRELUDE-009, PRELUDE-019, PRELUDE-020, and TEST-CONF-015. Remaining FFI
 closure is FFI-010 through FFI-013.
 
@@ -176,8 +176,14 @@ Completed Haskell 2010 roadmap work:
   built-in show results as list-of-`Char` values, and default/no-egglog wet
   tests.
 - Haskell 2010 arithmetic sequences: implemented executable `Int` and `Char`
-  sequence forms, including bounded ascending/descending ranges and lazily
-  consumed open ranges, through Core, STG, LLVM, conformance, and wet tests.
+  sequence forms plus derived-enumeration ranges, including bounded
+  ascending/descending ranges and lazily consumed open ranges, through Core,
+  STG, LLVM, conformance, and wet tests.
+- Haskell 2010 derived `Enum`: implemented generated `Enum` dictionaries for
+  nullary-constructor data declarations, declaration-order constructor indices,
+  `succ`/`pred`/`toEnum` bounds errors, `fromEnum`, range methods, negative
+  invalid-deriving diagnostics, conformance fixtures, and default/no-egglog wet
+  tests.
 - Haskell 2010 list comprehensions: implemented executable list
   comprehensions with generator scoping, Bool guards, `let` qualifiers,
   nested generators, tuple/list/constructor/literal/refutable pattern

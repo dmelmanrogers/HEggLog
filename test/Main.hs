@@ -206,8 +206,10 @@ testGroups =
       , pureTest "typechecks derived Eq instances" testHaskell2010Core0DerivedEq
       , pureTest "typechecks derived Ord instances" testHaskell2010Core0DerivedOrd
       , pureTest "typechecks derived Show instances" testHaskell2010Core0DerivedShow
+      , pureTest "typechecks derived Enum instances" testHaskell2010Core0DerivedEnum
       , pureTest "typechecks list comprehensions" testHaskell2010Core0ListComprehensions
       , pureTest "rejects invalid type class dictionaries" testHaskell2010Core0RejectsInvalidTypeClassDictionaries
+      , pureTest "rejects invalid derived Enum instances" testHaskell2010Core0RejectsInvalidDerivedEnum
       , pureTest "rejects ill-typed Core-0 source" testHaskell2010Core0TypeError
       , pureTest "renders Haskell 2010 type errors with source spans" testHaskell2010TypeErrorDiagnosticsWithSpans
       , pureTest "typechecks Haskell 2010 FFI signatures before lowering" testHaskell2010ForeignTypechecking
@@ -253,6 +255,8 @@ testGroups =
       , pureTest "evaluates derived Eq instances" testHaskell2010Core0EvalDerivedEq
       , pureTest "evaluates derived Ord instances" testHaskell2010Core0EvalDerivedOrd
       , pureTest "evaluates derived Show instances" testHaskell2010Core0EvalDerivedShow
+      , pureTest "evaluates derived Enum instances" testHaskell2010Core0EvalDerivedEnum
+      , pureTest "reports derived Enum bounds errors" testHaskell2010Core0EvalDerivedEnumRuntimeError
       , pureTest "evaluates list comprehensions" testHaskell2010Core0EvalListComprehensions
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
@@ -302,6 +306,7 @@ testGroups =
       , pureTest "preserves derived Eq semantics" testHaskell2010CoreToSTGDerivedEq
       , pureTest "preserves derived Ord semantics" testHaskell2010CoreToSTGDerivedOrd
       , pureTest "preserves derived Show semantics" testHaskell2010CoreToSTGDerivedShow
+      , pureTest "preserves derived Enum semantics" testHaskell2010CoreToSTGDerivedEnum
       , pureTest "preserves list comprehension semantics" testHaskell2010CoreToSTGListComprehensions
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves guard fallthrough errors" testHaskell2010CoreToSTGGuardFallthrough
@@ -319,6 +324,7 @@ testGroups =
       , pureTest "emits derived Eq LLVM" testHaskell2010NativeDerivedEq
       , pureTest "emits derived Ord LLVM" testHaskell2010NativeDerivedOrd
       , pureTest "emits derived Show LLVM" testHaskell2010NativeDerivedShow
+      , pureTest "emits derived Enum LLVM" testHaskell2010NativeDerivedEnum
       , pureTest "emits Prelude append LLVM" testHaskell2010NativeAppend
       , pureTest "emits user-defined operator LLVM" testHaskell2010NativeUserDefinedOperators
       , pureTest "emits IO getLine LLVM" testHaskell2010NativeGetLine
@@ -2239,11 +2245,30 @@ testHaskell2010Core0DerivedShow = do
   assertBool "generic Show list dictionary is emitted" (containsBindingOccurrence "$fShowList" coreModule)
   expectCoreEvalIO "derived Show Core oracle" haskell2010DerivedShowOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0DerivedEnum :: Either String ()
+testHaskell2010Core0DerivedEnum = do
+  coreModule <- typecheckHaskell2010 haskell2010DerivedEnumSource
+  assertBool "Prelude Enum dictionary constructor is recorded" (containsConstructorOccurrence "$MkEnumDict" coreModule)
+  assertBool "derived Enum Direction dictionary is emitted" (containsBindingPrefix "$fEnumDirection" coreModule)
+  assertBool "derived Enum singleton dictionary is emitted" (containsBindingPrefix "$fEnumSingleton" coreModule)
+  assertBool "derived Enum keeps Int range helper support" (containsBindingOccurrence "$enumFromThenToInt" coreModule)
+  expectCoreEvalIO "derived Enum Core oracle" haskell2010DerivedEnumOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0ListComprehensions :: Either String ()
 testHaskell2010Core0ListComprehensions = do
   coreModule <- typecheckHaskell2010 haskell2010ListComprehensionsSource
   assertBool "list comprehension emits list cases" (countCasesInModule coreModule >= 6)
   expectCoreEvalIO "list comprehension Core oracle" haskell2010ListComprehensionsOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0RejectsInvalidDerivedEnum :: Either String ()
+testHaskell2010Core0RejectsInvalidDerivedEnum =
+  case typecheckHaskell2010Raw haskell2010InvalidDerivedEnumSource of
+    Left err ->
+      assertBool
+        "invalid derived Enum diagnostic mentions nullary constructors"
+        ("requires only nullary constructors" `Text.isInfixOf` H2010Typecheck.renderTypecheckError err)
+    Right coreModule ->
+      Left ("invalid derived Enum unexpectedly typechecked:\n" <> show coreModule)
 
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries :: Either String ()
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
@@ -3118,6 +3143,20 @@ testHaskell2010Core0EvalDerivedShow =
     haskell2010DerivedShowOutput
     =<< evalHaskell2010Binding "main" haskell2010DerivedShowSource
 
+testHaskell2010Core0EvalDerivedEnum :: Either String ()
+testHaskell2010Core0EvalDerivedEnum =
+  expectCoreEvalIO
+    "Core-0 derived Enum evaluation"
+    haskell2010DerivedEnumOutput
+    =<< evalHaskell2010Binding "main" haskell2010DerivedEnumSource
+
+testHaskell2010Core0EvalDerivedEnumRuntimeError :: Either String ()
+testHaskell2010Core0EvalDerivedEnumRuntimeError =
+  case evalHaskell2010BindingRaw "main" haskell2010DerivedEnumRuntimeErrorSource of
+    Left (H2010CoreEval.CoreEvalNoMatchingAlternative _) -> Right ()
+    Left err -> Left ("expected derived Enum bounds runtime error, got: " <> show err)
+    Right value -> Left ("derived Enum bounds error unexpectedly returned: " <> show value)
+
 testHaskell2010Core0EvalListComprehensions :: Either String ()
 testHaskell2010Core0EvalListComprehensions =
   expectCoreEvalIO
@@ -3439,6 +3478,10 @@ testHaskell2010CoreToSTGDerivedShow :: Either String ()
 testHaskell2010CoreToSTGDerivedShow =
   checkCoreToSTGIO "Core-to-STG derived Show" haskell2010DerivedShowOutput haskell2010DerivedShowSource
 
+testHaskell2010CoreToSTGDerivedEnum :: Either String ()
+testHaskell2010CoreToSTGDerivedEnum =
+  checkCoreToSTGIO "Core-to-STG derived Enum" haskell2010DerivedEnumOutput haskell2010DerivedEnumSource
+
 testHaskell2010CoreToSTGListComprehensions :: Either String ()
 testHaskell2010CoreToSTGListComprehensions =
   checkCoreToSTGIO "Core-to-STG list comprehensions" haskell2010ListComprehensionsOutput haskell2010ListComprehensionsSource
@@ -3554,6 +3597,12 @@ testHaskell2010NativeDerivedShow = do
   llvmText <- compileHaskell2010NativeText haskell2010DerivedShowSource
   assertBool "native derived Show emits synthesized append helpers" ("derived_ushow_uappend" `Text.isInfixOf` llvmText)
   assertBool "native derived Show keeps String fields as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeDerivedEnum :: Either String ()
+testHaskell2010NativeDerivedEnum = do
+  llvmText <- compileHaskell2010NativeText haskell2010DerivedEnumSource
+  assertBool "native derived Enum emits generated dictionary" ("fEnumDirection" `Text.isInfixOf` llvmText)
+  assertBool "native derived Enum emits Int range helper calls" ("enumFromThenToInt" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeAppend :: Either String ()
 testHaskell2010NativeAppend = do
@@ -4135,6 +4184,8 @@ haskell2010CoreEgglogNativeAgreementCases =
   , ("lazy-let", haskell2010LazyLetSource, ExpectedNativeStdout "5\n")
   , ("known-constructor-forced-field", haskell2010KnownConstructorForcedFieldSource, ExpectedNativeRuntimeError)
   , ("division-by-zero", haskell2010DivisionByZeroSource, ExpectedNativeRuntimeError)
+  , ("derived-enum", haskell2010DerivedEnumSource, ExpectedNativeStdout (Text.unpack haskell2010DerivedEnumOutput))
+  , ("derived-enum-runtime-error", haskell2010DerivedEnumRuntimeErrorSource, ExpectedNativeRuntimeError)
   ]
 
 noEgglogNativeOptions :: H2010Native.Haskell2010NativeOptions
@@ -7286,6 +7337,7 @@ haskell2010NativeSuccessExamples =
   , ("derived-eq", haskell2010DerivedEqSource, "10\n")
   , ("derived-ord", haskell2010DerivedOrdSource, "11\n")
   , ("derived-show", haskell2010DerivedShowSource, Text.unpack haskell2010DerivedShowOutput)
+  , ("derived-enum", haskell2010DerivedEnumSource, Text.unpack haskell2010DerivedEnumOutput)
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   , ("adt-box", haskell2010ADTBoxSource, "7\n")
   , ("adt-record-fields", haskell2010RecordFieldSource, "43\n")
@@ -7325,6 +7377,7 @@ haskell2010NativeExecutableExamples =
   , ("derived-eq", haskell2010DerivedEqSource, "10\n")
   , ("derived-ord", haskell2010DerivedOrdSource, "11\n")
   , ("derived-show", haskell2010DerivedShowSource, Text.unpack haskell2010DerivedShowOutput)
+  , ("derived-enum", haskell2010DerivedEnumSource, Text.unpack haskell2010DerivedEnumOutput)
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
   ]
 
@@ -7830,6 +7883,56 @@ haskell2010DerivedShowOutput =
   \Years (7)\n\
   \Person { age = (42), label = (\"Ada\") }\n\
   \[Box (True),Box (False)]\n"
+
+haskell2010DerivedEnumSource :: Text
+haskell2010DerivedEnumSource =
+  "module Main where\n\
+  \data Direction = North | East | South | West deriving (Enum, Eq, Show)\n\
+  \data Singleton = Only deriving (Enum, Eq, Show)\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (fromEnum North)\n\
+  \  print (fromEnum South)\n\
+  \  print (fromEnum (succ East))\n\
+  \  print (fromEnum (pred South))\n\
+  \  putStrLn (show (toEnum 3 :: Direction))\n\
+  \  print (map fromEnum (enumFrom East))\n\
+  \  print (map fromEnum (enumFromThen West South))\n\
+  \  print (map fromEnum (enumFromTo East West))\n\
+  \  print (map fromEnum (enumFromThenTo North South West))\n\
+  \  print (map fromEnum (enumFromThenTo West South North))\n\
+  \  print (map fromEnum [East .. West])\n\
+  \  print (map fromEnum [West, South .. North])\n\
+  \  print (fromEnum Only)\n\
+  \  return ()\n"
+
+haskell2010DerivedEnumOutput :: Text
+haskell2010DerivedEnumOutput =
+  "0\n\
+  \2\n\
+  \2\n\
+  \1\n\
+  \West\n\
+  \[1,2,3]\n\
+  \[3,2,1,0]\n\
+  \[1,2,3]\n\
+  \[0,2]\n\
+  \[3,2,1,0]\n\
+  \[1,2,3]\n\
+  \[3,2,1,0]\n\
+  \0\n"
+
+haskell2010DerivedEnumRuntimeErrorSource :: Text
+haskell2010DerivedEnumRuntimeErrorSource =
+  "module Main where\n\
+  \data Direction = North | East | South | West deriving (Enum)\n\
+  \main = fromEnum (succ West)\n"
+
+haskell2010InvalidDerivedEnumSource :: Text
+haskell2010InvalidDerivedEnumSource =
+  "module Main where\n\
+  \data Box = Box Int deriving (Enum)\n\
+  \main = 0\n"
 
 haskell2010ListComprehensionsSource :: Text
 haskell2010ListComprehensionsSource =

@@ -2672,6 +2672,10 @@ inferDerivedInstanceDictionaries env decls existing =
         dictionary <- inferDerivedShowInstanceDictionary env typeName params constructors
         validateInstanceDictionary known dictionary
         pure (known <> [dictionary], derived <> [dictionary])
+    | className == builtinEnumClassName = do
+        dictionary <- inferDerivedEnumInstanceDictionary env typeName params constructors
+        validateInstanceDictionary known dictionary
+        pure (known <> [dictionary], derived <> [dictionary])
     | otherwise =
         throwTypecheck (UnsupportedCore0 ("derived class `" <> renderRName className <> "`"))
 
@@ -2685,7 +2689,7 @@ validateDerivedClasses derivingNames = do
       pure ()
   traverse_
     ( \className ->
-        unless (className `elem` [builtinEqClassName, builtinOrdClassName, builtinShowClassName]) $
+        unless (className `elem` [builtinEqClassName, builtinOrdClassName, builtinShowClassName, builtinEnumClassName]) $
           throwTypecheck (UnsupportedCore0 ("derived class `" <> renderRName className <> "`"))
     )
     classNames
@@ -2784,6 +2788,51 @@ inferDerivedShowInstanceDictionary env typeName params constructors = do
       , typedInstanceSuperclasses = superclassConstraints
       , typedInstanceMethods = typedMethods
       }
+
+inferDerivedEnumInstanceDictionary :: TypeEnv -> RName -> [RName] -> [RConDecl] -> InferM TypedInstanceDictionary
+inferDerivedEnumInstanceDictionary env typeName params constructors = do
+  classes <- classInfos <$> get
+  info <-
+    case Map.lookup builtinEnumClassName classes of
+      Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Enum class")
+      Just classInfo -> pure classInfo
+  validateDerivedEnumConstructors typeName constructors
+  methodMap <- derivedEnumMethodBindings constructors info
+  let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
+      replacements = Map.singleton (classInfoVariable info) instanceType
+      superclassConstraints = map (replaceConstraintTypeVars replacements) (classInfoSuperclasses info)
+  typedMethods <- traverse (inferInstanceMethod env info instanceType methodMap) (classInfoMethods info)
+  dictName <- instanceDictionaryName builtinEnumClassName instanceType
+  pure
+    TypedInstanceDictionary
+      { typedInstanceClass = builtinEnumClassName
+      , typedInstanceType = instanceType
+      , typedInstanceVariables = params
+      , typedInstanceContext = []
+      , typedInstanceDictName = dictName
+      , typedInstanceSuperclasses = superclassConstraints
+      , typedInstanceMethods = typedMethods
+      }
+
+validateDerivedEnumConstructors :: RName -> [RConDecl] -> InferM ()
+validateDerivedEnumConstructors typeName constructors =
+  case constructors of
+    [] ->
+      throwTypecheck (UnsupportedCore0 ("derived Enum for `" <> renderRName typeName <> "` requires at least one constructor"))
+    _ ->
+      traverse_ validateConstructor constructors
+ where
+  validateConstructor constructor =
+    unless (null (conDeclFieldTypes constructor)) $
+      throwTypecheck
+        ( UnsupportedCore0
+            ( "derived Enum for `"
+                <> renderRName typeName
+                <> "` requires only nullary constructors; constructor `"
+                <> renderRName (conDeclName constructor)
+                <> "` has fields"
+            )
+        )
 
 derivedFieldConstraints :: Text -> RName -> RName -> MonoType -> InferM [ClassConstraint]
 derivedFieldConstraints classOccurrence className selfTypeName fieldType =
@@ -3226,6 +3275,270 @@ derivedShowName :: RName
 derivedShowName =
   preludeTermName "show" (-1431)
 
+derivedEnumMethodBindings :: [RConDecl] -> ClassInfo -> InferM (Map.Map RName SourceBinding)
+derivedEnumMethodBindings constructors info = do
+  succMethod <- requireEnumMethod "succ"
+  predMethod <- requireEnumMethod "pred"
+  toEnumMethod <- requireEnumMethod "toEnum"
+  fromEnumMethod <- requireEnumMethod "fromEnum"
+  enumFromMethod <- requireEnumMethod "enumFrom"
+  enumFromThenMethod <- requireEnumMethod "enumFromThen"
+  enumFromToMethod <- requireEnumMethod "enumFromTo"
+  enumFromThenToMethod <- requireEnumMethod "enumFromThenTo"
+  succBinding <- derivedEnumSuccBinding (classMethodName succMethod) constructors
+  predBinding <- derivedEnumPredBinding (classMethodName predMethod) constructors
+  toEnumBinding <- derivedEnumToEnumBinding (classMethodName toEnumMethod) constructors
+  fromEnumBinding <- derivedEnumFromEnumBinding (classMethodName fromEnumMethod) constructors
+  enumFromBinding <- derivedEnumFromBinding (classMethodName enumFromMethod) constructors
+  enumFromThenBinding <- derivedEnumFromThenBinding (classMethodName enumFromThenMethod) constructors
+  enumFromToBinding <- derivedEnumFromToBinding (classMethodName enumFromToMethod)
+  enumFromThenToBinding <- derivedEnumFromThenToBinding (classMethodName enumFromThenToMethod)
+  pure
+    ( Map.fromList
+        [ (classMethodName succMethod, succBinding)
+        , (classMethodName predMethod, predBinding)
+        , (classMethodName toEnumMethod, toEnumBinding)
+        , (classMethodName fromEnumMethod, fromEnumBinding)
+        , (classMethodName enumFromMethod, enumFromBinding)
+        , (classMethodName enumFromThenMethod, enumFromThenBinding)
+        , (classMethodName enumFromToMethod, enumFromToBinding)
+        , (classMethodName enumFromThenToMethod, enumFromThenToBinding)
+        ]
+    )
+ where
+  requireEnumMethod occurrence =
+    case List.find ((== occurrence) . nameOcc . classMethodName) (classInfoMethods info) of
+      Just method -> pure method
+      Nothing -> throwTypecheck (UnsupportedCore0 ("missing Enum method `" <> occurrence <> "`"))
+
+derivedEnumSuccBinding :: RName -> [RConDecl] -> InferM SourceBinding
+derivedEnumSuccBinding methodName constructors = do
+  valueName <- freshGeneratedName TermNamespace "$derived_enum_succ_value"
+  firstConstructor <- derivedEnumFirstConstructorName constructors
+  let pairs = zip constructors (drop 1 constructors)
+      alternatives =
+        [ RAlt (RPCon (conDeclName current) []) (RUnguarded (RCon (conDeclName next))) []
+        | (current, next) <- pairs
+        ]
+          <> [derivedEnumFailureAlt (RCon firstConstructor)]
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar valueName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs = RUnguarded (RCase (RVar valueName) alternatives)
+      , sourceBindingWhereDecls = []
+      }
+
+derivedEnumPredBinding :: RName -> [RConDecl] -> InferM SourceBinding
+derivedEnumPredBinding methodName constructors = do
+  valueName <- freshGeneratedName TermNamespace "$derived_enum_pred_value"
+  firstConstructor <- derivedEnumFirstConstructorName constructors
+  let pairs = zip (drop 1 constructors) constructors
+      alternatives =
+        [ RAlt (RPCon (conDeclName current) []) (RUnguarded (RCon (conDeclName previous))) []
+        | (current, previous) <- pairs
+        ]
+          <> [derivedEnumFailureAlt (RCon firstConstructor)]
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar valueName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs = RUnguarded (RCase (RVar valueName) alternatives)
+      , sourceBindingWhereDecls = []
+      }
+
+derivedEnumToEnumBinding :: RName -> [RConDecl] -> InferM SourceBinding
+derivedEnumToEnumBinding methodName constructors = do
+  indexName <- freshGeneratedName TermNamespace "$derived_enum_to_enum_index"
+  firstConstructor <- derivedEnumFirstConstructorName constructors
+  let alternatives =
+        [ RAlt (RPLit (LInt (toInteger index))) (RUnguarded (RCon (conDeclName constructor))) []
+        | (index, constructor) <- zip [0 :: Int ..] constructors
+        ]
+          <> [derivedEnumFailureAlt (RCon firstConstructor)]
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar indexName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs = RUnguarded (RCase (RVar indexName) alternatives)
+      , sourceBindingWhereDecls = []
+      }
+
+derivedEnumFromEnumBinding :: RName -> [RConDecl] -> InferM SourceBinding
+derivedEnumFromEnumBinding methodName constructors = do
+  valueName <- freshGeneratedName TermNamespace "$derived_enum_from_enum_value"
+  let alternatives =
+        [ RAlt (RPCon (conDeclName constructor) []) (RUnguarded (RLit (LInt (toInteger index)))) []
+        | (index, constructor) <- zip [0 :: Int ..] constructors
+        ]
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar valueName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs = RUnguarded (RCase (RVar valueName) alternatives)
+      , sourceBindingWhereDecls = []
+      }
+
+derivedEnumFromBinding :: RName -> [RConDecl] -> InferM SourceBinding
+derivedEnumFromBinding methodName constructors = do
+  startName <- freshGeneratedName TermNamespace "$derived_enum_from_start"
+  lastConstructor <- derivedEnumLastConstructorName constructors
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar startName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs =
+          RUnguarded
+            ( RApp
+                (RApp (RVar derivedEnumFromToName) (RVar startName))
+                (RCon lastConstructor)
+            )
+      , sourceBindingWhereDecls = []
+      }
+
+derivedEnumFromThenBinding :: RName -> [RConDecl] -> InferM SourceBinding
+derivedEnumFromThenBinding methodName constructors = do
+  startName <- freshGeneratedName TermNamespace "$derived_enum_from_then_start"
+  nextName <- freshGeneratedName TermNamespace "$derived_enum_from_then_next"
+  firstConstructor <- derivedEnumFirstConstructorName constructors
+  lastConstructor <- derivedEnumLastConstructorName constructors
+  let startExpr = RVar startName
+      nextExpr = RVar nextName
+      ascending =
+        RInfixApp
+          (RApp (RVar derivedFromEnumName) nextExpr)
+          derivedGreaterEqualName
+          (RApp (RVar derivedFromEnumName) startExpr)
+      bound =
+        RCase
+          ascending
+          [ RAlt (RPCon trueDataConName []) (RUnguarded (RCon lastConstructor)) []
+          , RAlt (RPCon falseDataConName []) (RUnguarded (RCon firstConstructor)) []
+          ]
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar startName, RPVar nextName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs =
+          RUnguarded
+            ( RApp
+                (RApp (RApp (RVar derivedEnumFromThenToName) startExpr) nextExpr)
+                bound
+            )
+      , sourceBindingWhereDecls = []
+      }
+
+derivedEnumFromToBinding :: RName -> InferM SourceBinding
+derivedEnumFromToBinding methodName = do
+  startName <- freshGeneratedName TermNamespace "$derived_enum_from_to_start"
+  endName <- freshGeneratedName TermNamespace "$derived_enum_from_to_end"
+  let startExpr = RVar startName
+      endExpr = RVar endName
+      indexRange =
+        RApp
+          (RApp (RVar derivedEnumFromToName) (RApp (RVar derivedFromEnumName) startExpr))
+          (RApp (RVar derivedFromEnumName) endExpr)
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar startName, RPVar endName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs =
+          RUnguarded
+            (RApp (RApp (RVar derivedMapName) (RVar derivedToEnumName)) indexRange)
+      , sourceBindingWhereDecls = []
+      }
+
+derivedEnumFromThenToBinding :: RName -> InferM SourceBinding
+derivedEnumFromThenToBinding methodName = do
+  startName <- freshGeneratedName TermNamespace "$derived_enum_from_then_to_start"
+  nextName <- freshGeneratedName TermNamespace "$derived_enum_from_then_to_next"
+  endName <- freshGeneratedName TermNamespace "$derived_enum_from_then_to_end"
+  let startExpr = RVar startName
+      nextExpr = RVar nextName
+      endExpr = RVar endName
+      indexRange =
+        RApp
+          ( RApp
+              ( RApp
+                  (RVar derivedEnumFromThenToName)
+                  (RApp (RVar derivedFromEnumName) startExpr)
+              )
+              (RApp (RVar derivedFromEnumName) nextExpr)
+          )
+          (RApp (RVar derivedFromEnumName) endExpr)
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar startName, RPVar nextName, RPVar endName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs =
+          RUnguarded
+            (RApp (RApp (RVar derivedMapName) (RVar derivedToEnumName)) indexRange)
+      , sourceBindingWhereDecls = []
+      }
+
+derivedEnumFailureAlt :: RExpr -> RAlt
+derivedEnumFailureAlt dummy =
+  RAlt RPWildcard (RUnguarded (derivedEnumFailureExpr dummy)) []
+
+derivedEnumFailureExpr :: RExpr -> RExpr
+derivedEnumFailureExpr dummy =
+  RCase
+    derivedFalse
+    [RAlt (RPCon trueDataConName []) (RUnguarded dummy) []]
+
+derivedEnumFirstConstructorName :: [RConDecl] -> InferM RName
+derivedEnumFirstConstructorName = \case
+  first : _ -> pure (conDeclName first)
+  [] -> throwTypecheck (UnsupportedCore0 "derived Enum requires at least one constructor")
+
+derivedEnumLastConstructorName :: [RConDecl] -> InferM RName
+derivedEnumLastConstructorName = \case
+  first : rest -> pure (go first rest)
+  [] -> throwTypecheck (UnsupportedCore0 "derived Enum requires at least one constructor")
+ where
+  go current [] = conDeclName current
+  go _ (next : rest) = go next rest
+
+derivedMapName :: RName
+derivedMapName =
+  preludeTermName "map" (-99962)
+
+derivedToEnumName :: RName
+derivedToEnumName =
+  preludeTermName "toEnum" (-1443)
+
+derivedFromEnumName :: RName
+derivedFromEnumName =
+  preludeTermName "fromEnum" (-1444)
+
+derivedEnumFromToName :: RName
+derivedEnumFromToName =
+  preludeTermName "enumFromTo" (-1447)
+
+derivedEnumFromThenToName :: RName
+derivedEnumFromThenToName =
+  preludeTermName "enumFromThenTo" (-1448)
+
+derivedGreaterEqualName :: RName
+derivedGreaterEqualName =
+  preludeTermName ">=" (-1414)
+
 constraintsOverlap :: ClassConstraint -> ClassConstraint -> Bool
 constraintsOverlap lhs rhs =
   classConstraintClass lhs == classConstraintClass rhs
@@ -3639,57 +3952,42 @@ inferArithmeticSeq env start maybeStep maybeEnd = do
   traverse_ (unify (typedExprType typedStart) . typedExprType) typedStep
   traverse_ (unify (typedExprType typedStart) . typedExprType) typedEnd
   inferredElementTy <- applyCurrent (typedExprType typedStart)
-  elementTy <- arithmeticSequenceElementType inferredElementTy
+  elementTy <-
+    case inferredElementTy of
+      TyMeta {} -> do
+        unify inferredElementTy intMonoType
+        pure intMonoType
+      _ ->
+        pure inferredElementTy
   unify (typedExprType typedStart) elementTy
   traverse_ (unify elementTy . typedExprType) typedStep
   traverse_ (unify elementTy . typedExprType) typedEnd
-  let (helperName, helperScheme) =
-        arithmeticSequenceHelper elementTy (maybe False (const True) typedStep) (maybe False (const True) typedEnd)
-      helperExpr = TVar helperName helperScheme [] (schemeBody helperScheme)
+  elementTy' <- applyCurrent elementTy
+  method <- builtinClassMethod "Enum" (arithmeticSequenceMethodOccurrence typedStep typedEnd)
+  classVariable <- classMethodSingleVariable (nameOcc (classMethodName method)) method
+  sourceRange <- currentTypecheckSpan
+  let methodScheme = withSchemeConstraintSpan sourceRange (classMethodScheme method)
+      methodTy = replaceTypeVars (Map.singleton classVariable elementTy') (schemeBody methodScheme)
+      methodExpr = TVar (classMethodName method) methodScheme [elementTy'] methodTy
       arguments = typedStart : maybe [] (: []) typedStep <> maybe [] (: []) typedEnd
-  pure (applyArithmeticSequenceHelper helperExpr arguments)
+  pure (applyArithmeticSequenceMethod methodExpr arguments)
 
-arithmeticSequenceElementType :: MonoType -> InferM MonoType
-arithmeticSequenceElementType ty
-  | ty == intMonoType = pure intMonoType
-  | ty == charMonoType = pure charMonoType
-arithmeticSequenceElementType (TyMeta _) =
-  pure intMonoType
-arithmeticSequenceElementType ty =
-  throwTypecheck (UnsupportedCore0 ("arithmetic sequences currently support Int and Char elements, got `" <> renderMonoType ty <> "`"))
+arithmeticSequenceMethodOccurrence :: Maybe TypedExpr -> Maybe TypedExpr -> Text
+arithmeticSequenceMethodOccurrence typedStep typedEnd =
+  case (typedStep, typedEnd) of
+    (Nothing, Nothing) -> "enumFrom"
+    (Just _, Nothing) -> "enumFromThen"
+    (Nothing, Just _) -> "enumFromTo"
+    (Just _, Just _) -> "enumFromThenTo"
 
-arithmeticSequenceHelper :: MonoType -> Bool -> Bool -> (RName, Scheme)
-arithmeticSequenceHelper elementTy hasStep hasEnd =
-  (helperName, Scheme [] [] helperTy)
- where
-  listTy = TyList elementTy
-  helperTy = foldr TyFun listTy (replicate argumentCount elementTy)
-  argumentCount =
-    1 + (if hasStep then 1 else 0) + (if hasEnd then 1 else 0)
-  helperName
-    | elementTy == intMonoType =
-        case (hasStep, hasEnd) of
-          (False, False) -> enumFromIntName
-          (True, False) -> enumFromThenIntName
-          (False, True) -> enumFromToIntName
-          (True, True) -> enumFromThenToIntName
-    | elementTy == charMonoType =
-        case (hasStep, hasEnd) of
-          (False, False) -> enumFromCharName
-          (True, False) -> enumFromThenCharName
-          (False, True) -> enumFromToCharName
-          (True, True) -> enumFromThenToCharName
-    | otherwise =
-        error "arithmeticSequenceHelper called with unsupported element type"
-
-applyArithmeticSequenceHelper :: TypedExpr -> [TypedExpr] -> TypedExpr
-applyArithmeticSequenceHelper =
+applyArithmeticSequenceMethod :: TypedExpr -> [TypedExpr] -> TypedExpr
+applyArithmeticSequenceMethod =
   List.foldl' apply
  where
   apply fn arg =
     case typedExprType fn of
       TyFun _ resultTy -> TApp fn arg resultTy
-      _ -> error "arithmetic sequence helper applied past its arity"
+      _ -> error "arithmetic sequence method applied past its arity"
 
 inferListComp :: TypeEnv -> RExpr -> [RStmt] -> InferM TypedExpr
 inferListComp env body statements = do
@@ -6142,14 +6440,14 @@ preludeCoreBindings names =
  where
   pairs =
     [ pair
-    | name <- names
+    | name <- List.nub names
     , pair <- maybe [] (: []) (preludeCorePair name)
     ]
       <> [reverseGoCorePair | any ((== "reverse") . nameOcc) names]
 
 classPreludeSupportNames :: Map.Map RName ClassInfo -> [RName]
 classPreludeSupportNames classes
-  | builtinEnumClassName `Map.member` classes = arithmeticSequencePreludeNames
+  | builtinEnumClassName `Map.member` classes = derivedMapName : arithmeticSequencePreludeNames
   | otherwise = []
 
 preludeCorePair :: RName -> Maybe (CoreBinder, CoreExpr)

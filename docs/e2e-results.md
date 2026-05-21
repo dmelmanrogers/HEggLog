@@ -1,7 +1,7 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after SURFACE-003 added
-line-broken `where` layout native coverage. The suite covers
+Recorded for the mandatory wet-test suite after TC-031 added derived `Enum`
+native coverage. The suite covers
 the existing `.hg` native compiler baseline and Haskell 2010 executable-subset
 `.hs` programs that compile to native executables, compare lazy runtime
 behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
@@ -9,7 +9,7 @@ optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-21 04:58:40 UTC`
+- Date/time: `2026-05-21 05:25:19 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -18,22 +18,24 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 165
-- Source files: 64
-- Successful source cases: 54
-- Runtime-error source cases: 7
+- HUnit checks: 170
+- Source files: 66
+- Successful source cases: 55
+- Runtime-error source cases: 8
 - Compile-error source cases: 3
-- Native compile/run checks: 118
-- Default Egglog native checks: 65
-- `--no-egglog` native checks: 53
-- Emit-LLVM checks: 35
+- Native compile/run checks: 122
+- Default Egglog native checks: 67
+- `--no-egglog` native checks: 55
+- Emit-LLVM checks: 36
 - Report/interpreter comparisons: 11
 - Failures: 0
 
-This update adds a dedicated Haskell 2010 native case for SURFACE-003:
-function-binding and case-alternative `where` groups where the `where` keyword
-appears on the following layout line. The fixture runs in both default and
-`--no-egglog` modes and emits LLVM that is compiled through clang.
+This update adds dedicated Haskell 2010 native cases for TC-031: a positive
+derived `Enum` program that exercises constructor indices, `succ`/`pred`,
+`toEnum`/`fromEnum`, range methods, and source range syntax, plus a runtime
+bounds-error program. The positive fixture runs in default and `--no-egglog`
+modes and emits LLVM compiled through clang; the runtime-error fixture is also
+checked in both native modes.
 
 ## Case Table
 
@@ -145,6 +147,11 @@ appears on the following layout line. The fixture runs in both default and
 | haskell2010-arithmetic-sequences | `test/e2e/programs/haskell2010/arithmetic-sequences.hs` | success | native/default | `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]` | stdout `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]`, stderr empty, exit 0 | pass |
 | haskell2010-arithmetic-sequences | `test/e2e/programs/haskell2010/arithmetic-sequences.hs` | success | native/no-egglog | `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]` | stdout `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]`, stderr empty, exit 0 | pass |
 | haskell2010-arithmetic-sequences | `test/e2e/programs/haskell2010/arithmetic-sequences.hs` | success | emit-llvm/default | `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]` | LLVM compiled through clang, stdout `[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]`, stderr empty, exit 0 | pass |
+| haskell2010-derived-enum | `test/e2e/programs/haskell2010/derived-enum.hs` | success | native/default | `0\n2\n2\n1\nWest\n[1,2,3]\n[3,2,1,0]\n[1,2,3]\n[0,2]\n[3,2,1,0]\n[1,2,3]\n[3,2,1,0]\n0` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-derived-enum | `test/e2e/programs/haskell2010/derived-enum.hs` | success | native/no-egglog | `0\n2\n2\n1\nWest\n[1,2,3]\n[3,2,1,0]\n[1,2,3]\n[0,2]\n[3,2,1,0]\n[1,2,3]\n[3,2,1,0]\n0` | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-derived-enum | `test/e2e/programs/haskell2010/derived-enum.hs` | success | emit-llvm/default | `0\n2\n2\n1\nWest\n[1,2,3]\n[3,2,1,0]\n[1,2,3]\n[0,2]\n[3,2,1,0]\n[1,2,3]\n[3,2,1,0]\n0` | LLVM compiled through clang, stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-derived-enum-runtime-error | `test/e2e/programs/haskell2010/derived-enum-runtime-error.hs` | runtime-error | native/default | non-zero exit | runtime error forced by `fromEnum (succ West)` | pass |
+| haskell2010-derived-enum-runtime-error | `test/e2e/programs/haskell2010/derived-enum-runtime-error.hs` | runtime-error | native/no-egglog | non-zero exit | runtime error forced by `fromEnum (succ West)` | pass |
 | haskell2010-list-comprehensions | `test/e2e/programs/haskell2010/list-comprehensions.hs` | success | native/default | `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]` | stdout `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]`, stderr empty, exit 0 | pass |
 | haskell2010-list-comprehensions | `test/e2e/programs/haskell2010/list-comprehensions.hs` | success | native/no-egglog | `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]` | stdout `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]`, stderr empty, exit 0 | pass |
 | haskell2010-list-comprehensions | `test/e2e/programs/haskell2010/list-comprehensions.hs` | success | emit-llvm/default | `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]` | LLVM compiled through clang, stdout `[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]`, stderr empty, exit 0 | pass |

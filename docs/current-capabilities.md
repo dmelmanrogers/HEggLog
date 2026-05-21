@@ -75,6 +75,7 @@ constraints with normalized argument representation, dictionary-passed method
 calls, superclass dictionary fields/projection, default class methods,
 derived `Eq`/`Ord`/`Show` dictionaries for supported data/newtype declarations including
 parameterized, recursive, `String`-field, and list-backed cases,
+derived `Enum` dictionaries for nullary-constructor data declarations,
 overlapping-instance rejection, structured placeholder diagnostics for remaining unsupported constraint contexts,
 source-spanned typecheck diagnostics including delayed dictionary failures,
 documented nullary-binding monomorphism/defaulting behavior, boxed `Char`
@@ -88,7 +89,7 @@ slice for `IO`, `main :: IO ()`,
 expression and bind-statement `do` sequencing, and refutable do-bind failure, and
 built-in `Show Int`/`Show Bool`/`Show Char`/`Show String` plus generated
 structural list `Show` dictionaries, plus executable arithmetic sequences over
-`Int` and `Char` ranges, public `Enum Int`/`Enum Char` and
+`Int`, `Char`, and derived-enumeration ranges, public `Enum Int`/`Enum Char` and
 `Bounded Int`/`Bounded Char`/`Bounded Bool` dictionaries, plus executable list comprehensions with generator
 scoping, Bool guards, `let` qualifiers, nested generators, and refutable
 pattern filtering. A Core
@@ -184,7 +185,7 @@ Current status:
   for remaining unsupported constraint contexts, superclass dictionaries,
   default class methods, overlapping-instance rejection, dictionary constructors/selectors,
   dictionary-passed method calls, and built-in `Eq Int`, `Eq Bool`, `Eq Char`,
-  `Ord Int`, `Ord Bool`, `Ord Char`, structural list `Ord`, derived `Eq`/`Ord`/`Show`,
+  `Ord Int`, `Ord Bool`, `Ord Char`, structural list `Ord`, derived `Eq`/`Ord`/`Show`/`Enum`,
   `Num Int`, `Show Int`, `Show Bool`, `Show Char`,
   `Show String`, structural list `Show`, `Enum Int`, `Enum Char`,
   `Bounded Int`, `Bounded Char`, `Bounded Bool`, and higher-kinded `Monad`
@@ -259,7 +260,7 @@ source matrix closure, and ADT-007 completed record
 update expressions.
 
 The following coherent chunk is Prelude, deriving, and typeclass library
-completion: TC-029, TC-030, TC-031, TC-032, TC-033, PRELUDE-009,
+completion: TC-029, TC-030, TC-032, TC-033, PRELUDE-009,
 PRELUDE-019, PRELUDE-020, and TEST-CONF-015. Remaining FFI closure is tracked
 separately by FFI-010 through FFI-013.
 
@@ -296,7 +297,7 @@ Current tests include:
   executes native artifacts, verifies stdout/stderr/exit codes, compares
   report-mode `Result: <value>` output, runs Haskell 2010 default Egglog and
   `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
-  programs, user-defined type class dictionary programs, derived `Eq`/`Ord`/`Show`
+  programs, user-defined type class dictionary programs, derived `Eq`/`Ord`/`Show`/`Enum`
   programs, and built-in `Eq`/`Ord`/`Num`/`Show`/`Enum`/`Bounded` dictionary programs, numeric-defaulting and
   monomorphism/defaulting decision programs, multi-file module programs,
   implicit, explicit, and qualified Prelude import programs,

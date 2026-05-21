@@ -994,6 +994,15 @@
       "notes": "Reserved non-C calling conventions are represented structurally but rejected until target-specific support is implemented."
     },
     {
+      "name": "negative.derived-enum-field-constructor",
+      "sourceFile": "test/haskell2010/conformance/negative/derived-enum-field-constructor.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "requires only nullary constructors",
+      "requiredStage": "typecheck",
+      "notes": "Derived Enum is rejected for data declarations whose constructors carry fields."
+    },
+    {
       "name": "typeclasses.superclass-default-method",
       "sourceFile": "test/haskell2010/conformance/typeclasses/superclass-default-method.hs",
       "category": "typeclasses",
@@ -1028,6 +1037,31 @@
       "expectedStdout": "Off\nBox ('x')\nName (\"aa\")\nNode (Leaf ('a')) (Leaf ('b'))\nYears (7)\nPerson { age = (42), label = (\"Ada\") }\n[Box (True),Box (False)]\n",
       "requiredStage": "native",
       "notes": "Derived Show synthesizes executable-subset Show dictionaries for nullary constructors, products, recursive data, newtypes, records, String fields, and list-backed contexts."
+    },
+    {
+      "name": "typeclasses.derived-enum",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/derived-enum.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-success",
+      "expectedStdout": "0\n2\n2\n1\nWest\n[1,2,3]\n[3,2,1,0]\n[1,2,3]\n[0,2]\n[3,2,1,0]\n[1,2,3]\n[3,2,1,0]\n0\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Derived Enum synthesizes dictionaries for nullary-constructor data declarations, including constructor indices, succ/pred, toEnum/fromEnum, range methods, and range syntax over derived enumeration types."
+    },
+    {
+      "name": "typeclasses.derived-enum-runtime-error",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/derived-enum-runtime-error.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Derived Enum succ on the maximum constructor compiles but fails at runtime, matching the Haskell 2010 derived Enum bounds rule."
     },
     {
       "name": "unsupported.instance-context",

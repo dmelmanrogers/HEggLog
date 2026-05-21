@@ -622,8 +622,8 @@ is to make the standard library and derived-instance behavior look like Haskell
    escaping.
 2. TC-030 — implement `Read`, including `ReadS`, `readsPrec`, `readList`,
    lexical read parsing, standard instances, and derived `Read`.
-3. TC-031 and TC-032 — implement derived `Enum` and `Bounded` for eligible
-   declarations, including constructor ordering and invalid deriving
+3. TC-032 — implement derived `Bounded` for eligible declarations, including
+   constructor ordering, field-bound semantics, and invalid deriving
    diagnostics.
 4. TC-033 — broaden the numeric class hierarchy and defaulting rules beyond
    the current executable `Int` path.
@@ -664,6 +664,7 @@ Completed immediate tasks:
 - TC-023 derived Eq, including generated `Eq` dictionaries for supported data/newtype declarations and structural list `Eq`.
 - TC-024 derived Ord, including generated `Ord` dictionaries, `Eq` superclass dictionaries, and structural list/string ordering.
 - TC-025 derived Show, including generated `Show` dictionaries for supported data/newtype declarations, records, recursive data, `String` fields, and list-backed contexts.
+- TC-031 derived Enum, including generated `Enum` dictionaries for nullary-constructor data declarations, declaration-order constructor indices, `succ`/`pred`/`toEnum` bounds errors, and range-method support.
 - PRELUDE-013 append, including generated `(++)` over lists/strings, parenthesized operator variables, and operator sections.
 - IO-006 getLine, including generated `getLine :: IO String`, native stdin line reads, stdin-aware wet tests, and single-entry IO thunks to avoid sharing effects.
 - TC-020 Monad class surface, including higher-kinded `Monad`, built-in

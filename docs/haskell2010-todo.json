@@ -7403,7 +7403,7 @@
     {
       "id": "TC-031",
       "title": "derived Enum",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TC-018",
@@ -7416,7 +7416,7 @@
         "Generated dictionaries implement `succ`, `pred`, `toEnum`, `fromEnum`, and enumeration methods with correct bounds/error behavior for the supported runtime.",
         "Invalid deriving cases, including constructors with fields and unsupported declaration shapes, fail with stable diagnostics.",
         "Native and conformance fixtures cover positive and negative derived `Enum` cases.",
-        "The matrix distinguishes public built-in `Enum` instances from derived `Enum` until this task is complete."
+        "The matrix records both public built-in `Enum` instances and generated derived `Enum` dictionaries."
       ],
       "required_tests": [
         "typechecker unit tests",
@@ -7429,7 +7429,8 @@
         "docs/type-inference.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. Nullary-constructor data declarations can derive `Enum`; generated dictionaries use declaration-order constructor indices, report-shaped `succ`/`pred`/`toEnum` bounds errors, `fromEnum`, and range methods based on `map toEnum` over integer ranges. Constructors with fields are rejected by a stable diagnostic, and unit, conformance, e2e, default Egglog, and `--no-egglog` native coverage lock the behavior down."
     },
     {
       "id": "TC-032",

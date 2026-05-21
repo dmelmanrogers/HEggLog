@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-21 04:58:40 UTC
+Date/time: 2026-05-21 05:25:19 UTC
 
-Commit hash tested: 782f943 with working-tree SURFACE-003 changes.
+Commit hash tested: working tree with TC-031 derived `Enum` changes.
 
 Primary conformance command run:
 
@@ -37,14 +37,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 107 |
-| Haskell source files in corpus | 114 |
-| HUnit test cases executed | 141 |
-| Native-success fixtures | 74 |
-| Native-runtime-error fixtures | 3 |
-| Compile-error fixtures | 24 |
+| Manifest conformance fixtures | 110 |
+| Haskell source files in corpus | 117 |
+| HUnit test cases executed | 146 |
+| Native-success fixtures | 75 |
+| Native-runtime-error fixtures | 4 |
+| Compile-error fixtures | 25 |
 | Unsupported-documented fixtures | 6 |
-| Native subprocess compile/run checks | 111 |
+| Native subprocess compile/run checks | 115 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -73,6 +73,13 @@ SURFACE-003 is now covered by native and negative conformance fixtures:
 function bindings and case alternatives; `negative.misindented-where-keyword`
 rejects a line-broken `where` at the enclosing declaration column.
 
+TC-031 is now covered by native, runtime-error, and negative conformance
+fixtures. `typeclasses.derived-enum` checks generated `Enum` dictionaries for
+nullary-constructor data declarations, declaration-order constructor indices,
+`succ`/`pred`, `toEnum`/`fromEnum`, range methods, and source range syntax.
+`typeclasses.derived-enum-runtime-error` checks bounds failure at runtime, and
+`negative.derived-enum-field-constructor` rejects non-enumeration deriving.
+
 ## Category Summary
 
 | Category | Manifest fixtures | Status |
@@ -87,10 +94,10 @@ rejects a line-broken `where` at the enclosing declaration column.
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
 | `modules` | 6 | single-module, same-directory import, implicit/explicit/qualified Prelude import, and source-instance import/export tests exist |
-| `negative` | 24 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, duplicate built-in instances, and FFI shape/lifetime boundary failures |
+| `negative` | 25 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid derived Enum declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
 | `prelude` | 13 | list functions, append, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
-| `typeclasses` | 8 | user dictionary, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, and derived Show tests exist |
+| `typeclasses` | 10 | user dictionary, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, and derived Enum tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |
 | `unsupported` | 6 | unsupported features documented by failing cases, including TC-016 `Read` and constrained expression signatures |

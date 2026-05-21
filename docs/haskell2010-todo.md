@@ -219,13 +219,12 @@ Complete: SURFACE-001, SURFACE-002, and SURFACE-003.
 
 1. TC-029 — report-shaped Show hierarchy.
 2. TC-030 — Read implementation.
-3. TC-031 — derived Enum.
-4. TC-032 — derived Bounded.
-5. TC-033 — numeric class hierarchy expansion.
-6. PRELUDE-009 — foldl.
-7. PRELUDE-019 — Prelude function completion.
-8. PRELUDE-020 — standard library module expansion.
-9. TEST-CONF-015 — library conformance closure.
+3. TC-032 — derived Bounded.
+4. TC-033 — numeric class hierarchy expansion.
+5. PRELUDE-009 — foldl.
+6. PRELUDE-019 — Prelude function completion.
+7. PRELUDE-020 — standard library module expansion.
+8. TEST-CONF-015 — library conformance closure.
 
 ## Remaining FFI closure chunk
 
@@ -11453,7 +11452,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver the executable arithmetic sequence surface for supported `Int` and `Char` ranges while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Public `Enum` dictionaries are now tracked as complete under TC-018; derived and broader non-`Int`/`Char` enumeration remains separate.
+- Deliver the executable arithmetic sequence surface for supported `Int`, `Char`, and generated derived-enumeration ranges while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Public `Enum` dictionaries are tracked under TC-018, and derived `Enum` range behavior is now completed under TC-031.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -11484,7 +11483,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M10 (Lists, tuples, Char, String). Completed for the executable subset with `[a..]`, `[a,b..]`, `[a..z]`, and `[a,b..z]` over `Int` and `Char`; sequence helpers preserve ascending/descending bounded behavior and lazy open-range consumption through Core, STG, and native LLVM. TC-018 now reuses these helpers for the public `Enum Int` and `Enum Char` dictionaries.
+- Milestone M10 (Lists, tuples, Char, String). Completed for the executable subset with `[a..]`, `[a,b..]`, `[a..z]`, and `[a,b..z]` over `Int`, `Char`, and generated derived `Enum` dictionaries; sequence helpers preserve ascending/descending bounded behavior and lazy open-range consumption through Core, STG, and native LLVM. TC-018 reuses these helpers for the public `Enum Int` and `Enum Char` dictionaries, and TC-031 routes derived-enumeration ranges through the same `Enum` method surface.
 
 ## PRELUDE-DATA-009 — list comprehensions
 
@@ -12604,7 +12603,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Complete for the current executable Prelude surface: `Enum` is exported as a built-in class with `succ`, `pred`, `toEnum`, `fromEnum`, `enumFrom`, `enumFromThen`, `enumFromTo`, and `enumFromThenTo`; built-in `Int` and `Char` instances share the arithmetic-sequence helpers and are validated through Core, STG, native, and conformance tests. Derived `Enum` remains tracked separately.
+- Milestone M11 (Type classes and dictionaries). Complete for the current executable Prelude surface: `Enum` is exported as a built-in class with `succ`, `pred`, `toEnum`, `fromEnum`, `enumFrom`, `enumFromThen`, `enumFromTo`, and `enumFromThenTo`; built-in `Int` and `Char` instances share the arithmetic-sequence helpers and are validated through Core, STG, native, and conformance tests. TC-031 now completes generated derived `Enum` dictionaries for nullary-constructor data declarations.
 
 ## TC-019 — Bounded
 
@@ -12916,7 +12915,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: supported data/newtype declarations can derive `Ord` when an `Eq` superclass dictionary is available, and structural list ordering supports string and list-backed fields. Derived `Show` is now covered by TC-025; derived `Read`, `Enum`, and `Bounded` remain separate tasks.
+- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: supported data/newtype declarations can derive `Ord` when an `Eq` superclass dictionary is available, and structural list ordering supports string and list-backed fields. Derived `Show` is covered by TC-025 and derived `Enum` by TC-031; derived `Read` and `Bounded` remain separate tasks.
 
 ## TC-025 — derived Show
 
@@ -13228,7 +13227,7 @@ Notes:
 ## TC-031 — derived Enum
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -13241,7 +13240,7 @@ Blocks:
 - none
 
 Scope:
-- Derived `Enum` is generated for eligible nullary-constructor data declarations with Haskell 2010 constructor ordering semantics.
+- Derived `Enum` is generated for eligible nullary-constructor data declarations with Haskell 2010 constructor ordering semantics. Generated dictionaries implement `succ`, `pred`, `toEnum`, `fromEnum`, `enumFrom`, `enumFromThen`, `enumFromTo`, and `enumFromThenTo`; source arithmetic-sequence syntax dispatches through the same `Enum` methods so user-derived enumeration ranges run through Core, STG, and native LLVM.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -13261,7 +13260,7 @@ Acceptance criteria:
 - Generated dictionaries implement `succ`, `pred`, `toEnum`, `fromEnum`, and enumeration methods with correct bounds/error behavior for the supported runtime.
 - Invalid deriving cases, including constructors with fields and unsupported declaration shapes, fail with stable diagnostics.
 - Native and conformance fixtures cover positive and negative derived `Enum` cases.
-- The matrix distinguishes public built-in `Enum` instances from derived `Enum` until this task is complete.
+- The matrix records both public built-in `Enum` instances and generated derived `Enum` dictionaries.
 
 Required tests:
 - typechecker unit tests
@@ -13276,7 +13275,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete. Nullary-constructor data declarations can derive `Enum`; the generated dictionaries use declaration-order constructor indices, report-shaped `succ`/`pred`/`toEnum` bounds errors, `fromEnum`, and range methods based on `map toEnum` over integer ranges. The compiler rejects derived `Enum` for constructors with fields, and unit, conformance, e2e, default Egglog, and `--no-egglog` native coverage now lock the behavior down.
 
 ## TC-032 — derived Bounded
 

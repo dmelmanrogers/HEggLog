@@ -65,7 +65,7 @@ implemented:
 - report-complete pattern coverage and runtime source attribution beyond the
   current executable-subset diagnostics
 - remaining source-surface implementation closure
-- instance contexts, derived `Read`/`Enum`/`Bounded`, and the full
+- instance contexts, derived `Read`/`Bounded`, and the full
   `showsPrec`/`showList` hierarchy
 - broader numeric hierarchy/defaulting and Prelude/library subset
 - standard-library module expansion beyond the currently generated interfaces
@@ -90,9 +90,9 @@ fixtures, TEST-CONF-014 completed machine-checked source matrix closure, and
 ADT-007 completed record update expressions for the supported record subset.
 
 The following chunk is Prelude, deriving, and typeclass library completion:
-TC-029, TC-030, TC-031, TC-032, TC-033, PRELUDE-009, PRELUDE-019,
+TC-029, TC-030, TC-032, TC-033, PRELUDE-009, PRELUDE-019,
 PRELUDE-020, and TEST-CONF-015. Those tasks cover report-shaped `Show`, `Read`,
-derived `Enum`/`Bounded`, broader numeric classes/defaulting, missing Prelude
+derived `Bounded`, broader numeric classes/defaulting, missing Prelude
 functions, standard-library module expansion, and library conformance closure.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
@@ -222,8 +222,10 @@ now use a structured placeholder diagnostic for method-specific constraints,
 instance contexts, and expression type-signature constraints, so broader class
 features remain planned without silent fallback.
 `/` remains checked concrete `Int` division; derived `Show` is implemented for
-the executable data/newtype subset, while the full report-compatible
-`showsPrec`/`showList` hierarchy remains planned.
+the executable data/newtype subset, and derived `Enum` is implemented for
+nullary-constructor data declarations with report-shaped constructor ordering
+and bounds behavior, while the full report-compatible `showsPrec`/`showList`
+hierarchy remains planned.
 
 ## What Core Evaluates Today
 
@@ -413,6 +415,11 @@ and compiled to native executables through the existing clang toolchain.
     output, list functions over strings, `putStrLn` over built-in `show`
     results, explicit `Char` cons patterns, string literal patterns,
     conformance fixtures, default/no-egglog runs, and emit-LLVM wet checks.
+23. Derived `Enum`. Completed for nullary-constructor data declarations with
+    declaration-order constructor indices, generated `succ`, `pred`, `toEnum`,
+    `fromEnum`, range methods, report-shaped runtime bounds errors, invalid
+    field-constructor diagnostics, Core/STG/native oracles, conformance
+    fixtures, and default/no-egglog wet tests.
 
 ## Where Egglog Fits
 
@@ -441,7 +448,8 @@ source string literals as list-of-`Char` values, do-bind continuations, explicit
 `(>>=)`, boxed `Char` values, `Eq Char`/`Ord Char`
 primitive lowering, scalar `Char` root printing, built-in
 `Show Int`/`Show Bool`/`Show Char`/`Show String`/list results as lists,
-checked primitives, executable list comprehensions, and invokes clang to produce native
+derived `Enum` dictionary calls and derived-enumeration ranges, checked
+primitives, executable list comprehensions, and invokes clang to produce native
 machine-code executables.
 
 ## GHC Compatibility
@@ -460,6 +468,6 @@ fixtures, TEST-CONF-014 source matrix closure, and ADT-007 record updates are
 complete and covered by focused tests/conformance fixtures.
 Already-completed typeclass expansion work, including
 superclass dictionaries, default methods, overlap rejection, public
-`Enum`/`Bounded`, numeric defaulting, the supported `Monad` class surface, and
+`Enum`/`Bounded`, derived `Enum`, numeric defaulting, the supported `Monad` class surface, and
 MOD-009 instance import/export behavior should be preserved as regression
 baseline while those tasks proceed.
