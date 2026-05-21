@@ -465,7 +465,18 @@ Deliverables:
 - record updates and partial record construction semantics beyond the current
   implemented record labels/selectors/construction/pattern subset
 - `newtype`, type synonyms, deriving, and default declarations
-- foreign declarations documented as implemented, deferred, or deviating
+- structured foreign declaration frontend support, FFI signature typechecking,
+  explicit Core/STG foreign-import IR, native ABI marshalling/lowering, and
+  conformance closure; scalar/pointer `foreign import ccall` now has native
+  LLVM declaration/call lowering and C-helper wet coverage, `Ptr`/`FunPtr`
+  address/pointer ABI support now covers static `&symbol`, pointer arguments,
+  and pointer results, `dynamic` imports lower to indirect `FunPtr` calls, and
+  `wrapper` imports generate C-callable callback trampolines. `foreign export
+  ccall` now emits C-callable native entrypoints for supported scalar/pointer
+  pure and `IO` functions, and explicit `StablePtr`/manual `ForeignPtr`
+  ownership APIs are implemented and wet-tested. Floating-point ABI, broader
+  link metadata, automatic GC finalization, and `freeHaskellFunPtr`/callback-slot
+  reclamation remain open
 
 Acceptance criteria:
 
@@ -522,13 +533,14 @@ Acceptance criteria:
 Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
-`haskell2010-conformance-test` Cabal suite. The baseline currently records 68
-fixtures: 56 native-success cases, 1 native-runtime-error case, 6 compile-error
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 88
+fixtures: 67 native-success cases, 2 native-runtime-error cases, 14 compile-error
 cases, and 5 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
-runtime-error exits, checks compile-error diagnostics, and fails if documented
-unsupported cases silently pass.
+runtime-error exits, checks compile-error diagnostics, links manifest-declared
+C helper files for FFI fixtures, and fails if documented unsupported cases
+silently pass.
 
 Full Phase 19 remains open until the corpus covers every Haskell 2010 Report
 feature area deeply enough to support a conformance claim. The current baseline
@@ -582,22 +594,74 @@ Acceptance criteria:
 - Documentation team: roadmap, specs, status reports, examples, and documented
   deviations.
 
-## Immediate Next Five Tasks
+## Immediate Next Chunks
 
-1. TC-020 Monad class surface decision/implementation.
-2. PRELUDE-002 implicit Prelude import behavior.
-3. MODULE-001 import/export declarations.
-4. PRELUDE-009 foldl.
-5. PRELUDE-017 standard library module layout.
+### Source Surface Closure
+
+This is the next coherent implementation chunk. The goal is to close the
+remaining source-language surface gaps before broadening the library again:
+
+1. Audit `where` groups and non-variable pattern bindings end to end against
+   the parser, renamer, typechecker, Core/STG lowering, native backend, and
+   conformance matrix. Some implementation paths already exist, so this task is
+   a correctness and matrix-reconciliation pass, not a restart.
+2. Implement record update expressions over the existing record declaration,
+   selector, complete construction, and record-pattern infrastructure.
+3. Replace the structured pattern-coverage warning placeholder with real
+   exhaustiveness and redundancy diagnostics for the supported pattern subset.
+4. Sweep remaining expression forms, including sections, arithmetic sequences,
+   list comprehensions, guarded forms, `do`, local declarations, and parsed but
+   not fully executable forms.
+5. Add native, compile-error, and unsupported-documented fixtures so each
+   source-surface claim is represented in the conformance manifest.
+6. Update the conformance matrix only after implementation and tests establish
+   the true status for each source row.
+
+### Prelude, Deriving, And Typeclass Library Completion
+
+This is the following chunk once the source surface has been closed. The goal
+is to make the standard library and derived-instance behavior look like Haskell
+2010 rather than a narrow executable subset:
+
+1. Expand `Show` from the current executable `show` behavior to the Report
+   method shape: `showsPrec`, `showList`, precedence handling, and escaping.
+2. Implement `Read`, including `ReadS`, `readsPrec`, `readList`, lexical read
+   parsing, standard instances, and derived `Read`.
+3. Implement derived `Enum` and `Bounded` for eligible declarations, including
+   constructor ordering and invalid deriving diagnostics.
+4. Broaden the numeric class hierarchy and defaulting rules beyond the current
+   executable `Int` path.
+5. Fill high-value missing Prelude functions, including `foldl`, and expand
+   `PRELUDE-018` with corresponding conformance fixtures.
+6. Broaden generated/importable standard-library module layout beyond
+   `Prelude` where the Haskell 2010 Report requires it.
+7. Keep every newly claimed class, function, deriving rule, and module backed
+   by manifest-tracked positive and negative fixtures.
 
 Completed immediate tasks:
 
+- MOD-009 instance import/export behavior, including `ModuleInterface`
+  instance propagation, `import M ()`/empty-export instance visibility,
+  transitive import-chain instance movement, Core dictionary availability,
+  native conformance coverage, and a negative fixture proving class/type imports
+  alone do not make unrelated instances visible.
+- PRELUDE-017 standard library module layout, including a dedicated
+  `Haskell2010.StandardLibrary` module, generated/importable `Prelude`
+  interface, shared `ModuleInterface` data model, and instance-export boundary
+  used by MOD-009.
+- PRELUDE-002/MOD-010 implicit Prelude import behavior, including synthetic
+  `import Prelude` insertion only when no explicit `Prelude` import exists,
+  explicit Prelude import-list/hiding/qualified filtering, and native
+  conformance coverage for implicit, explicit, and qualified Prelude imports.
 - Commit roadmap pivot.
 - TC-023 derived Eq, including generated `Eq` dictionaries for supported data/newtype declarations and structural list `Eq`.
 - TC-024 derived Ord, including generated `Ord` dictionaries, `Eq` superclass dictionaries, and structural list/string ordering.
 - TC-025 derived Show, including generated `Show` dictionaries for supported data/newtype declarations, records, recursive data, `String` fields, and list-backed contexts.
 - PRELUDE-013 append, including generated `(++)` over lists/strings, parenthesized operator variables, and operator sections.
 - IO-006 getLine, including generated `getLine :: IO String`, native stdin line reads, stdin-aware wet tests, and single-entry IO thunks to avoid sharing effects.
+- TC-020 Monad class surface, including higher-kinded `Monad`, built-in
+  `IO`/`Maybe`/`[]` dictionaries, generic `do` desugaring, refutable
+  do-bind `fail`, and native conformance coverage.
 - Haskell 2010 parser/layout MVP.
 - Haskell 2010 renamer MVP.
 - Haskell 2010 typed Core MVP, including Core syntax, Core types, validator,

@@ -6949,7 +6949,7 @@
     {
       "id": "TC-020",
       "title": "Monad",
-      "status": "in progress",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TYPE-016",
@@ -6958,7 +6958,7 @@
       "blocks": [],
       "milestone": "M11",
       "acceptance_criteria": [
-        "Monad is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Monad is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -7201,7 +7201,7 @@
     {
       "id": "PRELUDE-001",
       "title": "Prelude module strategy",
-      "status": "in progress",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "PRELUDE-DATA-003",
@@ -7228,7 +7228,7 @@
     {
       "id": "PRELUDE-002",
       "title": "implicit Prelude import",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "PRELUDE-DATA-003",
@@ -7237,7 +7237,8 @@
       "blocks": [],
       "milestone": "M12",
       "acceptance_criteria": [
-        "implicit Prelude import is implemented, completed, or explicitly documented according to status `not started`.",
+        "implicit Prelude import is implemented for the built-in Prelude surface: modules without an explicit `Prelude` import are renamed as if they had `import Prelude`, and any explicit `Prelude` import suppresses that implicit import.",
+        "Explicit Prelude import lists, empty import lists, `hiding`, duplicate imports of the same entity, and `qualified` imports are handled by the same import filtering rules used for ordinary modules.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -7633,7 +7634,7 @@
     {
       "id": "PRELUDE-017",
       "title": "standard library module layout",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "PRELUDE-DATA-003",
@@ -7642,7 +7643,9 @@
       "blocks": [],
       "milestone": "M12",
       "acceptance_criteria": [
-        "standard library module layout is implemented, completed, or explicitly documented according to status `not started`.",
+        "standard library module layout is implemented for the current executable subset with a generated/importable `Prelude` module interface owned outside the renamer.",
+        "The module interface data model includes exported names, child exports, fixities, and explicit instance exports consumed by MOD-009.",
+        "Reserved Haskell 2010 standard modules are documented without being silently exposed as empty importable modules.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -7654,7 +7657,8 @@
       "docs": [
         "docs/current-capabilities.md",
         "docs/haskell2010-conformance-matrix.md",
-        "docs/haskell2010-todo.md"
+        "docs/haskell2010-todo.md",
+        "docs/haskell2010-standard-library-layout.md"
       ]
     },
     {
@@ -8283,7 +8287,7 @@
     {
       "id": "MOD-009",
       "title": "instance import/export behavior",
-      "status": "not started",
+      "status": "complete",
       "category": "modules",
       "depends_on": [
         "REN-015",
@@ -8292,7 +8296,9 @@
       "blocks": [],
       "milestone": "M14",
       "acceptance_criteria": [
-        "instance import/export behavior is implemented, completed, or explicitly documented according to status `not started`.",
+        "Source module interfaces retain declared instances and every transitively imported instance regardless of the module's export list.",
+        "Empty import lists, ordinary import lists, `hiding`, and qualified imports filter names only; they do not filter instances.",
+        "Whole-program Haskell 2010 typechecking sees exactly the instances reachable through the loaded import graph, so imported source-instance dictionaries are emitted only when an import chain reaches the declaring module.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -8310,7 +8316,7 @@
     {
       "id": "MOD-010",
       "title": "Prelude implicit import",
-      "status": "not started",
+      "status": "complete",
       "category": "modules",
       "depends_on": [
         "REN-015",
@@ -8319,7 +8325,8 @@
       "blocks": [],
       "milestone": "M14",
       "acceptance_criteria": [
-        "Prelude implicit import is implemented, completed, or explicitly documented according to status `not started`.",
+        "Prelude implicit import is implemented in the module-aware renamer by adding a synthetic built-in `import Prelude` only when no explicit `Prelude` import declaration exists.",
+        "Explicit `Prelude` imports, including `qualified`, `()`, and `hiding`, suppress the implicit import and participate in ordinary cumulative import semantics.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -8445,7 +8452,7 @@
     {
       "id": "FFI-001",
       "title": "Haskell 2010 FFI scope decision",
-      "status": "documented deviation",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -8453,25 +8460,23 @@
       "blocks": [],
       "milestone": "M15",
       "acceptance_criteria": [
-        "Haskell 2010 FFI scope decision is implemented, completed, or explicitly documented according to status `documented deviation`.",
+        "Haskell 2010 FFI is documented as a full implementation target, not a permanent deviation or reduced product slice.",
+        "The design records the Report-required declaration forms, calling conventions, safety, entities, foreign types, standard-library surface, IR boundaries, runtime obligations, LLVM/linking obligations, and conformance test strategy.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
-        "runtime unit tests",
-        "native runtime wet tests",
-        "runtime-error conformance tests"
+        "documentation/static checks"
       ],
       "docs": [
-        "docs/runtime-spec.md",
-        "docs/laziness-and-stg-plan.md",
+        "docs/haskell2010-ffi-design.md",
         "docs/haskell2010-conformance-matrix.md"
       ]
     },
     {
       "id": "FFI-002",
       "title": "foreign import parser",
-      "status": "deferred",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -8479,25 +8484,28 @@
       "blocks": [],
       "milestone": "M15",
       "acceptance_criteria": [
-        "foreign import parser is implemented, completed, or explicitly documented according to status `deferred`.",
+        "`foreign import` parses into structured AST records for calling convention, safety, import entity, imported binder, and source type.",
+        "Static function, static address, `dynamic`, `wrapper`, explicit safety, omitted safety, omitted entity, and implementation-specific calling-convention forms are represented without raw-string-only AST behavior.",
+        "`foreign import` binds a top-level term during renaming, participates in duplicate-name checks, and can be exported/imported through module interfaces.",
+        "Supported `foreign import ccall` declarations lower through explicit Core/STG foreign IR and native LLVM ABI lowering rather than being dropped.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
-        "runtime unit tests",
-        "native runtime wet tests",
-        "runtime-error conformance tests"
+        "parser unit tests",
+        "renamer unit tests",
+        "typechecker signature-validation, Core/STG IR, and native lowering tests"
       ],
       "docs": [
-        "docs/runtime-spec.md",
-        "docs/laziness-and-stg-plan.md",
+        "docs/haskell2010-ffi-design.md",
+        "docs/haskell2010-frontend-spec.md",
         "docs/haskell2010-conformance-matrix.md"
       ]
     },
     {
       "id": "FFI-003",
       "title": "foreign export parser, if implemented",
-      "status": "deferred",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -8505,25 +8513,27 @@
       "blocks": [],
       "milestone": "M15",
       "acceptance_criteria": [
-        "foreign export parser, if implemented is implemented, completed, or explicitly documented according to status `deferred`.",
+        "`foreign export` parses into structured AST records for calling convention, export entity, exported binding name, and source type.",
+        "`foreign export` resolves an existing top-level term during renaming and reports a normal unbound-name diagnostic when it references a missing binding.",
+        "Supported `foreign export ccall` declarations are preserved as Core/STG module metadata and lower to native C-callable entrypoints rather than being dropped.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
-        "runtime unit tests",
-        "native runtime wet tests",
-        "runtime-error conformance tests"
+        "parser unit tests",
+        "renamer unit tests",
+        "typechecker signature-validation, Core/STG metadata, and native export lowering tests"
       ],
       "docs": [
-        "docs/runtime-spec.md",
-        "docs/laziness-and-stg-plan.md",
+        "docs/haskell2010-ffi-design.md",
+        "docs/haskell2010-frontend-spec.md",
         "docs/haskell2010-conformance-matrix.md"
       ]
     },
     {
       "id": "FFI-004",
       "title": "C calling convention representation",
-      "status": "deferred",
+      "status": "in progress",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -8531,16 +8541,21 @@
       "blocks": [],
       "milestone": "M15",
       "acceptance_criteria": [
-        "C calling convention representation is implemented, completed, or explicitly documented according to status `deferred`.",
+        "`ccall` and `stdcall` are represented structurally in parsed and renamed foreign declarations.",
+        "The FFI typechecker accepts Haskell 2010 `ccall`/`stdcall` declarations and rejects non-Haskell-2010 calling conventions before lowering.",
+        "Runtime ABI lowering for actual calls remains explicitly pending until native ABI marshalling and call lowering are implemented.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
+        "parser unit tests",
+        "typechecker unit tests",
         "runtime unit tests",
         "native runtime wet tests",
         "runtime-error conformance tests"
       ],
       "docs": [
+        "docs/haskell2010-ffi-design.md",
         "docs/runtime-spec.md",
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
@@ -8549,7 +8564,7 @@
     {
       "id": "FFI-005",
       "title": "primitive marshalling",
-      "status": "deferred",
+      "status": "in progress",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -8557,16 +8572,22 @@
       "blocks": [],
       "milestone": "M15",
       "acceptance_criteria": [
-        "primitive marshalling is implemented, completed, or explicitly documented according to status `deferred`.",
+        "Generated `Foreign`, `Foreign.C`, and `Foreign.C.Types` module interfaces expose the current FFI type surface to ordinary imports.",
+        "The typechecker validates marshallable scalar, pointer, type-synonym, and local visible-newtype foreign types.",
+        "Static, address, `dynamic`, and `wrapper` import signatures receive shape-specific diagnostics.",
+        "`foreign export` declarations validate that the exported binding can instantiate to the declared foreign type.",
+        "Runtime primitive marshalling and ABI conversion remain explicitly pending until native ABI marshalling and call lowering are implemented.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
+        "typechecker unit tests",
         "runtime unit tests",
         "native runtime wet tests",
         "runtime-error conformance tests"
       ],
       "docs": [
+        "docs/haskell2010-ffi-design.md",
         "docs/runtime-spec.md",
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
@@ -8575,7 +8596,7 @@
     {
       "id": "FFI-006",
       "title": "runtime integration",
-      "status": "deferred",
+      "status": "in progress",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -8583,7 +8604,12 @@
       "blocks": [],
       "milestone": "M15",
       "acceptance_criteria": [
-        "runtime integration is implemented, completed, or explicitly documented according to status `deferred`.",
+        "Static, `dynamic`, and `wrapper` foreign imports lower to explicit Core/STG foreign-call nodes, and `foreign export` declarations lower to explicit Core/STG module metadata.",
+        "Address imports lower to explicit inert Core/STG foreign-import value nodes.",
+        "Core/STG validators, pretty-printers, evaluators, optimizer traversal, and native backend boundaries preserve the foreign IR without silently dropping imports.",
+        "Core/STG evaluation reports explicit unsupported runtime diagnostics when foreign calls are reached outside native lowering.",
+        "Supported `foreign import ccall` nodes lower to native LLVM declarations/direct calls or indirect `FunPtr` calls with scalar integer/Bool/Char marshalling, `Ptr`/`FunPtr` pointer marshalling, static `&symbol` address boxing, `wrapper` callback trampolines, and `IO` sequencing.",
+        "Explicit `StablePtr` ownership and manual `ForeignPtr` finalizer APIs are implemented and wet-tested; automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, broader callback lifetime management, and floating-point marshalling remain pending.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -8601,7 +8627,7 @@
     {
       "id": "FFI-007",
       "title": "LLVM external declaration lowering",
-      "status": "deferred",
+      "status": "in progress",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -8609,7 +8635,13 @@
       "blocks": [],
       "milestone": "M15",
       "acceptance_criteria": [
-        "LLVM external declaration lowering is implemented, completed, or explicitly documented according to status `deferred`.",
+        "Supported static `foreign import ccall` symbols emit LLVM external declarations with ABI-accurate argument and result types.",
+        "Static scalar and pointer calls emit direct LLVM `call` instructions and link successfully against C helper objects in native wet tests.",
+        "Static `&symbol` imports for `Ptr a` and `FunPtr ft` emit external data/function declarations and box the raw address as a pointer value.",
+        "`dynamic` imports emit typed indirect calls through unboxed `FunPtr` values.",
+        "`wrapper` imports emit process-lifetime callback slots and C-callable trampoline functions for the supported scalar/pointer ABI slice.",
+        "Unsupported FFI entities still report explicit native ABI diagnostics instead of being silently dropped.",
+        "Broader link metadata, floating-point marshalling, automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, and broader callback lifetime APIs remain pending.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -8627,7 +8659,7 @@
     {
       "id": "FFI-008",
       "title": "FFI native tests",
-      "status": "deferred",
+      "status": "in progress",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -8635,7 +8667,10 @@
       "blocks": [],
       "milestone": "M15",
       "acceptance_criteria": [
-        "FFI native tests is implemented, completed, or explicitly documented according to status `deferred`.",
+        "Static scalar `ccall` native tests compile/link generated LLVM with a C helper and assert stdout.",
+        "Static pointer/address native tests cover `Ptr`, `FunPtr`, data `&symbol`, function `&symbol`, pointer arguments, pointer results, and ordered pointer mutation through `IO`.",
+        "Dynamic/wrapper native tests cover indirect `FunPtr` calls, multiple live wrapped callbacks, C-to-Haskell callback re-entry, callback `IO`, and result marshalling.",
+        "Foreign export native tests cover C helpers calling exported pure and `IO` Haskell functions; remaining FFI forms add native tests as each ABI feature lands.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10107,7 +10142,7 @@
     {
       "id": "TEST-CONF-002",
       "title": "parser conformance tests",
-      "status": "in progress",
+      "status": "complete",
       "category": "testing",
       "depends_on": [
         "CLI-004"
@@ -10115,7 +10150,7 @@
       "blocks": [],
       "milestone": "M19",
       "acceptance_criteria": [
-        "parser conformance tests is implemented, completed, or explicitly documented according to status `in progress`.",
+        "parser conformance tests is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10134,7 +10169,7 @@
     {
       "id": "TEST-CONF-003",
       "title": "renamer conformance tests",
-      "status": "in progress",
+      "status": "complete",
       "category": "testing",
       "depends_on": [
         "CLI-004"
@@ -10142,7 +10177,7 @@
       "blocks": [],
       "milestone": "M19",
       "acceptance_criteria": [
-        "renamer conformance tests is implemented, completed, or explicitly documented according to status `in progress`.",
+        "renamer conformance tests is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10188,7 +10223,7 @@
     {
       "id": "TEST-CONF-005",
       "title": "desugaring/Core conformance tests",
-      "status": "in progress",
+      "status": "complete",
       "category": "testing",
       "depends_on": [
         "CLI-004"
@@ -10196,7 +10231,7 @@
       "blocks": [],
       "milestone": "M19",
       "acceptance_criteria": [
-        "desugaring/Core conformance tests is implemented, completed, or explicitly documented according to status `in progress`.",
+        "desugaring/Core conformance tests is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10296,7 +10331,7 @@
     {
       "id": "TEST-CONF-009",
       "title": "matrix auto/check script",
-      "status": "in progress",
+      "status": "complete",
       "category": "testing",
       "depends_on": [
         "CLI-004"
@@ -10304,7 +10339,7 @@
       "blocks": [],
       "milestone": "M19",
       "acceptance_criteria": [
-        "matrix auto/check script is implemented, completed, or explicitly documented according to status `in progress`.",
+        "matrix auto/check script is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10377,7 +10412,7 @@
     {
       "id": "TEST-CONF-012",
       "title": "report coverage by Haskell 2010 section",
-      "status": "in progress",
+      "status": "complete",
       "category": "testing",
       "depends_on": [
         "CLI-004"
@@ -10385,7 +10420,7 @@
       "blocks": [],
       "milestone": "M19",
       "acceptance_criteria": [
-        "report coverage by Haskell 2010 section is implemented, completed, or explicitly documented according to status `in progress`.",
+        "report coverage by Haskell 2010 section is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

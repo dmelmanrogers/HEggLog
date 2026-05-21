@@ -1,10 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-20 06:30:18 UTC
+Date/time: 2026-05-20 23:36:36 UTC
 
-Commit hash tested: IO-006 working tree before final task commit.
-The final commit for the task records the same source tree plus this results
-document.
+Commit hash tested: 44dd0e5 with working-tree conformance-closure changes.
 
 Primary conformance command run:
 
@@ -20,6 +18,7 @@ cabal test hegglog-test --test-options='--hide-successes'
 cabal test haskell2010-conformance-test --test-options='--hide-successes'
 cabal test all --test-options='--hide-successes'
 cabal check
+python3 scripts/validate-haskell2010-conformance.py
 python3 scripts/validate-haskell2010-todo.py
 python3 -m json.tool docs/haskell2010-todo.json
 python3 -m json.tool test/haskell2010/conformance/manifest.json
@@ -38,14 +37,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 68 |
-| Haskell source files in corpus | 69 |
-| HUnit test cases executed | 82 |
-| Native-success fixtures | 56 |
-| Native-runtime-error fixtures | 1 |
-| Compile-error fixtures | 6 |
+| Manifest conformance fixtures | 88 |
+| Haskell source files in corpus | 95 |
+| HUnit test cases executed | 114 |
+| Native-success fixtures | 67 |
+| Native-runtime-error fixtures | 2 |
+| Compile-error fixtures | 14 |
 | Unsupported-documented fixtures | 5 |
-| Native subprocess compile/run checks | 71 |
+| Native subprocess compile/run checks | 95 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -62,15 +61,16 @@ explicit conformance cases rather than omitted.
 | `declarations` | 4 | representative native tests exist |
 | `egglog` | 1 | optimized/unoptimized native agreement covered |
 | `expressions` | 10 | representative native tests exist |
-| `io` | 3 | current line-oriented stdin/stdout IO slice covered, including do-bind, explicit `(>>=)`, and `getLine` examples |
+| `ffi` | 5 | static ccall, pointer/address, dynamic/wrapper, foreign export, and StablePtr/ForeignPtr ownership native fixtures link C helpers and run in default and `--no-egglog` modes |
+| `io` | 4 | current line-oriented stdin/stdout IO slice covered, including do-bind, explicit `(>>=)`, `getLine`, and explicit `fail` examples |
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
-| `modules` | 2 | single-module and same-directory import tests exist |
-| `negative` | 6 | compile-error diagnostics covered, including a source-spanned type error |
+| `modules` | 6 | single-module, same-directory import, implicit/explicit/qualified Prelude import, and source-instance import/export tests exist |
+| `negative` | 14 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 2 | guards/as-patterns and irrefutable/lazy pattern representative native tests exist |
 | `prelude` | 13 | list functions, append, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
-| `typeclasses` | 6 | user dictionary, superclass/default method, synonym-normalized constraint, derived Eq, derived Ord, and derived Show tests exist |
+| `typeclasses` | 8 | user dictionary, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, and derived Show tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |
 | `unsupported` | 5 | unsupported features documented by failing cases, including TC-016 `Read` |

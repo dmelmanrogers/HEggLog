@@ -40,19 +40,36 @@ For the detailed current support matrix, see
 - [Haskell 2010 conformance matrix](haskell2010-conformance-matrix.md)
 - [Haskell 2010 implementation plan](haskell2010-implementation-plan.md)
 - [Haskell 2010 frontend specification](haskell2010-frontend-spec.md)
+- [Haskell 2010 standard library layout](haskell2010-standard-library-layout.md)
+- [Haskell 2010 FFI design](haskell2010-ffi-design.md)
 - [Laziness and STG plan](laziness-and-stg-plan.md)
 - [Egglog Core optimizer plan](egglog-core-optimizer-plan.md)
 
 ## Immediate Next Tasks
 
-1. TC-020 Monad class surface decision/implementation.
-2. PRELUDE-002 implicit Prelude import behavior.
-3. MODULE-001 import/export declarations.
-4. PRELUDE-009 foldl.
-5. PRELUDE-017 standard library module layout.
+1. MOD-001 whole-program module graph.
+2. PRELUDE-009 foldl.
+3. IO-011 IO error behavior.
+4. MOD-003 explicit import/export edge cases.
+5. IO-012 stdout/stderr conventions.
 
 Completed Haskell 2010 roadmap work:
 
+- MOD-009 instance import/export behavior: implemented with source instance
+  propagation through `ModuleInterface`, empty export-list and `import M ()`
+  visibility, transitive import-chain dictionary availability, native
+  conformance coverage, and a negative missing-instance import fixture.
+- PRELUDE-017 standard library module layout: implemented with a dedicated
+  `Haskell2010.StandardLibrary` module, generated/importable `Prelude`
+  interface, shared `ModuleInterface` data model, and instance-export boundary
+  used by MOD-009.
+- PRELUDE-002/MOD-010 implicit Prelude import behavior: implemented with
+  synthetic `import Prelude` insertion only when no explicit `Prelude` import
+  exists, explicit Prelude import-list/hiding/qualified filtering, and native
+  conformance coverage for implicit, explicit, and qualified Prelude imports.
+- TC-020 Monad class surface: implemented for the supported executable subset
+  with higher-kinded `Monad`, dictionaries for `IO`/`Maybe`/`[]`, generic
+  `do` desugaring, refutable do-bind `fail`, and native conformance coverage.
 - Haskell 2010 parser/layout MVP: implemented as an isolated `Haskell2010`
   frontend AST, lexer, layout parser, parser, and parser tests.
 - Haskell 2010 renamer MVP: implemented as an isolated unique-name pass with

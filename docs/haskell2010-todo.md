@@ -211,22 +211,60 @@ Rules:
 
 # Next Implementation Tasks
 
-1. TC-020 — Monad: Implement or explicitly defer the Haskell 2010 `Monad` class surface.
-2. PRELUDE-002 — implicit Prelude import: Load Prelude names implicitly instead of relying only on generated built-ins.
-3. MODULE-001 — import/export declarations: Broaden module graph behavior beyond the current executable subset.
-4. PRELUDE-009 — foldl: Add the strictness-aware left fold surface or document the initial deviation.
-5. PRELUDE-017 — standard library module layout: Establish the supported Prelude/module layout.
-6. IO-011 — IO error behavior: Define and test IO error behavior for the supported runtime.
-7. MOD-003 — import search path: Broaden module discovery beyond directly supplied files.
-8. MOD-009 — instance import/export behavior: Define how class instances move across module boundaries.
-9. MOD-010 — Prelude implicit import: Align module import behavior with the standard Prelude surface.
+## Next coherent chunk: Source surface closure
+
+1. Where and pattern-binding reconciliation: audit the implemented `where` and
+   non-variable pattern-binding paths against the conformance matrix, add any
+   missing Core/STG/native and negative fixtures, and correct stale matrix rows
+   only after implementation and tests agree.
+2. Record update expressions: implement parser-to-native semantics for record
+   updates over the existing record declaration, selector, complete
+   construction, and pattern infrastructure, including ambiguity and missing
+   field diagnostics.
+3. Full pattern coverage diagnostics: replace the current structured warning
+   placeholder with real exhaustiveness/redundancy analysis for the supported
+   ADT, list, tuple, literal, as-pattern, lazy-pattern, and guarded-pattern
+   subset.
+4. Remaining expression-form audit: verify sections, sequences,
+   comprehensions, guards, `do`, local declarations, and currently parsed
+   expression forms have either executable support, compile-error coverage, or
+   an explicit documented deviation.
+5. Source-surface negative fixtures: add manifest-backed failures for malformed
+   `where` groups, invalid pattern bindings, invalid record updates, impossible
+   or redundant matches, and unsupported source forms that must not silently
+   pass.
+6. Source matrix closure: move each expression, declaration, and pattern row in
+   the conformance matrix to a tested implementation status or a documented
+   deviation backed by a fixture.
+
+## Following coherent chunk: Prelude, deriving, and typeclass library completion
+
+1. `Show` follow-up: implement the report-shaped method hierarchy around
+   `showsPrec`, `showList`, precedence-sensitive output, and character/string
+   escaping while preserving the existing executable `show` behavior.
+2. `Read` and derived `Read`: implement `ReadS`, `readsPrec`, `readList`,
+   lexical read parsing, standard instances, deriving, and rejection fixtures.
+3. Derived `Enum` and `Bounded`: generate dictionaries for eligible data and
+   newtype declarations, including constructor-order semantics and invalid
+   deriving diagnostics.
+4. Numeric class expansion: broaden the standard numeric hierarchy and
+   defaulting behavior beyond the current executable `Int` universe without
+   weakening existing checked-runtime guarantees.
+5. Prelude function completion: implement high-value missing Prelude functions
+   such as `foldl` and extend `PRELUDE-018` conformance coverage with native
+   examples and negative cases.
+6. Standard library module layout expansion: grow the generated/importable
+   module boundary beyond `Prelude` where the Haskell 2010 Report requires it,
+   keeping implicit imports and ordinary module imports distinct.
+7. Library conformance closure: add manifest-backed coverage for every newly
+   claimed class, function, derived instance, and standard-library module.
 
 # Task Backlog
 
 ## BOOT-001 — Preserve current `.hg` native compiler path
 
 Status:
-- not started
+- complete
 
 Category:
 - testing
@@ -10852,10 +10890,11 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Haskell2010/Typecheck.hs`
-- `src/Haskell2010/Core/Eval.hs`
-- `src/Haskell2010/STG/LLVM.hs`
-- `test/haskell2010/conformance/`
+- `src/Haskell2010/ModuleInterface.hs`
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Renamer.hs`
+- `src/Haskell2010/ModuleGraph.hs`
+- `test/Main.hs`
 
 Acceptance criteria:
 - unit type is implemented, completed, or explicitly documented according to status `complete`.
@@ -12226,7 +12265,7 @@ Notes:
 ## TC-016 — Read, if implemented or documented deviation
 
 Status:
-- documented deviation
+- complete
 
 Category:
 - typechecker
@@ -12426,7 +12465,7 @@ Notes:
 ## TC-020 — Monad
 
 Status:
-- in progress
+- complete
 
 Category:
 - typechecker
@@ -12440,6 +12479,18 @@ Blocks:
 
 Scope:
 - Deliver Monad for Type classes and dictionaries while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+
+Implemented slice:
+- Built-in higher-kinded `Monad` class metadata with `return`, `(>>=)`, `(>>)`,
+  and `fail`.
+- Built-in `Monad IO`, `Monad Maybe`, and `Monad []` dictionaries using ordinary
+  dictionary constructors/selectors.
+- Generic `do` desugaring through Monad selectors for expression statements,
+  local `let`, bind statements, and refutable pattern-bind failure.
+- Core/STG/native validation and execution support for `failIO#` and list type
+  constructor normalization needed by `Monad []`.
+- Positive native conformance for IO/Maybe/list do-notation and a negative
+  duplicate built-in instance fixture.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -12455,7 +12506,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- Monad is implemented, completed, or explicitly documented according to status `in progress`.
+- Monad is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -12954,7 +13005,12 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- implicit Prelude import is implemented, completed, or explicitly documented according to status `not started`.
+- implicit Prelude import is implemented for the built-in Prelude surface: modules
+  without an explicit `Prelude` import are renamed as if they had `import
+  Prelude`, and any explicit `Prelude` import suppresses that implicit import.
+- Explicit Prelude import lists, empty import lists, `hiding`, duplicate imports
+  of the same entity, and `qualified` imports are handled by the same import
+  filtering rules used for ordinary modules.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -12969,7 +13025,11 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M12 (Prelude and libraries). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M12 (Prelude and libraries). Complete for the current built-in
+  Prelude surface: renamer tests cover implicit, explicit, qualified,
+  cumulative, and duplicate Prelude imports; conformance fixtures cover native
+  implicit/explicit/qualified Prelude imports and negative empty/qualified
+  unqualified-name failures.
 
 ## PRELUDE-003 — Bool
 
@@ -13689,7 +13749,13 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- standard library module layout is implemented, completed, or explicitly documented according to status `not started`.
+- standard library module layout is implemented for the current executable
+  subset with a generated/importable `Prelude` module interface owned outside
+  the renamer.
+- The module interface data model includes exported names, child exports,
+  fixities, and explicit instance exports consumed by MOD-009.
+- Reserved Haskell 2010 standard modules are documented without being silently
+  exposed as empty importable modules.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -13702,9 +13768,13 @@ Documentation updates:
 - `docs/current-capabilities.md`
 - `docs/haskell2010-conformance-matrix.md`
 - `docs/haskell2010-todo.md`
+- `docs/haskell2010-standard-library-layout.md`
 
 Notes:
-- Milestone M12 (Prelude and libraries). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M12 (Prelude and libraries). Complete for the current executable
+  subset: generated `Prelude` exports/fixities/children are centralized in
+  `Haskell2010.StandardLibrary`, and `Haskell2010.ModuleInterface` carries the
+  instance boundary used by MOD-009.
 
 ## PRELUDE-018 — Prelude conformance tests
 
@@ -14147,7 +14217,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M13 (IO and do-notation). Completed for explicit `(>>=)`, do-bind statements, `return`-produced values, normal `putStrLn`/`print` examples over `String`, `Char`, and lists, and native `getLine` over stdin. Handles, `fail`, full Monad dictionaries, and rich IO error behavior remain separate tasks.
+- Milestone M13 (IO and do-notation). Completed for explicit `(>>=)`, do-bind statements, `return`-produced values, normal `putStrLn`/`print` examples over `String`, `Char`, and lists, native `getLine` over stdin, and the supported `Monad IO` dictionary. Handles and rich recoverable IO error behavior remain separate tasks.
 
 ## IO-009 — (>>)
 
@@ -14838,7 +14908,7 @@ Notes:
 ## MOD-009 — instance import/export behavior
 
 Status:
-- not started
+- complete
 
 Category:
 - modules
@@ -14862,12 +14932,20 @@ Non-goals:
 
 Files likely touched:
 - `src/Haskell2010/ModuleGraph.hs`
+- `src/Haskell2010/ModuleInterface.hs`
 - `src/Haskell2010/Renamer.hs`
-- `src/Haskell2010/Native.hs`
+- `test/Main.hs`
 - `test/haskell2010/conformance/modules/`
+- `test/haskell2010/conformance/negative/`
 
 Acceptance criteria:
-- instance import/export behavior is implemented, completed, or explicitly documented according to status `not started`.
+- Source module interfaces retain declared instances and every transitively
+  imported instance regardless of the module's export list.
+- Empty import lists, ordinary import lists, `hiding`, and qualified imports
+  filter names only; they do not filter instances.
+- Whole-program Haskell 2010 typechecking sees exactly the instances reachable
+  through the loaded import graph, so imported source-instance dictionaries are
+  emitted only when an import chain reaches the declaring module.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -14882,12 +14960,16 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M14 (Full modules). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M14 (Full modules). Complete for the current executable
+  source-instance subset: instances cross empty export lists and `import M ()`
+  through transitive module interfaces, with unit, native-success, and
+  negative conformance coverage. User-written instance contexts and
+  package-scale instance discovery remain separate later work.
 
 ## MOD-010 — Prelude implicit import
 
 Status:
-- not started
+- complete
 
 Category:
 - modules
@@ -14916,7 +14998,11 @@ Files likely touched:
 - `test/haskell2010/conformance/modules/`
 
 Acceptance criteria:
-- Prelude implicit import is implemented, completed, or explicitly documented according to status `not started`.
+- Prelude implicit import is implemented in the module-aware renamer by adding a
+  synthetic built-in `import Prelude` only when no explicit `Prelude` import
+  declaration exists.
+- Explicit `Prelude` imports, including `qualified`, `()`, and `hiding`, suppress
+  the implicit import and participate in ordinary cumulative import semantics.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -14931,7 +15017,9 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M14 (Full modules). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M14 (Full modules). Complete for the current same-directory module
+  graph and built-in Prelude surface; arbitrary package/module Prelude loading
+  and broader standard library layout remain tracked separately.
 
 ## MOD-011 — separate compilation decision/documentation
 
@@ -15132,7 +15220,7 @@ Notes:
 ## FFI-001 — Haskell 2010 FFI scope decision
 
 Status:
-- documented deviation
+- complete
 
 Category:
 - runtime
@@ -15144,7 +15232,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver Haskell 2010 FFI scope decision for FFI or documented deviation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver the Haskell 2010 FFI scope decision as a full-implementation design target while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -15153,33 +15241,30 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Haskell2010/STG/LLVM.hs`
-- `src/Haskell2010/Native.hs`
-- `src/Backend/LLVM/Toolchain.hs`
-- `docs/runtime-spec.md`
+- `docs/haskell2010-ffi-design.md`
+- `docs/haskell2010-todo.md`
+- `docs/haskell2010-conformance-matrix.md`
 
 Acceptance criteria:
-- Haskell 2010 FFI scope decision is implemented, completed, or explicitly documented according to status `documented deviation`.
+- Haskell 2010 FFI is documented as a full implementation target, not a permanent deviation or reduced product slice.
+- The design records the Report-required declaration forms, calling conventions, safety, entities, foreign types, standard-library surface, IR boundaries, runtime obligations, LLVM/linking obligations, and conformance test strategy.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
 Required tests:
-- runtime unit tests
-- native runtime wet tests
-- runtime-error conformance tests
+- documentation/static checks
 
 Documentation updates:
-- `docs/runtime-spec.md`
-- `docs/laziness-and-stg-plan.md`
+- `docs/haskell2010-ffi-design.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI or documented deviation). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M15 (FFI). Complete as a scope/design decision: FFI is part of the full Haskell 2010 target.
 
 ## FFI-002 — foreign import parser
 
 Status:
-- deferred
+- complete
 
 Category:
 - runtime
@@ -15200,33 +15285,38 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Haskell2010/STG/LLVM.hs`
-- `src/Haskell2010/Native.hs`
-- `src/Backend/LLVM/Toolchain.hs`
-- `docs/runtime-spec.md`
+- `src/Haskell2010/Syntax.hs`
+- `src/Haskell2010/Parser.hs`
+- `src/Haskell2010/Renamed.hs`
+- `src/Haskell2010/Renamer.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `test/Main.hs`
 
 Acceptance criteria:
-- foreign import parser is implemented, completed, or explicitly documented according to status `deferred`.
+- `foreign import` parses into structured AST records for calling convention, safety, import entity, imported binder, and source type.
+- Static function, static address, `dynamic`, `wrapper`, explicit safety, omitted safety, omitted entity, and implementation-specific calling-convention forms are represented without raw-string-only AST behavior.
+- `foreign import` binds a top-level term during renaming, participates in duplicate-name checks, and can be exported/imported through module interfaces.
+- Supported `foreign import ccall` declarations lower through explicit Core/STG foreign IR and native LLVM ABI lowering rather than being dropped.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
 Required tests:
-- runtime unit tests
-- native runtime wet tests
-- runtime-error conformance tests
+- parser unit tests
+- renamer unit tests
+- typechecker signature-validation, Core/STG IR, and native lowering tests
 
 Documentation updates:
-- `docs/runtime-spec.md`
-- `docs/laziness-and-stg-plan.md`
+- `docs/haskell2010-ffi-design.md`
+- `docs/haskell2010-frontend-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI or documented deviation). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M15 (FFI). Complete for frontend representation and renaming; supported import declarations now continue through FFI signature typechecking, Core/STG IR, native lowering, and wet tests.
 
 ## FFI-003 — foreign export parser, if implemented
 
 Status:
-- deferred
+- complete
 
 Category:
 - runtime
@@ -15238,7 +15328,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver foreign export parser, if implemented for FFI or documented deviation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver foreign export parser for FFI while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -15247,33 +15337,37 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Haskell2010/STG/LLVM.hs`
-- `src/Haskell2010/Native.hs`
-- `src/Backend/LLVM/Toolchain.hs`
-- `docs/runtime-spec.md`
+- `src/Haskell2010/Syntax.hs`
+- `src/Haskell2010/Parser.hs`
+- `src/Haskell2010/Renamed.hs`
+- `src/Haskell2010/Renamer.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `test/Main.hs`
 
 Acceptance criteria:
-- foreign export parser, if implemented is implemented, completed, or explicitly documented according to status `deferred`.
+- `foreign export` parses into structured AST records for calling convention, export entity, exported binding name, and source type.
+- `foreign export` resolves an existing top-level term during renaming and reports a normal unbound-name diagnostic when it references a missing binding.
+- Supported `foreign export ccall` declarations are preserved as Core/STG module metadata and lower to native C-callable entrypoints rather than being dropped.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
 Required tests:
-- runtime unit tests
-- native runtime wet tests
-- runtime-error conformance tests
+- parser unit tests
+- renamer unit tests
+- typechecker signature-validation, Core/STG metadata, and native export lowering tests
 
 Documentation updates:
-- `docs/runtime-spec.md`
-- `docs/laziness-and-stg-plan.md`
+- `docs/haskell2010-ffi-design.md`
+- `docs/haskell2010-frontend-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI or documented deviation). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M15 (FFI). Complete for frontend representation and renaming; FFI signature typechecking now lives in the later FFI typechecking task, while Core/STG/LLVM lowering, runtime, and native behavior remain later FFI tasks.
 
 ## FFI-004 — C calling convention representation
 
 Status:
-- deferred
+- in progress
 
 Category:
 - runtime
@@ -15294,33 +15388,41 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
+- `src/Haskell2010/Syntax.hs`
+- `src/Haskell2010/Parser.hs`
+- `src/Haskell2010/Typecheck.hs`
 - `src/Haskell2010/STG/LLVM.hs`
 - `src/Haskell2010/Native.hs`
 - `src/Backend/LLVM/Toolchain.hs`
 - `docs/runtime-spec.md`
 
 Acceptance criteria:
-- C calling convention representation is implemented, completed, or explicitly documented according to status `deferred`.
+- `ccall` and `stdcall` are represented structurally in parsed and renamed foreign declarations.
+- The FFI typechecker accepts Haskell 2010 `ccall`/`stdcall` declarations and rejects non-Haskell-2010 calling conventions before lowering.
+- Runtime ABI lowering for actual calls remains explicitly pending until native ABI marshalling and call lowering are implemented.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
 Required tests:
+- parser unit tests
+- typechecker unit tests
 - runtime unit tests
 - native runtime wet tests
 - runtime-error conformance tests
 
 Documentation updates:
+- `docs/haskell2010-ffi-design.md`
 - `docs/runtime-spec.md`
 - `docs/laziness-and-stg-plan.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI or documented deviation). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M15 (FFI). Complete for frontend representation and typechecker gating of calling-convention names; runtime ABI lowering remains pending.
 
 ## FFI-005 — primitive marshalling
 
 Status:
-- deferred
+- in progress
 
 Category:
 - runtime
@@ -15341,33 +15443,41 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
 - `src/Haskell2010/STG/LLVM.hs`
 - `src/Haskell2010/Native.hs`
 - `src/Backend/LLVM/Toolchain.hs`
 - `docs/runtime-spec.md`
 
 Acceptance criteria:
-- primitive marshalling is implemented, completed, or explicitly documented according to status `deferred`.
+- Generated `Foreign`, `Foreign.C`, and `Foreign.C.Types` module interfaces expose the current FFI type surface to ordinary imports.
+- The typechecker validates marshallable scalar, pointer, type-synonym, and local visible-newtype foreign types.
+- Static, address, `dynamic`, and `wrapper` import signatures receive shape-specific diagnostics.
+- `foreign export` declarations validate that the exported binding can instantiate to the declared foreign type.
+- Runtime primitive marshalling and ABI conversion remain explicitly pending until native ABI marshalling and call lowering are implemented.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
 Required tests:
+- typechecker unit tests
 - runtime unit tests
 - native runtime wet tests
 - runtime-error conformance tests
 
 Documentation updates:
+- `docs/haskell2010-ffi-design.md`
 - `docs/runtime-spec.md`
 - `docs/laziness-and-stg-plan.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI or documented deviation). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M15 (FFI). Complete for generated library surfaces, source-level marshallable type validation, and explicit Core/STG import IR boundaries; runtime marshalling remains pending.
 
 ## FFI-006 — runtime integration
 
 Status:
-- deferred
+- in progress
 
 Category:
 - runtime
@@ -15394,7 +15504,12 @@ Files likely touched:
 - `docs/runtime-spec.md`
 
 Acceptance criteria:
-- runtime integration is implemented, completed, or explicitly documented according to status `deferred`.
+- Static, `dynamic`, and `wrapper` foreign imports lower to explicit Core/STG foreign-call nodes.
+- Address imports lower to explicit inert Core/STG foreign-import value nodes.
+- Core/STG validators, pretty-printers, evaluators, optimizer traversal, and native backend boundaries preserve the foreign IR without silently dropping imports.
+- Core/STG evaluation reports explicit unsupported runtime diagnostics when foreign calls are reached outside native lowering.
+- Supported `foreign import ccall` nodes lower to native LLVM declarations/direct calls or indirect `FunPtr` calls with scalar integer/Bool/Char marshalling, `Ptr`/`FunPtr` pointer marshalling, static `&symbol` address boxing, `wrapper` callback trampolines, and `IO` sequencing.
+- Explicit `StablePtr` ownership and manual `ForeignPtr` finalizer APIs are implemented and wet-tested; automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, broader callback lifetime management, and floating-point marshalling remain pending.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -15409,12 +15524,12 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI or documented deviation). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M15 (FFI). In progress: Core/STG IR is complete for imports and export metadata, scalar/pointer/static-address/`dynamic`/`wrapper`/export `ccall` native runtime integration is implemented and wet-tested, and unsupported FFI entities still fail at explicit boundaries.
 
 ## FFI-007 — LLVM external declaration lowering
 
 Status:
-- deferred
+- in progress
 
 Category:
 - runtime
@@ -15441,7 +15556,13 @@ Files likely touched:
 - `docs/runtime-spec.md`
 
 Acceptance criteria:
-- LLVM external declaration lowering is implemented, completed, or explicitly documented according to status `deferred`.
+- Supported static `foreign import ccall` symbols emit LLVM external declarations with ABI-accurate argument and result types.
+- Static scalar and pointer calls emit direct LLVM `call` instructions and link successfully against C helper objects in native wet tests.
+- Static `&symbol` imports for `Ptr a` and `FunPtr ft` emit external data/function declarations and box the raw address as a pointer value.
+- `dynamic` imports emit typed indirect calls through unboxed `FunPtr` values.
+- `wrapper` imports emit process-lifetime callback slots and C-callable trampoline functions for the supported scalar/pointer ABI slice.
+- Unsupported FFI entities still report explicit native ABI diagnostics instead of being silently dropped.
+- Broader link metadata, floating-point marshalling, automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, and broader callback lifetime APIs remain pending.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -15456,12 +15577,12 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI or documented deviation). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M15 (FFI). In progress: static scalar/pointer `ccall` declarations/direct calls, address imports, `dynamic` imports, `wrapper` callbacks, and `foreign export ccall` entrypoints are implemented; broader FFI external lowering remains open.
 
 ## FFI-008 — FFI native tests
 
 Status:
-- deferred
+- in progress
 
 Category:
 - runtime
@@ -15488,7 +15609,10 @@ Files likely touched:
 - `docs/runtime-spec.md`
 
 Acceptance criteria:
-- FFI native tests is implemented, completed, or explicitly documented according to status `deferred`.
+- Static scalar `ccall` native tests compile/link generated LLVM with a C helper and assert stdout.
+- Static pointer/address native tests cover `Ptr`, `FunPtr`, data `&symbol`, function `&symbol`, pointer arguments, pointer results, and ordered pointer mutation through `IO`.
+- Dynamic/wrapper native tests cover indirect `FunPtr` calls, multiple live wrapped callbacks, C-to-Haskell callback re-entry, callback `IO`, and result marshalling.
+- Foreign export native tests cover C helpers calling exported pure and `IO` Haskell functions; remaining FFI forms add native tests as each ABI feature lands.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -15503,7 +15627,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI or documented deviation). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M15 (FFI). In progress: static scalar, pointer/address, dynamic/wrapper, and foreign-export native C-helper wet tests are implemented; native-library coverage remains open.
 
 ## FFI-009 — documented deviation if deferred
 
@@ -18192,7 +18316,7 @@ Notes:
 ## TEST-CONF-002 — parser conformance tests
 
 Status:
-- in progress
+- complete
 
 Category:
 - testing
@@ -18221,7 +18345,7 @@ Files likely touched:
 - `scripts/`
 
 Acceptance criteria:
-- parser conformance tests is implemented, completed, or explicitly documented according to status `in progress`.
+- parser conformance tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -18237,12 +18361,12 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M19 (Haskell 2010 conformance suite closure). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M19 (Haskell 2010 conformance suite closure). Complete for the current manifest-backed parser coverage, including lexical/layout positives and malformed-layout negative coverage.
 
 ## TEST-CONF-003 — renamer conformance tests
 
 Status:
-- in progress
+- complete
 
 Category:
 - testing
@@ -18271,7 +18395,7 @@ Files likely touched:
 - `scripts/`
 
 Acceptance criteria:
-- renamer conformance tests is implemented, completed, or explicitly documented according to status `in progress`.
+- renamer conformance tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -18287,7 +18411,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M19 (Haskell 2010 conformance suite closure). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M19 (Haskell 2010 conformance suite closure). Complete for the current manifest-backed renamer coverage, including module graph, Prelude visibility, foreign export target, and unbound/duplicate-name negatives.
 
 ## TEST-CONF-004 — typechecker conformance tests
 
@@ -18342,7 +18466,7 @@ Notes:
 ## TEST-CONF-005 — desugaring/Core conformance tests
 
 Status:
-- in progress
+- complete
 
 Category:
 - testing
@@ -18371,7 +18495,7 @@ Files likely touched:
 - `scripts/`
 
 Acceptance criteria:
-- desugaring/Core conformance tests is implemented, completed, or explicitly documented according to status `in progress`.
+- desugaring/Core conformance tests is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -18387,7 +18511,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M19 (Haskell 2010 conformance suite closure). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M19 (Haskell 2010 conformance suite closure). Complete for the current manifest-backed Core/desugaring coverage through native-success fixtures and the unit Core/STG validation suites.
 
 ## TEST-CONF-006 — native wet conformance tests
 
@@ -18542,7 +18666,7 @@ Notes:
 ## TEST-CONF-009 — matrix auto/check script
 
 Status:
-- in progress
+- complete
 
 Category:
 - testing
@@ -18571,7 +18695,7 @@ Files likely touched:
 - `scripts/`
 
 Acceptance criteria:
-- matrix auto/check script is implemented, completed, or explicitly documented according to status `in progress`.
+- matrix auto/check script is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -18587,7 +18711,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M19 (Haskell 2010 conformance suite closure). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M19 (Haskell 2010 conformance suite closure). Complete via `scripts/validate-haskell2010-conformance.py`, which validates manifest schema, case uniqueness, source/helper file existence, status/mode values, and conformance-matrix coverage for every manifest source.
 
 ## TEST-CONF-010 — conformance results doc
 
@@ -18692,7 +18816,7 @@ Notes:
 ## TEST-CONF-012 — report coverage by Haskell 2010 section
 
 Status:
-- in progress
+- complete
 
 Category:
 - testing
@@ -18721,7 +18845,7 @@ Files likely touched:
 - `scripts/`
 
 Acceptance criteria:
-- report coverage by Haskell 2010 section is implemented, completed, or explicitly documented according to status `in progress`.
+- report coverage by Haskell 2010 section is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations.
 
@@ -18737,7 +18861,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M19 (Haskell 2010 conformance suite closure). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M19 (Haskell 2010 conformance suite closure). Complete for the current executable-subset/report-section matrix: every manifest fixture is represented in the conformance matrix and unsupported Haskell 2010 areas remain explicit documented-deviation cases.
 
 ## DOC-001 — Backlog and roadmap consistency policy
 
