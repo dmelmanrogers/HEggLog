@@ -79,12 +79,12 @@ implemented:
 ## Current Next Focus
 
 The authoritative queue is the task tracker, not prose-only roadmap text. The
-next implementation chunk is the remaining source surface implementation work:
-SURFACE-003.
+next implementation chunk is Prelude, deriving, and typeclass library
+completion.
 SURFACE-001 completed the current source-surface audit and matrix
 reconciliation; SURFACE-002 completed user-defined operator bindings and infix
-calls; the remaining source-surface task implements broader `where` layout
-placement. DIAG-009 completed supported-subset
+calls; SURFACE-003 completed report-shaped line-broken `where` layout
+placement for function bindings and case alternatives. DIAG-009 completed supported-subset
 pattern-match diagnostics, TEST-CONF-013 completed source-surface negative
 fixtures, TEST-CONF-014 completed machine-checked source matrix closure, and
 ADT-007 completed record update expressions for the supported record subset.
@@ -453,9 +453,8 @@ initially.
 ## Next Immediate Implementation Focus
 
 The authoritative queue is maintained in `docs/haskell2010-todo.md` and
-validated against `docs/haskell2010-todo.json`. The current near-term focus is
-the remaining source surface implementation closure task: SURFACE-003.
-SURFACE-002 user-defined operator bindings and infix calls is complete.
+validated against `docs/haskell2010-todo.json`. The source surface closure
+tasks SURFACE-001, SURFACE-002, and SURFACE-003 are complete.
 DIAG-009 pattern-match diagnostics, TEST-CONF-013 source-surface negative
 fixtures, TEST-CONF-014 source matrix closure, and ADT-007 record updates are
 complete and covered by focused tests/conformance fixtures.

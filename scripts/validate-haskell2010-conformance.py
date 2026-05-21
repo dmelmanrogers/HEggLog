@@ -42,6 +42,7 @@ SOURCE_SURFACE_ADDITIONAL_FIXTURES = {
     "test/haskell2010/conformance/negative/ffi-wrapper-bad-shape.hs",
     "test/haskell2010/conformance/negative/impossible-case-pattern.hs",
     "test/haskell2010/conformance/negative/invalid-pattern-binding.hs",
+    "test/haskell2010/conformance/negative/misindented-where-keyword.hs",
     "test/haskell2010/conformance/negative/malformed-where-layout.hs",
     "test/haskell2010/conformance/negative/unbound-variable.hs",
     "test/haskell2010/conformance/unsupported/constrained-expression-signature.hs",

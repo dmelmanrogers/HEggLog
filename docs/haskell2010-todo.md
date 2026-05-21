@@ -211,11 +211,11 @@ Rules:
 
 # Next Implementation Tasks
 
-## Next coherent chunk: Source surface closure
+## Source surface closure
 
-1. SURFACE-003 — where layout position coverage.
+Complete: SURFACE-001, SURFACE-002, and SURFACE-003.
 
-## Following coherent chunk: Prelude, deriving, and typeclass library completion
+## Next coherent chunk: Prelude, deriving, and typeclass library completion
 
 1. TC-029 — report-shaped Show hierarchy.
 2. TC-030 — Read implementation.
@@ -10663,7 +10663,7 @@ Notes:
 ## SURFACE-003 — where layout position coverage
 
 Status:
-- not started
+- complete
 
 Category:
 - frontend
@@ -10710,7 +10710,7 @@ Documentation updates:
 - docs/haskell2010-status-summary.md
 
 Notes:
-- Discovered during SURFACE-001: same-line where groups are covered by native fixtures, but line-broken where placement remains a frontend/layout gap.
+- Complete. Function-binding and case-alternative `where` groups now parse when the `where` keyword appears on the following layout line, while a line-broken `where` at the enclosing declaration/alternative column is rejected as a parse error. The coverage runs through parser tests, Core/STG/native unit examples, e2e wet tests, native conformance fixtures, and negative malformed-layout fixtures.
 ## STG-REC-001 — recursive closure allocation
 
 Status:
@@ -19698,6 +19698,7 @@ Documentation updates:
 Notes:
 - Complete for current source-surface negative coverage. The manifest now
   includes stable diagnostic-category fixtures for malformed `where` layout,
+  misindented line-broken `where` keywords,
   duplicate binders in top-level pattern bindings and function equations,
   constructor-operator misuse in value binding syntax,
   invalid record updates, an impossible `case` pattern/scrutinee combination,
@@ -19758,9 +19759,8 @@ Notes:
   paths not present in the manifest, and `declarations`/`expressions`/`patterns`
   manifest fixtures omitted from the closure table. It also requires the
   source-surface negative and unsupported fixtures to remain linked from the
-  closure table. Remaining source-surface implementation gaps are explicitly
-  owned by SURFACE-003 instead of being counted as complete
-  executable support.
+  closure table. The SURFACE source-surface implementation gap tasks are now
+  complete and backed by manifest fixtures.
 
 ## TEST-CONF-015 — library conformance closure
 

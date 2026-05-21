@@ -123,6 +123,19 @@
       "notes": "Function and case-alternative where declaration groups lower through Core/STG/native execution for the currently accepted where syntax."
     },
     {
+      "name": "expressions.where-layout",
+      "sourceFile": "test/haskell2010/conformance/expressions/where-layout.hs",
+      "category": "expressions",
+      "expectedStatus": "native-success",
+      "expectedStdout": "14\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Report-shaped line-broken where groups on function bindings and case alternatives lower through Core/STG/native execution."
+    },
+    {
       "name": "expressions.sections",
       "sourceFile": "test/haskell2010/conformance/expressions/sections.hs",
       "category": "expressions",
@@ -826,6 +839,15 @@
       "expectedDiagnosticCategory": "parse",
       "requiredStage": "parse",
       "notes": "Malformed where-group layout must fail during Haskell 2010 parsing."
+    },
+    {
+      "name": "negative.misindented-where-keyword",
+      "sourceFile": "test/haskell2010/conformance/negative/misindented-where-keyword.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "parse",
+      "requiredStage": "parse",
+      "notes": "A line-broken where keyword at the enclosing declaration column is rejected instead of being attached to the preceding RHS."
     },
     {
       "name": "negative.constructor-operator-binding",

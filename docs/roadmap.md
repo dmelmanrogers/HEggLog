@@ -47,13 +47,10 @@ For the detailed current support matrix, see
 
 ## Immediate Next Tasks
 
-The authoritative queue is the Haskell 2010 task tracker. The immediate
-source-surface chunk is:
-
-1. SURFACE-003 where layout position coverage.
-
-SURFACE-002 user-defined operator bindings and infix calls is complete and
-covered by parser/renamer/Core/STG/native tests plus manifest fixtures.
+The authoritative queue is the Haskell 2010 task tracker. The source-surface
+chunk is complete: SURFACE-001, SURFACE-002, and SURFACE-003 are implemented
+and covered by parser/renamer/Core/STG/native tests plus manifest fixtures.
+The next chunk is Prelude, deriving, and typeclass library completion.
 
 TEST-CONF-014 source matrix closure is complete and now enforced by the
 conformance validator.

@@ -5948,7 +5948,7 @@
     {
       "id": "SURFACE-003",
       "title": "where layout position coverage",
-      "status": "not started",
+      "status": "complete",
       "category": "frontend",
       "depends_on": [
         "FRONT-001",
@@ -5974,7 +5974,7 @@
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-status-summary.md"
       ],
-      "notes": "Discovered during SURFACE-001: same-line where groups are covered by native fixtures, but line-broken where placement remains a frontend/layout gap."
+      "notes": "Complete. Function-binding and case-alternative where groups now parse when the where keyword appears on the following layout line, while a line-broken where at the enclosing declaration/alternative column is rejected as a parse error. The coverage runs through parser tests, Core/STG/native unit examples, e2e wet tests, native conformance fixtures, and negative malformed-layout fixtures."
     },
     {
       "id": "STG-REC-001",
@@ -10951,7 +10951,7 @@
         "docs/haskell2010-conformance-results.md",
         "docs/haskell2010-todo.md"
       ],
-      "notes": "Complete for current source-surface negative coverage. The manifest now includes stable diagnostic-category fixtures for malformed where layout, duplicate binders in top-level pattern bindings and function equations, constructor-operator misuse in value binding syntax, invalid record updates, an impossible case pattern/scrutinee combination, and a documented unsupported constrained expression signature."
+      "notes": "Complete for current source-surface negative coverage. The manifest now includes stable diagnostic-category fixtures for malformed where layout, misindented line-broken where keywords, duplicate binders in top-level pattern bindings and function equations, constructor-operator misuse in value binding syntax, invalid record updates, an impossible case pattern/scrutinee combination, and a documented unsupported constrained expression signature."
     },
     {
       "id": "TEST-CONF-014",
@@ -10981,7 +10981,7 @@
         "docs/haskell2010-conformance-results.md",
         "docs/haskell2010-todo.md"
       ],
-      "notes": "Complete. Added a machine-checked Source Surface Matrix Closure table to the conformance matrix covering all declaration, expression, and pattern rows. The conformance validator now rejects missing closure rows, fixture paths not present in the manifest, and declarations/expressions/patterns manifest fixtures omitted from the closure table. It also requires source-surface negative and unsupported fixtures to remain linked from the closure table. Remaining source-surface implementation gaps are explicitly owned by SURFACE-003 instead of being counted as complete executable support."
+      "notes": "Complete. Added a machine-checked Source Surface Matrix Closure table to the conformance matrix covering all declaration, expression, and pattern rows. The conformance validator now rejects missing closure rows, fixture paths not present in the manifest, and declarations/expressions/patterns manifest fixtures omitted from the closure table. It also requires source-surface negative and unsupported fixtures to remain linked from the closure table. The SURFACE source-surface implementation gap tasks are now complete and backed by manifest fixtures."
     },
     {
       "id": "TEST-CONF-015",

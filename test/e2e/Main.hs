@@ -392,6 +392,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-guards-as-patterns" "test/e2e/programs/haskell2010/guards-as-patterns.hs" "15" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-sections" "test/e2e/programs/haskell2010/sections.hs" "6" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-user-defined-operators" "test/e2e/programs/haskell2010/user-defined-operators.hs" "537" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-where-layout" "test/e2e/programs/haskell2010/where-layout.hs" "14" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-arithmetic-sequences" "test/e2e/programs/haskell2010/arithmetic-sequences.hs" "[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-list-comprehensions" "test/e2e/programs/haskell2010/list-comprehensions.hs" "[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCaseWithCompileWarnings "haskell2010-pattern-diagnostics" "test/e2e/programs/haskell2010/pattern-diagnostics.hs" "7" [DefaultEgglog, NoEgglog] True ["non-exhaustive pattern match", "case alternatives", "False"]

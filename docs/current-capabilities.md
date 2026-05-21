@@ -249,13 +249,13 @@ Progress is tracked in
 
 ## Current Next Focus
 
-The next coherent chunk is the remaining source surface implementation work,
-now tracked by stable ID SURFACE-003. SURFACE-002 user-defined operator
-bindings and infix calls is complete.
+The next coherent chunk is Prelude, deriving, and typeclass library completion.
 SURFACE-001 completed the current source-surface audit and matrix
-reconciliation, DIAG-009 completed supported-subset pattern-match diagnostics,
-TEST-CONF-013 completed source-surface negative fixtures, TEST-CONF-014
-completed machine-checked source matrix closure, and ADT-007 completed record
+reconciliation, SURFACE-002 completed user-defined operator bindings and infix
+calls, SURFACE-003 completed line-broken `where` layout coverage, DIAG-009
+completed supported-subset pattern-match diagnostics, TEST-CONF-013 completed
+source-surface negative fixtures, TEST-CONF-014 completed machine-checked
+source matrix closure, and ADT-007 completed record
 update expressions.
 
 The following coherent chunk is Prelude, deriving, and typeclass library

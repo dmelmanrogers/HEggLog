@@ -34,6 +34,7 @@ import Syntax.Span (SourceSpan, sourceSpan)
 import Text.Megaparsec
   ( MonadParsec (lookAhead, try)
   , ParseErrorBundle
+  , SourcePos
   , choice
   , getSourcePos
   , option
@@ -42,6 +43,8 @@ import Text.Megaparsec
   , sepBy1
   , sepEndBy
   , sepEndBy1
+  , sourceColumn
+  , sourceLine
   )
 
 data ModuleItem
@@ -221,19 +224,21 @@ typeSynonymDecl = do
 
 classDecl :: Parser Decl
 classDecl = do
+  start <- getSourcePos
   reserved "class"
   context <- optional (try (contextParser <* symbol "=>"))
   className <- qconid
   typeVariable <- varid
-  decls <- optionalWhereDecls
+  decls <- optionalWhereDeclsFrom start
   pure (ClassDecl (fromMaybe [] context) className typeVariable decls)
 
 instanceDecl :: Parser Decl
 instanceDecl = do
+  start <- getSourcePos
   reserved "instance"
   context <- optional (try (contextParser <* symbol "=>"))
   instanceType <- typeParser
-  decls <- optionalWhereDecls
+  decls <- optionalWhereDeclsFrom start
   pure (InstanceDecl (fromMaybe [] context) instanceType decls)
 
 defaultDecl :: Parser Decl
@@ -361,26 +366,29 @@ functionBinding =
 
 prefixFunctionBinding :: Parser Decl
 prefixFunctionBinding = do
+  start <- getSourcePos
   name <- functionName
   patterns <- many patParser
   rhs <- rhsParser
-  whereDecls <- optionalWhereDecls
+  whereDecls <- optionalWhereDeclsFrom start
   pure (FunctionBinding name patterns rhs whereDecls)
 
 infixFunctionBinding :: Parser Decl
 infixFunctionBinding = do
+  start <- getSourcePos
   lhs <- patParser
   name <- qvarop
   rhsPat <- patParser
   rhs <- rhsParser
-  whereDecls <- optionalWhereDecls
+  whereDecls <- optionalWhereDeclsFrom start
   pure (FunctionBinding name [lhs, rhsPat] rhs whereDecls)
 
 patternBinding :: Parser Decl
 patternBinding = do
+  start <- getSourcePos
   pat <- patParser
   rhs <- rhsParser
-  whereDecls <- optionalWhereDecls
+  whereDecls <- optionalWhereDeclsFrom start
   pure (PatternBinding pat rhs whereDecls)
 
 rhsParser :: Parser Rhs
@@ -592,9 +600,10 @@ stmtParser =
 
 altParser :: Parser Alt
 altParser = withSpan setAltSpan $ do
+  start <- getSourcePos
   pat <- patParser
   rhs <- altRhsParser
-  Alt pat rhs <$> optionalWhereDecls
+  Alt pat rhs <$> optionalWhereDeclsFrom start
 
 altRhsParser :: Parser Rhs
 altRhsParser =
@@ -771,9 +780,21 @@ typeHead :: Parser (Text, [Text])
 typeHead =
   (,) <$> qconid <*> many varid
 
-optionalWhereDecls :: Parser [Decl]
-optionalWhereDecls =
-  option [] (reserved "where" *> layoutBlock declParser)
+optionalWhereDeclsFrom :: SourcePos -> Parser [Decl]
+optionalWhereDeclsFrom reference =
+  option [] $ do
+    try (scn *> lookAhead (reserved "where"))
+    wherePos <- getSourcePos
+    validateWhereIndent reference wherePos
+    reserved "where"
+    layoutBlock declParser
+
+validateWhereIndent :: SourcePos -> SourcePos -> Parser ()
+validateWhereIndent reference wherePos
+  | sourceLine wherePos == sourceLine reference || sourceColumn wherePos > sourceColumn reference =
+      pure ()
+  | otherwise =
+      fail "where keyword must be indented beyond the declaration or case alternative it belongs to"
 
 qvarid :: Parser Text
 qvarid =

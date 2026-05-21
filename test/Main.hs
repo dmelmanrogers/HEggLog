@@ -107,6 +107,8 @@ testGroups =
       , pureTest "top-level function program parses" testTopLevelFunctionParsing
       , pureTest "Haskell 2010 module header, imports, and declarations parse" testHaskell2010ModuleParsing
       , pureTest "Haskell 2010 layout blocks parse" testHaskell2010LayoutParsing
+      , pureTest "Haskell 2010 line-broken where layout parses" testHaskell2010WhereLayoutParsing
+      , pureTest "Haskell 2010 misindented where keyword is rejected" testHaskell2010MisindentedWhereKeyword
       , pureTest "Haskell 2010 expression surface forms parse" testHaskell2010ExpressionSurfaceParsing
       , pureTest "Haskell 2010 foreign declarations parse structurally" testHaskell2010ForeignDeclarationParsing
       , pureTest "Haskell 2010 record field syntax parses" testHaskell2010RecordFieldSyntaxParsing
@@ -755,6 +757,38 @@ testHaskell2010LayoutParsing = do
   rhsContainsDo = \case
     H2010.Unguarded body -> containsDo body
     H2010.Guarded branches -> any (containsDo . snd) branches
+
+testHaskell2010WhereLayoutParsing :: Either String ()
+testHaskell2010WhereLayoutParsing = do
+  parsed <- parseHaskell2010 haskell2010WhereLayoutSource
+  expectEqual "line-broken function where declarations" (Just 2) (functionWhereDeclCount "f" parsed)
+  expectEqual "line-broken case-alt where declarations" [2, 0] (caseAltWhereDeclCounts "g" parsed)
+ where
+  functionWhereDeclCount name parsed =
+    case [length whereDecls | H2010.FunctionBinding functionName _ _ whereDecls <- H2010.moduleDecls parsed, functionName == name] of
+      [count] -> Just count
+      _ -> Nothing
+  caseAltWhereDeclCounts name parsed =
+    concat
+      [ [length whereDecls | H2010.Alt _ _ whereDecls <- alts]
+      | H2010.FunctionBinding functionName _ (H2010.Unguarded (H2010.Case _ alts)) _ <- H2010.moduleDecls parsed
+      , functionName == name
+      ]
+
+testHaskell2010MisindentedWhereKeyword :: Either String ()
+testHaskell2010MisindentedWhereKeyword =
+  case
+    H2010Parser.parseSourceModule
+      "<haskell2010-misindented-where-keyword>"
+      "module Bad where\n\
+      \\n\
+      \main =\n\
+      \  x\n\
+      \where\n\
+      \  x = 1\n"
+    of
+      Left _ -> Right ()
+      Right parsed -> Left ("misindented where keyword parsed unexpectedly: " <> show parsed)
 
 testHaskell2010ExpressionSurfaceParsing :: Either String ()
 testHaskell2010ExpressionSurfaceParsing = do
@@ -7246,6 +7280,7 @@ haskell2010NativeSuccessExamples =
   , ("irrefutable-patterns", haskell2010IrrefutablePatternSource, "7\n")
   , ("sections", haskell2010SectionsSource, "6\n")
   , ("user-defined-operators", haskell2010UserDefinedOperatorsSource, "537\n")
+  , ("where-layout", haskell2010WhereLayoutSource, "14\n")
   , ("arithmetic-sequences", haskell2010ArithmeticSequencesSource, Text.unpack haskell2010ArithmeticSequencesOutput)
   , ("enum-bounded", haskell2010EnumBoundedSource, Text.unpack haskell2010EnumBoundedOutput)
   , ("derived-eq", haskell2010DerivedEqSource, "10\n")
@@ -7284,6 +7319,7 @@ haskell2010NativeExecutableExamples =
   , ("irrefutable-patterns", haskell2010IrrefutablePatternSource, "7\n")
   , ("sections", haskell2010SectionsSource, "6\n")
   , ("user-defined-operators", haskell2010UserDefinedOperatorsSource, "537\n")
+  , ("where-layout", haskell2010WhereLayoutSource, "14\n")
   , ("arithmetic-sequences", haskell2010ArithmeticSequencesSource, Text.unpack haskell2010ArithmeticSequencesOutput)
   , ("enum-bounded", haskell2010EnumBoundedSource, Text.unpack haskell2010EnumBoundedOutput)
   , ("derived-eq", haskell2010DerivedEqSource, "10\n")
@@ -7646,6 +7682,30 @@ haskell2010UserDefinedOperatorsSource =
   \x ++ y = x * y\n\
   \\n\
   \main = (1 <+> 2 <+> 3) + (4 `combine` 5 `combine` 6) + (6 ++ 7) + (10 <-> 4)\n"
+
+haskell2010WhereLayoutSource :: Text
+haskell2010WhereLayoutSource =
+  "module Main where\n\
+  \\n\
+  \f :: Int -> Int\n\
+  \f x =\n\
+  \  y + z\n\
+  \  where\n\
+  \    y = x + 1\n\
+  \    z = 2\n\
+  \\n\
+  \g :: Maybe Int -> Int\n\
+  \g value =\n\
+  \  case value of\n\
+  \    Just n ->\n\
+  \      a + b\n\
+  \      where\n\
+  \        a = n\n\
+  \        b = 1\n\
+  \    Nothing ->\n\
+  \      0\n\
+  \\n\
+  \main = f 4 + g (Just 6)\n"
 
 haskell2010ArithmeticSequencesSource :: Text
 haskell2010ArithmeticSequencesSource =

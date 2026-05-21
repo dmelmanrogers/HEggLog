@@ -599,12 +599,10 @@ Acceptance criteria:
 
 ### Source Surface Closure
 
-This is the current coherent implementation chunk. The goal is to close the
-remaining source-language surface gap before broadening the library again:
-
-1. SURFACE-003 — expand `where` parsing to cover report-shaped line-broken
-   layout positions for function bindings and case alternatives.
-
+This chunk is complete. SURFACE-003 added report-shaped line-broken `where`
+layout coverage for function bindings and case alternatives, including native
+positive fixtures and stable parse-error fixtures for misindented `where`
+keywords.
 SURFACE-002 is complete: user-defined symbolic and backtick operator bindings,
 local fixities, non-built-in infix calls, and Prelude-shadowing operators now
 compile through native execution and have manifest-backed fixtures.
