@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-22 05:49:13 UTC
+Date/time: 2026-05-22 06:18:19 UTC
 
-Commit hash tested: working tree with FFI-010 floating-point FFI marshalling changes.
+Commit hash tested: working tree with FFI-011 link metadata changes.
 
 Primary conformance command run:
 
@@ -51,6 +51,11 @@ Pass/fail summary: `haskell2010-conformance-test` passed. The current compiler
 passes the documented executable-subset conformance cases. Full Haskell 2010
 conformance remains incomplete, and unsupported features are represented as
 explicit conformance cases rather than omitted.
+
+FFI-011 is now covered by the conformance/native path. Header-qualified static
+`ccall` imports preserve link metadata, C helper fixtures are linked through
+the `hegglog compile --link-object` path, and the unit suite covers LLVM link
+metadata comments plus missing link-input diagnostics.
 
 TEST-CONF-014 source matrix closure is now validator-backed. The conformance
 validator checks 37 declaration/expression/pattern closure rows, rejects fixture

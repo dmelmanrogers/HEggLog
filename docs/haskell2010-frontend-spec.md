@@ -80,8 +80,10 @@ imports to LLVM external declarations/direct calls or indirect `FunPtr` calls
 with checked integer/Bool/Char/Float/Double marshalling, and now lowers boxed
 `Ptr`/`FunPtr` values, static `&symbol` address imports, pointer
 arguments/results, and `wrapper` callback trampolines for the same ABI slice.
-Complete package search paths, complete Prelude module coverage, broader link
-metadata, automatic GC finalization, and
+FFI link metadata is preserved for header-qualified imports and C symbols, and
+native executable builds accept explicit link objects, libraries, library
+paths, and frameworks through the compile CLI. Complete package search paths,
+complete Prelude module coverage, automatic GC finalization, and
 `freeHaskellFunPtr`/callback-slot reclamation remain later
 module-system/runtime work; `foreign export ccall` entrypoints and explicit
 `StablePtr`/manual `ForeignPtr` ownership APIs are implemented for the current

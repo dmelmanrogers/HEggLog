@@ -55,7 +55,10 @@ The implemented FFI slice includes structured `foreign import`/`foreign export`
 declarations, generated `Foreign`/`Foreign.C`/`Foreign.C.Types` interfaces,
 marshallable scalar/floating/pointer/synonym/local-newtype validation, static `ccall`,
 address, `dynamic`, `wrapper`, foreign-export, `StablePtr`, and manual
-`ForeignPtr` native wet coverage for the supported ABI surface.
+`ForeignPtr` native wet coverage for the supported ABI surface. FFI link
+metadata now preserves header-qualified imports and C symbols in native results
+and emitted LLVM comments, and the compile CLI passes explicit object,
+library, library-path, and framework inputs through to clang.
 The typechecker now also exposes source-spanned non-exhaustive and redundant
 pattern-match warnings for supported `case`, function, and lambda patterns
 through `typecheckModuleToCoreWithWarnings`; native compilation carries those
@@ -73,9 +76,9 @@ implemented:
   partial module interfaces
 - Haskell source desugaring and negative fixtures beyond the current executable subset
 - broader IO, including handles, files, buffering, seek, EOF-specific handle behavior, and effects beyond line-oriented stdin/stdout
-- remaining FFI closure for link metadata, callback/finalizer lifetimes, errno,
-  Storable dictionaries, raw allocation, array marshalling, and C string
-  marshalling functions
+- remaining FFI closure for callback/finalizer lifetimes, errno, Storable
+  dictionaries, raw allocation, array marshalling, and C string marshalling
+  functions
 - full Haskell 2010 conformance suite breadth beyond the current
   manifest-backed executable subset
 
@@ -106,10 +109,10 @@ library tasks now continue through the numbered LIB-001 through LIB-012
 standard-library module tasks.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
-is complete for floating-point native ABI marshalling, and FFI-011 through
-FFI-013 now own link metadata, callback and finalizer lifetime completion, and
-the FFI-013-documented errno, Storable, raw allocation, array, and C-string
-library gaps.
+is complete for floating-point native ABI marshalling, FFI-011 is complete for
+link metadata and explicit native link inputs, and FFI-012 plus FFI-013 now own
+callback/finalizer lifetime completion and the documented errno, Storable, raw
+allocation, array, and C-string library gaps.
 
 ## What Is Parsed Today
 
@@ -205,8 +208,10 @@ implemented and wet-tested. The broader Foreign library surface now includes
 null pointer values, pointer and function-pointer casts, `FinalizerPtr` and
 `FinalizerEnvPtr` aliases, `unsafeForeignPtrToPtr`, `castForeignPtr`,
 `throwIf`, `throwIf_`, `throwIfNull`, `void`, `maybeNew`, `maybeWith`, and
-`maybePeek`, covered by a native C-helper fixture. Floating-point marshalling,
-broader link metadata, automatic GC finalization,
+`maybePeek`, covered by a native C-helper fixture. FFI link metadata is
+preserved in the native result and emitted LLVM comments for headers,
+import/address symbols, and export symbols; explicit link inputs are passed
+through the compile CLI to clang. Automatic GC finalization,
 `freeHaskellFunPtr`/callback-slot reclamation, errno, Storable dictionaries,
 raw allocation, array marshalling, and C string marshalling functions remain
 pending.

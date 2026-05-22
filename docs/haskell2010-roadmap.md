@@ -486,7 +486,8 @@ Deliverables:
   trampolines. `foreign export ccall` now emits C-callable native entrypoints
   for supported scalar/floating/pointer pure and `IO` functions, and explicit
   `StablePtr`/manual `ForeignPtr` ownership APIs are implemented and
-  wet-tested. Broader link metadata, automatic GC finalization, and
+  wet-tested. FFI link metadata and explicit clang link inputs are implemented
+  and wet-tested. Automatic GC finalization and
   `freeHaskellFunPtr`/callback-slot reclamation remain open
 
 Acceptance criteria:
@@ -650,9 +651,12 @@ FFI-010 is complete for native ABI marshalling of `Float`, `Double`,
 `CFloat`, and `CDouble` across static calls, dynamic calls, wrapper callbacks,
 and foreign export entrypoints.
 
-1. FFI-011 — FFI link metadata.
-2. FFI-012 — callback and finalizer lifetime completion.
-3. FFI-013 — Foreign library surface completion. Status: complete for the
+FFI-011 is complete for preserving header/symbol link metadata and for passing
+explicit native link objects, libraries, library paths, and frameworks through
+the CLI/toolchain to clang.
+
+1. FFI-012 — callback and finalizer lifetime completion.
+2. FFI-013 — Foreign library surface completion. Status: complete for the
    generated/importable `Foreign.Ptr`, `Foreign.ForeignPtr`,
    `Foreign.Marshal`, `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils`
    surface added under the current runtime model; errno, Storable, raw

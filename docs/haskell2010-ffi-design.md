@@ -243,10 +243,16 @@ LLVM lowering should emit:
 - generated callback trampolines and process-lifetime callback slots for
   `wrapper` `FunPtr` interop
 - ABI-accurate scalar argument and result types
-- link metadata or CLI hooks for user-supplied object files and libraries
+- link metadata and CLI hooks for user-supplied object files and libraries
 
 Headers are not semantically required by LLVM lowering, but the compiler should
-preserve them for possible C stub generation and diagnostics.
+preserve them for possible C stub generation and diagnostics. The current
+implementation carries `ForeignLinkMetadata` in the Haskell 2010 native result
+and emits LLVM comments for header-qualified imports, static/address symbols,
+and exported C symbols. Build-time objects and libraries are explicit CLI
+inputs: `--link-object`, `--link-library`, `--library-path`, and `--framework`
+are passed through to clang, so the frontend does not guess non-Report library
+or object requirements from a foreign entity string.
 
 ## Implementation Order
 
@@ -297,8 +303,8 @@ are not scoped-down product slices.
    ownership, finalizer ordering, and idempotent finalization behavior.
 7. Implement static address imports with `Ptr`/`FunPtr`. Status: complete for
    direct C data symbols as boxed `Ptr a` values and direct C function symbols
-   as boxed `FunPtr ft` values. Header-driven include/link planning remains
-   deferred; the native wet tests link explicit helper objects.
+   as boxed `FunPtr ft` values. Header/symbol link metadata is preserved, and
+   native wet tests link explicit helper objects through the compile CLI.
 8. Implement `dynamic` imports and `wrapper` imports. Status: complete for the
    current scalar/floating/pointer ABI slice. `dynamic` imports unbox `FunPtr ft` and
    emit typed indirect LLVM calls. `wrapper` imports allocate process-lifetime

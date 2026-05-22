@@ -148,8 +148,12 @@ idempotently. `Foreign.Ptr` also exposes null and representation-preserving
 pointer/function-pointer casts; `Foreign.ForeignPtr` exposes
 `FinalizerPtr`/`FinalizerEnvPtr`, `unsafeForeignPtrToPtr`, and
 `castForeignPtr`; and `Foreign.Marshal.Error`/`Foreign.Marshal.Utils` expose
-the implemented guard and `Maybe` pointer helpers. Floating-point marshalling,
-broader link metadata, automatic GC finalizer scheduling,
+the implemented guard and `Maybe` pointer helpers. FFI link metadata is now
+preserved through native compilation: header-qualified imports, static/address
+symbols, and export symbols appear in the Haskell 2010 LLVM result and emitted
+LLVM comments, while the CLI/toolchain accepts explicit `--link-object`,
+`--link-library`, `--library-path`, and `--framework` inputs for clang.
+Automatic GC finalizer scheduling,
 `freeHaskellFunPtr`/callback-slot reclamation, errno, Storable dictionaries,
 raw allocation, array marshalling, and C string marshalling functions remain
 later FFI work.
@@ -279,8 +283,9 @@ PRELUDE-019 and PRELUDE-020 are complete for the current high-value function
 and standard-module interface slices. TEST-CONF-015 is complete for
 validator-backed reconciliation against Chapter 9 Prelude and the Part II
 Haskell 2010 Libraries module inventory. Remaining FFI closure is tracked
-separately by FFI-011 through FFI-013. FFI-010 is complete for floating-point
-native ABI marshalling of `Float`, `Double`, `CFloat`, and `CDouble`, and
+separately by FFI-012 and FFI-013. FFI-010 is complete for floating-point
+native ABI marshalling of `Float`, `Double`, `CFloat`, and `CDouble`; FFI-011
+is complete for link metadata and explicit native link inputs; and
 FFI-013 documents the implemented Foreign surface plus the still-reserved
 errno, Storable, allocation, array, and C-string pieces.
 

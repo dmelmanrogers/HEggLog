@@ -172,6 +172,21 @@ cabal run hegglog -- compile examples/llvm/arithmetic.hg -o build/arithmetic --r
 cabal run hegglog -- compile examples/llvm/division.hg -o build/division --no-egglog
 ```
 
+Native builds that need external objects or libraries can pass explicit link
+inputs through to `clang`:
+
+```bash
+cabal run hegglog -- compile Main.hs -o build/main \
+  --link-object native/ffi_helpers.o \
+  --library-path native \
+  --link-library m
+```
+
+`--link-object`, `--link-library`, `--library-path`, and `--framework` may be
+repeated. The Haskell 2010 FFI path also emits link metadata comments for
+header-qualified imports and imported/exported C symbols, but headers are not
+compiled or linked automatically.
+
 The shorthand form also works:
 
 ```bash

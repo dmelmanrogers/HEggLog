@@ -232,11 +232,11 @@ Haskell 2010 Libraries inventory.
 
 ## Remaining FFI closure chunk
 
-FFI-010 is complete for floating-point FFI marshalling.
+FFI-010 is complete for floating-point FFI marshalling, and FFI-011 is complete
+for FFI link metadata plus explicit native link inputs.
 
-1. FFI-011 — FFI link metadata.
-2. FFI-012 — callback and finalizer lifetime completion.
-3. FFI-013 — Foreign library surface completion.
+1. FFI-012 — callback and finalizer lifetime completion.
+2. FFI-013 — Foreign library surface completion.
 
 # Task Backlog
 
@@ -16729,7 +16729,7 @@ Acceptance criteria:
 - `dynamic` imports emit typed indirect calls through unboxed `FunPtr` values.
 - `wrapper` imports emit process-lifetime callback slots and C-callable trampoline functions for the supported scalar/floating/pointer ABI slice.
 - Unsupported FFI entities still report explicit native ABI diagnostics instead of being silently dropped.
-- Broader link metadata, automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, and broader callback lifetime APIs remain pending.
+- Automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, and broader callback lifetime APIs remain pending.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -16744,7 +16744,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: static scalar/floating/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks, and foreign export ccall entrypoints are implemented; link metadata and callback-slot reclamation remain open.
+- Milestone M15 (FFI). In progress: static scalar/floating/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks, and foreign export ccall entrypoints are implemented; FFI link metadata is complete, while callback-slot reclamation remains open.
 
 ## FFI-008 — FFI native tests
 
@@ -16794,7 +16794,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: static scalar, floating, pointer/address, dynamic/wrapper, and foreign-export native C-helper wet tests are implemented; link metadata, finalizer lifetime, and broader library coverage remain open.
+- Milestone M15 (FFI). In progress: static scalar, floating, pointer/address, dynamic/wrapper, and foreign-export native C-helper wet tests are implemented; link metadata and explicit link-object coverage are complete, while finalizer lifetime and broader library coverage remain open.
 
 ## FFI-009 — FFI-wide deferral retired
 
@@ -16901,7 +16901,7 @@ Notes:
 ## FFI-011 — FFI link metadata
 
 Status:
-- not started
+- complete
 
 Category:
 - runtime
@@ -16949,7 +16949,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete. Foreign import/export lowering now carries `ForeignLinkMetadata` through the Haskell 2010 native result and emits LLVM comments for header-qualified imports, static/address symbols, and exported C symbols. The CLI and LLVM toolchain accept repeated `--link-object`, `--link-library`, `--library-path`, and `--framework` flags and pass them to clang. The conformance harness now builds FFI helper fixtures through those link flags instead of a side-channel manual clang path, and tests cover header-qualified ccall metadata plus missing link-input diagnostics.
 
 ## FFI-012 — callback and finalizer lifetime completion
 

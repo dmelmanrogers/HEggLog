@@ -64,9 +64,10 @@ interface slice. TEST-CONF-015 is complete: Chapter 9 Prelude and the Part II
 Haskell 2010 Libraries module inventory are reconciled against manifest-backed
 coverage and numbered remaining tasks. FFI-010 is complete for floating-point
 FFI marshalling across static calls, dynamic calls, wrapper callbacks, and
-foreign export entrypoints. Remaining FFI closure is FFI-011 through FFI-012
-plus the FFI-013-documented errno, Storable, allocation, array, and C-string
-library gaps.
+foreign export entrypoints. FFI-011 is complete for FFI link metadata and
+explicit native link inputs. Remaining FFI closure is FFI-012 plus the
+FFI-013-documented errno, Storable, allocation, array, and C-string library
+gaps.
 
 Completed Haskell 2010 roadmap work:
 
@@ -89,6 +90,9 @@ Completed Haskell 2010 roadmap work:
   `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils` slices with native
   fixture coverage, while keeping errno, Storable, raw allocation, array
   marshalling, and C string marshalling functions explicit as pending gaps.
+- FFI-011 FFI link metadata: implemented with native-result link metadata,
+  emitted LLVM comments for headers/imports/addresses/exports, CLI link flags,
+  toolchain propagation to clang, and conformance harness link-object coverage.
 - PRELUDE-002/MOD-010 implicit Prelude import behavior: implemented with
   synthetic `import Prelude` insertion only when no explicit `Prelude` import
   exists, explicit Prelude import-list/hiding/qualified filtering, and native
