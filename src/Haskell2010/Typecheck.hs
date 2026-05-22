@@ -1829,6 +1829,7 @@ supportedPreludeValueOccurrences =
   , "castFunPtr"
   , "castFunPtrToPtr"
   , "castPtrToFunPtr"
+  , "freeHaskellFunPtr"
   , "newStablePtr"
   , "deRefStablePtr"
   , "freeStablePtr"
@@ -5448,6 +5449,7 @@ preludeValueScheme name
             "castFunPtr" -> Just (Scheme [a, b] [] (TyFun funPtrA funPtrB))
             "castFunPtrToPtr" -> Just (Scheme [a, b] [] (TyFun funPtrA ptrB))
             "castPtrToFunPtr" -> Just (Scheme [a, b] [] (TyFun ptrA funPtrB))
+            "freeHaskellFunPtr" -> Just (Scheme [a] [] (TyFun funPtrA ioUnit))
             "newStablePtr" -> Just (Scheme [a] [] (TyFun aTy (ioMonoType stablePtrA)))
             "deRefStablePtr" -> Just (Scheme [a] [] (TyFun stablePtrA (ioMonoType aTy)))
             "freeStablePtr" -> Just (Scheme [a] [] (TyFun stablePtrA ioUnit))
@@ -7438,6 +7440,11 @@ preludeCorePair name =
       Just (binderFor name castFunPtrToPtrTy, CTypeLam [a, b] (lam funPtrToPtrValue funPtrA (CPrimOp PrimCastPtr [var funPtrToPtrValue funPtrA] ptrB)) castFunPtrToPtrTy)
     "castPtrToFunPtr" ->
       Just (binderFor name castPtrToFunPtrTy, CTypeLam [a, b] (lam ptrToFunPtrValue ptrA (CPrimOp PrimCastPtr [var ptrToFunPtrValue ptrA] funPtrB)) castPtrToFunPtrTy)
+    "freeHaskellFunPtr" ->
+      Just
+        ( binderFor name freeHaskellFunPtrTy
+        , CTypeLam [a] (lam freeHaskellFunPtrValue funPtrA (CPrimOp PrimFreeHaskellFunPtr [var freeHaskellFunPtrValue funPtrA] ioUnitTy)) freeHaskellFunPtrTy
+        )
     "newStablePtr" ->
       Just
         ( binderFor name newStablePtrTy
@@ -7600,6 +7607,7 @@ preludeCorePair name =
   castFunPtrTy = CTyForall [a, b] (CTyFun funPtrA funPtrB)
   castFunPtrToPtrTy = CTyForall [a, b] (CTyFun funPtrA ptrB)
   castPtrToFunPtrTy = CTyForall [a, b] (CTyFun ptrA funPtrB)
+  freeHaskellFunPtrTy = CTyForall [a] (CTyFun funPtrA ioUnitTy)
   newStablePtrTy = CTyForall [a] (CTyFun aTy (ioTy stablePtrA))
   deRefStablePtrTy = CTyForall [a] (CTyFun stablePtrA (ioTy aTy))
   freeStablePtrTy = CTyForall [a] (CTyFun stablePtrA ioUnitTy)
@@ -7714,6 +7722,7 @@ preludeCorePair name =
   funPtrCastValue = preludeTermName "$fun_ptr_cast_value" (-3501)
   funPtrToPtrValue = preludeTermName "$fun_ptr_to_ptr_value" (-3502)
   ptrToFunPtrValue = preludeTermName "$ptr_to_fun_ptr_value" (-3503)
+  freeHaskellFunPtrValue = preludeTermName "$free_haskell_fun_ptr_value" (-3543)
   stablePtrNewValue = preludeTermName "$stable_ptr_new_value" (-3063)
   stablePtrDeRefValue = preludeTermName "$stable_ptr_deref_value" (-3064)
   stablePtrFreeValue = preludeTermName "$stable_ptr_free_value" (-3065)

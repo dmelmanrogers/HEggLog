@@ -339,6 +339,7 @@ validatePrimitive op arguments resultTy =
     PrimFreeStablePtr -> validateFreeStablePtrPrimitive op arguments resultTy
     PrimCastStablePtrToPtr -> validateCastStablePtrToPtrPrimitive op arguments resultTy
     PrimCastPtrToStablePtr -> validateCastPtrToStablePtrPrimitive op arguments resultTy
+    PrimFreeHaskellFunPtr -> validateFreeHaskellFunPtrPrimitive op arguments resultTy
     PrimNewForeignPtr -> validateNewForeignPtrPrimitive op arguments resultTy
     PrimNewForeignPtr_ -> validateNewForeignPtrNoFinalizerPrimitive op arguments resultTy
     PrimAddForeignPtrFinalizer -> validateAddForeignPtrFinalizerPrimitive op arguments resultTy
@@ -588,6 +589,18 @@ validateCastPtrToStablePtrPrimitive op arguments resultTy =
       Nothing -> Left [CorePrimitiveResultMismatch op (stablePtrTy unknownForeignTypeVariableTy) resultTy]
   ]
 
+validateFreeHaskellFunPtrPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateFreeHaskellFunPtrPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [funPtrTy_]
+        | Just _ <- funPtrPayloadType funPtrTy_ ->
+            checkPrimitiveResult op (ioTy unitTy) resultTy
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (funPtrTy unknownForeignTypeVariableTy) funPtrTy_]
+      _ -> Right ()
+  ]
+
 validateNewForeignPtrPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
 validateNewForeignPtrPrimitive op arguments resultTy =
   [ checkPrimitiveArity op 2 arguments
@@ -698,6 +711,12 @@ ptrPayloadType :: CoreType -> Maybe CoreType
 ptrPayloadType = \case
   CTyApp (CTyCon name) payloadTy
     | nameOcc name == "Ptr" -> Just payloadTy
+  _ -> Nothing
+
+funPtrPayloadType :: CoreType -> Maybe CoreType
+funPtrPayloadType = \case
+  CTyApp (CTyCon name) payloadTy
+    | nameOcc name == "FunPtr" -> Just payloadTy
   _ -> Nothing
 
 isPtrLikeType :: CoreType -> Bool

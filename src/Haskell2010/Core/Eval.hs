@@ -421,6 +421,8 @@ evalPrimitive coreEnv op values =
       Right (CorePointer (Just value))
     (PrimCastPtrToStablePtr, [CorePointer (Just value)]) ->
       Right (CoreStablePtr value)
+    (PrimFreeHaskellFunPtr, [CorePointer _]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
     (PrimNewForeignPtr, [_finalizer, pointer]) ->
       Right (CoreIO [] (CoreIOSuccess (CoreForeignPtr pointer)))
     (PrimNewForeignPtr_, [pointer]) ->
@@ -599,6 +601,7 @@ renderCorePrimOpName = \case
   PrimFreeStablePtr -> "freeStablePtr#"
   PrimCastStablePtrToPtr -> "castStablePtrToPtr#"
   PrimCastPtrToStablePtr -> "castPtrToStablePtr#"
+  PrimFreeHaskellFunPtr -> "freeHaskellFunPtr#"
   PrimNewForeignPtr -> "newForeignPtr#"
   PrimNewForeignPtr_ -> "newForeignPtr_#"
   PrimAddForeignPtrFinalizer -> "addForeignPtrFinalizer#"

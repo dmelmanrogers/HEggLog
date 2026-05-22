@@ -147,6 +147,7 @@ renderCorePrimOp = \case
   PrimFreeStablePtr -> "freeStablePtr#"
   PrimCastStablePtrToPtr -> "castStablePtrToPtr#"
   PrimCastPtrToStablePtr -> "castPtrToStablePtr#"
+  PrimFreeHaskellFunPtr -> "freeHaskellFunPtr#"
   PrimNewForeignPtr -> "newForeignPtr#"
   PrimNewForeignPtr_ -> "newForeignPtr_#"
   PrimAddForeignPtrFinalizer -> "addForeignPtrFinalizer#"

@@ -184,6 +184,7 @@ data CorePrimOp
   | PrimFreeStablePtr
   | PrimCastStablePtrToPtr
   | PrimCastPtrToStablePtr
+  | PrimFreeHaskellFunPtr
   | PrimNewForeignPtr
   | PrimNewForeignPtr_
   | PrimAddForeignPtrFinalizer

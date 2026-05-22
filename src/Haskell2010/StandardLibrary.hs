@@ -514,6 +514,7 @@ foreignPtrNames =
       , "castFunPtr"
       , "castFunPtrToPtr"
       , "castPtrToFunPtr"
+      , "freeHaskellFunPtr"
       ]
 
 foreignStablePtrNames :: [(Namespace, Text)]

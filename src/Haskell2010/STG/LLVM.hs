@@ -80,6 +80,7 @@ data ModuleState = ModuleState
   { nextClosureFunction :: Int
   , generatedFunctions :: [LLVMFunction]
   , generatedForeignWrappers :: Map.Map RName [Text]
+  , moduleWrapperImports :: [CoreForeignImport]
   }
   deriving stock (Show, Eq)
 
@@ -116,7 +117,7 @@ lowerSTGProgramToLLVMByName mainName program =
 lowerValidatedSTGProgram :: STGBinder -> STGProgram -> Either STGLLVMError LLVMModule
 lowerValidatedSTGProgram mainBinder program = do
   foreignDeclarations <- foreignImportDeclarations program
-  (mainFunction, mainModuleState) <- runStateT (lowerMainFunction program mainBinder) initialModuleState
+  (mainFunction, mainModuleState) <- runStateT (lowerMainFunction program mainBinder) (initialModuleState program)
   (foreignExportFunctions, moduleState) <-
     runStateT
       (traverse (lowerForeignExportFunction program) (stgProgramForeignExports program))
@@ -137,12 +138,13 @@ lowerValidatedSTGProgram mainBinder program = do
   mapLeft STGLLVMInvalidLLVM (validateLLVMModule llvmModule)
   pure llvmModule
 
-initialModuleState :: ModuleState
-initialModuleState =
+initialModuleState :: STGProgram -> ModuleState
+initialModuleState program =
   ModuleState
     { nextClosureFunction = 0
     , generatedFunctions = []
     , generatedForeignWrappers = Map.empty
+    , moduleWrapperImports = wrapperImportsInProgram program
     }
 
 findMain :: Text -> STGProgram -> Either STGLLVMError STGBinder
@@ -546,6 +548,11 @@ emitPrim env op arguments =
       emitAtomValue env stable
     (PrimCastPtrToStablePtr, [pointer]) ->
       emitAtomValue env pointer
+    (PrimFreeHaskellFunPtr, [functionPointer]) -> do
+      rawFunctionPointer <- emitExpectAtomPointer env functionPointer
+      emitFreeHaskellFunPtr rawFunctionPointer
+      unitObject <- emitConstructorObject unitDataConName unitTy []
+      emitMakeIOSuccess unitObject
     (PrimNewForeignPtr, [finalizer, pointer]) -> do
       finalizerPointer <- emitExpectAtomPointer env finalizer
       rawPointer <- emitExpectAtomPointer env pointer
@@ -750,22 +757,36 @@ ensureForeignWrapperFunctions foreignImport =
 
 emitClaimForeignWrapperSlot :: CoreForeignImport -> FunctionM LLVMOperand
 emitClaimForeignWrapperSlot foreignImport = do
+  claimedLabel <- freshBlockLabel "wrapper_slot_claimed"
+  incoming <- scan claimedLabel [] [0 .. foreignWrapperPoolSize - 1]
+  startBlock claimedLabel
   indexRegister <- freshRegister "wrapper_index"
-  emit (ILoad indexRegister LI64 (OGlobal LPtr (foreignWrapperNextName foreignImport)))
-  exhaustedRegister <- freshRegister "wrapper_exhausted"
-  emit (IIcmp exhaustedRegister ICmpEq LI64 (OLocal LI64 indexRegister) (OConstInt LI64 (fromIntegral foreignWrapperPoolSize)))
-  abortLabel <- freshBlockLabel "wrapper_pool_exhausted"
-  okLabel <- freshBlockLabel "wrapper_pool_ok"
-  terminateCurrent (TCondBr (OLocal LI1 exhaustedRegister) abortLabel okLabel)
-
-  startBlock abortLabel
-  emitAbort
-
-  startBlock okLabel
-  nextRegister <- freshRegister "wrapper_next"
-  emit (IAdd nextRegister LI64 (OLocal LI64 indexRegister) (OConstInt LI64 1))
-  emit (IStore LI64 (OLocal LI64 nextRegister) (OGlobal LPtr (foreignWrapperNextName foreignImport)))
+  emit (IPhi indexRegister LI64 incoming)
   pure (OLocal LI64 indexRegister)
+ where
+  slotsName =
+    foreignWrapperSlotsName foreignImport
+
+  scan claimedLabel incoming = \case
+    [] -> do
+      emitAbort
+      pure incoming
+    slotIndex : rest -> do
+      slotPointer <- emitForeignWrapperSlotPointer slotsName (OConstInt LI64 (fromIntegral slotIndex))
+      callbackRegister <- freshRegister "wrapper_slot_value"
+      emit (ILoad callbackRegister LPtr slotPointer)
+      freeRegister <- freshRegister "wrapper_slot_free"
+      emit (IIcmp freeRegister ICmpEq LPtr (OLocal LPtr callbackRegister) OConstNull)
+      freeLabel <- freshBlockLabel "wrapper_slot_free"
+      nextLabel <- freshBlockLabel "wrapper_slot_next"
+      terminateCurrent (TCondBr (OLocal LI1 freeRegister) freeLabel nextLabel)
+
+      startBlock freeLabel
+      freePredecessor <- getsCurrentLabel
+      terminateCurrent (TBr claimedLabel)
+
+      startBlock nextLabel
+      scan claimedLabel (incoming <> [(OConstInt LI64 (fromIntegral slotIndex), freePredecessor)]) rest
 
 emitForeignWrapperSlotPointer :: Text -> LLVMOperand -> FunctionM LLVMOperand
 emitForeignWrapperSlotPointer slotsName index = do
@@ -836,6 +857,16 @@ emitForeignWrapperCallbackResult slotsName slotIndex abi params = do
   callbackSlot <- emitForeignWrapperSlotPointer slotsName (OConstInt LI64 (fromIntegral slotIndex))
   callbackRegister <- freshRegister "callback"
   emit (ILoad callbackRegister LPtr callbackSlot)
+  freedRegister <- freshRegister "callback_freed"
+  emit (IIcmp freedRegister ICmpEq LPtr (OLocal LPtr callbackRegister) OConstNull)
+  freedLabel <- freshBlockLabel "callback_freed"
+  liveLabel <- freshBlockLabel "callback_live"
+  terminateCurrent (TCondBr (OLocal LI1 freedRegister) freedLabel liveLabel)
+
+  startBlock freedLabel
+  emitAbort
+
+  startBlock liveLabel
   boxedArguments <-
     traverse
       ( \(argumentABI, (argumentTy, argumentRegister)) ->
@@ -843,6 +874,37 @@ emitForeignWrapperCallbackResult slotsName slotIndex abi params = do
       )
       (zip (foreignFunctionArguments abi) params)
   applyHaskellFunction (OLocal LPtr callbackRegister) boxedArguments
+
+emitFreeHaskellFunPtr :: LLVMOperand -> FunctionM ()
+emitFreeHaskellFunPtr functionPointer = do
+  state <- lift get
+  doneLabel <- freshBlockLabel "free_haskell_fun_ptr_done"
+  scan doneLabel (wrapperCandidates (moduleWrapperImports state))
+  startBlock doneLabel
+ where
+  wrapperCandidates imports =
+    [ (foreignImport, slotIndex, functionName)
+    | foreignImport <- imports
+    , (slotIndex, functionName) <- zip [0 :: Int ..] (foreignWrapperFunctionNames foreignImport)
+    ]
+
+  scan doneLabel = \case
+    [] ->
+      emitAbort
+    (foreignImport, slotIndex, functionName) : rest -> do
+      matchedRegister <- freshRegister "free_haskell_fun_ptr_matched"
+      emit (IIcmp matchedRegister ICmpEq LPtr functionPointer (OGlobal LPtr functionName))
+      matchedLabel <- freshBlockLabel "free_haskell_fun_ptr_matched"
+      nextLabel <- freshBlockLabel "free_haskell_fun_ptr_next"
+      terminateCurrent (TCondBr (OLocal LI1 matchedRegister) matchedLabel nextLabel)
+
+      startBlock matchedLabel
+      slotPointer <- emitForeignWrapperSlotPointer (foreignWrapperSlotsName foreignImport) (OConstInt LI64 (fromIntegral slotIndex))
+      emit (IStore LPtr OConstNull slotPointer)
+      terminateCurrent (TBr doneLabel)
+
+      startBlock nextLabel
+      scan doneLabel rest
 
 applyHaskellFunction :: LLVMOperand -> [LLVMOperand] -> FunctionM LLVMOperand
 applyHaskellFunction functionObject = \case
@@ -1847,6 +1909,18 @@ foreignImportsInProgram :: STGProgram -> [CoreForeignImport]
 foreignImportsInProgram (STGProgram _ binds _foreignExports) =
   concatMap foreignImportsInBind binds
 
+wrapperImportsInProgram :: STGProgram -> [CoreForeignImport]
+wrapperImportsInProgram program =
+  uniqueForeignImportsByName
+    [ foreignImport
+    | foreignImport <- foreignImportsInProgram program
+    , S.foreignImportEntityKind (coreForeignImportEntity foreignImport) == S.ForeignImportWrapper
+    ]
+
+uniqueForeignImportsByName :: [CoreForeignImport] -> [CoreForeignImport]
+uniqueForeignImportsByName imports =
+  Map.elems (Map.fromList [(coreForeignImportName foreignImport, foreignImport) | foreignImport <- imports])
+
 foreignImportsInBind :: STGBind -> [CoreForeignImport]
 foreignImportsInBind = \case
   STGNonRec _ rhs ->
@@ -1909,9 +1983,7 @@ foreignImportDeclarationsFor foreignImport =
       pure [(symbol, declaration)]
     S.ForeignImportWrapper ->
       pure
-        [ (foreignWrapperSlotsName foreignImport, foreignWrapperSlotsDeclaration foreignImport)
-        , (foreignWrapperNextName foreignImport, foreignWrapperNextDeclaration foreignImport)
-        ]
+        [(foreignWrapperSlotsName foreignImport, foreignWrapperSlotsDeclaration foreignImport)]
     other ->
       Left (STGLLVMUnsupported ("native FFI import declaration lowering is not implemented for `" <> renderForeignImportEntityKind other <> "`"))
 
@@ -2210,11 +2282,6 @@ foreignWrapperSlotsName foreignImport =
   "hegglog_hs_ffi_wrapper_slots_"
     <> foreignWrapperBaseName foreignImport
 
-foreignWrapperNextName :: CoreForeignImport -> Text
-foreignWrapperNextName foreignImport =
-  "hegglog_hs_ffi_wrapper_next_"
-    <> foreignWrapperBaseName foreignImport
-
 foreignWrapperSlotsDeclaration :: CoreForeignImport -> Text
 foreignWrapperSlotsDeclaration foreignImport =
   "@"
@@ -2222,10 +2289,6 @@ foreignWrapperSlotsDeclaration foreignImport =
     <> " = internal global ["
     <> Text.pack (show foreignWrapperPoolSize)
     <> " x ptr] zeroinitializer"
-
-foreignWrapperNextDeclaration :: CoreForeignImport -> Text
-foreignWrapperNextDeclaration foreignImport =
-  "@" <> foreignWrapperNextName foreignImport <> " = internal global i64 0"
 
 foreignDynamicTargetSymbolName :: CoreForeignImport -> Text
 foreignDynamicTargetSymbolName foreignImport =

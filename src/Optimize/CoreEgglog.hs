@@ -699,6 +699,7 @@ corePrimToANF = \case
   PrimFreeStablePtr -> Nothing
   PrimCastStablePtrToPtr -> Nothing
   PrimCastPtrToStablePtr -> Nothing
+  PrimFreeHaskellFunPtr -> Nothing
   PrimNewForeignPtr -> Nothing
   PrimNewForeignPtr_ -> Nothing
   PrimAddForeignPtrFinalizer -> Nothing

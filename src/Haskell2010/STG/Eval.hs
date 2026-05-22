@@ -551,6 +551,8 @@ evalPrimitiveValues op values =
       pure (STGPointer (Just value))
     (PrimCastPtrToStablePtr, [STGPointer (Just value)]) ->
       pure (STGStablePtr value)
+    (PrimFreeHaskellFunPtr, [STGPointer _]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
     (PrimNewForeignPtr, [_finalizer, pointer]) ->
       pure (STGIO [] (STGIOSuccess (STGForeignPtr pointer)))
     (PrimNewForeignPtr_, [pointer]) ->
@@ -809,6 +811,7 @@ renderCorePrimOpName = \case
   PrimFreeStablePtr -> "freeStablePtr#"
   PrimCastStablePtrToPtr -> "castStablePtrToPtr#"
   PrimCastPtrToStablePtr -> "castPtrToStablePtr#"
+  PrimFreeHaskellFunPtr -> "freeHaskellFunPtr#"
   PrimNewForeignPtr -> "newForeignPtr#"
   PrimNewForeignPtr_ -> "newForeignPtr_#"
   PrimAddForeignPtrFinalizer -> "addForeignPtrFinalizer#"
