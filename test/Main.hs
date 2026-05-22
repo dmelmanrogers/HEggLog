@@ -8125,17 +8125,23 @@ haskell2010DerivedShowSource =
   \  putStrLn (show (Years 7))\n\
   \  putStrLn (show (Person { label = \"Ada\", age = 42 }))\n\
   \  putStrLn (show [Box True, Box False])\n\
+  \  putStrLn (showsPrec 11 (Box True) \"!\")\n\
+  \  putStrLn (shows (Box False) \"!\")\n\
+  \  putStrLn (showList [Box True, Box False] \"!\")\n\
   \  return ()\n"
 
 haskell2010DerivedShowOutput :: Text
 haskell2010DerivedShowOutput =
   "Off\n\
-  \Box ('x')\n\
-  \Name (\"aa\")\n\
-  \Node (Leaf ('a')) (Leaf ('b'))\n\
-  \Years (7)\n\
-  \Person { age = (42), label = (\"Ada\") }\n\
-  \[Box (True),Box (False)]\n"
+  \Box 'x'\n\
+  \Name \"aa\"\n\
+  \Node (Leaf 'a') (Leaf 'b')\n\
+  \Years 7\n\
+  \Person {age = 42, label = \"Ada\"}\n\
+  \[Box True,Box False]\n\
+  \(Box True)!\n\
+  \Box False!\n\
+  \[Box True,Box False]!\n"
 
 haskell2010DerivedEnumSource :: Text
 haskell2010DerivedEnumSource =
@@ -8210,12 +8216,12 @@ haskell2010DerivedBoundedOutput :: Text
 haskell2010DerivedBoundedOutput =
   "0\n\
   \3\n\
-  \Pair (False) (North)\n\
-  \Pair (True) (West)\n\
-  \Record { low = (False), high = (North) }\n\
-  \Record { low = (True), high = (West) }\n\
-  \Flag (False)\n\
-  \Flag (True)\n"
+  \Pair False North\n\
+  \Pair True West\n\
+  \Record {low = False, high = North}\n\
+  \Record {low = True, high = West}\n\
+  \Flag False\n\
+  \Flag True\n"
 
 haskell2010InvalidDerivedBoundedSource :: Text
 haskell2010InvalidDerivedBoundedSource =
@@ -8388,13 +8394,20 @@ haskell2010BroadShowSource =
   \  putStrLn (show [1, 2, 3])\n\
   \  putStrLn (show [True, False])\n\
   \  putStrLn (show [\"a\", \"b\"])\n\
+  \  putStrLn (shows 'Z' \"!\")\n\
+  \  putStrLn (showsPrec 0 \"hi\" \"!\")\n\
+  \  putStrLn (showList ['a', 'b'] \"!\")\n\
+  \  putStrLn (showList [1, 2] \"!\")\n\
+  \  putStrLn (show '\\NUL')\n\
+  \  putStrLn (show \"\\n\\\"\\\\\")\n\
+  \  putStrLn (show ['\\SO', 'H'])\n\
   \  print 'Q'\n\
   \  print \"ok\"\n\
   \  return ()\n"
 
 haskell2010BroadShowOutput :: Text
 haskell2010BroadShowOutput =
-  "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Q'\n\"ok\"\n"
+  "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Z'!\n\"hi\"!\n\"ab\"!\n[1,2]!\n'\\NUL'\n\"\\n\\\"\\\\\"\n\"\\SO\\&H\"\n'Q'\n\"ok\"\n"
 
 haskell2010AppendSource :: Text
 haskell2010AppendSource =

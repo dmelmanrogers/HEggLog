@@ -73,8 +73,8 @@ and local functions, plus the initial type class dictionary slice for
 user-defined single-parameter classes, concrete instances, explicit source
 constraints with normalized argument representation, dictionary-passed method
 calls, superclass dictionary fields/projection, default class methods,
-derived `Eq`/`Ord`/`Show` dictionaries for supported data/newtype declarations including
-parameterized, recursive, `String`-field, and list-backed cases,
+derived `Eq`/`Ord`/Report-shaped `Show` dictionaries for supported data/newtype declarations including
+parameterized, recursive, `String`-field, list-backed, record, and precedence-sensitive cases,
 derived `Enum` dictionaries for nullary-constructor data declarations,
 derived `Bounded` dictionaries for all-nullary enumerations and
 single-constructor products, records, and newtypes,
@@ -89,8 +89,8 @@ slice for `IO`, `main :: IO ()`,
 `putStrLn`, `getLine`, `print`, and higher-kinded `Monad` dictionaries for
 `IO`, `Maybe`, and lists, including `return`, `(>>)`, `(>>=)`, `fail`, generic
 expression and bind-statement `do` sequencing, and refutable do-bind failure, and
-built-in `Show Int`/`Show Bool`/`Show Char`/`Show String` plus generated
-structural list `Show` dictionaries, plus executable arithmetic sequences over
+built-in Report-shaped `Show Int`/`Show Bool`/`Show Char`/`Show String` plus generated
+structural list `Show` dictionaries and Prelude `shows`, plus executable arithmetic sequences over
 `Int`, `Char`, and derived-enumeration ranges, public `Enum Int`/`Enum Char` and
 `Bounded Int`/`Bounded Char`/`Bounded Bool` dictionaries, plus executable list comprehensions with generator
 scoping, Bool guards, `let` qualifiers, nested generators, and refutable
@@ -264,7 +264,7 @@ source matrix closure, and ADT-007 completed record
 update expressions.
 
 The following coherent chunk is Prelude, deriving, and typeclass library
-completion: TC-029, TC-030, and the numbered LIB follow-ups from TEST-CONF-015.
+completion: TC-030 and the numbered LIB follow-ups from TEST-CONF-015.
 PRELUDE-019 and PRELUDE-020 are complete for the current high-value function
 and standard-module interface slices. TEST-CONF-015 is complete for
 validator-backed reconciliation against Chapter 9 Prelude and the Part II
@@ -319,7 +319,7 @@ Current tests include:
 
 Future Haskell 2010 conformance work should extend this direct executable
 coverage as report-complete pattern coverage/runtime attribution,
-the report-compatible `showsPrec`/`showList` hierarchy, exhaustive Unicode/string escape fidelity,
-additional string library behavior, and broader IO are implemented. Source-spanned
+`Read`, broader Unicode/string escape edge cases, additional string library
+behavior, and broader IO are implemented. Source-spanned
 non-exhaustive and redundant pattern warnings are already exposed through the
 Haskell 2010 typechecker, native compilation result APIs, and compile CLI.

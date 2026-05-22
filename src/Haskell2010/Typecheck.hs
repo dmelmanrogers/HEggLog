@@ -1157,12 +1157,15 @@ builtinClassInfos =
 
   showA = preludeTypeVariable "a" (-1331)
   showATy = TyVar showA
+  showS = TyFun stringMonoType stringMonoType
   showInfo =
     builtinClassInfo
       builtinShowClassName
       showA
       []
-      [ ("show", -1431, TyFun showATy stringMonoType)
+      [ ("showsPrec", -1430, TyFun intMonoType (TyFun showATy showS))
+      , ("show", -1431, TyFun showATy stringMonoType)
+      , ("showList", -1432, TyFun (TyList showATy) showS)
       ]
 
   enumA = preludeTypeVariable "a" (-1341)
@@ -1735,7 +1738,10 @@ supportedPreludeValueOccurrences =
   , "filter"
   , "reverse"
   , "++"
+  , "showsPrec"
   , "show"
+  , "showList"
+  , "shows"
   , "putStrLn"
   , "getLine"
   , "print"
@@ -3323,20 +3329,48 @@ derivedGT =
 
 derivedShowMethodBindings :: [RConDecl] -> ClassInfo -> InferM (Map.Map RName SourceBinding)
 derivedShowMethodBindings constructors info = do
+  showsPrecMethod <- requireShowMethod "showsPrec"
   showMethod <- requireShowMethod "show"
-  binding <- derivedShowBinding (classMethodName showMethod) constructors
-  pure (Map.singleton (classMethodName showMethod) binding)
+  showListMethod <- requireShowMethod "showList"
+  showsPrecBinding <- derivedShowsPrecBinding (classMethodName showsPrecMethod) constructors
+  showBinding <- derivedShowBinding (classMethodName showMethod) constructors
+  showListBinding <- derivedShowListBinding (classMethodName showListMethod) constructors
+  pure
+    ( Map.fromList
+        [ (classMethodName showsPrecMethod, showsPrecBinding)
+        , (classMethodName showMethod, showBinding)
+        , (classMethodName showListMethod, showListBinding)
+        ]
+    )
  where
   requireShowMethod occurrence =
     case List.find ((== occurrence) . nameOcc . classMethodName) (classInfoMethods info) of
       Just method -> pure method
       Nothing -> throwTypecheck (UnsupportedCore0 ("missing Show method `" <> occurrence <> "`"))
 
+derivedShowsPrecBinding :: RName -> [RConDecl] -> InferM SourceBinding
+derivedShowsPrecBinding methodName constructors = do
+  precName <- freshGeneratedName TermNamespace "$derived_shows_prec"
+  valueName <- freshGeneratedName TermNamespace "$derived_show_value"
+  restName <- freshGeneratedName TermNamespace "$derived_show_rest"
+  appendName <- freshGeneratedName TermNamespace "$derived_show_append"
+  body <- derivedShowCase appendName (RVar precName) (RVar valueName) (RVar restName) constructors
+  appendDecl <- derivedShowAppendDecl appendName
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar precName, RPVar valueName, RPVar restName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs = RUnguarded body
+      , sourceBindingWhereDecls = [appendDecl]
+      }
+
 derivedShowBinding :: RName -> [RConDecl] -> InferM SourceBinding
 derivedShowBinding methodName constructors = do
   valueName <- freshGeneratedName TermNamespace "$derived_show_value"
   appendName <- freshGeneratedName TermNamespace "$derived_show_append"
-  alternatives <- traverse (derivedShowAlt appendName) constructors
+  body <- derivedShowCase appendName (derivedShowInt 0) (RVar valueName) (derivedShowString "") constructors
   appendDecl <- derivedShowAppendDecl appendName
   pure
     SourceBinding
@@ -3344,61 +3378,126 @@ derivedShowBinding methodName constructors = do
       , sourceBindingName = methodName
       , sourceBindingPatterns = [RPVar valueName]
       , sourceBindingPatternBinding = Nothing
-      , sourceBindingRhs = RUnguarded (RCase (RVar valueName) alternatives)
+      , sourceBindingRhs = RUnguarded body
       , sourceBindingWhereDecls = [appendDecl]
       }
 
-derivedShowAlt :: RName -> RConDecl -> InferM RAlt
-derivedShowAlt appendName constructor = do
+derivedShowListBinding :: RName -> [RConDecl] -> InferM SourceBinding
+derivedShowListBinding methodName constructors = do
+  xsName <- freshGeneratedName TermNamespace "$derived_show_list_xs"
+  restName <- freshGeneratedName TermNamespace "$derived_show_list_rest"
+  yName <- freshGeneratedName TermNamespace "$derived_show_list_y"
+  ysName <- freshGeneratedName TermNamespace "$derived_show_list_ys"
+  appendName <- freshGeneratedName TermNamespace "$derived_show_append"
+  tailName <- freshGeneratedName TermNamespace "$derived_show_list_tail"
+  consBody <- derivedShowCase appendName (derivedShowInt 0) (RVar yName) (RApp (RApp (RVar tailName) (RVar ysName)) (RVar restName)) constructors
+  tailDecl <- derivedShowListTailDecl appendName tailName constructors
+  appendDecl <- derivedShowAppendDecl appendName
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar xsName, RPVar restName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs =
+          RUnguarded
+            ( RCase
+                (RVar xsName)
+                [ RAlt (RPList []) (RUnguarded (derivedShowStringToRest appendName "[]" (RVar restName))) []
+                , RAlt
+                    (RPCon listConsDataConName [RPVar yName, RPVar ysName])
+                    (RUnguarded (derivedShowStringToRest appendName "[" consBody))
+                    []
+                ]
+            )
+      , sourceBindingWhereDecls = [appendDecl, tailDecl]
+      }
+
+derivedShowListTailDecl :: RName -> RName -> [RConDecl] -> InferM RDecl
+derivedShowListTailDecl appendName tailName constructors = do
+  xsName <- freshGeneratedName TermNamespace "$derived_show_list_tail_xs"
+  restName <- freshGeneratedName TermNamespace "$derived_show_list_tail_rest"
+  yName <- freshGeneratedName TermNamespace "$derived_show_list_tail_y"
+  ysName <- freshGeneratedName TermNamespace "$derived_show_list_tail_ys"
+  consBody <- derivedShowCase appendName (derivedShowInt 0) (RVar yName) (RApp (RApp (RVar tailName) (RVar ysName)) (RVar restName)) constructors
+  pure
+    ( RFunctionBinding
+        tailName
+        [RPVar xsName, RPVar restName]
+        ( RUnguarded
+            ( RCase
+                (RVar xsName)
+                [ RAlt (RPList []) (RUnguarded (derivedShowStringToRest appendName "]" (RVar restName))) []
+                , RAlt
+                    (RPCon listConsDataConName [RPVar yName, RPVar ysName])
+                    (RUnguarded (derivedShowStringToRest appendName "," consBody))
+                    []
+                ]
+            )
+        )
+        []
+    )
+
+derivedShowCase :: RName -> RExpr -> RExpr -> RExpr -> [RConDecl] -> InferM RExpr
+derivedShowCase appendName precExpr valueExpr restExpr constructors = do
+  alternatives <- traverse (derivedShowAlt appendName precExpr restExpr) constructors
+  pure (RCase valueExpr alternatives)
+
+derivedShowAlt :: RName -> RExpr -> RExpr -> RConDecl -> InferM RAlt
+derivedShowAlt appendName precExpr restExpr constructor = do
   fieldNames <- freshConstructorFields "$derived_show_field" constructor
   pure
     ( RAlt
         (RPCon (conDeclName constructor) (map RPVar fieldNames))
-        (RUnguarded (derivedShowConstructor appendName constructor fieldNames))
+        (RUnguarded (derivedShowConstructor appendName precExpr restExpr constructor fieldNames))
         []
     )
 
-derivedShowConstructor :: RName -> RConDecl -> [RName] -> RExpr
-derivedShowConstructor appendName constructor fieldNames
+derivedShowConstructor :: RName -> RExpr -> RExpr -> RConDecl -> [RName] -> RExpr
+derivedShowConstructor appendName precExpr restExpr constructor fieldNames
   | null fieldNames =
-      derivedShowString (nameOcc (conDeclName constructor))
+      derivedShowStringToRest appendName (nameOcc (conDeclName constructor)) restExpr
   | any (/= Nothing) labels =
-      derivedShowRecordConstructor appendName constructor fieldNames labels
+      derivedShowRecordConstructor appendName restExpr constructor fieldNames labels
   | otherwise =
-      derivedShowPrefixConstructor appendName constructor fieldNames
+      derivedShowPrefixConstructor appendName precExpr restExpr constructor fieldNames
  where
   labels = conDeclFieldLabels constructor
 
-derivedShowPrefixConstructor :: RName -> RConDecl -> [RName] -> RExpr
-derivedShowPrefixConstructor appendName constructor fieldNames =
-  derivedShowConcat appendName (derivedShowString (nameOcc (conDeclName constructor) <> " ") : fieldPieces)
+derivedShowPrefixConstructor :: RName -> RExpr -> RExpr -> RConDecl -> [RName] -> RExpr
+derivedShowPrefixConstructor appendName precExpr restExpr constructor fieldNames =
+  case precExpr of
+    RLit (LInt precedence)
+      | precedence > 10 -> parenthesized
+      | otherwise -> inner restExpr
+    _ ->
+      RIf
+        (RInfixApp precExpr derivedShowGreaterThanName (derivedShowInt 10))
+        parenthesized
+        (inner restExpr)
  where
-  fieldPieces =
-    List.intersperse (derivedShowString " ") (map (derivedShowParenthesizedField appendName) fieldNames)
+  parenthesized =
+    derivedShowStringToRest appendName "(" (inner (derivedShowStringToRest appendName ")" restExpr))
+  inner finalRest =
+    derivedShowStringToRest appendName (nameOcc (conDeclName constructor)) (foldr fieldToRest finalRest fieldNames)
+  fieldToRest fieldName rest =
+    derivedShowStringToRest appendName " " (derivedShowFieldToRest 11 fieldName rest)
 
-derivedShowRecordConstructor :: RName -> RConDecl -> [RName] -> [Maybe RName] -> RExpr
-derivedShowRecordConstructor appendName constructor fieldNames labels =
-  derivedShowConcat appendName ([derivedShowString (nameOcc (conDeclName constructor) <> " { ")] <> fieldPieces <> [derivedShowString " }"])
+derivedShowRecordConstructor :: RName -> RExpr -> RConDecl -> [RName] -> [Maybe RName] -> RExpr
+derivedShowRecordConstructor appendName restExpr constructor fieldNames labels =
+  derivedShowStringToRest appendName (nameOcc (conDeclName constructor) <> " {") (fieldsToRest labelFields)
  where
-  fieldPieces =
-    List.intersperse
-      (derivedShowString ", ")
-      [ derivedShowConcat
-          appendName
-          [ derivedShowString (nameOcc label <> " = ")
-          , derivedShowParenthesizedField appendName fieldName
-          ]
-      | (Just label, fieldName) <- zip labels fieldNames
-      ]
+  labelFields = [(label, fieldName) | (Just label, fieldName) <- zip labels fieldNames]
+  fieldsToRest [] =
+    derivedShowStringToRest appendName "}" restExpr
+  fieldsToRest [(label, fieldName)] =
+    derivedShowStringToRest appendName (nameOcc label <> " = ") (derivedShowFieldToRest 0 fieldName (derivedShowStringToRest appendName "}" restExpr))
+  fieldsToRest ((label, fieldName) : rest) =
+    derivedShowStringToRest appendName (nameOcc label <> " = ") (derivedShowFieldToRest 0 fieldName (derivedShowStringToRest appendName ", " (fieldsToRest rest)))
 
-derivedShowParenthesizedField :: RName -> RName -> RExpr
-derivedShowParenthesizedField appendName fieldName =
-  derivedShowConcat
-    appendName
-    [ derivedShowString "("
-    , RApp (RVar derivedShowName) (RVar fieldName)
-    , derivedShowString ")"
-    ]
+derivedShowFieldToRest :: Int -> RName -> RExpr -> RExpr
+derivedShowFieldToRest precedence fieldName restExpr =
+  RApp (RApp (RApp (RVar derivedShowsPrecName) (derivedShowInt (toInteger precedence))) (RVar fieldName)) restExpr
 
 derivedShowAppendDecl :: RName -> InferM RDecl
 derivedShowAppendDecl appendName = do
@@ -3424,23 +3523,25 @@ derivedShowAppendDecl appendName = do
         []
     )
 
-derivedShowConcat :: RName -> [RExpr] -> RExpr
-derivedShowConcat appendName = \case
-  [] -> derivedShowString ""
-  expression : rest ->
-    foldl (derivedShowAppend appendName) expression rest
-
-derivedShowAppend :: RName -> RExpr -> RExpr -> RExpr
-derivedShowAppend appendName lhs rhs =
-  RApp (RApp (RVar appendName) lhs) rhs
+derivedShowStringToRest :: RName -> Text -> RExpr -> RExpr
+derivedShowStringToRest appendName text restExpr =
+  RApp (RApp (RVar appendName) (derivedShowString text)) restExpr
 
 derivedShowString :: Text -> RExpr
 derivedShowString =
   RLit . LString
 
-derivedShowName :: RName
-derivedShowName =
-  preludeTermName "show" (-1431)
+derivedShowInt :: Integer -> RExpr
+derivedShowInt =
+  RLit . LInt
+
+derivedShowsPrecName :: RName
+derivedShowsPrecName =
+  preludeTermName "showsPrec" (-1430)
+
+derivedShowGreaterThanName :: RName
+derivedShowGreaterThanName =
+  preludeTermName ">" (-1413)
 
 derivedEnumMethodBindings :: [RConDecl] -> ClassInfo -> InferM (Map.Map RName SourceBinding)
 derivedEnumMethodBindings constructors info = do
@@ -4128,7 +4229,11 @@ inferExpr env expr =
         typedScrutinee <- inferExpr env scrutinee
         scrutineeTy <- applyCurrent (typedExprType typedScrutinee)
         resultTy <- freshMeta
-        warnForPatternCoverage CasePatternExhaustiveness scrutineeTy [PatternCoverageRow (rAltSpan alt) pat rhs | alt@(RAlt pat rhs _) <- alternatives]
+        let coverageContext =
+              case rExprSpan expr of
+                Nothing -> GeneratedPatternExhaustiveness
+                Just _ -> CasePatternExhaustiveness
+        warnForPatternCoverage coverageContext scrutineeTy [PatternCoverageRow (rAltSpan alt) pat rhs | alt@(RAlt pat rhs _) <- alternatives]
         case alternatives of
           firstAlt : _ -> do
             firstIrrefutable <- caseAltCanElideRuntimeCase firstAlt
@@ -4983,6 +5088,7 @@ preludeValueScheme name
             "filter" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun listA listA)))
             "reverse" -> Just (Scheme [a] [] (TyFun listA listA))
             "++" -> Just (Scheme [a] [] (TyFun listA (TyFun listA listA)))
+            "shows" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun aTy (TyFun stringMonoType stringMonoType)))
             "putStrLn" -> Just (Scheme [] [] (TyFun stringMonoType ioUnit))
             "getLine" -> Just (Scheme [] [] (ioMonoType stringMonoType))
             "print" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun aTy ioUnit))
@@ -6762,6 +6868,8 @@ preludeCorePair name =
       Just (binderFor name reverseTy, reverseRhs)
     "++" ->
       Just (binderFor name appendTy, appendRhs name)
+    "shows" ->
+      Just (binderFor name showsTy, showsRhs)
     "putStrLn" ->
       Just
         ( binderFor name putStrLnTy
@@ -6868,7 +6976,10 @@ preludeCorePair name =
   appendTy = CTyForall [a] (CTyFun listA (CTyFun listA listA))
   putStrLnTy = CTyFun stringTy ioUnitTy
   getLineTy = ioTy stringTy
+  showSTy = CTyFun stringTy stringTy
+  showsPrecTy = CTyForall [showMethodA] (CTyFun showMethodDictA (CTyFun intTy (CTyFun showMethodATy showSTy)))
   showTy = CTyForall [showMethodA] (CTyFun showMethodDictA (CTyFun showMethodATy stringTy))
+  showsTy = CTyForall [a] (CTyFun showDictA (CTyFun aTy showSTy))
   printTy = CTyForall [a] (CTyFun showDictA (CTyFun aTy ioUnitTy))
   newStablePtrTy = CTyForall [a] (CTyFun aTy (ioTy stablePtrA))
   deRefStablePtrTy = CTyForall [a] (CTyFun stablePtrA (ioTy aTy))
@@ -6949,6 +7060,9 @@ preludeCorePair name =
   appendRest = preludeTermName "$append_rest" (-3073)
   appendCase = preludeTermName "$append_case" (-3074)
   putStrLnS = preludeTermName "$putStrLn_s" (-3060)
+  showsDict = preludeTermName "$shows_dict" (-3080)
+  showsX = preludeTermName "$shows_x" (-3081)
+  showsRest = preludeTermName "$shows_rest" (-3082)
   printDict = preludeTermName "$print_dict" (-3061)
   printX = preludeTermName "$print_x" (-3062)
   stablePtrNewValue = preludeTermName "$stable_ptr_new_value" (-3063)
@@ -7272,6 +7386,24 @@ preludeCorePair name =
         appendX
         appendRest
         (cons aTy (var appendX aTy) recursive)
+
+  showsRhs =
+    CTypeLam [a] (lam showsDict showDictA (lam showsX aTy (lam showsRest stringTy showsBody))) showsTy
+   where
+    showsPrecFunction =
+      apply
+        (CTypeApp (CVar (preludeTermName "showsPrec" (-1430)) showsPrecTy) [aTy] (CTyFun showDictA (CTyFun intTy (CTyFun aTy showSTy))))
+        (var showsDict showDictA)
+        (CTyFun intTy (CTyFun aTy showSTy))
+    showsBody =
+      apply
+        ( apply
+            (apply showsPrecFunction zeroInt (CTyFun aTy showSTy))
+            (var showsX aTy)
+            showSTy
+        )
+        (var showsRest stringTy)
+        stringTy
 
   printRhs =
     CTypeLam [a] (lam printDict showDictA (lam printX aTy printBody)) printTy
@@ -8325,22 +8457,22 @@ builtinInstanceDictionaries classes =
         (classInfoName info)
         intMonoType
         (preludeTermName "$fShowInt" (-1531))
-        [intShowMethod]
+        [intShowsPrecMethod, intShowMethod, intShowListMethod]
     , BuiltinInstanceDictionary
         (classInfoName info)
         boolMonoType
         (preludeTermName "$fShowBool" (-1532))
-        [boolShowMethod]
+        [boolShowsPrecMethod, boolShowMethod, boolShowListMethod]
     , BuiltinInstanceDictionary
         (classInfoName info)
         charMonoType
         (preludeTermName "$fShowChar" (-1533))
-        [charShowMethod]
+        [charShowsPrecMethod, charShowMethod, charShowListMethod]
     , BuiltinInstanceDictionary
         (classInfoName info)
         stringMonoType
         (preludeTermName "$fShowString" (-1534))
-        [stringShowMethod]
+        [stringShowsPrecMethod, stringShowMethod, stringShowListMethod]
     ]
 
   enumInstances info =
@@ -8904,22 +9036,54 @@ boolMaxBoundMethod :: CoreExpr
 boolMaxBoundMethod =
   CCon trueDataConName boolTy
 
+intShowsPrecMethod :: CoreExpr
+intShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_int" (-1840) intTy (\value -> CPrimOp PrimShowInt [value] stringTy)
+
 intShowMethod :: CoreExpr
 intShowMethod =
   unaryPrimMethod "$show_int" (-1841) intTy stringTy PrimShowInt
+
+intShowListMethod :: CoreExpr
+intShowListMethod =
+  showListFromShowsMethod intTy (showsPrecFromRenderedMethod "$show_list_shows_int" (-2401) intTy (\value -> CPrimOp PrimShowInt [value] stringTy))
+
+boolShowsPrecMethod :: CoreExpr
+boolShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_bool" (-1850) boolTy (\value -> CPrimOp PrimShowBool [value] stringTy)
 
 boolShowMethod :: CoreExpr
 boolShowMethod =
   unaryPrimMethod "$show_bool" (-1851) boolTy stringTy PrimShowBool
 
+boolShowListMethod :: CoreExpr
+boolShowListMethod =
+  showListFromShowsMethod boolTy (showsPrecFromRenderedMethod "$show_list_shows_bool" (-2411) boolTy (\value -> CPrimOp PrimShowBool [value] stringTy))
+
+charShowsPrecMethod :: CoreExpr
+charShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_char" (-1880) charTy (showCharLiteralCoreWith "$shows_prec_char_case" (-1883))
+
 charShowMethod :: CoreExpr
 charShowMethod =
   unaryMethod "$show_char" (-1881) charTy stringTy showCharLiteralCore
 
+charShowListMethod :: CoreExpr
+charShowListMethod =
+  binaryMethod "$show_char_list" (-1882) stringTy stringTy $ \value rest ->
+    appendStringCore (showStringLiteralCore value) rest
+
+stringShowsPrecMethod :: CoreExpr
+stringShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_string" (-1890) stringTy showStringLiteralCore
+
 stringShowMethod :: CoreExpr
 stringShowMethod =
-  unaryMethod "$show_string" (-1891) stringTy stringTy $ \value ->
-    consCharCore '"' (CApp (CVar showStringCharsName showStringCharsCoreType) value stringTy)
+  unaryMethod "$show_string" (-1891) stringTy stringTy showStringLiteralCore
+
+stringShowListMethod :: CoreExpr
+stringShowListMethod =
+  showListFromShowsMethod stringTy (showsPrecFromRenderedMethod "$show_list_shows_string" (-2421) stringTy showStringLiteralCore)
 
 ioFunctorFmapMethod :: CoreExpr
 ioFunctorFmapMethod =
@@ -9880,6 +10044,18 @@ showDictCoreType :: CoreType -> CoreType
 showDictCoreType ty =
   CTyApp (CTyCon (classDictionaryTypeName builtinShowClassName)) ty
 
+showSCoreType :: CoreType
+showSCoreType =
+  CTyFun stringTy stringTy
+
+showsPrecFunctionCoreType :: CoreType -> CoreType
+showsPrecFunctionCoreType valueTy =
+  CTyFun intTy (CTyFun valueTy showSCoreType)
+
+showListFieldCoreType :: CoreType -> CoreType
+showListFieldCoreType valueTy =
+  CTyFun (CTyList valueTy) showSCoreType
+
 showListDictionaryCoreType :: CoreType
 showListDictionaryCoreType =
   CTyForall [a] (CTyFun showDictA showDictListA)
@@ -9891,11 +10067,10 @@ showListDictionaryCoreType =
 
 showListMethodCoreType :: CoreType
 showListMethodCoreType =
-  CTyForall [a] (CTyFun showDictA (CTyFun listA stringTy))
+  CTyForall [a] (CTyFun (showsPrecFunctionCoreType aTy) (CTyFun listA showSCoreType))
  where
   a = showListTypeVariable
   aTy = CTyVar a
-  showDictA = showDictCoreType aTy
   listA = CTyList aTy
 
 showListTailCoreType :: CoreType
@@ -9910,9 +10085,9 @@ showStringCharsCoreType :: CoreType
 showStringCharsCoreType =
   CTyFun stringTy stringTy
 
-showSelectorCoreType :: CoreType
-showSelectorCoreType =
-  CTyForall [a] (CTyFun showDictA (CTyFun aTy stringTy))
+showListSelectorCoreType :: CoreType
+showListSelectorCoreType =
+  CTyForall [a] (CTyFun showDictA (showListFieldCoreType aTy))
  where
   a = preludeTypeVariable "a" (-1331)
   aTy = CTyVar a
@@ -9961,17 +10136,18 @@ showStringCharsCorePair =
 
 showListMethodCorePair :: (CoreBinder, CoreExpr)
 showListMethodCorePair =
-  (CoreBinder showListMethodName showListMethodCoreType, CTypeLam [a] (lam dictName showDictA (lam xsName listA body)) showListMethodCoreType)
+  (CoreBinder showListMethodName showListMethodCoreType, CTypeLam [a] (lam showsName showsTy (lam xsName listA (lam restName stringTy body))) showListMethodCoreType)
  where
   a = showListTypeVariable
   aTy = CTyVar a
   listA = CTyList aTy
-  showDictA = showDictCoreType aTy
-  dictName = builtinLocalTermName "$show_list_dict" (-1905)
+  showsTy = showsPrecFunctionCoreType aTy
+  showsName = builtinLocalTermName "$show_list_shows" (-1905)
   xsName = builtinLocalTermName "$show_list_xs" (-1906)
   yName = builtinLocalTermName "$show_list_y" (-1907)
   ysName = builtinLocalTermName "$show_list_ys" (-1908)
   caseName = builtinLocalTermName "$show_list_case" (-1909)
+  restName = builtinLocalTermName "$show_list_rest" (-1930)
   lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
   body =
     listCaseCore
@@ -9979,30 +10155,28 @@ showListMethodCorePair =
       caseName
       aTy
       stringTy
-      (stringLiteralCore "[]")
+      (appendStringCore (stringLiteralCore "[]") (CVar restName stringTy))
       yName
       ysName
       ( consCharCore
           '['
-          ( appendStringCore
-              (showElementCore aTy (CVar dictName showDictA) (CVar yName aTy))
-              (showListTailCallCore aTy (CVar dictName showDictA) (CVar ysName listA))
-          )
+          (showElementWithShowsCore aTy (CVar showsName showsTy) (CVar yName aTy) (showListTailCallCore aTy (CVar showsName showsTy) (CVar ysName listA) (CVar restName stringTy)))
       )
 
 showListTailCorePair :: (CoreBinder, CoreExpr)
 showListTailCorePair =
-  (CoreBinder showListTailName showListTailCoreType, CTypeLam [a] (lam dictName showDictA (lam xsName listA body)) showListTailCoreType)
+  (CoreBinder showListTailName showListTailCoreType, CTypeLam [a] (lam showsName showsTy (lam xsName listA (lam restName stringTy body))) showListTailCoreType)
  where
   a = showListTypeVariable
   aTy = CTyVar a
   listA = CTyList aTy
-  showDictA = showDictCoreType aTy
-  dictName = builtinLocalTermName "$show_tail_dict" (-1910)
+  showsTy = showsPrecFunctionCoreType aTy
+  showsName = builtinLocalTermName "$show_tail_shows" (-1910)
   xsName = builtinLocalTermName "$show_tail_xs" (-1911)
   yName = builtinLocalTermName "$show_tail_y" (-1912)
   ysName = builtinLocalTermName "$show_tail_ys" (-1913)
   caseName = builtinLocalTermName "$show_tail_case" (-1914)
+  restName = builtinLocalTermName "$show_tail_rest" (-1931)
   lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
   body =
     listCaseCore
@@ -10010,15 +10184,12 @@ showListTailCorePair =
       caseName
       aTy
       stringTy
-      (stringLiteralCore "]")
+      (consCharCore ']' (CVar restName stringTy))
       yName
       ysName
       ( consCharCore
           ','
-          ( appendStringCore
-              (showElementCore aTy (CVar dictName showDictA) (CVar yName aTy))
-              (showListTailCallCore aTy (CVar dictName showDictA) (CVar ysName listA))
-          )
+          (showElementWithShowsCore aTy (CVar showsName showsTy) (CVar yName aTy) (showListTailCallCore aTy (CVar showsName showsTy) (CVar ysName listA) (CVar restName stringTy)))
       )
 
 showListDictionaryCorePair :: ClassInfo -> Either TypecheckError (CoreBinder, CoreExpr)
@@ -10030,21 +10201,56 @@ showListDictionaryCorePair info = do
       showDictA = showDictCoreType aTy
       showDictListA = showDictCoreType listA
       dictName = builtinLocalTermName "$show_list_instance_dict" (-1915)
-      method =
+      precName = builtinLocalTermName "$show_list_instance_prec" (-1932)
+      xsName = builtinLocalTermName "$show_list_instance_xs" (-1933)
+      restName = builtinLocalTermName "$show_list_instance_rest" (-1934)
+      showXsName = builtinLocalTermName "$show_list_instance_show_xs" (-1935)
+      listPrecName = builtinLocalTermName "$show_list_instance_list_prec" (-2431)
+      listXsName = builtinLocalTermName "$show_list_instance_list_xs" (-2432)
+      listRestName = builtinLocalTermName "$show_list_instance_list_rest" (-2433)
+      elementShowList =
         CApp
           ( CTypeApp
-              (CVar showListMethodName showListMethodCoreType)
+              (CVar (preludeTermName "showList" (-1432)) showListSelectorCoreType)
               [aTy]
-              (CTyFun showDictA (CTyFun listA stringTy))
+              (CTyFun showDictA (showListFieldCoreType aTy))
           )
           (CVar dictName showDictA)
+          (showListFieldCoreType aTy)
+      showsPrecMethodWith precBinderName xsBinderName restBinderName =
+        CLam
+          (CoreBinder precBinderName intTy)
+          ( CLam
+              (CoreBinder xsBinderName listA)
+              ( CLam
+                  (CoreBinder restBinderName stringTy)
+                  (CApp (CApp elementShowList (CVar xsBinderName listA) showSCoreType) (CVar restBinderName stringTy) stringTy)
+                  showSCoreType
+              )
+              (CTyFun listA showSCoreType)
+          )
+          (showsPrecFunctionCoreType listA)
+      showsPrecMethod =
+        showsPrecMethodWith precName xsName restName
+      showListShowsPrecMethod =
+        showsPrecMethodWith listPrecName listXsName listRestName
+      showMethod =
+        CLam
+          (CoreBinder showXsName listA)
+          (CApp (CApp elementShowList (CVar showXsName listA) showSCoreType) emptyStringCore stringTy)
           (CTyFun listA stringTy)
+      showListMethod =
+        showListFromShowsMethod listA showListShowsPrecMethod
       typedConstructor =
         CTypeApp
           (CCon (classInfoDictConstructorName info) constructorTy)
           [listA]
-          (CTyFun (exprType method) showDictListA)
-      body = CApp typedConstructor method showDictListA
+          (CTyFun (exprType showsPrecMethod) (CTyFun (exprType showMethod) (CTyFun (exprType showListMethod) showDictListA)))
+      body =
+        CApp
+          (CApp (CApp typedConstructor showsPrecMethod (CTyFun (exprType showMethod) (CTyFun (exprType showListMethod) showDictListA))) showMethod (CTyFun (exprType showListMethod) showDictListA))
+          showListMethod
+          showDictListA
       rhs = CTypeLam [a] (CLam (CoreBinder dictName showDictA) body (CTyFun showDictA showDictListA)) showListDictionaryCoreType
   pure (CoreBinder showListDictionaryName showListDictionaryCoreType, rhs)
 
@@ -10202,28 +10408,43 @@ classDictionaryFullConstructorCoreType info = do
   fieldTypes <- classDictionaryCoreFieldTypes Map.empty Map.empty info
   pure (CTyForall [classInfoVariable info] (foldr CTyFun resultTy fieldTypes))
 
-showElementCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr
-showElementCore elementTy dictionary element =
-  CApp showFunction element stringTy
- where
-  dictionaryTy = showDictCoreType elementTy
-  showFunction =
-    CApp
-      (CTypeApp (CVar (preludeTermName "show" (-1431)) showSelectorCoreType) [elementTy] (CTyFun dictionaryTy (CTyFun elementTy stringTy)))
-      dictionary
-      (CTyFun elementTy stringTy)
+showElementWithShowsCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+showElementWithShowsCore elementTy showsFunction element rest =
+  CApp (CApp (CApp showsFunction zeroInt (CTyFun elementTy showSCoreType)) element showSCoreType) rest stringTy
 
-showListTailCallCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr
-showListTailCallCore elementTy dictionary listValue =
-  CApp tailFunction listValue stringTy
+showListTailCallCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+showListTailCallCore elementTy showsFunction listValue rest =
+  CApp (CApp tailFunction listValue showSCoreType) rest stringTy
  where
   listTy = CTyList elementTy
-  dictionaryTy = showDictCoreType elementTy
   tailFunction =
     CApp
-      (CTypeApp (CVar showListTailName showListTailCoreType) [elementTy] (CTyFun dictionaryTy (CTyFun listTy stringTy)))
-      dictionary
-      (CTyFun listTy stringTy)
+      (CTypeApp (CVar showListTailName showListTailCoreType) [elementTy] (CTyFun (showsPrecFunctionCoreType elementTy) (CTyFun listTy showSCoreType)))
+      showsFunction
+      (CTyFun listTy showSCoreType)
+
+showListFromShowsMethod :: CoreType -> CoreExpr -> CoreExpr
+showListFromShowsMethod elementTy showsFunction =
+  CApp listFunction showsFunction (showListFieldCoreType elementTy)
+ where
+  listTy = CTyList elementTy
+  listFunction =
+    CTypeApp
+      (CVar showListMethodName showListMethodCoreType)
+      [elementTy]
+      (CTyFun (showsPrecFunctionCoreType elementTy) (CTyFun listTy showSCoreType))
+
+showsPrecFromRenderedMethod :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr) -> CoreExpr
+showsPrecFromRenderedMethod occurrence unique valueTy renderValue =
+  CLam precBinder (CLam valueBinder (CLam restBinder methodBody showSCoreType) (CTyFun valueTy showSCoreType)) (showsPrecFunctionCoreType valueTy)
+ where
+  precBinder = CoreBinder (builtinLocalTermName (occurrence <> "_prec") unique) intTy
+  valueName = builtinLocalTermName (occurrence <> "_value") (unique - 1)
+  restName = builtinLocalTermName (occurrence <> "_rest") (unique - 2)
+  valueBinder = CoreBinder valueName valueTy
+  restBinder = CoreBinder restName stringTy
+  methodBody =
+    appendStringCore (renderValue (CVar valueName valueTy)) (CVar restName stringTy)
 
 appendStringCore :: CoreExpr -> CoreExpr -> CoreExpr
 appendStringCore lhs rhs =
@@ -10244,20 +10465,20 @@ listCaseCore scrutinee caseName elementTy resultTy nilBody headName tailName con
 
 showCharLiteralCore :: CoreExpr -> CoreExpr
 showCharLiteralCore value =
+  showCharLiteralCoreWith "$show_char_case" (-1916) value
+
+showCharLiteralCoreWith :: Text -> Int -> CoreExpr -> CoreExpr
+showCharLiteralCoreWith caseOccurrence caseUnique value =
   CCase value (CoreBinder caseName charTy) (specialCases <> [defaultCase]) stringTy
  where
-  caseName = builtinLocalTermName "$show_char_case" (-1916)
+  caseName = builtinLocalTermName caseOccurrence caseUnique
   specialCases =
-    [ charCase '\n' "'\\n'"
-    , charCase '\t' "'\\t'"
-    , charCase '\r' "'\\r'"
-    , charCase '\b' "'\\b'"
-    , charCase '\f' "'\\f'"
-    , charCase '\v' "'\\v'"
-    , charCase '\a' "'\\a'"
-    , charCase '\'' "'\\''"
-    , charCase '\\' "'\\\\'"
+    [ charCase char ("'\\" <> escaped <> "'")
+    | (char, escaped) <- showEscapedControlChars
     ]
+      <> [ charCase '\'' "'\\''"
+         , charCase '\\' "'\\\\'"
+         ]
   charCase char rendered =
     CoreAlt (LiteralAlt (LChar char)) [] (stringLiteralCore rendered)
   defaultCase =
@@ -10269,24 +10490,84 @@ showStringCharCore value rest =
  where
   caseName = builtinLocalTermName "$show_string_char_case" (-1917)
   specialCases =
-    [ charCase '\n' "\\n"
-    , charCase '\t' "\\t"
-    , charCase '\r' "\\r"
-    , charCase '\b' "\\b"
-    , charCase '\f' "\\f"
-    , charCase '\v' "\\v"
-    , charCase '\a' "\\a"
-    , charCase '"' "\\\""
-    , charCase '\\' "\\\\"
+    [ charCase char ("\\" <> escaped)
+    | (char, escaped) <- showEscapedControlChars
+    , char /= '\SO'
     ]
+      <> [CoreAlt (LiteralAlt (LChar '\SO')) [] (prefixStringCore "\\SO" (protectSOEscapeRestCore rest))]
+      <> [ charCase '"' "\\\""
+         , charCase '\\' "\\\\"
+         ]
   charCase char rendered =
     CoreAlt (LiteralAlt (LChar char)) [] (prefixStringCore rendered rest)
   defaultCase =
     CoreAlt DefaultAlt [] (consCharExprCore (CVar caseName charTy) rest)
 
+protectSOEscapeRestCore :: CoreExpr -> CoreExpr
+protectSOEscapeRestCore rest =
+  listCaseCore
+    rest
+    caseName
+    charTy
+    stringTy
+    emptyStringCore
+    headName
+    tailName
+    (boolCaseCore "$show_string_so_escape_ambiguous" (-2437) headIsH stringTy escapedRest originalRest)
+ where
+  caseName = builtinLocalTermName "$show_string_so_escape_case" (-2434)
+  headName = builtinLocalTermName "$show_string_so_escape_head" (-2435)
+  tailName = builtinLocalTermName "$show_string_so_escape_tail" (-2436)
+  headExpr = CVar headName charTy
+  tailExpr = CVar tailName stringTy
+  originalRest = consCharExprCore headExpr tailExpr
+  escapedRest = prefixStringCore "\\&" originalRest
+  headIsH = CPrimOp PrimEq [headExpr, CLit (LChar 'H') charTy] boolTy
+
+showEscapedControlChars :: [(Char, Text)]
+showEscapedControlChars =
+  [ ('\NUL', "NUL")
+  , ('\SOH', "SOH")
+  , ('\STX', "STX")
+  , ('\ETX', "ETX")
+  , ('\EOT', "EOT")
+  , ('\ENQ', "ENQ")
+  , ('\ACK', "ACK")
+  , ('\a', "a")
+  , ('\b', "b")
+  , ('\t', "t")
+  , ('\n', "n")
+  , ('\v', "v")
+  , ('\f', "f")
+  , ('\r', "r")
+  , ('\SO', "SO")
+  , ('\SI', "SI")
+  , ('\DLE', "DLE")
+  , ('\DC1', "DC1")
+  , ('\DC2', "DC2")
+  , ('\DC3', "DC3")
+  , ('\DC4', "DC4")
+  , ('\NAK', "NAK")
+  , ('\SYN', "SYN")
+  , ('\ETB', "ETB")
+  , ('\CAN', "CAN")
+  , ('\EM', "EM")
+  , ('\SUB', "SUB")
+  , ('\ESC', "ESC")
+  , ('\FS', "FS")
+  , ('\GS', "GS")
+  , ('\RS', "RS")
+  , ('\US', "US")
+  , ('\DEL', "DEL")
+  ]
+
 quotedCharCore :: CoreExpr -> CoreExpr
 quotedCharCore charExpr =
   consCharCore '\'' (consCharExprCore charExpr (consCharCore '\'' emptyStringCore))
+
+showStringLiteralCore :: CoreExpr -> CoreExpr
+showStringLiteralCore value =
+  consCharCore '"' (CApp (CVar showStringCharsName showStringCharsCoreType) value stringTy)
 
 stringLiteralCore :: Text -> CoreExpr
 stringLiteralCore value =

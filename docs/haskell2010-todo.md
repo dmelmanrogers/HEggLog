@@ -217,13 +217,12 @@ Complete: SURFACE-001, SURFACE-002, and SURFACE-003.
 
 ## Next coherent chunk: Prelude, deriving, and typeclass library completion
 
-1. TC-029 — report-shaped Show hierarchy.
-2. TC-030 — Read implementation.
-3. LIB-001 — Control.Monad report completion.
-4. LIB-002 — Data.List report completion.
-5. LIB-003 — Data.Maybe report completion.
-6. LIB-004 — Data.Char report completion.
-7. LIB-007 — Data.Ratio and Rational report completion.
+1. TC-030 — Read implementation.
+2. LIB-001 — Control.Monad report completion.
+3. LIB-002 — Data.List report completion.
+4. LIB-003 — Data.Maybe report completion.
+5. LIB-004 — Data.Char report completion.
+6. LIB-007 — Data.Ratio and Rational report completion.
 8. LIB-010 — Numeric report completion.
 
 Completed in this chunk: PRELUDE-019 — Prelude function completion;
@@ -12458,7 +12457,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Completed for the executable Show subset: exact `Int`, `Bool`, `Char`, and `String`, plus generated list dictionaries. Full Haskell 2010 `showsPrec`/`showList` method hierarchy, derived `Show`, user-defined ADT-shaped output, exhaustive lexical escaping, and standard library packaging remain tracked by later class/Prelude tasks.
+- Milestone M11 (Type classes and dictionaries). Completed for the broadened executable Show subset: exact `Int`, `Bool`, `Char`, and `String`, plus generated list dictionaries. TC-029 later promoted this surface to the Report-shaped `showsPrec`/`show`/`showList` hierarchy with derived constructor precedence and supported lexical escaping.
 
 ## TC-016 — Read, if implemented or documented deviation
 
@@ -12970,7 +12969,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: generated `Show` dictionaries return ordinary `[Char]` values and compose through the existing structural list/string `Show` surface. Because the current class exposes `show :: a -> String` rather than the full Haskell 2010 `showsPrec`/`showList` hierarchy, derived product fields are conservatively parenthesized until the report-compatible method hierarchy is implemented.
+- Milestone M11 (Type classes and dictionaries). Complete for the derived executable subset: generated `Show` dictionaries return ordinary `[Char]` values and compose through the structural list/string `Show` surface. TC-029 later promoted derived `Show` to the Report-shaped `showsPrec`/`show`/`showList` hierarchy, so product-field parentheses now follow the active precedence context instead of the former conservative rendering.
 
 ## TC-026 — class negative tests
 
@@ -13125,7 +13124,7 @@ Notes:
 ## TC-029 — report-shaped Show hierarchy
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -13177,10 +13176,16 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Not started. The current `Show` implementation remains the executable
-  `show :: a -> String` subset with scalar, string/list, and derived data/newtype
-  dictionaries. TC-029 still owns the report-shaped `showsPrec`/`showList`
-  hierarchy, precedence-sensitive rendering, and exhaustive escaping.
+- Complete. The generated Prelude now exposes `shows` and the `Show` class uses
+  the Report-shaped `showsPrec`, `show`, and `showList` dictionary layout.
+  Built-in `Show Int`, `Show Bool`, `Show Char`, exact `Show String`,
+  generated structural list dictionaries, and supported derived data/newtype
+  dictionaries all use the same method hierarchy. Derived product constructors
+  honor application precedence, nested constructor fields use `showsPrec 11`,
+  records render with record-construction syntax, `ShowS` continuations are
+  respected for lists, and native/conformance coverage locks scalar, list,
+  string, product, record, recursive, precedence-sensitive, and supported
+  escaping behavior.
 
 ## TC-030 — Read implementation
 

@@ -361,8 +361,8 @@ parameters are protected. `/` remains the existing checked `Int` division
 primitive rather than a `Fractional` method.
 Remaining Phase 12 work includes instance contexts, method-specific
 constraints/type variables, coherence diagnostics, derived `Read`,
-the full `showsPrec`/`showList` hierarchy, Fractional/Floating classes,
-arbitrary-precision `Integer`, and full `Ratio`/`Rational` behavior.
+Fractional/Floating classes, arbitrary-precision `Integer`, and full
+`Ratio`/`Rational` behavior.
 
 Deliverables:
 
@@ -387,8 +387,8 @@ The typechecker recognizes `IO`, `main :: IO ()`, `putStrLn`, `getLine`, `print`
 `let`. Core/STG reference evaluators model IO output plus returned action
 values for oracle tests, and the native entrypoint executes `IO ()` actions
 instead of scalar root printing. Source
-string literals and built-in `show` results are represented as list-of-`Char`
-values, and boxed `Char` values, `Eq Char`, scalar `main :: Char`, broadened
+string literals and built-in `show`/`shows` results are represented as list-of-`Char`
+values, and boxed `Char` values, `Eq Char`, scalar `main :: Char`, Report-shaped
 `Show` dictionaries for `Int`/`Bool`/`Char`/`String`/lists support the current
 IO subset through default/no-egglog wet tests. Native `getLine` reads stdin
 line-by-line, strips line terminators, and returns ordinary `[Char]` strings.
@@ -624,15 +624,12 @@ This is the following chunk once the source surface has been closed. The goal
 is to make the standard library and derived-instance behavior look like Haskell
 2010 rather than a narrow executable subset:
 
-1. TC-029 — expand `Show` from the current executable `show` behavior to the
-   Report method shape: `showsPrec`, `showList`, precedence handling, and
-   escaping.
-2. TC-030 — implement `Read`, including `ReadS`, `readsPrec`, `readList`,
+1. TC-030 — implement `Read`, including `ReadS`, `readsPrec`, `readList`,
    lexical read parsing, standard instances, and derived `Read`.
-3. LIB-001 through LIB-012 — implement the numbered standard-library module
+2. LIB-001 through LIB-012 — implement the numbered standard-library module
    gaps produced by the TEST-CONF-015 reconciliation, starting with
    `Control.Monad`, `Data.List`, `Data.Maybe`, `Data.Char`, `Data.Ratio`, and
-   `Numeric` after the Show/Read method shape is in place.
+   `Numeric` after the Read method shape is in place.
 
 This chunk must not treat the current generated library modules as the end
 state. They are importable checkpoints on the path to the full Haskell 2010
@@ -779,11 +776,11 @@ Completed immediate tasks:
   output, `reverse`/`length` over strings, `putStrLn` over built-in `show`
   results, explicit `Char` cons patterns, string literal patterns, conformance
   fixtures, default/no-egglog runs, and emit-LLVM wet checks.
-- Haskell 2010 broader `Show`, including exact `Show Char`, exact
+- Haskell 2010 Report-shaped `Show`, including exact `Show Char`, exact
   `Show String`, generated structural `Show a => Show [a]`, nested `[String]`
-  output, `print` through the broadened dictionaries, numeric-list defaulting,
-  Core/STG/native oracles, conformance fixtures, and default/no-egglog wet
-  tests.
+  output, `shows`, `showsPrec`, `showList`, supported escaping, `print`
+  through the broadened dictionaries, numeric-list defaulting, Core/STG/native
+  oracles, conformance fixtures, and default/no-egglog wet tests.
 - Haskell 2010 arithmetic sequences for the executable subset, including
   `[a..]`, `[a,b..]`, `[a..z]`, and `[a,b..z]` over `Int` and `Char`,
   ascending/descending bounded behavior, lazily consumed open ranges,

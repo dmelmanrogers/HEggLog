@@ -381,7 +381,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-string-output" "test/e2e/programs/haskell2010/string-output.hs" "native\nok\n7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-string-show-output" "test/e2e/programs/haskell2010/string-show-output.hs" "42\nFalse" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-string-char-patterns" "test/e2e/programs/haskell2010/string-char-patterns.hs" "6" [DefaultEgglog, NoEgglog] True
-  , nativeOnlySuccessCase "haskell2010-broad-show" "test/e2e/programs/haskell2010/broad-show.hs" "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Q'\n\"ok\"" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-broad-show" "test/e2e/programs/haskell2010/broad-show.hs" "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Z'!\n\"hi\"!\n\"ab\"!\n[1,2]!\n'\\NUL'\n\"\\n\\\"\\\\\"\n\"\\SO\\&H\"\n'Q'\n\"ok\"" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-numeric-defaulting" "test/e2e/programs/haskell2010/numeric-defaulting.hs" "7\n47" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-numeric-hierarchy" "test/e2e/programs/haskell2010/numeric-hierarchy.hs" "3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-prelude-foldl" "test/e2e/programs/haskell2010/prelude-foldl.hs" "1234\n-6\nabcd\n2\n7\n5" [DefaultEgglog, NoEgglog] True
@@ -399,7 +399,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-where-layout" "test/e2e/programs/haskell2010/where-layout.hs" "14" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-arithmetic-sequences" "test/e2e/programs/haskell2010/arithmetic-sequences.hs" "[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-derived-enum" "test/e2e/programs/haskell2010/derived-enum.hs" "0\n2\n2\n1\nWest\n[1,2,3]\n[3,2,1,0]\n[1,2,3]\n[0,2]\n[3,2,1,0]\n[1,2,3]\n[3,2,1,0]\n0" [DefaultEgglog, NoEgglog] True
-  , nativeOnlySuccessCase "haskell2010-derived-bounded" "test/e2e/programs/haskell2010/derived-bounded.hs" "0\n3\nPair (False) (North)\nPair (True) (West)\nRecord { low = (False), high = (North) }\nRecord { low = (True), high = (West) }\nFlag (False)\nFlag (True)" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-derived-bounded" "test/e2e/programs/haskell2010/derived-bounded.hs" "0\n3\nPair False North\nPair True West\nRecord {low = False, high = North}\nRecord {low = True, high = West}\nFlag False\nFlag True" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-list-comprehensions" "test/e2e/programs/haskell2010/list-comprehensions.hs" "[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCaseWithCompileWarnings "haskell2010-pattern-diagnostics" "test/e2e/programs/haskell2010/pattern-diagnostics.hs" "7" [DefaultEgglog, NoEgglog] True ["non-exhaustive pattern match", "case alternatives", "False"]
   , nativeOnlySuccessCase "haskell2010-adt-box" "test/e2e/programs/haskell2010/adt-box.hs" "7" [DefaultEgglog, NoEgglog] True

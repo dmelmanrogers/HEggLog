@@ -142,7 +142,10 @@ standardPreludeNames =
     , "length"
     , "filter"
     , "reverse"
+    , "showsPrec"
     , "show"
+    , "showList"
+    , "shows"
     , "putStrLn"
     , "getLine"
     , "print"
@@ -169,7 +172,7 @@ standardPreludeExportChildren =
     , typed "[]" [":"]
     , classified "Eq" ["==", "/="]
     , classified "Ord" ["compare", "<", "<=", ">", ">=", "max", "min"]
-    , classified "Show" ["show"]
+    , classified "Show" ["showsPrec", "show", "showList"]
     , classified "Num" ["+", "-", "*", "negate", "abs", "signum", "fromInteger"]
     , classified "Real" ["toRational"]
     , classified "Integral" ["quot", "rem", "div", "mod", "quotRem", "divMod", "toInteger"]

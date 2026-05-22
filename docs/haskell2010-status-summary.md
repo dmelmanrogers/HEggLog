@@ -48,9 +48,9 @@ slice is implemented for `IO`,
 dictionaries for `IO`, `Maybe`, and lists with `fmap`, higher-kinded `Monad`
 dictionaries for `IO`, `Maybe`, and lists, `return`, `(>>)`, `(>>=)`, `fail`,
 generic expression and bind-statement `do` sequencing with local `let`, and
-built-in `Show Int`/`Show Bool` dictionaries.
-The current `Show` slice also includes exact `Show Char`, exact `Show String`,
-and generated structural list dictionaries.
+Report-shaped `Show` dictionaries for `Int`, `Bool`, `Char`, exact `String`,
+generated structural lists, and supported derived data/newtype declarations.
+Prelude also exposes `shows`.
 The implemented FFI slice includes structured `foreign import`/`foreign export`
 declarations, generated `Foreign`/`Foreign.C`/`Foreign.C.Types` interfaces,
 marshallable scalar/pointer/synonym/local-newtype validation, static `ccall`,
@@ -66,8 +66,7 @@ implemented:
 - report-complete pattern coverage and runtime source attribution beyond the
   current executable-subset diagnostics
 - remaining source-surface implementation closure
-- instance contexts, derived `Read`, and the full
-  `showsPrec`/`showList` hierarchy
+- instance contexts and derived `Read`
 - Fractional/Floating classes, arbitrary-precision `Integer`, full
   `Ratio`/`Rational` behavior, and broader Prelude/library subset
 - remaining standard-library value surfaces beyond the currently generated
@@ -98,8 +97,8 @@ PRELUDE-019 is complete for `($)`, `(.)`, `flip`, `head`, `tail`, `null`,
 standard-library module interfaces that have real support, including
 `Control.Monad` `Functor(fmap)` for `[]`, `Maybe`, and `IO`; and
 TEST-CONF-015 is complete for validator-backed reconciliation of Chapter 9
-Prelude plus the Part II library module inventory. The remaining tasks start
-with TC-029 and TC-030 for report-shaped `Show` and `Read`, then continue
+Prelude plus the Part II library module inventory. TC-029 is complete for
+report-shaped `Show`; the remaining tasks start with TC-030 for `Read`, then continue
 through the numbered LIB-001 through LIB-012 standard-library module tasks.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
@@ -210,8 +209,9 @@ and `Integral Int` dictionaries cover `(==)`, `(/=)`, `compare`, `(<)`,
 `signum`, `toRational`, `quot`, `rem`, `div`, `mod`, `quotRem`, `divMod`,
 and `toInteger`.
 Built-in `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and
-generated structural list `Show` cover `show` and `print` for the supported
-scalar/string/list executable subset. Derived `Bounded` dictionaries now cover
+generated structural list `Show` cover `showsPrec`, `show`, `showList`,
+`shows`, and `print` for the supported scalar/string/list executable subset.
+Derived `Bounded` dictionaries now cover
 all-nullary enumerations plus single-constructor products, records, and
 newtypes with field-wise `minBound`/`maxBound` calls.
 `fromInteger` is part of the executable `Num Int` dictionary, integer literals
@@ -235,12 +235,12 @@ defaulting and dictionary elaboration. Unsupported class-constraint positions
 now use a structured placeholder diagnostic for method-specific constraints,
 instance contexts, and expression type-signature constraints, so broader class
 features remain planned without silent fallback.
-`/` remains checked concrete `Int` division; derived `Show` is implemented for
-the executable data/newtype subset, derived `Enum` is implemented for
+`/` remains checked concrete `Int` division; derived `Show` is implemented with
+Report-shaped `showsPrec`/`show`/`showList` methods for the executable
+data/newtype subset, derived `Enum` is implemented for
 nullary-constructor data declarations with report-shaped constructor ordering
 and bounds behavior, and derived `Bounded` is implemented for the eligible
-Haskell 2010 constructor shapes. The full report-compatible
-`showsPrec`/`showList` hierarchy remains planned.
+Haskell 2010 constructor shapes.
 
 ## What Core Evaluates Today
 
@@ -377,8 +377,8 @@ and compiled to native executables through the existing clang toolchain.
     wet-tested default/no-egglog CLI runs.
 14. Built-in Prelude class dictionary coverage. Completed for `Eq Int`,
     `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, executable `Num Int`,
-    executable `Real Int`, executable `Integral Int`, `Show Int`, `Show Bool`,
-    `Show Char`, exact `Show String`, and generated
+    executable `Real Int`, executable `Integral Int`, Report-shaped `Show Int`,
+    `Show Bool`, `Show Char`, exact `Show String`, and generated
     structural list `Show` methods,
     including generated built-in dictionaries/selectors, overloaded
     comparison/arithmetic/show method desugaring, Core/STG lowering/evaluation,
@@ -397,7 +397,7 @@ and compiled to native executables through the existing clang toolchain.
     finite executable subset.
 16. IO printing/input and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
     `putStrLn`, `getLine`, `print`, `return`, `(>>)`, `(>>=)`, expression and bind-statement
-    `do` sequencing with local `let`, broadened built-in `Show`, Core/STG output/result oracles,
+    `do` sequencing with local `let`, broadened Report-shaped `Show`, Core/STG output/result oracles,
     source strings and built-in show results as list-of-`Char` output, native stdin line input, and
     wet-tested default/no-egglog CLI runs.
 17. Numeric literals and defaulting. Completed for dictionary-backed

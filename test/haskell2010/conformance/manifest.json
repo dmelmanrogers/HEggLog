@@ -635,13 +635,13 @@
       "sourceFile": "test/haskell2010/conformance/prelude/broad-show.hs",
       "category": "prelude",
       "expectedStatus": "native-success",
-      "expectedStdout": "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Q'\n\"ok\"\n",
+      "expectedStdout": "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Z'!\n\"hi\"!\n\"ab\"!\n[1,2]!\n'\\NUL'\n\"\\n\\\"\\\\\"\n\"\\SO\\&H\"\n'Q'\n\"ok\"\n",
       "requiredStage": "native",
       "compilerModes": [
         "default",
         "no-egglog"
       ],
-      "notes": "Broader Show coverage for Char, String, generic lists, nested string lists, print, and defaulted numeric list elements."
+      "notes": "Broader Show coverage for Char, String, generic lists, nested string lists, shows, showsPrec, showList, escaping, print, and defaulted numeric list elements."
     },
     {
       "name": "prelude.arithmetic-sequences",
@@ -1129,9 +1129,9 @@
       "sourceFile": "test/haskell2010/conformance/typeclasses/derived-show.hs",
       "category": "typeclasses",
       "expectedStatus": "native-success",
-      "expectedStdout": "Off\nBox ('x')\nName (\"aa\")\nNode (Leaf ('a')) (Leaf ('b'))\nYears (7)\nPerson { age = (42), label = (\"Ada\") }\n[Box (True),Box (False)]\n",
+      "expectedStdout": "Off\nBox 'x'\nName \"aa\"\nNode (Leaf 'a') (Leaf 'b')\nYears 7\nPerson {age = 42, label = \"Ada\"}\n[Box True,Box False]\n(Box True)!\nBox False!\n[Box True,Box False]!\n",
       "requiredStage": "native",
-      "notes": "Derived Show synthesizes executable-subset Show dictionaries for nullary constructors, products, recursive data, newtypes, records, String fields, and list-backed contexts."
+      "notes": "Derived Show synthesizes report-shaped showsPrec/show/showList dictionaries for nullary constructors, products, recursive data, newtypes, records, String fields, list-backed contexts, and precedence-sensitive output."
     },
     {
       "name": "typeclasses.derived-enum",
@@ -1163,13 +1163,13 @@
       "sourceFile": "test/haskell2010/conformance/typeclasses/derived-bounded.hs",
       "category": "typeclasses",
       "expectedStatus": "native-success",
-      "expectedStdout": "0\n3\nPair (False) (North)\nPair (True) (West)\nRecord { low = (False), high = (North) }\nRecord { low = (True), high = (West) }\nFlag (False)\nFlag (True)\n",
+      "expectedStdout": "0\n3\nPair False North\nPair True West\nRecord {low = False, high = North}\nRecord {low = True, high = West}\nFlag False\nFlag True\n",
       "requiredStage": "native",
       "compilerModes": [
         "default",
         "no-egglog"
       ],
-      "notes": "Derived Bounded synthesizes enumeration bounds and single-constructor field-wise minBound/maxBound dictionaries for data, record, newtype, and parameterized product declarations."
+      "notes": "Derived Bounded synthesizes enumeration bounds and single-constructor field-wise minBound/maxBound dictionaries for data, record, newtype, and parameterized product declarations, with Report-shaped derived Show output for the printed values."
     },
     {
       "name": "unsupported.instance-context",

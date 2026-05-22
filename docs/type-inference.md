@@ -191,13 +191,15 @@ Structural `Ord [a]` is available for list and `String` fields, and superclass
 projection now lowers through reusable Core selector bindings rather than
 duplicating local projection cases.
 
-TC-025 adds derived `Show` for the same executable deriving surface. Generated
-instances synthesize ordinary `show :: a -> String` dictionary methods for
-nullary constructors, product constructors, records, recursive data, `newtype`,
-`String` fields, list-backed contexts, and parameterized declarations. Because
-the current `Show` class intentionally exposes only `show` and not the full
-Haskell 2010 `showsPrec`/`showList` hierarchy, product fields are conservatively
-parenthesized until that method hierarchy is introduced.
+TC-025 adds derived `Show` for the same executable deriving surface, and TC-029
+promotes that implementation to the Haskell 2010 method shape. Generated
+instances now synthesize `showsPrec`, `show`, and `showList` dictionary methods
+for nullary constructors, product constructors, records, recursive data,
+`newtype`, `String` fields, list-backed contexts, and parameterized
+declarations. Product constructors render with application precedence 10,
+nested constructor fields are parenthesized through `showsPrec 11`, records use
+record-construction syntax, and the generated `showList` methods use the same
+continuation-passing `ShowS` surface as the built-in dictionaries.
 
 TC-031 adds derived `Enum` for nullary-constructor data declarations. Generated
 dictionaries number constructors in declaration order, synthesize `succ`,

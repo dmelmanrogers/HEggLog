@@ -7340,7 +7340,7 @@
     {
       "id": "TC-029",
       "title": "report-shaped Show hierarchy",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TC-015",
@@ -7366,7 +7366,8 @@
         "docs/type-inference.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. The generated Prelude now exposes `shows` and the `Show` class uses the Report-shaped `showsPrec`, `show`, and `showList` dictionary layout. Built-in `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, generated structural list dictionaries, and supported derived data/newtype dictionaries all use the same method hierarchy. Derived product constructors honor application precedence, nested constructor fields use `showsPrec 11`, records render with record-construction syntax, `ShowS` continuations are respected for lists, and native/conformance coverage locks scalar, list, string, product, record, recursive, precedence-sensitive, and supported escaping behavior."
     },
     {
       "id": "TC-030",
