@@ -420,8 +420,10 @@ cycles and module-name mismatches, renames modules in dependency order against
 actual exported definitions, enforces explicit export/import filtering
 including `Thing(..)` children and hiding, supports qualified aliases, flattens
 the renamed module graph into one typed Core program, and selects the root
-module's `main` as the native entry point. Broader package search paths and a
-full Prelude module remain later work.
+module's `main` as the native entry point. `MOD-011` and `MOD-012` now document
+the explicit whole-program compilation boundary and future interface-file
+requirements. Broader package search paths and remaining standard-library value
+surfaces remain later work.
 
 Deliverables:
 
@@ -545,8 +547,8 @@ Acceptance criteria:
 Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
-`haskell2010-conformance-test` Cabal suite. The baseline currently records 135
-fixtures: 86 native-success cases, 5 native-runtime-error cases, 27 compile-error
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 138
+fixtures: 87 native-success cases, 6 native-runtime-error cases, 28 compile-error
 cases, and 17 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
@@ -779,8 +781,9 @@ Completed immediate tasks:
   subset, including dependency-file loading from imports, cycle/name-mismatch
   diagnostics, actual exported-name import resolution, explicit export/import
   filtering, qualified aliases, hiding, `Thing(..)` children, whole-program
-  Core flattening, root `main` entrypoint selection, and default/no-egglog
-  native wet tests.
+  Core flattening, root `main` entrypoint selection, explicit MOD-011/MOD-012
+  module-compilation/interface-file boundary documentation, and
+  default/no-egglog native wet tests.
 - Haskell 2010 `Char` runtime representation, including boxed native `Char`
   objects, literal `Char` case dispatch, built-in `Eq Char`, scalar
   `main :: Char` printing, Core/STG/native oracles, conformance fixtures, and

@@ -126,3 +126,14 @@ The current boundary is covered by:
   import/export behavior, bad imports, and unsupported package/module search
   paths
 - documentation tracker entries `MOD-011` and `MOD-012`
+
+## Report References
+
+- Haskell 2010 Report, Chapter 5, Modules:
+  <https://www.haskell.org/onlinereport/haskell2010/haskellch5.html>
+- Haskell 2010 Report, Section 5.6, Standard Prelude:
+  <https://www.haskell.org/onlinereport/haskell2010/haskellch5.html#x11-1040005.6>
+- Haskell 2010 Report, Section 5.7, Separate Compilation:
+  <https://www.haskell.org/onlinereport/haskell2010/haskellch5.html#x11-1120005.7>
+- Haskell 2010 Libraries contents:
+  <https://www.haskell.org/onlinereport/haskell2010/haskellli1.html>

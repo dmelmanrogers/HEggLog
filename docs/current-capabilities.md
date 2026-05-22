@@ -162,6 +162,12 @@ Multi-module Haskell 2010 compilation now also follows the Report's special
 instance import/export rule for the executable source-instance subset:
 instances move across empty export lists, empty import lists, and transitive
 import chains independently of ordinary name filtering.
+The module compilation boundary is explicit in
+`Haskell2010.ModuleGraph.currentModuleCompilationBoundary`: current imports
+use same-directory source search plus generated standard-library interfaces,
+current compilation is whole-program source-graph compilation, and persistent
+interface files are intentionally deferred until module search-path identity is
+stable.
 The Haskell 2010
 native path now runs an Egglog Core optimizer by
 default for safe typed Core fragments before STG lowering; `--no-egglog`
@@ -253,8 +259,8 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 135 manifest-tracked fixtures with
-  86 native-success cases, 5 native-runtime-error cases, 27 compile-error cases,
+  `haskell2010-conformance-test`; it contains 138 manifest-tracked fixtures with
+  87 native-success cases, 6 native-runtime-error cases, 28 compile-error cases,
   and 17 unsupported-documented cases
 - Haskell 2010 standard library layout: implemented for the current executable
   subset as generated/importable `Prelude`, `Control.Monad`, `Data.Int`,
@@ -289,6 +295,10 @@ is complete for link metadata and explicit native link inputs; FFI-012 is
 complete for explicit callback/finalizer lifetime behavior; and FFI-013
 documents the implemented Foreign surface plus the still-reserved errno,
 Storable, allocation, array, and C-string pieces.
+MOD-011 and MOD-012 are complete as a documented module-compilation boundary:
+the current compiler is intentionally whole-program over loaded source modules,
+and future interface files must wait for stable search-path and dependency
+fingerprint semantics.
 
 ## Carry-Forward Infrastructure
 

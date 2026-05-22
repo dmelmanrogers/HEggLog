@@ -76,6 +76,8 @@ implemented:
   `Ratio`/`Rational` behavior, and broader Prelude/library subset
 - remaining standard-library value surfaces beyond the currently generated
   partial module interfaces
+- package/module search paths and persistent interface-file separate
+  compilation beyond the current explicit whole-program source boundary
 - Haskell source desugaring and negative fixtures beyond the current executable subset
 - broader IO, including handles, files, buffering, seek, EOF-specific handle behavior, and effects beyond line-oriented stdin/stdout
 - remaining FFI closure for errno, Storable dictionaries, raw allocation, array
@@ -433,7 +435,8 @@ and compiled to native executables through the existing clang toolchain.
     names, export/import filtering, hiding, qualified aliases, `Thing(..)`
     child exports/imports, whole-program Core flattening for the executable
     subset, root-module `main` native entrypoint selection, Core/STG/native
-    oracles, and default/no-egglog wet tests.
+    oracles, default/no-egglog wet tests, and the MOD-011/MOD-012 documented
+    boundary for deferred separate compilation/interface files.
 19. Egglog Core optimizer known-constructor expansion. Completed for known
     literal case selection, saturated known-constructor case selection, and
     constructor-field projection for ADT/list/tuple/dictionary-shaped Core,
@@ -514,4 +517,6 @@ Already-completed typeclass expansion work, including
 superclass dictionaries, default methods, overlap rejection, public
 `Enum`/`Bounded`, derived `Enum`/`Bounded`, numeric defaulting, the supported `Monad` class surface, and
 MOD-009 instance import/export behavior should be preserved as regression
-baseline while those tasks proceed.
+baseline while those tasks proceed. MOD-011/MOD-012 are also complete and
+should be treated as the guardrail for future module search path, package, and
+interface-file work.

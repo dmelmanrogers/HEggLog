@@ -151,7 +151,9 @@ is built alongside them.
     names, explicit export filtering including `Thing(..)` children, hiding,
     qualified aliases, whole-program Core flattening for the executable subset,
     root-module `main` selection, Core/STG/native execution, and wet-tested
-    default/no-egglog CLI runs.
+    default/no-egglog CLI runs. `MOD-011`/`MOD-012` deliberately keep separate
+    compilation and persistent interface files behind an explicit boundary
+    until module search paths and dependency fingerprints are stable.
 19. Egglog Core optimizer. Completed for the first safe Core-0 fragment and
     expanded with known literal and saturated known-constructor case/projection
     rewrites for ADT/list/tuple/dictionary-shaped Core. The optimizer validates
@@ -281,3 +283,9 @@ is built alongside them.
 - The current `.hg` pipeline remains isolated and continues to serve as a
   regression baseline.
 - Native wet tests are the acceptance boundary for executable behavior.
+- Haskell 2010 Report behavior wins over implementation convenience. When the
+  Report defines semantics, the compiler must either implement those semantics
+  or keep the gap as a numbered, manifest-backed unsupported/deferred task.
+  Compiler-specific behavior that the Report leaves unspecified, such as
+  package search paths and separate compilation details, must be documented as
+  an implementation policy before code depends on it.

@@ -1,26 +1,26 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-22 06:47:40 UTC
+Date/time: 2026-05-22 07:33:28 UTC
 
-Commit hash tested: working tree with FFI-012 callback/finalizer lifetime changes.
+Code hash tested: `03d9c0a`; this refresh changes documentation/status files
+only.
 
 Primary conformance command run:
 
 ```bash
-cabal test haskell2010-conformance-test
+cabal test haskell2010-conformance-test --test-options='--hide-successes'
 ```
 
 Required task validation also passed:
 
 ```bash
 cabal build all
-cabal test haskell2010-conformance-test
-cabal test all
+cabal test hegglog-test --test-options='--hide-successes'
+cabal test haskell2010-conformance-test --test-options='--hide-successes'
+cabal test e2e-wet-test --test-options='--hide-successes'
 cabal check
 python3 scripts/validate-haskell2010-conformance.py
 python3 scripts/validate-haskell2010-todo.py
-python3 -m json.tool docs/haskell2010-todo.json
-python3 -m json.tool test/haskell2010/conformance/manifest.json
 git diff --check
 ```
 
@@ -36,12 +36,12 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 137 |
-| Haskell source files in corpus | 144 |
-| HUnit test cases executed | 187 |
+| Manifest conformance fixtures | 138 |
+| Haskell source files in corpus | 145 |
+| HUnit test cases executed | 188 |
 | Native-success fixtures | 87 |
 | Native-runtime-error fixtures | 6 |
-| Compile-error fixtures | 27 |
+| Compile-error fixtures | 28 |
 | Unsupported-documented fixtures | 17 |
 | Native subprocess compile/run checks | 143 |
 | Failures | 0 |
@@ -169,7 +169,7 @@ dynamic calls, wrapper callbacks, and foreign export entrypoints.
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
 | `modules` | 8 | single-module, same-directory import, implicit/explicit/qualified Prelude import, source-instance import/export, generated standard-library module imports, and scalar standard-library type-name imports exist |
-| `negative` | 27 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid default declarations, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
+| `negative` | 28 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid default declarations, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
 | `prelude` | 18 | list functions, append, foldl, function/selector completion, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Report-shaped Read, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
