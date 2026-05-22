@@ -25,6 +25,8 @@ data LLVMType
   | LI16
   | LI1
   | LI8
+  | LFloat
+  | LDouble
   | LPtr
   | LArray Int LLVMType
   | LStruct [LLVMType]

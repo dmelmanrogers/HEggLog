@@ -119,6 +119,7 @@ LIBRARY_CLOSURE_ROWS = {
 LIBRARY_CLOSURE_REQUIRED_FIXTURES = {
     "test/haskell2010/conformance/adts/maybe-constructor-case.hs",
     "test/haskell2010/conformance/ffi/dynamic-wrapper.hs",
+    "test/haskell2010/conformance/ffi/floating-ccall.hs",
     "test/haskell2010/conformance/ffi/foreign-library-surface.hs",
     "test/haskell2010/conformance/ffi/foreign-export.hs",
     "test/haskell2010/conformance/ffi/pointer-address.hs",

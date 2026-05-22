@@ -168,7 +168,7 @@ standardPreludeNames =
     , "otherwise"
     ]
     <> fmap (ConstructorNamespace,) ["True", "False", "Nothing", "Just", "Left", "Right", "LT", "EQ", "GT", ":"]
-    <> fmap (TypeNamespace,) ["Int", "Integer", "Rational", "Bool", "Char", "String", "FilePath", "ReadS", "ShowS", "[]", "IO", "IOError", "CString", "Maybe", "Either", "Ordering", "()"]
+    <> fmap (TypeNamespace,) ["Int", "Integer", "Float", "Double", "Rational", "Bool", "Char", "String", "FilePath", "ReadS", "ShowS", "[]", "IO", "IOError", "CString", "Maybe", "Either", "Ordering", "()"]
     <> fmap (ClassNamespace,) ["Eq", "Ord", "Show", "Read", "Num", "Real", "Integral", "Enum", "Bounded", "Functor", "Monad"]
 
 standardPreludeExportNames :: [RName]

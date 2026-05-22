@@ -2577,6 +2577,26 @@ testHaskell2010ForeignTypechecking = do
     \foreign import ccall \"hegglog_ffi_identity_u32\" c_id_u32 :: CUInt -> IO CUInt\n\
     \main = 1\n"
     "declare i32 @hegglog_ffi_identity_u32(i32)"
+  expectForeignImportDeclaration
+    "static float import over Foreign.C.Types"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CFloat)\n\
+    \foreign import ccall \"hegglog_ffi_identity_float\" c_id_float :: CFloat -> IO CFloat\n\
+    \main = 1\n"
+    "declare float @hegglog_ffi_identity_float(float)"
+  expectForeignImportDeclaration
+    "static double import over Foreign.C.Types"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CDouble)\n\
+    \foreign import ccall \"hegglog_ffi_identity_double\" c_id_double :: CDouble -> IO CDouble\n\
+    \main = 1\n"
+    "declare double @hegglog_ffi_identity_double(double)"
+  expectForeignImportDeclaration
+    "static import over Haskell Float and Double"
+    "module Core0 where\n\
+    \foreign import ccall \"hegglog_ffi_mix_float_double\" c_mix :: Float -> Double -> IO Int\n\
+    \main = 1\n"
+    "declare i64 @hegglog_ffi_mix_float_double(float, double)"
   expectForeignImportCoreSTG
     "dynamic import shape"
     (ForeignCallIR False)
@@ -2592,6 +2612,22 @@ testHaskell2010ForeignTypechecking = do
     \import Foreign (FunPtr)\n\
     \import Foreign.C.Types (CInt)\n\
     \foreign import ccall \"wrapper\" wrapFun :: (CInt -> IO CInt) -> IO (FunPtr (CInt -> IO CInt))\n\
+    \main = 1\n"
+  expectForeignImportCoreSTG
+    "dynamic floating import shape"
+    (ForeignCallIR False)
+    "module Core0 where\n\
+    \import Foreign (FunPtr)\n\
+    \import Foreign.C.Types (CDouble)\n\
+    \foreign import ccall \"dynamic\" mkFun :: FunPtr (CDouble -> IO CDouble) -> CDouble -> IO CDouble\n\
+    \main = 1\n"
+  expectForeignImportCoreSTG
+    "wrapper floating import shape"
+    (ForeignCallIR False)
+    "module Core0 where\n\
+    \import Foreign (FunPtr)\n\
+    \import Foreign.C.Types (CDouble)\n\
+    \foreign import ccall \"wrapper\" wrapFun :: (CDouble -> IO CDouble) -> IO (FunPtr (CDouble -> IO CDouble))\n\
     \main = 1\n"
   expectForeignImportCoreSTG
     "address import shape"

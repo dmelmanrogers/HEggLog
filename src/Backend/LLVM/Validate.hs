@@ -264,6 +264,8 @@ renderLLVMType = \case
   LI16 -> "i16"
   LI1 -> "i1"
   LI8 -> "i8"
+  LFloat -> "float"
+  LDouble -> "double"
   LPtr -> "ptr"
   LArray count ty -> "[" <> Text.pack (show count) <> " x " <> renderLLVMType ty <> "]"
   LStruct fields -> "{ " <> Text.intercalate ", " (map renderLLVMType fields) <> " }"

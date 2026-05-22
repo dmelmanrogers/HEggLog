@@ -61,6 +61,7 @@ data ForeignIntegerSignedness
 
 data ForeignABIType
   = ForeignABIInteger LLVMType ForeignIntegerSignedness
+  | ForeignABIFloating LLVMType
   | ForeignABIBool
   | ForeignABIChar
   | ForeignABIPointer
@@ -855,6 +856,13 @@ emitUnboxForeignReturn abi object =
     ForeignABIInteger targetTy signedness -> do
       intValue <- emitExpectObjectInt object
       emitNarrowForeignInteger targetTy signedness intValue
+    ForeignABIFloating targetTy
+      | targetTy == LFloat ->
+          emitExpectObjectFloat object
+      | targetTy == LDouble ->
+          emitExpectObjectDouble object
+      | otherwise ->
+          throwSTGLLVM (STGLLVMUnsupported ("unsupported foreign floating ABI type " <> renderLLVMType targetTy))
     ForeignABIBool ->
       emitExpectObjectBool object
     ForeignABIChar ->
@@ -871,6 +879,15 @@ emitMarshalForeignArgument env abi atom =
       value <- emitExpectAtomInt env atom
       marshalled <- emitNarrowForeignInteger targetTy signedness value
       pure (targetTy, marshalled)
+    ForeignABIFloating targetTy
+      | targetTy == LFloat -> do
+          value <- emitExpectAtomFloat env atom
+          pure (LFloat, value)
+      | targetTy == LDouble -> do
+          value <- emitExpectAtomDouble env atom
+          pure (LDouble, value)
+      | otherwise ->
+          throwSTGLLVM (STGLLVMUnsupported ("unsupported foreign floating ABI type " <> renderLLVMType targetTy))
     ForeignABIBool -> do
       value <- emitExpectAtomBool env atom
       pure (LI1, value)
@@ -907,6 +924,13 @@ emitBoxForeignResult abi value =
     ForeignABIInteger sourceTy signedness -> do
       value64 <- emitWidenForeignInteger sourceTy signedness value
       emitMakeIntOperand value64
+    ForeignABIFloating sourceTy
+      | sourceTy == LFloat ->
+          emitMakeFloat value
+      | sourceTy == LDouble ->
+          emitMakeDouble value
+      | otherwise ->
+          throwSTGLLVM (STGLLVMUnsupported ("unsupported foreign floating ABI type " <> renderLLVMType sourceTy))
     ForeignABIBool ->
       emitMakeBool value
     ForeignABIChar -> do
@@ -1027,6 +1051,28 @@ emitExpectObjectInt object = do
   reg <- freshRegister "int"
   emit (ICall (Just reg) LI64 (DirectCall expectIntFunctionName) False [(LPtr, object)])
   pure (OLocal LI64 reg)
+
+emitExpectAtomFloat :: ValueEnv -> STGAtom -> FunctionM LLVMOperand
+emitExpectAtomFloat env atom = do
+  object <- emitAtomAddress env atom
+  emitExpectObjectFloat object
+
+emitExpectObjectFloat :: LLVMOperand -> FunctionM LLVMOperand
+emitExpectObjectFloat object = do
+  reg <- freshRegister "float"
+  emit (ICall (Just reg) LFloat (DirectCall expectFloatFunctionName) False [(LPtr, object)])
+  pure (OLocal LFloat reg)
+
+emitExpectAtomDouble :: ValueEnv -> STGAtom -> FunctionM LLVMOperand
+emitExpectAtomDouble env atom = do
+  object <- emitAtomAddress env atom
+  emitExpectObjectDouble object
+
+emitExpectObjectDouble :: LLVMOperand -> FunctionM LLVMOperand
+emitExpectObjectDouble object = do
+  reg <- freshRegister "double"
+  emit (ICall (Just reg) LDouble (DirectCall expectDoubleFunctionName) False [(LPtr, object)])
+  pure (OLocal LDouble reg)
 
 emitExpectAtomBool :: ValueEnv -> STGAtom -> FunctionM LLVMOperand
 emitExpectAtomBool env atom = do
@@ -1348,6 +1394,18 @@ emitMakeIntOperand :: LLVMOperand -> FunctionM LLVMOperand
 emitMakeIntOperand value = do
   reg <- freshRegister "boxed_int"
   emit (ICall (Just reg) LPtr (DirectCall makeIntFunctionName) False [(LI64, value)])
+  pure (OLocal LPtr reg)
+
+emitMakeFloat :: LLVMOperand -> FunctionM LLVMOperand
+emitMakeFloat value = do
+  reg <- freshRegister "boxed_float"
+  emit (ICall (Just reg) LPtr (DirectCall makeFloatFunctionName) False [(LFloat, value)])
+  pure (OLocal LPtr reg)
+
+emitMakeDouble :: LLVMOperand -> FunctionM LLVMOperand
+emitMakeDouble value = do
+  reg <- freshRegister "boxed_double"
+  emit (ICall (Just reg) LPtr (DirectCall makeDoubleFunctionName) False [(LDouble, value)])
   pure (OLocal LPtr reg)
 
 emitMakeBool :: LLVMOperand -> FunctionM LLVMOperand
@@ -2019,7 +2077,11 @@ foreignValueABIType (CTyCon name) =
     Just (llvmTy, signedness) ->
       Right (ForeignABIInteger llvmTy signedness)
     Nothing ->
-      Left (STGLLVMUnsupported ("native static `ccall` scalar marshalling is not implemented for `" <> renderCoreType (CTyCon name) <> "`"))
+      case Map.lookup (nameOcc name) foreignFloatingABI of
+        Just llvmTy ->
+          Right (ForeignABIFloating llvmTy)
+        Nothing ->
+          Left (STGLLVMUnsupported ("native static `ccall` scalar marshalling is not implemented for `" <> renderCoreType (CTyCon name) <> "`"))
 foreignValueABIType ty =
   Left (STGLLVMUnsupported ("native static `ccall` marshalling is not implemented for `" <> renderCoreType ty <> "`"))
 
@@ -2062,6 +2124,15 @@ unsignedForeignIntegerABI =
     , ("CSize", unsigned LI64)
     , ("CUIntPtr", unsigned LI64)
     , ("CUIntMax", unsigned LI64)
+    ]
+
+foreignFloatingABI :: Map.Map Text LLVMType
+foreignFloatingABI =
+  Map.fromList
+    [ ("Float", LFloat)
+    , ("CFloat", LFloat)
+    , ("Double", LDouble)
+    , ("CDouble", LDouble)
     ]
 
 signed :: LLVMType -> (LLVMType, ForeignIntegerSignedness)
@@ -2173,6 +2244,7 @@ renderForeignDeclaration abi =
 foreignABITypeLLVM :: ForeignABIType -> LLVMType
 foreignABITypeLLVM = \case
   ForeignABIInteger ty _ -> ty
+  ForeignABIFloating ty -> ty
   ForeignABIBool -> LI1
   ForeignABIChar -> LI32
   ForeignABIPointer -> LPtr
@@ -2185,6 +2257,8 @@ renderLLVMType = \case
   LI16 -> "i16"
   LI1 -> "i1"
   LI8 -> "i8"
+  LFloat -> "float"
+  LDouble -> "double"
   LPtr -> "ptr"
   LArray count ty -> "[" <> Text.pack (show count) <> " x " <> renderLLVMType ty <> "]"
   LStruct fields -> "{ " <> Text.intercalate ", " (map renderLLVMType fields) <> " }"
@@ -2221,6 +2295,8 @@ runtimeFunctions =
   [ processLifetimeAllocFunction
   , allocObjectFunction
   , makeIntFunction
+  , makeFloatFunction
+  , makeDoubleFunction
   , makeBoolFunction
   , makeCharFunction
   , makePointerFunction
@@ -2232,6 +2308,8 @@ runtimeFunctions =
   , makeThunkFunction
   , forceFunction
   , expectIntFunction
+  , expectFloatFunction
+  , expectDoubleFunction
   , expectBoolFunction
   , expectCharFunction
   , expectPointerFunction
@@ -2297,6 +2375,35 @@ makeIntFunction =
     [ (0, LI64, OConstInt LI64 tagInt)
     , (1, LI64, OLocal LI64 (Register "value"))
     ]
+
+makeFloatFunction :: LLVMFunction
+makeFloatFunction =
+  makeBoxedFloatingFunction makeFloatFunctionName tagFloat LFloat 4
+
+makeDoubleFunction :: LLVMFunction
+makeDoubleFunction =
+  makeBoxedFloatingFunction makeDoubleFunctionName tagDouble LDouble 8
+
+makeBoxedFloatingFunction :: Text -> Integer -> LLVMType -> Integer -> LLVMFunction
+makeBoxedFloatingFunction name tag ty payloadSize =
+  LLVMFunction
+    { functionName = name
+    , functionReturnType = LPtr
+    , functionParams = [(ty, Register "value")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "obj")) LPtr (DirectCall allocObjectFunctionName) False []
+            , IGetElementPtr (Register "tag_ptr") objectType (OLocal LPtr (Register "obj")) objectField0
+            , IStore LI64 (OConstInt LI64 tag) (OLocal LPtr (Register "tag_ptr"))
+            , ICall (Just (Register "payload")) LPtr (DirectCall processLifetimeAllocFunctionName) False [(LI64, OConstInt LI64 payloadSize)]
+            , IStore ty (OLocal ty (Register "value")) (OLocal LPtr (Register "payload"))
+            , IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "obj")) objectField2
+            , IStore LPtr (OLocal LPtr (Register "payload")) (OLocal LPtr (Register "payload_ptr"))
+            ]
+            (TRet LPtr (OLocal LPtr (Register "obj")))
+        ]
+    }
 
 makeBoolFunction :: LLVMFunction
 makeBoolFunction =
@@ -2487,6 +2594,14 @@ forceFunction =
 expectIntFunction :: LLVMFunction
 expectIntFunction =
   expectPayloadFunction expectIntFunctionName tagInt LI64 "int" (TRet LI64 (OLocal LI64 (Register "payload")))
+
+expectFloatFunction :: LLVMFunction
+expectFloatFunction =
+  expectPayloadFunction expectFloatFunctionName tagFloat LFloat "float" (TRet LFloat (OLocal LFloat (Register "payload")))
+
+expectDoubleFunction :: LLVMFunction
+expectDoubleFunction =
+  expectPayloadFunction expectDoubleFunctionName tagDouble LDouble "double" (TRet LDouble (OLocal LDouble (Register "payload")))
 
 expectBoolFunction :: LLVMFunction
 expectBoolFunction =
@@ -3088,6 +3203,16 @@ expectPayloadFunction name expectedTag _ prefix successTerminator =
     , ILoad (Register "payload") LI64 (OLocal LPtr (Register "payload_ptr"))
     , ITrunc (Register "char_i32") (OLocal LI64 (Register "payload")) LI32
     ]
+  payloadInstructions "float" =
+    [ IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
+    , ILoad (Register "payload_box") LPtr (OLocal LPtr (Register "payload_ptr"))
+    , ILoad (Register "payload") LFloat (OLocal LPtr (Register "payload_box"))
+    ]
+  payloadInstructions "double" =
+    [ IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
+    , ILoad (Register "payload_box") LPtr (OLocal LPtr (Register "payload_ptr"))
+    , ILoad (Register "payload") LDouble (OLocal LPtr (Register "payload_box"))
+    ]
   payloadInstructions "string" =
     [ IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
     , ILoad (Register "payload") LPtr (OLocal LPtr (Register "payload_ptr"))
@@ -3163,7 +3288,7 @@ foreignPtrFinalizerSlot :: Int -> [(LLVMType, LLVMOperand)]
 foreignPtrFinalizerSlot index =
   [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 (fromIntegral index))]
 
-tagInt, tagBool, tagFunction, tagThunk, tagBlackHole, tagIndirection, tagData, tagChar, tagString, tagPointer, tagIOSuccess, tagIOFailure :: Integer
+tagInt, tagBool, tagFunction, tagThunk, tagBlackHole, tagIndirection, tagData, tagChar, tagString, tagPointer, tagIOSuccess, tagIOFailure, tagFloat, tagDouble :: Integer
 tagInt = 0
 tagBool = 1
 tagFunction = 2
@@ -3176,6 +3301,8 @@ tagString = 8
 tagPointer = 9
 tagIOSuccess = 10
 tagIOFailure = 11
+tagFloat = 12
+tagDouble = 13
 
 updatableCode, singleEntryCode :: Integer
 updatableCode = 0
@@ -3190,10 +3317,12 @@ constructorRuntimeTag :: RName -> Integer
 constructorRuntimeTag =
   fromIntegral . nameUnique
 
-processLifetimeAllocFunctionName, allocObjectFunctionName, makeIntFunctionName, makeBoolFunctionName, makeCharFunctionName, makePointerFunctionName, makeIOSuccessFunctionName, makeIOFailureFunctionName, makeStringFunctionName, makeDataFunctionName :: Text
+processLifetimeAllocFunctionName, allocObjectFunctionName, makeIntFunctionName, makeFloatFunctionName, makeDoubleFunctionName, makeBoolFunctionName, makeCharFunctionName, makePointerFunctionName, makeIOSuccessFunctionName, makeIOFailureFunctionName, makeStringFunctionName, makeDataFunctionName :: Text
 processLifetimeAllocFunctionName = "hegglog_hs_alloc_process_lifetime"
 allocObjectFunctionName = "hegglog_hs_alloc_object"
 makeIntFunctionName = "hegglog_hs_make_int"
+makeFloatFunctionName = "hegglog_hs_make_float"
+makeDoubleFunctionName = "hegglog_hs_make_double"
 makeBoolFunctionName = "hegglog_hs_make_bool"
 makeCharFunctionName = "hegglog_hs_make_char"
 makePointerFunctionName = "hegglog_hs_make_ptr"
@@ -3207,8 +3336,10 @@ makeFunctionFunctionName = "hegglog_hs_make_function"
 makeThunkFunctionName = "hegglog_hs_make_thunk"
 forceFunctionName = "hegglog_hs_force"
 
-expectIntFunctionName, expectBoolFunctionName, expectCharFunctionName, expectPointerFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, putStrLnFunctionName, getLineFunctionName, printCharListFunctionName :: Text
+expectIntFunctionName, expectFloatFunctionName, expectDoubleFunctionName, expectBoolFunctionName, expectCharFunctionName, expectPointerFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, putStrLnFunctionName, getLineFunctionName, printCharListFunctionName :: Text
 expectIntFunctionName = "hegglog_hs_expect_int"
+expectFloatFunctionName = "hegglog_hs_expect_float"
+expectDoubleFunctionName = "hegglog_hs_expect_double"
 expectBoolFunctionName = "hegglog_hs_expect_bool"
 expectCharFunctionName = "hegglog_hs_expect_char"
 expectPointerFunctionName = "hegglog_hs_expect_ptr"

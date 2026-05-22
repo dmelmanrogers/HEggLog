@@ -857,6 +857,23 @@
       "notes": "dynamic imports emit indirect FunPtr calls and wrapper imports create C-callable callbacks that re-enter Haskell closures."
     },
     {
+      "name": "ffi.floating-ccall",
+      "sourceFile": "test/haskell2010/conformance/ffi/floating-ccall.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "4125\n65\n4125\n65\n4190\n4225\n4125\n4125\n65\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c",
+        "test/native/haskell2010/ffi_floating_export_helpers.c"
+      ],
+      "notes": "Floating-point FFI marshalling covers Float, Double, CFloat, and CDouble through static calls, dynamic calls, wrapper callbacks, and foreign export entrypoints."
+    },
+    {
       "name": "ffi.foreign-export",
       "sourceFile": "test/haskell2010/conformance/ffi/foreign-export.hs",
       "category": "ffi",

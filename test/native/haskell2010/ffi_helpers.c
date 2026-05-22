@@ -73,3 +73,39 @@ void hegglog_ffi_count_i64_finalizer(int64_t *ptr) {
 int64_t hegglog_ffi_finalizer_total_value(void) {
   return hegglog_ffi_finalizer_total;
 }
+
+double hegglog_ffi_double_const(void) {
+  return 41.25;
+}
+
+float hegglog_ffi_float_const(void) {
+  return 6.5f;
+}
+
+double hegglog_ffi_identity_double(double value) {
+  return value;
+}
+
+float hegglog_ffi_identity_float(float value) {
+  return value;
+}
+
+double hegglog_ffi_double_plus_one(double value) {
+  return value + 1.0;
+}
+
+int64_t hegglog_ffi_score_double(double value) {
+  return (int64_t)(value * 100.0 + (value >= 0.0 ? 0.5 : -0.5));
+}
+
+int64_t hegglog_ffi_score_float(float value) {
+  return (int64_t)(value * 10.0f + (value >= 0.0f ? 0.5f : -0.5f));
+}
+
+int64_t hegglog_ffi_mix_float_double(float lhs, double rhs) {
+  return hegglog_ffi_score_float(lhs) + hegglog_ffi_score_double(rhs);
+}
+
+int64_t hegglog_ffi_apply_double(double (*fn)(double), double value) {
+  return hegglog_ffi_score_double(fn(value));
+}
