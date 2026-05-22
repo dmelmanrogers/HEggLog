@@ -157,11 +157,10 @@ Core while preserving lazy constructor fields and forced bottom behavior.
 Haskell 2010 conformance is now tracked by a dedicated mandatory suite backed
 by `test/haskell2010/conformance/manifest.json`; the current compiler passes
 the documented executable-subset cases, while incomplete Haskell 2010 features
-are represented as explicit failing or unsupported-documented fixtures. `Read`
-is a documented Prelude/typeclass deviation: `Read` constraints are recognized
-only far enough to fail explicitly as unsupported until the compiler has
-coherent `ReadS`, lexical read parsing, standard instances, and derived `Read`
-support.
+are represented as explicit failing or unsupported-documented fixtures. The
+Prelude/typeclass surface now includes Report-shaped `Show` and `Read` for the
+supported executable subset, including `ReadS`, lexical read parsing, standard
+supported instances, and derived `Read`.
 
 Current status:
 
@@ -264,7 +263,7 @@ source matrix closure, and ADT-007 completed record
 update expressions.
 
 The following coherent chunk is Prelude, deriving, and typeclass library
-completion: TC-030 and the numbered LIB follow-ups from TEST-CONF-015.
+completion: the numbered LIB follow-ups from TEST-CONF-015.
 PRELUDE-019 and PRELUDE-020 are complete for the current high-value function
 and standard-module interface slices. TEST-CONF-015 is complete for
 validator-backed reconciliation against Chapter 9 Prelude and the Part II
@@ -318,8 +317,8 @@ Current tests include:
   unsupported-documented cases fail explicitly rather than silently passing
 
 Future Haskell 2010 conformance work should extend this direct executable
-coverage as report-complete pattern coverage/runtime attribution,
-`Read`, broader Unicode/string escape edge cases, additional string library
-behavior, and broader IO are implemented. Source-spanned
+coverage as report-complete pattern coverage/runtime attribution, broader
+Unicode/string escape edge cases, additional string library behavior, and
+broader IO are implemented. Source-spanned
 non-exhaustive and redundant pattern warnings are already exposed through the
 Haskell 2010 typechecker, native compilation result APIs, and compile CLI.

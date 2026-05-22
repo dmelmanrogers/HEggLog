@@ -125,15 +125,15 @@ is built alongside them.
     `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Real Int`,
     `Integral Int`, Report-shaped `Show Int`,
     `Show Bool`, `Show Char`, exact `Show String`, and generated structural
-    list `Show` dictionaries, derived `Eq`/`Ord`/`Show` dictionaries for supported
+    list `Show` dictionaries, Report-shaped `Read` dictionaries for supported
+    scalar/list/unit/Ordering values, derived `Eq`/`Ord`/`Show`/`Read` dictionaries for supported
     data/newtype declarations, structural list `Eq`, and structural list `Ord`,
     source-spanned typecheck diagnostics including delayed class-constraint
     dictionary failures,
     documented executable-subset monomorphism/defaulting behavior,
     Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
-    Instance contexts, derived `Read`, Fractional/Floating classes,
-    arbitrary-precision `Integer`, and full `Ratio`/`Rational` behavior remain
-    planned.
+    Instance contexts, Fractional/Floating classes, arbitrary-precision
+    `Integer`, and full `Ratio`/`Rational` behavior remain planned.
 15. Guarded RHS/case alternatives and as-pattern aliases. Completed for
     multi-branch guards, guarded case alternatives, as-pattern alias binding,
     Core/STG/native no-match behavior for guard fallthrough, and wet-tested

@@ -644,6 +644,19 @@
       "notes": "Broader Show coverage for Char, String, generic lists, nested string lists, shows, showsPrec, showList, escaping, print, and defaulted numeric list elements."
     },
     {
+      "name": "prelude.read-standard",
+      "sourceFile": "test/haskell2010/conformance/prelude/read-standard.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "123\n-45\nTrue\n'Z'\nhi\n[1,2,3]\n0\nok\n7\nFoo\nGT\n1\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Report-shaped Read coverage for ReadS, readsPrec, readList, reads, read, lex, readParen, built-in Int/Bool/Char/String/list/Ordering/unit instances, whitespace/token parsing, and constructor-boundary rejection."
+    },
+    {
       "name": "prelude.arithmetic-sequences",
       "sourceFile": "test/haskell2010/conformance/prelude/arithmetic-sequences.hs",
       "category": "prelude",
@@ -1134,6 +1147,19 @@
       "notes": "Derived Show synthesizes report-shaped showsPrec/show/showList dictionaries for nullary constructors, products, recursive data, newtypes, records, String fields, list-backed contexts, and precedence-sensitive output."
     },
     {
+      "name": "typeclasses.derived-read",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/derived-read.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-success",
+      "expectedStdout": "Off\nBox 'x'\nName \"aa\"\nNode (Leaf 'a') (Leaf 'b')\nYears 7\nPerson {age = 42, label = \"Ada\"}\n[Box True,Box False]\n0\n1\n0\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Derived Read synthesizes readsPrec/readList dictionaries for nullary constructors, products, recursive data, newtypes, records, String fields, list-backed contexts, precedence-sensitive nested constructors, and lexical constructor-boundary rejection."
+    },
+    {
       "name": "typeclasses.derived-enum",
       "sourceFile": "test/haskell2010/conformance/typeclasses/derived-enum.hs",
       "category": "typeclasses",
@@ -1188,15 +1214,6 @@
       "expectedDiagnosticCategory": "unsupported",
       "requiredStage": "typecheck",
       "notes": "Method-specific class constraints are rejected by the explicit class-constraint placeholder."
-    },
-    {
-      "name": "unsupported.read-class",
-      "sourceFile": "test/haskell2010/conformance/unsupported/read-class.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "unsupported",
-      "requiredStage": "typecheck",
-      "notes": "TC-016 documents Read as a deliberate Prelude/typeclass deviation until ReadS, readsPrec/readList, lexical parsing, and derived Read are implemented coherently."
     },
     {
       "name": "unsupported.constrained-expression-signature",

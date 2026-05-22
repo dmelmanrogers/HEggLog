@@ -155,8 +155,8 @@ Current initial Haskell 2010 class capabilities:
 Remaining planned Haskell 2010 capabilities:
 
 - instance contexts, method-specific constraints, and remaining deriving classes
-- `Read`, Fractional/Floating and full Ratio numeric behavior, and fuller
-  Prelude hierarchy
+- Fractional/Floating and full Ratio numeric behavior, and fuller Prelude
+  hierarchy
 - kind checking for type constructors and classes
 
 The typechecker emits typed Core or rejects the program. It must not accept a
@@ -218,8 +218,8 @@ whole-program Core flattening, and root `main` native entrypoint selection for
 the executable subset. It exposes source-spanned non-exhaustive and redundant
 pattern-match warnings for supported partial `case`, function, and lambda
 patterns through the typechecker, native API, and compile CLI. The full Haskell
-2010 type-class surface, `Read`, report-complete pattern coverage/runtime
-attribution, broader Prelude, handles, and richer IO behavior remain planned. The strict
+2010 type-class surface, report-complete pattern coverage/runtime attribution,
+broader Prelude, handles, and richer IO behavior remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

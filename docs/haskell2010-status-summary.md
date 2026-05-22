@@ -98,8 +98,11 @@ standard-library module interfaces that have real support, including
 `Control.Monad` `Functor(fmap)` for `[]`, `Maybe`, and `IO`; and
 TEST-CONF-015 is complete for validator-backed reconciliation of Chapter 9
 Prelude plus the Part II library module inventory. TC-029 is complete for
-report-shaped `Show`; the remaining tasks start with TC-030 for `Read`, then continue
-through the numbered LIB-001 through LIB-012 standard-library module tasks.
+report-shaped `Show`, and TC-030 is complete for Report-shaped `Read`,
+including `ReadS`, `readsPrec`, `readList`, `reads`, `read`, `lex`,
+`readParen`, standard supported instances, and derived `Read`. The remaining
+library tasks now continue through the numbered LIB-001 through LIB-012
+standard-library module tasks.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
 through FFI-013 now own floating-point marshalling, link metadata, callback and

@@ -360,9 +360,9 @@ constraints before generalization; signed bindings and functions with value
 parameters are protected. `/` remains the existing checked `Int` division
 primitive rather than a `Fractional` method.
 Remaining Phase 12 work includes instance contexts, method-specific
-constraints/type variables, coherence diagnostics, derived `Read`,
-Fractional/Floating classes, arbitrary-precision `Integer`, and full
-`Ratio`/`Rational` behavior.
+constraints/type variables, coherence diagnostics, Fractional/Floating classes,
+arbitrary-precision `Integer`, and full `Ratio`/`Rational` behavior. Derived
+`Read` moved to complete with TC-030.
 
 Deliverables:
 
@@ -624,12 +624,10 @@ This is the following chunk once the source surface has been closed. The goal
 is to make the standard library and derived-instance behavior look like Haskell
 2010 rather than a narrow executable subset:
 
-1. TC-030 — implement `Read`, including `ReadS`, `readsPrec`, `readList`,
-   lexical read parsing, standard instances, and derived `Read`.
-2. LIB-001 through LIB-012 — implement the numbered standard-library module
+1. LIB-001 through LIB-012 — implement the numbered standard-library module
    gaps produced by the TEST-CONF-015 reconciliation, starting with
    `Control.Monad`, `Data.List`, `Data.Maybe`, `Data.Char`, `Data.Ratio`, and
-   `Numeric` after the Read method shape is in place.
+   `Numeric` now that the Read method shape is in place.
 
 This chunk must not treat the current generated library modules as the end
 state. They are importable checkpoints on the path to the full Haskell 2010
@@ -796,10 +794,10 @@ Completed immediate tasks:
   overlapping-instance rejection, public `Enum` and `Bounded` Prelude classes,
   Core/STG/native oracles, conformance fixtures, and default/no-egglog wet
   tests.
-- TC-016 `Read` decision as a documented deviation: the renamer recognizes
-  `Read` as a Prelude class name for explicit unsupported diagnostics, while
-  dictionaries, methods, standard instances, lexical read parsing, and derived
-  `Read` remain future work.
+- TC-030 `Read` implementation: `ReadS`, `readsPrec`, `readList`, `reads`,
+  `read`, `lex`, `readParen`, standard supported instances, structural list
+  dictionaries, and derived `Read` now lower through Core/STG/native and are
+  backed by unit plus manifest conformance tests.
 
 ## Non-Negotiable Rules
 

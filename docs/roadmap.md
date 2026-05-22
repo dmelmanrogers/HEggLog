@@ -55,8 +55,9 @@ The next chunk is Prelude, deriving, and typeclass library completion.
 TEST-CONF-014 source matrix closure is complete and now enforced by the
 conformance validator.
 
-The next library chunk is TC-030 and the numbered LIB follow-ups from
-TEST-CONF-015; TC-029 is complete for Report-shaped `Show`.
+The next library chunk is the numbered LIB follow-ups from TEST-CONF-015;
+TC-029 is complete for Report-shaped `Show`, and TC-030 is complete for
+Report-shaped `Read`.
 PRELUDE-019 is complete for the current high-value function slice, and
 PRELUDE-020 is complete for the current generated standard-library module
 interface slice. TEST-CONF-015 is complete: Chapter 9 Prelude and the Part II

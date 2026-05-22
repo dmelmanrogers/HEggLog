@@ -37,14 +37,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 132 |
-| Haskell source files in corpus | 139 |
-| HUnit test cases executed | 175 |
-| Native-success fixtures | 81 |
+| Manifest conformance fixtures | 133 |
+| Haskell source files in corpus | 140 |
+| HUnit test cases executed | 178 |
+| Native-success fixtures | 83 |
 | Native-runtime-error fixtures | 5 |
 | Compile-error fixtures | 27 |
-| Unsupported-documented fixtures | 19 |
-| Native subprocess compile/run checks | 129 |
+| Unsupported-documented fixtures | 18 |
+| Native subprocess compile/run checks | 133 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -93,6 +93,14 @@ dictionaries for `toRational`, `quot`, `rem`, `div`, `mod`, `quotRem`,
 `divMod`, `toInteger`, and supported `Integer` default declarations in default
 and `--no-egglog` modes. The negative `invalid-default-type` fixture rejects a
 non-numeric default declaration with an explicit diagnostic.
+
+TC-030 is now covered by native conformance fixtures. `prelude.read-standard`
+checks `ReadS`, `readsPrec`, `readList`, `reads`, `read`, `lex`, `readParen`,
+standard supported `Read` instances, partial-read behavior, and token-boundary
+rejection. `typeclasses.derived-read` checks generated `Read` dictionaries for
+nullary constructors, products, records, recursive data, newtypes, `String`
+fields, list-backed contexts, and precedence-sensitive nested constructor
+parsing in default and `--no-egglog` modes.
 
 PRELUDE-009 is now covered by native conformance and e2e fixtures.
 `prelude.foldl` checks generated `foldl` for left-to-right accumulator order,
@@ -144,8 +152,8 @@ surface.
 | `modules` | 8 | single-module, same-directory import, implicit/explicit/qualified Prelude import, source-instance import/export, generated standard-library module imports, and scalar standard-library type-name imports exist |
 | `negative` | 27 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid default declarations, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
-| `prelude` | 17 | list functions, append, foldl, function/selector completion, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
+| `prelude` | 18 | list functions, append, foldl, function/selector completion, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Report-shaped Read, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
-| `typeclasses` | 11 | user dictionary, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, derived Enum, and derived Bounded tests exist |
+| `typeclasses` | 12 | user dictionary, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, derived Read, derived Enum, and derived Bounded tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |
-| `unsupported` | 19 | unsupported features documented by failing cases, including TC-016 `Read`, constrained expression signatures, handle IO, package/module search paths, and reserved Report library modules |
+| `unsupported` | 18 | unsupported features documented by failing cases, including constrained expression signatures, handle IO, package/module search paths, and reserved Report library modules |

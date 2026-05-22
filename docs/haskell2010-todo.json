@@ -6980,7 +6980,7 @@
       "blocks": [],
       "milestone": "M11",
       "acceptance_criteria": [
-        "Read is explicitly documented as a Haskell 2010 Prelude/typeclass deviation according to status `documented deviation`.",
+        "Read was explicitly documented as a Haskell 2010 Prelude/typeclass deviation until TC-030 could implement it coherently.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -6994,7 +6994,8 @@
         "docs/type-inference.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Historical documented-deviation task. TC-030 now supersedes the active deviation by implementing Read dictionaries, lexical read helpers, standard supported instances, and derived Read with positive native conformance coverage."
     },
     {
       "id": "TC-017",
@@ -7372,7 +7373,7 @@
     {
       "id": "TC-030",
       "title": "Read implementation",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TC-016",
@@ -7399,7 +7400,8 @@
         "docs/type-inference.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete for the current executable subset: the generated Prelude exposes ReadS, readsPrec, readList, reads, read, lex, and readParen; built-in dictionaries cover Int, Bool, Char, String, structural lists, Ordering, and unit; derived Read synthesizes dictionaries for supported data/newtype declarations including nullary constructors, products, records, recursive data, String fields, list-backed contexts, and precedence-sensitive nested constructors. Core/STG/native unit tests and manifest-backed native fixtures cover successful parsing, partial-read behavior, token-boundary rejection, and derived constructor parsing. Remaining richer numeric read helpers and broader library exports stay owned by their LIB tasks."
     },
     {
       "id": "TC-031",
@@ -8018,7 +8020,7 @@
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
       ],
-      "notes": "Complete. The generated Prelude now claims and emits ordinary Core bindings for `($)`, `(.)`, `flip`, `head`, `tail`, `null`, `fst`, and `snd`. `($)`, `(.)`, and `flip` are lazy higher-order wrappers; `head`, `tail`, and `null` case-analyze ordinary lists; `head` and `tail` intentionally preserve empty-list no-match runtime failure; `fst` and `snd` case-analyze ordinary pair tuples and force only the tuple header plus the selected field. No list-fusion rewrites are introduced. Core, STG, LLVM/native, e2e, and conformance fixtures cover successful use plus empty-list `head` native runtime failure. Remaining Prelude functions stay unclaimed and continue under PRELUDE-020, TC-029, TC-030, TEST-CONF-015, or later dedicated library tasks."
+      "notes": "Complete. The generated Prelude now claims and emits ordinary Core bindings for `($)`, `(.)`, `flip`, `head`, `tail`, `null`, `fst`, and `snd`. `($)`, `(.)`, and `flip` are lazy higher-order wrappers; `head`, `tail`, and `null` case-analyze ordinary lists; `head` and `tail` intentionally preserve empty-list no-match runtime failure; `fst` and `snd` case-analyze ordinary pair tuples and force only the tuple header plus the selected field. No list-fusion rewrites are introduced. Core, STG, LLVM/native, e2e, and conformance fixtures cover successful use plus empty-list `head` native runtime failure. Remaining Prelude functions stay unclaimed and continue under PRELUDE-020, TEST-CONF-015, or later dedicated library tasks."
     },
     {
       "id": "PRELUDE-020",

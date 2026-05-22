@@ -129,14 +129,13 @@ Built-in dictionaries for `Monad IO`, `Monad Maybe`, and `Monad []` drive
 generic do-notation desugaring, including refutable pattern binds that call
 `fail` instead of relying on a raw no-match case.
 
-TC-016 documents `Read` as a deliberate Haskell 2010 Prelude/typeclass
-deviation. The renamer recognizes `Read` as a Prelude class name so source
-constraints fail as explicit unsupported type-class constraints, but the
-typechecker does not install `Read` class metadata, dictionaries, methods, or
-standard instances. This avoids a partial implementation of `readsPrec`,
-`readList`, `read`, `reads`, and lexical read behavior before the compiler has
-the parser-combinator and derived-instance infrastructure needed to make `Read`
-coherent.
+TC-030 promotes `Read` from the earlier TC-016 documented deviation into the
+supported Prelude/typeclass surface. The typechecker installs the `Read` class
+with Report-shaped `readsPrec` and `readList` methods, generated `ReadS` and
+`ShowS` synonyms, public `reads`, `read`, `lex`, and `readParen` bindings,
+built-in scalar/list dictionaries, and derived `Read` dictionaries for the same
+supported data/newtype shapes as derived `Show`. Generated read parsers lower
+through the ordinary dictionary, Core, STG, LLVM, and native paths.
 
 TYPE-019 records the monomorphism-restriction decision for the executable
 subset: unsigned nullary value bindings without explicit signatures are eligible

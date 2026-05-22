@@ -217,17 +217,17 @@ Complete: SURFACE-001, SURFACE-002, and SURFACE-003.
 
 ## Next coherent chunk: Prelude, deriving, and typeclass library completion
 
-1. TC-030 — Read implementation.
-2. LIB-001 — Control.Monad report completion.
-3. LIB-002 — Data.List report completion.
-4. LIB-003 — Data.Maybe report completion.
-5. LIB-004 — Data.Char report completion.
-6. LIB-007 — Data.Ratio and Rational report completion.
-8. LIB-010 — Numeric report completion.
+1. LIB-001 — Control.Monad report completion.
+2. LIB-002 — Data.List report completion.
+3. LIB-003 — Data.Maybe report completion.
+4. LIB-004 — Data.Char report completion.
+5. LIB-007 — Data.Ratio and Rational report completion.
+6. LIB-010 — Numeric report completion.
 
 Completed in this chunk: PRELUDE-019 — Prelude function completion;
 PRELUDE-020 — standard library module expansion; TEST-CONF-015 — validator-backed
 library conformance reconciliation against Chapter 9 Prelude and the Part II
+library inventory; TC-030 — Report-shaped Read implementation.
 Haskell 2010 Libraries inventory.
 
 ## Remaining FFI closure chunk
@@ -12491,7 +12491,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- Read is explicitly documented as a Haskell 2010 Prelude/typeclass deviation according to status `documented deviation`.
+- Read was explicitly documented as a Haskell 2010 Prelude/typeclass deviation until TC-030 could implement it coherently.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -12507,7 +12507,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). TC-016 is complete as a documented deviation: `Read` is recognized as a Prelude class name only far enough to produce an explicit unsupported type-class diagnostic, and no `Read` dictionaries, `readsPrec`, `readList`, `read`, `reads`, or `lex` behavior is exported. The conformance fixture `test/haskell2010/conformance/unsupported/read-class.hs` prevents accidental silent acceptance. Full implementation should be scheduled only after the compiler has report-compatible lexical read support and derived `Read` generation.
+- Milestone M11 (Type classes and dictionaries). TC-016 is complete as the historical documented-deviation decision that held `Read` out of the supported surface until the implementation could be coherent. TC-030 now supersedes the active deviation by installing `Read` dictionaries, lexical read helpers, standard supported instances, and derived `Read`; the unsupported fixture has been replaced by positive native conformance coverage.
 
 ## TC-017 — Num
 
@@ -12919,7 +12919,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: supported data/newtype declarations can derive `Ord` when an `Eq` superclass dictionary is available, and structural list ordering supports string and list-backed fields. Derived `Show` is covered by TC-025, derived `Enum` by TC-031, and derived `Bounded` by TC-032; derived `Read` remains separate in TC-030.
+- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: supported data/newtype declarations can derive `Ord` when an `Eq` superclass dictionary is available, and structural list ordering supports string and list-backed fields. Derived `Show` is covered by TC-025, derived `Read` by TC-030, derived `Enum` by TC-031, and derived `Bounded` by TC-032.
 
 ## TC-025 — derived Show
 
@@ -13190,7 +13190,7 @@ Notes:
 ## TC-030 — Read implementation
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -13239,20 +13239,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Complete. `Haskell2010.StandardLibrary` now exposes generated/importable
-  interfaces for `Prelude`, `Control.Monad`, `Data.Int`, `Data.List`,
-  `Data.Maybe`, `Data.Word`, `System.IO`, and the implemented `Foreign`,
-  `Foreign.C`, `Foreign.C.String`, `Foreign.C.Types`, `Foreign.ForeignPtr`,
-  `Foreign.Ptr`, and `Foreign.StablePtr` slices. The generated modules use the
-  shared `ModuleInterface` export, child-export, fixity, and instance slots;
-  no reserved module is importable as an empty placeholder. Native e2e and
-  conformance fixtures cover explicit imports from `Data.List`, `Data.Maybe`,
-  `Control.Monad`, and `System.IO`, including `Functor(fmap)` execution for
-  lists, `Maybe`, and `IO`; the old unsupported package/search-path
-  fixture now targets reserved `Data.Char` so unsupported standard-library
-  modules still fail explicitly. The standard-library layout doc identifies
-  every Haskell 2010 Libraries module as implemented, partial, reserved, or
-  owned by a follow-up task.
+- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: the generated Prelude exposes `ReadS`, `readsPrec`, `readList`, `reads`, `read`, `lex`, and `readParen`; built-in dictionaries cover `Int`, `Bool`, `Char`, `String`, structural lists, `Ordering`, and unit; derived `Read` synthesizes dictionaries for supported data/newtype declarations including nullary constructors, products, records, recursive data, `String` fields, list-backed contexts, and precedence-sensitive nested constructors. Core/STG/native unit tests and manifest-backed native fixtures cover successful parsing, partial-read behavior, token-boundary rejection, and derived constructor parsing. Remaining richer numeric read helpers and broader library exports stay owned by their LIB tasks.
 
 ## TC-031 — derived Enum
 
@@ -14396,7 +14383,7 @@ Notes:
   are introduced. Core, STG, LLVM/native, e2e, and conformance fixtures cover
   the successful function slice plus empty-list `head` native runtime failure.
   Remaining Prelude functions stay unclaimed and continue under PRELUDE-020,
-  TC-029, TC-030, TEST-CONF-015, or later dedicated library tasks.
+  TEST-CONF-015, or later dedicated library tasks.
 
 ## PRELUDE-020 — standard library module expansion
 

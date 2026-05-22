@@ -137,9 +137,11 @@ LIBRARY_CLOSURE_REQUIRED_FIXTURES = {
     "test/haskell2010/conformance/prelude/numeric-hierarchy.hs",
     "test/haskell2010/conformance/prelude/prelude-classes.hs",
     "test/haskell2010/conformance/prelude/prelude-lists.hs",
+    "test/haskell2010/conformance/prelude/read-standard.hs",
     "test/haskell2010/conformance/prelude/string-char-list.hs",
     "test/haskell2010/conformance/typeclasses/derived-bounded.hs",
     "test/haskell2010/conformance/typeclasses/derived-enum.hs",
+    "test/haskell2010/conformance/typeclasses/derived-read.hs",
     "test/haskell2010/conformance/typeclasses/derived-show.hs",
     "test/haskell2010/conformance/typeclasses/monad-explicit-fail.hs",
     "test/haskell2010/conformance/typeclasses/monad.hs",
@@ -157,7 +159,6 @@ LIBRARY_CLOSURE_REQUIRED_FIXTURES = {
     "test/haskell2010/conformance/unsupported/library-system-environment.hs",
     "test/haskell2010/conformance/unsupported/library-system-exit.hs",
     "test/haskell2010/conformance/unsupported/library-system-io-error.hs",
-    "test/haskell2010/conformance/unsupported/read-class.hs",
 }
 
 FIXTURE_PATH_RE = re.compile(r"`(test/haskell2010/conformance/[^`]+\.hs)`")
