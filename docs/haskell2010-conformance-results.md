@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-22 06:18:19 UTC
+Date/time: 2026-05-22 06:47:40 UTC
 
-Commit hash tested: working tree with FFI-011 link metadata changes.
+Commit hash tested: working tree with FFI-012 callback/finalizer lifetime changes.
 
 Primary conformance command run:
 
@@ -36,14 +36,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 135 |
-| Haskell source files in corpus | 142 |
-| HUnit test cases executed | 183 |
-| Native-success fixtures | 86 |
-| Native-runtime-error fixtures | 5 |
+| Manifest conformance fixtures | 137 |
+| Haskell source files in corpus | 144 |
+| HUnit test cases executed | 187 |
+| Native-success fixtures | 87 |
+| Native-runtime-error fixtures | 6 |
 | Compile-error fixtures | 27 |
 | Unsupported-documented fixtures | 17 |
-| Native subprocess compile/run checks | 139 |
+| Native subprocess compile/run checks | 143 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -56,6 +56,14 @@ FFI-011 is now covered by the conformance/native path. Header-qualified static
 `ccall` imports preserve link metadata, C helper fixtures are linked through
 the `hegglog compile --link-object` path, and the unit suite covers LLVM link
 metadata comments plus missing link-input diagnostics.
+
+FFI-012 is now covered by native unit and conformance paths. `freeHaskellFunPtr`
+is imported through the generated `Foreign`/`Foreign.Ptr` surface, wrapper
+slots are reclaimed after explicit release, double-free of a wrapper pointer is
+idempotent, callback-after-free exits nonzero, and manual `ForeignPtr`
+finalization remains explicit, idempotent, and reverse-order under the
+process-lifetime runtime model. The new `ffi.wrapper-reclamation` and
+`ffi.wrapper-after-free` fixtures run in default and `--no-egglog` modes.
 
 TEST-CONF-014 source matrix closure is now validator-backed. The conformance
 validator checks 37 declaration/expression/pattern closure rows, rejects fixture
@@ -155,7 +163,7 @@ dynamic calls, wrapper callbacks, and foreign export entrypoints.
 | `declarations` | 6 | representative native tests exist |
 | `egglog` | 1 | optimized/unoptimized native agreement covered |
 | `expressions` | 13 | representative native tests exist, including user-defined infix operators and line-broken `where` layout |
-| `ffi` | 7 | static ccall, floating ccall, pointer/address, dynamic/wrapper, foreign export, StablePtr/ForeignPtr ownership, and broader Foreign library surface native fixtures link C helpers and run in default and `--no-egglog` modes |
+| `ffi` | 9 | static ccall, floating ccall, pointer/address, dynamic/wrapper, wrapper reclamation/after-free, foreign export, StablePtr/ForeignPtr ownership, and broader Foreign library surface native fixtures link C helpers and run in default and `--no-egglog` modes |
 | `io` | 5 | current line-oriented stdin/stdout IO slice and recoverable IO-error behavior covered, including do-bind, explicit `(>>=)`, `getLine`, explicit `fail`, `ioError`, `catch`, `try`, and System.IO.Error examples |
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |

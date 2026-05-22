@@ -131,8 +131,10 @@ signed and unsigned integer C ABI declarations, `CFloat`/`CDouble` ABI
 declarations, checked integer marshalling, floating-point marshalling, pointer
 arguments/results, and result-carrying `IO` sequencing. `dynamic` imports now
 lower to indirect `FunPtr` calls, and `wrapper` imports now generate C-callable
-callback trampolines backed by process-lifetime closure slots. `foreign export
-ccall` declarations now lower to C-callable native LLVM entrypoints for the
+callback trampolines backed by reclaimable process-lifetime closure slots.
+`freeHaskellFunPtr` releases wrapper slots, double-free is idempotent for
+wrapper pointers, callback-after-free aborts, and later wrapper allocations can
+reuse freed slots. `foreign export ccall` declarations now lower to C-callable native LLVM entrypoints for the
 supported scalar/floating/pointer ABI slice; entrypoints allocate the module
 closure graph, box C arguments, enter the exported Haskell closure, force pure
 or `IO` results, and marshal results back to C. Native wet tests link generated
@@ -144,8 +146,8 @@ and manual `ForeignPtr` finalizer APIs are implemented with native wet coverage:
 stable pointers can be created, dereferenced, cast to raw pointers, cast back,
 and explicitly freed, while foreign pointers own raw addresses, accept bounded
 process-lifetime finalizer lists, support `withForeignPtr`, and finalize
-idempotently. `Foreign.Ptr` also exposes null and representation-preserving
-pointer/function-pointer casts; `Foreign.ForeignPtr` exposes
+idempotently with reverse-order finalizer dispatch. `Foreign.Ptr` also exposes null and representation-preserving
+pointer/function-pointer casts plus `freeHaskellFunPtr`; `Foreign.ForeignPtr` exposes
 `FinalizerPtr`/`FinalizerEnvPtr`, `unsafeForeignPtrToPtr`, and
 `castForeignPtr`; and `Foreign.Marshal.Error`/`Foreign.Marshal.Utils` expose
 the implemented guard and `Maybe` pointer helpers. FFI link metadata is now
@@ -153,10 +155,9 @@ preserved through native compilation: header-qualified imports, static/address
 symbols, and export symbols appear in the Haskell 2010 LLVM result and emitted
 LLVM comments, while the CLI/toolchain accepts explicit `--link-object`,
 `--link-library`, `--library-path`, and `--framework` inputs for clang.
-Automatic GC finalizer scheduling,
-`freeHaskellFunPtr`/callback-slot reclamation, errno, Storable dictionaries,
-raw allocation, array marshalling, and C string marshalling functions remain
-later FFI work.
+Automatic GC finalizer scheduling, errno, Storable dictionaries, raw
+allocation, array marshalling, and C string marshalling functions remain later
+FFI work.
 Multi-module Haskell 2010 compilation now also follows the Report's special
 instance import/export rule for the executable source-instance subset:
 instances move across empty export lists, empty import lists, and transitive
@@ -282,12 +283,12 @@ completion: the numbered LIB follow-ups from TEST-CONF-015.
 PRELUDE-019 and PRELUDE-020 are complete for the current high-value function
 and standard-module interface slices. TEST-CONF-015 is complete for
 validator-backed reconciliation against Chapter 9 Prelude and the Part II
-Haskell 2010 Libraries module inventory. Remaining FFI closure is tracked
-separately by FFI-012 and FFI-013. FFI-010 is complete for floating-point
+Haskell 2010 Libraries module inventory. FFI-010 is complete for floating-point
 native ABI marshalling of `Float`, `Double`, `CFloat`, and `CDouble`; FFI-011
-is complete for link metadata and explicit native link inputs; and
-FFI-013 documents the implemented Foreign surface plus the still-reserved
-errno, Storable, allocation, array, and C-string pieces.
+is complete for link metadata and explicit native link inputs; FFI-012 is
+complete for explicit callback/finalizer lifetime behavior; and FFI-013
+documents the implemented Foreign surface plus the still-reserved errno,
+Storable, allocation, array, and C-string pieces.
 
 ## Carry-Forward Infrastructure
 

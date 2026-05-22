@@ -485,10 +485,10 @@ Deliverables:
   `FunPtr` calls, and `wrapper` imports generate C-callable callback
   trampolines. `foreign export ccall` now emits C-callable native entrypoints
   for supported scalar/floating/pointer pure and `IO` functions, and explicit
-  `StablePtr`/manual `ForeignPtr` ownership APIs are implemented and
-  wet-tested. FFI link metadata and explicit clang link inputs are implemented
-  and wet-tested. Automatic GC finalization and
-  `freeHaskellFunPtr`/callback-slot reclamation remain open
+  `StablePtr`/manual `ForeignPtr` ownership APIs plus `freeHaskellFunPtr`
+  wrapper slot reclamation are implemented and wet-tested. FFI link metadata
+  and explicit clang link inputs are implemented and wet-tested. Automatic GC
+  finalization remains scoped out under the process-lifetime runtime model
 
 Acceptance criteria:
 
@@ -655,8 +655,13 @@ FFI-011 is complete for preserving header/symbol link metadata and for passing
 explicit native link objects, libraries, library paths, and frameworks through
 the CLI/toolchain to clang.
 
-1. FFI-012 — callback and finalizer lifetime completion.
-2. FFI-013 — Foreign library surface completion. Status: complete for the
+FFI-012 is complete for explicit callback/finalizer lifetime behavior:
+`freeHaskellFunPtr` releases wrapper slots, double-free is idempotent,
+callback-after-free aborts, freed slots are reclaimed, and manual `ForeignPtr`
+finalizers remain explicit/idempotent with reverse-order dispatch under the
+process-lifetime runtime model.
+
+1. FFI-013 — Foreign library surface completion. Status: complete for the
    generated/importable `Foreign.Ptr`, `Foreign.ForeignPtr`,
    `Foreign.Marshal`, `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils`
    surface added under the current runtime model; errno, Storable, raw

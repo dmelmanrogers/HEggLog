@@ -16676,7 +16676,7 @@ Acceptance criteria:
 - Core/STG validators, pretty-printers, evaluators, optimizer traversal, and native backend boundaries preserve the foreign IR without silently dropping imports.
 - Core/STG evaluation reports explicit unsupported runtime diagnostics when foreign calls are reached outside native lowering.
 - Supported `foreign import ccall` nodes lower to native LLVM declarations/direct calls or indirect `FunPtr` calls with scalar integer/Bool/Char/Float/Double marshalling, `Ptr`/`FunPtr` pointer marshalling, static `&symbol` address boxing, `wrapper` callback trampolines, and `IO` sequencing.
-- Explicit `StablePtr` ownership and manual `ForeignPtr` finalizer APIs are implemented and wet-tested; automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, and broader callback lifetime management remain pending.
+- Explicit `StablePtr` ownership, manual `ForeignPtr` finalizer APIs, `freeHaskellFunPtr`, wrapper callback-slot reclamation, callback-after-free rejection, and reverse-order/idempotent finalization are implemented and wet-tested; automatic GC finalizer scheduling remains scoped out under the process-lifetime runtime model.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -16727,9 +16727,9 @@ Acceptance criteria:
 - Static scalar and pointer calls emit direct LLVM `call` instructions and link successfully against C helper objects in native wet tests.
 - Static `&symbol` imports for `Ptr a` and `FunPtr ft` emit external data/function declarations and box the raw address as a pointer value.
 - `dynamic` imports emit typed indirect calls through unboxed `FunPtr` values.
-- `wrapper` imports emit process-lifetime callback slots and C-callable trampoline functions for the supported scalar/floating/pointer ABI slice.
+- `wrapper` imports emit reclaimable process-lifetime callback slots and C-callable trampoline functions for the supported scalar/floating/pointer ABI slice.
 - Unsupported FFI entities still report explicit native ABI diagnostics instead of being silently dropped.
-- Automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, and broader callback lifetime APIs remain pending.
+- Automatic GC finalization remains scoped out under the process-lifetime runtime model; explicit wrapper callback release is implemented through `freeHaskellFunPtr`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -16744,7 +16744,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: static scalar/floating/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks, and foreign export ccall entrypoints are implemented; FFI link metadata is complete, while callback-slot reclamation remains open.
+- Milestone M15 (FFI). In progress: static scalar/floating/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks with `freeHaskellFunPtr` reclamation, and foreign export ccall entrypoints are implemented; FFI link metadata is complete.
 
 ## FFI-008 — FFI native tests
 
@@ -16778,7 +16778,7 @@ Files likely touched:
 Acceptance criteria:
 - Static scalar and floating `ccall` native tests compile/link generated LLVM with a C helper and assert stdout.
 - Static pointer/address native tests cover `Ptr`, `FunPtr`, data `&symbol`, function `&symbol`, pointer arguments, pointer results, and ordered pointer mutation through `IO`.
-- Dynamic/wrapper native tests cover indirect `FunPtr` calls, multiple live wrapped callbacks, C-to-Haskell callback re-entry, callback `IO`, and result marshalling.
+- Dynamic/wrapper native tests cover indirect `FunPtr` calls, multiple live wrapped callbacks, C-to-Haskell callback re-entry, callback `IO`, result marshalling, explicit wrapper release, double-free/idempotence, slot reclamation, and callback-after-free runtime failure.
 - Foreign export native tests cover C helpers calling exported pure and `IO` Haskell functions; remaining FFI forms add native tests as each ABI feature lands.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
@@ -16794,7 +16794,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: static scalar, floating, pointer/address, dynamic/wrapper, and foreign-export native C-helper wet tests are implemented; link metadata and explicit link-object coverage are complete, while finalizer lifetime and broader library coverage remain open.
+- Milestone M15 (FFI). In progress: static scalar, floating, pointer/address, dynamic/wrapper lifetime, foreign-export, StablePtr, and ForeignPtr finalizer native C-helper wet tests are implemented; link metadata and explicit link-object coverage are complete, while broader Foreign library coverage remains open.
 
 ## FFI-009 — FFI-wide deferral retired
 
@@ -16954,7 +16954,7 @@ Notes:
 ## FFI-012 — callback and finalizer lifetime completion
 
 Status:
-- not started
+- complete
 
 Category:
 - runtime
@@ -17002,7 +17002,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete. `freeHaskellFunPtr` is now a generated `Foreign`/`Foreign.Ptr` binding that lowers through Core, STG, validation, evaluation, optimization boundaries, and native LLVM. Wrapper imports now allocate from reclaimable per-import callback slots, double-free of a wrapper pointer is idempotent, unknown frees and callback-after-free paths abort instead of re-entering stale closures, and freed slots can be reused after the fixed pool is saturated. Manual `ForeignPtr` finalization remains explicit under the process-lifetime allocation model: automatic GC scheduling is not claimed, while `finalizeForeignPtr` is idempotent and finalizers run in reverse registration order. Unit/native and conformance fixtures cover wrapper reclamation, callback-after-free runtime failure, double-free/idempotence, finalizer ordering, StablePtr round trips, and withForeignPtr/touchForeignPtr liveness barriers.
 
 ## FFI-013 — Foreign library surface completion
 

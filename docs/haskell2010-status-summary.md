@@ -55,10 +55,12 @@ The implemented FFI slice includes structured `foreign import`/`foreign export`
 declarations, generated `Foreign`/`Foreign.C`/`Foreign.C.Types` interfaces,
 marshallable scalar/floating/pointer/synonym/local-newtype validation, static `ccall`,
 address, `dynamic`, `wrapper`, foreign-export, `StablePtr`, and manual
-`ForeignPtr` native wet coverage for the supported ABI surface. FFI link
-metadata now preserves header-qualified imports and C symbols in native results
-and emitted LLVM comments, and the compile CLI passes explicit object,
-library, library-path, and framework inputs through to clang.
+`ForeignPtr` native wet coverage for the supported ABI surface. `freeHaskellFunPtr`
+now releases wrapper callback slots, callback-after-free aborts, and released
+slots are reused by later wrapper allocations. FFI link metadata now preserves
+header-qualified imports and C symbols in native results and emitted LLVM
+comments, and the compile CLI passes explicit object, library, library-path,
+and framework inputs through to clang.
 The typechecker now also exposes source-spanned non-exhaustive and redundant
 pattern-match warnings for supported `case`, function, and lambda patterns
 through `typecheckModuleToCoreWithWarnings`; native compilation carries those
@@ -76,9 +78,8 @@ implemented:
   partial module interfaces
 - Haskell source desugaring and negative fixtures beyond the current executable subset
 - broader IO, including handles, files, buffering, seek, EOF-specific handle behavior, and effects beyond line-oriented stdin/stdout
-- remaining FFI closure for callback/finalizer lifetimes, errno, Storable
-  dictionaries, raw allocation, array marshalling, and C string marshalling
-  functions
+- remaining FFI closure for errno, Storable dictionaries, raw allocation, array
+  marshalling, and C string marshalling functions
 - full Haskell 2010 conformance suite breadth beyond the current
   manifest-backed executable subset
 
@@ -110,9 +111,9 @@ standard-library module tasks.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
 is complete for floating-point native ABI marshalling, FFI-011 is complete for
-link metadata and explicit native link inputs, and FFI-012 plus FFI-013 now own
-callback/finalizer lifetime completion and the documented errno, Storable, raw
-allocation, array, and C-string library gaps.
+link metadata and explicit native link inputs, FFI-012 is complete for
+explicit callback/finalizer lifetime behavior, and FFI-013 now owns the
+documented errno, Storable, raw allocation, array, and C-string library gaps.
 
 ## What Is Parsed Today
 
@@ -206,15 +207,14 @@ calling exported pure and `IO` Haskell functions.
 Explicit `StablePtr` ownership and manual `ForeignPtr` finalizer APIs are also
 implemented and wet-tested. The broader Foreign library surface now includes
 null pointer values, pointer and function-pointer casts, `FinalizerPtr` and
-`FinalizerEnvPtr` aliases, `unsafeForeignPtrToPtr`, `castForeignPtr`,
-`throwIf`, `throwIf_`, `throwIfNull`, `void`, `maybeNew`, `maybeWith`, and
-`maybePeek`, covered by a native C-helper fixture. FFI link metadata is
+`FinalizerEnvPtr` aliases, `freeHaskellFunPtr`, `unsafeForeignPtrToPtr`,
+`castForeignPtr`, `throwIf`, `throwIf_`, `throwIfNull`, `void`, `maybeNew`,
+`maybeWith`, and `maybePeek`, covered by native C-helper fixtures. FFI link metadata is
 preserved in the native result and emitted LLVM comments for headers,
 import/address symbols, and export symbols; explicit link inputs are passed
-through the compile CLI to clang. Automatic GC finalization,
-`freeHaskellFunPtr`/callback-slot reclamation, errno, Storable dictionaries,
-raw allocation, array marshalling, and C string marshalling functions remain
-pending.
+through the compile CLI to clang. Automatic GC finalization, errno, Storable
+dictionaries, raw allocation, array marshalling, and C string marshalling
+functions remain pending.
 Recursive top-level functions, mutually recursive
 top-level groups, singleton self-recursive bindings, and local recursive `let`
 bindings now emit recursive Core groups in the supported subset. The initial

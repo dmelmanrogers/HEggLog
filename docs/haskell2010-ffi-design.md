@@ -228,9 +228,16 @@ semantics:
   touches the owner record after forcing the result. `touchForeignPtr` is a
   liveness barrier for generated code; it does not itself schedule or run
   finalizers.
+- `freeHaskellFunPtr` releases only `FunPtr` values returned by Haskell
+  `wrapper` imports. Release clears the callback closure slot, double-free of
+  the same wrapper pointer is idempotent, unknown function pointers abort, and
+  any later C call through a freed wrapper aborts before re-entering Haskell.
+  Freed slots are eligible for reuse by later wrapper allocations.
 
-Automatic GC-triggered finalizer scheduling, heap reclamation, and
-`freeHaskellFunPtr`/callback-slot reclamation remain later runtime work.
+Automatic GC-triggered finalizer scheduling and heap reclamation are not
+claimed by the current backend; explicit `finalizeForeignPtr` and
+`freeHaskellFunPtr` are the supported lifetime controls under the
+process-lifetime allocation model.
 
 ### LLVM And Linking
 
@@ -307,12 +314,12 @@ are not scoped-down product slices.
    native wet tests link explicit helper objects through the compile CLI.
 8. Implement `dynamic` imports and `wrapper` imports. Status: complete for the
    current scalar/floating/pointer ABI slice. `dynamic` imports unbox `FunPtr ft` and
-   emit typed indirect LLVM calls. `wrapper` imports allocate process-lifetime
-   callback slots, return C-callable `FunPtr ft` trampolines, box C arguments
-   before entering Haskell closures, force callback `IO` results, and marshal
-   results back to the C ABI. The current backend uses a bounded per-import
-   wrapper pool and aborts on exhaustion until `freeHaskellFunPtr`/richer
-   callback lifetime management is implemented.
+   emit typed indirect LLVM calls. `wrapper` imports allocate reclaimable
+   process-lifetime callback slots, return C-callable `FunPtr ft` trampolines,
+   box C arguments before entering Haskell closures, force callback `IO`
+   results, and marshal results back to the C ABI. The current backend uses a
+   bounded per-import wrapper pool, reuses slots released by
+   `freeHaskellFunPtr`, and aborts on callback-after-free or pool exhaustion.
 9. Implement `foreign export ccall` generated entrypoints. Status: complete
    for the current scalar/floating/pointer ABI slice. Exported entrypoints box incoming
    C arguments, allocate the module closure graph, enter the exported Haskell
@@ -325,8 +332,9 @@ are not scoped-down product slices.
    primitive representation, validators, evaluators, native LLVM runtime
    records, stable pointer dereference/free checks, `withForeignPtr`, bounded
    finalizer registration, reverse-order finalizer dispatch, idempotent
-   finalization, and native C-helper wet tests. Automatic GC finalization and
-   callback-slot reclamation remain later work.
+   finalization, `freeHaskellFunPtr` wrapper slot reclamation, and native
+   C-helper wet tests. Automatic GC finalization remains scoped out under the
+   current process-lifetime runtime model.
 11. Add `stdcall` where the target ABI exposes it and target-specific
    diagnostics where it does not.
 12. Fill out `Foreign.*` marshalling modules and conformance fixtures.
@@ -350,6 +358,8 @@ Required test layers:
 - native wet tests for static addresses
 - native wet tests for callbacks through `wrapper` and C-to-Haskell calls
   through `foreign export`
+- native wet tests for `freeHaskellFunPtr`, wrapper slot reclamation,
+  idempotent double-free, and callback-after-free runtime failure
 - native wet tests for `StablePtr`, `ForeignPtr`, finalizer ordering,
   idempotent explicit finalization, and `withForeignPtr` liveness barriers
 - negative tests for unsupported calling conventions and invalid entity strings

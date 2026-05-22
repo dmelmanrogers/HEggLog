@@ -83,11 +83,11 @@ arguments/results, and `wrapper` callback trampolines for the same ABI slice.
 FFI link metadata is preserved for header-qualified imports and C symbols, and
 native executable builds accept explicit link objects, libraries, library
 paths, and frameworks through the compile CLI. Complete package search paths,
-complete Prelude module coverage, automatic GC finalization, and
-`freeHaskellFunPtr`/callback-slot reclamation remain later
-module-system/runtime work; `foreign export ccall` entrypoints and explicit
-`StablePtr`/manual `ForeignPtr` ownership APIs are implemented for the current
-scalar/floating/pointer native ABI slice.
+complete Prelude module coverage, automatic GC finalization, and remaining
+Foreign library breadth remain later module-system/runtime work; `foreign
+export ccall` entrypoints, `freeHaskellFunPtr` wrapper slot reclamation, and
+explicit `StablePtr`/manual `ForeignPtr` ownership APIs are implemented for the
+current scalar/floating/pointer native ABI slice.
 
 Required namespaces and scopes:
 

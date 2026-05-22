@@ -41,6 +41,29 @@ The current strict runtime is not sufficient for Haskell 2010 laziness. The
 planned STG/runtime path is documented in
 [laziness-and-stg-plan.md](laziness-and-stg-plan.md).
 
+## Haskell 2010 FFI Lifetimes
+
+The Haskell 2010 native backend currently uses process-lifetime allocation for
+heap objects and explicit lifetime APIs for FFI ownership boundaries.
+
+- `StablePtr` records are explicit ownership handles. `newStablePtr` allocates
+  a process-lifetime record, `deRefStablePtr` checks that the record is live,
+  `freeStablePtr` marks it dead, and casts to/from `Ptr ()` do not transfer
+  ownership.
+- `ForeignPtr` records own raw addresses plus a bounded finalizer list.
+  `finalizeForeignPtr` marks the record finalized before invoking callbacks,
+  making repeated finalization idempotent and re-entrant safe. Finalizers run in
+  reverse registration order. `withForeignPtr` obtains the raw address, forces
+  the continuation result, then emits a `touchForeignPtr` liveness barrier.
+- `foreign import ccall "wrapper"` uses per-import callback slots and
+  C-callable trampoline functions. `freeHaskellFunPtr` clears a wrapper slot,
+  double-free of the same wrapper pointer is idempotent, unknown function
+  pointers abort, and C calls through a freed wrapper abort before re-entering
+  Haskell. Later wrapper allocations can reclaim freed slots.
+
+Automatic GC-triggered finalizer scheduling is not claimed by the current
+process-lifetime runtime model.
+
 ## Current Runtime Values
 
 Implemented source/interpreter values:
