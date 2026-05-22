@@ -1,9 +1,16 @@
 module Haskell2010.ModuleGraph
   ( LoadedModule (..)
   , LoadedModuleGraph (..)
+  , InterfaceFilePolicy (..)
+  , ModuleCompilationBoundary (..)
+  , ModuleCompilationMode (..)
   , ModuleGraphError (..)
+  , ModuleSearchPolicy (..)
+  , currentModuleCompilationBoundary
   , loadModuleGraph
+  , loadModuleGraphWithPolicy
   , renderModuleGraphError
+  , resolveModuleImportPath
   , sourceModuleName
   , wholeProgramModule
   )
@@ -46,6 +53,33 @@ data ModuleGraphError
   | ModuleCycle [ModuleName]
   deriving stock (Show, Eq, Ord)
 
+data ModuleSearchPolicy
+  = SameDirectorySourceSearch
+  deriving stock (Show, Eq, Ord)
+
+data ModuleCompilationMode
+  = WholeProgramSourceCompilation
+  deriving stock (Show, Eq, Ord)
+
+data InterfaceFilePolicy
+  = InterfaceFilesDeferredUntilStableSearchPaths
+  deriving stock (Show, Eq, Ord)
+
+data ModuleCompilationBoundary = ModuleCompilationBoundary
+  { moduleBoundarySearchPolicy :: ModuleSearchPolicy
+  , moduleBoundaryCompilationMode :: ModuleCompilationMode
+  , moduleBoundaryInterfaceFilePolicy :: InterfaceFilePolicy
+  }
+  deriving stock (Show, Eq, Ord)
+
+currentModuleCompilationBoundary :: ModuleCompilationBoundary
+currentModuleCompilationBoundary =
+  ModuleCompilationBoundary
+    { moduleBoundarySearchPolicy = SameDirectorySourceSearch
+    , moduleBoundaryCompilationMode = WholeProgramSourceCompilation
+    , moduleBoundaryInterfaceFilePolicy = InterfaceFilesDeferredUntilStableSearchPaths
+    }
+
 data LoadState = LoadState
   { loadedByName :: Map.Map ModuleName LoadedModule
   , loadedOrder :: [LoadedModule]
@@ -53,7 +87,11 @@ data LoadState = LoadState
   deriving stock (Show, Eq, Ord)
 
 loadModuleGraph :: FilePath -> IO (Either ModuleGraphError LoadedModuleGraph)
-loadModuleGraph rootPath = do
+loadModuleGraph =
+  loadModuleGraphWithPolicy (moduleBoundarySearchPolicy currentModuleCompilationBoundary)
+
+loadModuleGraphWithPolicy :: ModuleSearchPolicy -> FilePath -> IO (Either ModuleGraphError LoadedModuleGraph)
+loadModuleGraphWithPolicy searchPolicy rootPath = do
   result <- runLoad rootPath
   pure $ do
     finalState <- result
@@ -68,7 +106,7 @@ loadModuleGraph rootPath = do
         }
  where
   runLoad path =
-    loadModule (takeDirectory path) [] emptyLoadState (normalise path) Nothing
+    loadModule searchPolicy (takeDirectory path) [] emptyLoadState (normalise path) Nothing
 
 emptyLoadState :: LoadState
 emptyLoadState =
@@ -78,13 +116,14 @@ emptyLoadState =
     }
 
 loadModule ::
+  ModuleSearchPolicy ->
   FilePath ->
   [ModuleName] ->
   LoadState ->
   FilePath ->
   Maybe ModuleName ->
   IO (Either ModuleGraphError LoadState)
-loadModule rootDirectory active state path expectedName =
+loadModule searchPolicy rootDirectory active state path expectedName =
   case expectedName >>= (`Map.lookup` loadedByName state) of
     Just {} ->
       pure (Right state)
@@ -103,9 +142,10 @@ loadModule rootDirectory active state path expectedName =
               pure (Left err)
             Right parsed -> do
               let actualName = sourceModuleName parsed
-              pureOrContinue rootDirectory active state path source parsed actualName expectedName
+              pureOrContinue searchPolicy rootDirectory active state path source parsed actualName expectedName
 
 pureOrContinue ::
+  ModuleSearchPolicy ->
   FilePath ->
   [ModuleName] ->
   LoadState ->
@@ -115,7 +155,7 @@ pureOrContinue ::
   ModuleName ->
   Maybe ModuleName ->
   IO (Either ModuleGraphError LoadState)
-pureOrContinue rootDirectory active state path source parsed actualName expectedName = do
+pureOrContinue searchPolicy rootDirectory active state path source parsed actualName expectedName = do
   let normalizedPath = normalise path
   case expectedName of
     Just expected | expected /= actualName ->
@@ -131,7 +171,11 @@ pureOrContinue rootDirectory active state path source parsed actualName expected
           | actualName `elem` active ->
               pure (Left (ModuleCycle (cyclePath actualName active)))
           | otherwise -> do
-              dependencies <- foldM (loadImport rootDirectory (actualName : active)) (Right state) (moduleImports parsed)
+              dependencies <-
+                foldM
+                  (loadImport searchPolicy rootDirectory (actualName : active))
+                  (Right state)
+                  (moduleImports parsed)
               pure $ do
                 stateWithDependencies <- dependencies
                 let loaded =
@@ -147,8 +191,14 @@ pureOrContinue rootDirectory active state path source parsed actualName expected
                     , loadedOrder = loadedOrder stateWithDependencies <> [loaded]
                     }
 
-loadImport :: FilePath -> [ModuleName] -> Either ModuleGraphError LoadState -> ImportDecl -> IO (Either ModuleGraphError LoadState)
-loadImport rootDirectory active stateResult importDecl =
+loadImport ::
+  ModuleSearchPolicy ->
+  FilePath ->
+  [ModuleName] ->
+  Either ModuleGraphError LoadState ->
+  ImportDecl ->
+  IO (Either ModuleGraphError LoadState)
+loadImport searchPolicy rootDirectory active stateResult importDecl =
   case stateResult of
     Left err ->
       pure (Left err)
@@ -158,7 +208,13 @@ loadImport rootDirectory active stateResult importDecl =
       | Map.member (importModule importDecl) (loadedByName state) ->
           pure (Right state)
       | otherwise ->
-          loadModule rootDirectory active state (moduleNamePath rootDirectory (importModule importDecl)) (Just (importModule importDecl))
+          loadModule
+            searchPolicy
+            rootDirectory
+            active
+            state
+            (resolveModuleImportPath searchPolicy rootDirectory (importModule importDecl))
+            (Just (importModule importDecl))
 
 readModuleSource :: FilePath -> IO (Either ModuleGraphError Text)
 readModuleSource path = do
@@ -176,8 +232,8 @@ sourceModuleName sourceModule =
     Just name -> name
     Nothing -> ModuleName ["Main"]
 
-moduleNamePath :: FilePath -> ModuleName -> FilePath
-moduleNamePath rootDirectory (ModuleName parts) =
+resolveModuleImportPath :: ModuleSearchPolicy -> FilePath -> ModuleName -> FilePath
+resolveModuleImportPath SameDirectorySourceSearch rootDirectory (ModuleName parts) =
   rootDirectory </> joinPath (map Text.unpack parts) <.> "hs"
 
 isBuiltinModule :: ModuleName -> Bool

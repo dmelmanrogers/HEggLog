@@ -142,6 +142,7 @@ testGroups =
       , pureTest "renames Haskell 2010 foreign declarations" testHaskell2010RenamerForeignDeclarations
       , pureTest "resolves module graph imports through exports" testHaskell2010RenamerModuleGraphExports
       , pureTest "exports and imports instances through module interfaces" testHaskell2010RenamerModuleGraphInstances
+      , pureTest "exposes explicit module compilation boundary" testHaskell2010ModuleCompilationBoundary
       , ioTest "detects module graph import cycles" testHaskell2010ModuleGraphCycle
       ]
   , TestGroup
@@ -1506,6 +1507,30 @@ testHaskell2010RenamerModuleGraphInstances = do
       of
         Just (_, interface) -> Right interface
         Nothing -> Left ("missing interface for module " <> Text.unpack moduleName)
+
+testHaskell2010ModuleCompilationBoundary :: Either String ()
+testHaskell2010ModuleCompilationBoundary = do
+  let boundary = H2010ModuleGraph.currentModuleCompilationBoundary
+  expectEqual
+    "module graph search policy"
+    H2010ModuleGraph.SameDirectorySourceSearch
+    (H2010ModuleGraph.moduleBoundarySearchPolicy boundary)
+  expectEqual
+    "module graph compilation mode"
+    H2010ModuleGraph.WholeProgramSourceCompilation
+    (H2010ModuleGraph.moduleBoundaryCompilationMode boundary)
+  expectEqual
+    "module graph interface-file policy"
+    H2010ModuleGraph.InterfaceFilesDeferredUntilStableSearchPaths
+    (H2010ModuleGraph.moduleBoundaryInterfaceFilePolicy boundary)
+  expectEqual
+    "same-directory import path resolution"
+    (".context" </> "module-boundary" </> "Data" </> "Thing.hs")
+    ( H2010ModuleGraph.resolveModuleImportPath
+        H2010ModuleGraph.SameDirectorySourceSearch
+        (".context" </> "module-boundary")
+        (H2010.ModuleName ["Data", "Thing"])
+    )
 
 testHaskell2010ModuleGraphCycle :: IO (Either String ())
 testHaskell2010ModuleGraphCycle = do
