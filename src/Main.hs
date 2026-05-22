@@ -2,7 +2,7 @@ module Main (main) where
 
 import Backend.Compile
 import Backend.LLVM.Toolchain
-import CLI.Compile (CompileCLIOptions (..), CompileOutputMode (..), parseCompileFlags)
+import CLI.Compile (CompileCLIOptions (..), CompileLinkOptions (..), CompileOutputMode (..), parseCompileFlags)
 import CLI.Report (compileReport, renderCompileError, renderFullReport)
 import Control.Monad (unless)
 import Control.Exception (IOException, try)
@@ -176,9 +176,9 @@ handleCompileOutput cliOptions result = do
       emitLLVMOutput maybePath result
       runGeneratedLLVM result
     BuildExecutable outputPath ->
-      buildNativeOutput outputPath result
+      buildNativeOutput (cliLinkOptions cliOptions) outputPath result
     BuildAndRunExecutable outputPath -> do
-      buildNativeOutput outputPath result
+      buildNativeOutput (cliLinkOptions cliOptions) outputPath result
       runGeneratedExecutable outputPath
 
 emitCompileWarnings :: CompiledLLVMOutput -> IO ()
@@ -197,11 +197,16 @@ emitLLVMOutput maybePath result =
       Text.IO.putStrLn ("wrote LLVM IR to " <> Text.pack path)
       Text.IO.putStrLn (compiledStatus result)
 
-buildNativeOutput :: FilePath -> CompiledLLVMOutput -> IO ()
-buildNativeOutput outputPath result = do
+buildNativeOutput :: CompileLinkOptions -> FilePath -> CompiledLLVMOutput -> IO ()
+buildNativeOutput linkOptions outputPath result = do
   ensureParentDirectory outputPath
   tools <- findLLVMTools
-  nativeResult <- buildNativeExecutable tools (compiledLLVMText result) outputPath
+  nativeResult <-
+    buildNativeExecutableWithLinkOptions
+      tools
+      (compiledLLVMText result)
+      (nativeLinkOptionsFromCLI linkOptions)
+      outputPath
   case nativeResult of
     NativeBuildSucceeded -> do
       Text.IO.hPutStrLn stderr ("wrote native executable to " <> Text.pack outputPath)
@@ -218,6 +223,15 @@ buildNativeOutput outputPath result = do
     NativeBuildIOError message -> do
       Text.IO.hPutStrLn stderr ("native executable build I/O error: " <> Text.pack message)
       exitFailure
+
+nativeLinkOptionsFromCLI :: CompileLinkOptions -> NativeLinkOptions
+nativeLinkOptionsFromCLI linkOptions =
+  defaultNativeLinkOptions
+    { nativeLinkObjects = cliLinkObjects linkOptions
+    , nativeLinkLibraries = cliLinkLibraries linkOptions
+    , nativeLinkLibraryPaths = cliLinkLibraryPaths linkOptions
+    , nativeLinkFrameworks = cliLinkFrameworks linkOptions
+    }
 
 runGeneratedLLVM :: CompiledLLVMOutput -> IO ()
 runGeneratedLLVM result = do
@@ -304,6 +318,14 @@ compileUsage =
     , "      Run generated LLVM text through lli, or through a temporary clang executable."
     , "  --no-egglog"
     , "      Compile without Egglog optimization."
+    , "  --link-object PATH"
+    , "      Add an object file or native archive to the clang link command. May be repeated."
+    , "  --link-library NAME"
+    , "      Link with -lNAME. May be repeated."
+    , "  --library-path PATH"
+    , "      Add -LPATH to the native link command. May be repeated."
+    , "  --framework NAME"
+    , "      Link with a macOS framework. May be repeated."
     , ""
     , "toolchain:"
     , "  Native executable output requires clang. LLVM text output does not."

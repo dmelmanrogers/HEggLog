@@ -822,7 +822,7 @@
       "extraObjects": [
         "test/native/haskell2010/ffi_helpers.c"
       ],
-      "notes": "Static foreign import ccall declarations lower through LLVM, link against C helpers, marshal Int/Bool/Char values, and sequence IO effects."
+      "notes": "Static foreign import ccall declarations lower through LLVM, preserve header-qualified link metadata, link against C helpers through CLI link-object flags, marshal Int/Bool/Char values, and sequence IO effects."
     },
     {
       "name": "ffi.pointer-address",

@@ -1,5 +1,6 @@
 module Haskell2010.Native
-  ( Haskell2010LLVMError (..)
+  ( ForeignLinkMetadata (..)
+  , Haskell2010LLVMError (..)
   , Haskell2010NativeOptions (..)
   , Haskell2010LLVMResult (..)
   , Haskell2010OptimizationStatus (..)
@@ -17,7 +18,8 @@ import qualified Data.List as List
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Egglog.Eval as Egglog
-import Haskell2010.Core.Syntax (CoreModule)
+import Haskell2010.Core.Syntax (CoreForeignImport, CoreModule)
+import Haskell2010.FFI.LinkMetadata (ForeignLinkMetadata (..), foreignLinkMetadataForImportsExports)
 import Haskell2010.ModuleGraph
   ( LoadedModule (..)
   , LoadedModuleGraph (..)
@@ -33,7 +35,7 @@ import Haskell2010.Renamed (RDecl (..), RHsModule (..), RPat (..))
 import Haskell2010.Renamer (RenameError, renameModule, renameModuleGraph, renderRenameError)
 import Haskell2010.STG.LLVM (STGLLVMError, lowerSTGProgramToLLVMByName, renderSTGLLVMError)
 import Haskell2010.STG.Lower (STGLowerError, lowerCoreModule, renderSTGLowerError)
-import Haskell2010.STG.Syntax (STGProgram)
+import Haskell2010.STG.Syntax (STGAlt (..), STGBind (..), STGExpr (..), STGProgram (..), STGRhs (..))
 import Haskell2010.Syntax (HsModule, ModuleName (..))
 import Haskell2010.Typecheck
   ( TypecheckError
@@ -68,6 +70,7 @@ data Haskell2010LLVMResult = Haskell2010LLVMResult
   , haskell2010Core :: CoreModule
   , haskell2010OptimizationStatus :: Haskell2010OptimizationStatus
   , haskell2010STG :: STGProgram
+  , haskell2010LinkMetadata :: ForeignLinkMetadata
   , haskell2010LLVMModule :: LLVMModule
   , haskell2010LLVMText :: Text
   }
@@ -163,6 +166,10 @@ compileHaskell2010RenamedToLLVMWithOptions options parsed renamed mainName = do
     optimizeCoreIfEnabled options originalCore
   stg <- mapLeft Haskell2010LLVMLowerError (lowerCoreModule core)
   llvmModule <- mapLeft Haskell2010LLVMSTGError (lowerSTGProgramToLLVMByName mainName stg)
+  let linkMetadata =
+        foreignLinkMetadataForImportsExports
+          (foreignImportsInProgram stg)
+          (stgProgramForeignExports stg)
   pure
     Haskell2010LLVMResult
       { haskell2010Parsed = parsed
@@ -172,9 +179,51 @@ compileHaskell2010RenamedToLLVMWithOptions options parsed renamed mainName = do
       , haskell2010Core = core
       , haskell2010OptimizationStatus = optimizationStatus
       , haskell2010STG = stg
+      , haskell2010LinkMetadata = linkMetadata
       , haskell2010LLVMModule = llvmModule
       , haskell2010LLVMText = emitLLVMModule llvmModule
       }
+
+foreignImportsInProgram :: STGProgram -> [CoreForeignImport]
+foreignImportsInProgram (STGProgram _ binds _foreignExports) =
+  concatMap foreignImportsInBind binds
+
+foreignImportsInBind :: STGBind -> [CoreForeignImport]
+foreignImportsInBind = \case
+  STGNonRec _ rhs ->
+    foreignImportsInRhs rhs
+  STGRec pairs ->
+    concatMap (foreignImportsInRhs . snd) pairs
+
+foreignImportsInRhs :: STGRhs -> [CoreForeignImport]
+foreignImportsInRhs = \case
+  STGFunction _ body ->
+    foreignImportsInExpr body
+  STGThunk _ body ->
+    foreignImportsInExpr body
+  STGConstructor {} ->
+    []
+
+foreignImportsInExpr :: STGExpr -> [CoreForeignImport]
+foreignImportsInExpr = \case
+  STGAtom {} ->
+    []
+  STGApp {} ->
+    []
+  STGLet bind body _ ->
+    foreignImportsInBind bind <> foreignImportsInExpr body
+  STGCase scrutinee _ alternatives _ ->
+    foreignImportsInExpr scrutinee <> concatMap foreignImportsInAlt alternatives
+  STGPrim {} ->
+    []
+  STGForeignCall foreignImport _ _ ->
+    [foreignImport]
+  STGForeignImportValue foreignImport _ ->
+    [foreignImport]
+
+foreignImportsInAlt :: STGAlt -> [CoreForeignImport]
+foreignImportsInAlt (STGAlt _ _ body) =
+  foreignImportsInExpr body
 
 optimizeCoreIfEnabled ::
   Haskell2010NativeOptions ->

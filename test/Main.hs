@@ -35,6 +35,7 @@ import qualified Haskell2010.Core.Pretty as H2010CorePretty
 import qualified Haskell2010.Core.Subst as H2010CoreSubst
 import qualified Haskell2010.Core.Syntax as H2010Core
 import qualified Haskell2010.Core.Validate as H2010CoreValidate
+import qualified Haskell2010.FFI.LinkMetadata as H2010Link
 import qualified Haskell2010.ModuleGraph as H2010ModuleGraph
 import qualified Haskell2010.ModuleInterface as H2010ModuleInterface
 import qualified Haskell2010.Names as H2010Names
@@ -342,6 +343,7 @@ testGroups =
       "Haskell 2010 Native Output"
       [ pureTest "emits boxed lazy STG runtime LLVM" testHaskell2010NativeLLVMShape
       , pureTest "erases newtype constructor allocation in native LLVM" testHaskell2010NativeNewtypeErasure
+      , pureTest "emits FFI link metadata" testHaskell2010NativeFFILinkMetadata
       , pureTest "emits Char runtime LLVM" testHaskell2010NativeCharRuntime
       , pureTest "emits String as Char lists in native LLVM" testHaskell2010NativeStringCharList
       , pureTest "emits arithmetic sequence LLVM" testHaskell2010NativeArithmeticSequences
@@ -418,6 +420,7 @@ testGroups =
   , TestGroup
       "CLI"
       [ pureTest "compile flags select LLVM and native output modes" testCompileFlagsOutputModes
+      , pureTest "compile flags collect native link options" testCompileFlagsLinkOptions
       , pureTest "compile flags reject invalid run combinations" testCompileFlagsRejectInvalidRunModes
       ]
   , TestGroup
@@ -616,6 +619,7 @@ testGroups =
       , pureTest "LLVM compiler closure-converts capturing lambdas" testLLVMCompileCapturingLambda
       , pureTest "LLVM compiler closure-converts inferred capturing lambdas" testLLVMCompileInferredCapturingLambda
       , ioTest "native build reports missing clang structurally" testNativeBuildToolchainMissing
+      , ioTest "native link options report missing objects" testNativeBuildLinkOptionsMissingObject
       , ioTest "native executable output matches interpreter when clang is available" testNativeExecutionMatchesInterpreter
       , ioTest "native executable runtime errors fail when clang is available" testNativeRuntimeErrorExecutable
       , ioTest "LLVM checked Int overflow aborts when tools are available" testLLVMOverflowAborts
@@ -3977,6 +3981,28 @@ testHaskell2010NativeUserDefinedOperators = do
   assertBool "native LLVM emits backtick value operator binding" ("combine" `Text.isInfixOf` llvmText)
   assertBool "native LLVM emits local append-shadowing binding" ("_x2b__x2b_" `Text.isInfixOf` llvmText)
 
+testHaskell2010NativeFFILinkMetadata :: Either String ()
+testHaskell2010NativeFFILinkMetadata = do
+  result <-
+    compileHaskell2010Native
+      "module Main where\n\
+      \foreign import ccall \"static [ffi_helpers.h] hegglog_ffi_add_i64\" c_add :: Int -> Int -> IO Int\n\
+      \exported :: Int -> Int\n\
+      \exported value = value\n\
+      \foreign export ccall \"hegglog_hs_export_id\" exported :: Int -> Int\n\
+      \main = do\n\
+      \  value <- c_add 1 2\n\
+      \  print value\n"
+  let metadata = H2010Native.haskell2010LinkMetadata result
+      llvmText = H2010Native.haskell2010LLVMText result
+  expectEqual "foreign link headers" ["ffi_helpers.h"] (H2010Link.foreignLinkHeaders metadata)
+  expectEqual "foreign link import symbols" ["hegglog_ffi_add_i64"] (H2010Link.foreignLinkImportSymbols metadata)
+  expectEqual "foreign link address symbols" [] (H2010Link.foreignLinkAddressSymbols metadata)
+  expectEqual "foreign link export symbols" ["hegglog_hs_export_id"] (H2010Link.foreignLinkExportSymbols metadata)
+  assertBool "LLVM records foreign link header" ("; foreign link header: ffi_helpers.h" `Text.isInfixOf` llvmText)
+  assertBool "LLVM records foreign link import symbol" ("; foreign link import symbol: hegglog_ffi_add_i64" `Text.isInfixOf` llvmText)
+  assertBool "LLVM records foreign link export symbol" ("; foreign link export symbol: hegglog_hs_export_id" `Text.isInfixOf` llvmText)
+
 testHaskell2010NativeGetLine :: Either String ()
 testHaskell2010NativeGetLine = do
   llvmText <- compileHaskell2010NativeText haskell2010IOGetLineSource
@@ -4747,6 +4773,7 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.EmitLLVM (Just "out.ll")
           , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
           }
         )
     )
@@ -4757,6 +4784,7 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.EmitAndRunLLVM Nothing
           , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
           }
         )
     )
@@ -4767,6 +4795,7 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.BuildExecutable "program"
           , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
           }
         )
     )
@@ -4777,10 +4806,45 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.BuildAndRunExecutable "program"
           , CompileCLI.cliUseEgglog = False
+          , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
           }
         )
     )
     (CompileCLI.parseCompileFlags ["--output", "program", "--run", "--no-egglog"])
+
+testCompileFlagsLinkOptions :: Either String ()
+testCompileFlagsLinkOptions =
+  expectEqual
+    "native link flags"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.BuildExecutable "program"
+          , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliLinkOptions =
+              CompileCLI.CompileLinkOptions
+                { CompileCLI.cliLinkObjects = ["ffi.o", "more.o"]
+                , CompileCLI.cliLinkLibraries = ["m"]
+                , CompileCLI.cliLinkLibraryPaths = ["native"]
+                , CompileCLI.cliLinkFrameworks = ["CoreFoundation"]
+                }
+          }
+        )
+    )
+    ( CompileCLI.parseCompileFlags
+        [ "-o"
+        , "program"
+        , "--link-object"
+        , "ffi.o"
+        , "--link-object"
+        , "more.o"
+        , "--library-path"
+        , "native"
+        , "--link-library"
+        , "m"
+        , "--framework"
+        , "CoreFoundation"
+        ]
+    )
 
 testCompileFlagsRejectInvalidRunModes :: Either String ()
 testCompileFlagsRejectInvalidRunModes =
@@ -4788,6 +4852,10 @@ testCompileFlagsRejectInvalidRunModes =
     *> assertLeftContains "native run conflicts with emit LLVM" "--run builds and runs a native executable" (CompileCLI.parseCompileFlags ["--emit-llvm", "--run"])
     *> assertLeftContains "native and LLVM run conflict" "--run and --run-llvm cannot be combined" (CompileCLI.parseCompileFlags ["--run", "--run-llvm", "-o", "program"])
     *> assertLeftContains "duplicate output rejected" "provided more than once" (CompileCLI.parseCompileFlags ["-o", "a", "--output", "b"])
+    *> assertLeftContains "missing link object path rejected" "--link-object requires a file path" (CompileCLI.parseCompileFlags ["--link-object"])
+    *> assertLeftContains "missing link library name rejected" "--link-library requires a library name" (CompileCLI.parseCompileFlags ["--link-library"])
+    *> assertLeftContains "missing library path rejected" "--library-path requires a directory path" (CompileCLI.parseCompileFlags ["--library-path"])
+    *> assertLeftContains "missing framework name rejected" "--framework requires a framework name" (CompileCLI.parseCompileFlags ["--framework"])
  where
   assertLeftContains label needle = \case
     Left message ->
@@ -6372,6 +6440,36 @@ testNativeBuildToolchainMissing = do
         assertBool "missing clang reports toolchain status" ("clang unavailable" `Text.isInfixOf` Text.pack message)
       other ->
         Left ("expected missing native toolchain, got " <> show other)
+
+testNativeBuildLinkOptionsMissingObject :: IO (Either String ())
+testNativeBuildLinkOptionsMissingObject = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} -> do
+      createDirectoryIfMissing True ".context/native-tests"
+      let missingPath = ".context/native-tests/missing-ffi-object.o"
+          outputPath = ".context/native-tests/missing-link-input"
+          linkOptions =
+            LLVMTools.defaultNativeLinkOptions
+              { LLVMTools.nativeLinkObjects = [missingPath]
+              }
+      result <-
+        LLVMTools.buildNativeExecutableWithLinkOptions
+          tools
+          "define i32 @main() {\nentry:\n  ret i32 0\n}\n"
+          linkOptions
+          outputPath
+      pure $
+        case result of
+          LLVMTools.NativeBuildFailed _clangPath args _code _stdoutText stderrText ->
+            assertBool "clang argv includes missing link object" (missingPath `elem` args)
+              *> assertBool "clang stderr names missing link object" (Text.pack missingPath `Text.isInfixOf` Text.pack stderrText)
+          LLVMTools.NativeBuildSucceeded ->
+            Left "expected native link to fail for missing object input"
+          other ->
+            Left ("expected native link failure for missing object input, got " <> show other)
 
 testNativeExecutionMatchesInterpreter :: IO (Either String ())
 testNativeExecutionMatchesInterpreter = do

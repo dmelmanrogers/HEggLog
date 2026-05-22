@@ -15,8 +15,10 @@ description:
     its supported runtime fragment.
 category:           Language
 extra-source-files:
+    test/native/haskell2010/ffi_helpers.h
     test/native/haskell2010/ffi_helpers.c
     test/native/haskell2010/ffi_export_helpers.c
+    test/native/haskell2010/ffi_floating_export_helpers.c
 
 common warnings
   ghc-options:
@@ -81,6 +83,7 @@ executable hegglog
       Haskell2010.Core.Subst
       Haskell2010.Core.Syntax
       Haskell2010.Core.Validate
+      Haskell2010.FFI.LinkMetadata
       Haskell2010.Layout
       Haskell2010.Lexer
       Haskell2010.ModuleGraph
@@ -181,6 +184,7 @@ test-suite hegglog-test
       Haskell2010.Core.Subst
       Haskell2010.Core.Syntax
       Haskell2010.Core.Validate
+      Haskell2010.FFI.LinkMetadata
       Haskell2010.Layout
       Haskell2010.Lexer
       Haskell2010.ModuleGraph

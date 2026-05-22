@@ -16,6 +16,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Core.Pretty (renderCorePrimOp, renderCoreType)
 import Haskell2010.Core.Syntax
+import Haskell2010.FFI.LinkMetadata (foreignLinkMetadataForImportsExports, renderForeignLinkMetadataComments)
 import Haskell2010.Names (RName, nameOcc, nameUnique, renderRName)
 import Haskell2010.STG.Syntax
 import qualified Haskell2010.STG.Validate as STGValidate
@@ -127,6 +128,8 @@ lowerValidatedSTGProgram mainBinder program = do
               , "values are boxed; thunks are forced through a lazy enter/apply runtime"
               , "heap objects use process-lifetime allocation; generated programs do not free or collect them"
               ]
+                <> renderForeignLinkMetadataComments
+                  (foreignLinkMetadataForImportsExports (foreignImportsInProgram program) (stgProgramForeignExports program))
           , moduleGlobals = formatGlobals
           , moduleDeclarations = uniqueTexts (runtimeDeclarations <> foreignDeclarations)
           , moduleFunctions = runtimeFunctions <> generatedFunctions moduleState <> foreignExportFunctions <> [mainFunction]

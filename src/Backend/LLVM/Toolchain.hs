@@ -3,9 +3,12 @@ module Backend.LLVM.Toolchain
   , LLVMRunResult (..)
   , LLVMTools (..)
   , NativeBuildResult (..)
+  , NativeLinkOptions (..)
   , NativeRunResult (..)
   , buildNativeExecutable
+  , buildNativeExecutableWithLinkOptions
   , buildNativeExecutableWithObjects
+  , defaultNativeLinkOptions
   , findLLVMTools
   , runNativeExecutable
   , runNativeExecutableWithInput
@@ -55,6 +58,23 @@ data NativeRunResult
   | NativeRunIOError String
   deriving stock (Show, Eq, Ord)
 
+data NativeLinkOptions = NativeLinkOptions
+  { nativeLinkObjects :: [FilePath]
+  , nativeLinkLibraries :: [String]
+  , nativeLinkLibraryPaths :: [FilePath]
+  , nativeLinkFrameworks :: [String]
+  }
+  deriving stock (Show, Eq, Ord)
+
+defaultNativeLinkOptions :: NativeLinkOptions
+defaultNativeLinkOptions =
+  NativeLinkOptions
+    { nativeLinkObjects = []
+    , nativeLinkLibraries = []
+    , nativeLinkLibraryPaths = []
+    , nativeLinkFrameworks = []
+    }
+
 findLLVMTools :: IO LLVMTools
 findLLVMTools =
   LLVMTools
@@ -97,10 +117,18 @@ validateLLVMText tools llvmText =
 
 buildNativeExecutable :: LLVMTools -> Text.Text -> FilePath -> IO NativeBuildResult
 buildNativeExecutable tools llvmText outputPath =
-  buildNativeExecutableWithObjects tools llvmText [] outputPath
+  buildNativeExecutableWithLinkOptions tools llvmText defaultNativeLinkOptions outputPath
 
 buildNativeExecutableWithObjects :: LLVMTools -> Text.Text -> [FilePath] -> FilePath -> IO NativeBuildResult
 buildNativeExecutableWithObjects tools llvmText extraInputs outputPath =
+  buildNativeExecutableWithLinkOptions
+    tools
+    llvmText
+    defaultNativeLinkOptions {nativeLinkObjects = extraInputs}
+    outputPath
+
+buildNativeExecutableWithLinkOptions :: LLVMTools -> Text.Text -> NativeLinkOptions -> FilePath -> IO NativeBuildResult
+buildNativeExecutableWithLinkOptions tools llvmText linkOptions outputPath =
   case llvmClang tools of
     Nothing ->
       pure (NativeBuildToolchainMissing ("clang unavailable: " <> renderLLVMTools tools))
@@ -112,12 +140,19 @@ buildNativeExecutableWithObjects tools llvmText extraInputs outputPath =
           Left err -> NativeBuildIOError (show err)
  where
   runClang clangPath llvmPath = do
-    let args = llvmPath : extraInputs <> ["-o", outputPath]
+    let args = llvmPath : renderNativeLinkOptions linkOptions <> ["-o", outputPath]
     (code, stdoutText, stderrText) <- readProcessWithExitCode clangPath args ""
     pure $
       case code of
         ExitSuccess -> NativeBuildSucceeded
         ExitFailure {} -> NativeBuildFailed clangPath args code stdoutText stderrText
+
+renderNativeLinkOptions :: NativeLinkOptions -> [String]
+renderNativeLinkOptions options =
+  nativeLinkObjects options
+    <> ["-L" <> path | path <- nativeLinkLibraryPaths options]
+    <> ["-l" <> library | library <- nativeLinkLibraries options]
+    <> concat [["-framework", framework] | framework <- nativeLinkFrameworks options]
 
 runNativeExecutable :: FilePath -> IO NativeRunResult
 runNativeExecutable path =
