@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-22 01:55:28 UTC
+Date/time: 2026-05-22 05:49:13 UTC
 
-Commit hash tested: working tree with TEST-CONF-015 library reconciliation changes.
+Commit hash tested: working tree with FFI-010 floating-point FFI marshalling changes.
 
 Primary conformance command run:
 
@@ -14,9 +14,8 @@ Required task validation also passed:
 
 ```bash
 cabal build all
-cabal test hegglog-test --test-options='--hide-successes'
-cabal test haskell2010-conformance-test --test-options='--hide-successes'
-cabal test all --test-options='--hide-successes'
+cabal test haskell2010-conformance-test
+cabal test all
 cabal check
 python3 scripts/validate-haskell2010-conformance.py
 python3 scripts/validate-haskell2010-todo.py
@@ -37,14 +36,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 134 |
-| Haskell source files in corpus | 141 |
-| HUnit test cases executed | 181 |
-| Native-success fixtures | 85 |
+| Manifest conformance fixtures | 135 |
+| Haskell source files in corpus | 142 |
+| HUnit test cases executed | 183 |
+| Native-success fixtures | 86 |
 | Native-runtime-error fixtures | 5 |
 | Compile-error fixtures | 27 |
 | Unsupported-documented fixtures | 17 |
-| Native subprocess compile/run checks | 137 |
+| Native subprocess compile/run checks | 139 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -139,7 +138,9 @@ positively checks the current generated `Data.Int`, `Data.Word`, and
 `Foreign.C.Types` type-name surface. `ffi.foreign-library-surface` positively
 checks the implemented `Foreign.Ptr`, `Foreign.ForeignPtr`,
 `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils` surface in native default
-and `--no-egglog` modes.
+and `--no-egglog` modes. `ffi.floating-ccall` positively checks
+`Float`/`Double`/`CFloat`/`CDouble` FFI marshalling across static calls,
+dynamic calls, wrapper callbacks, and foreign export entrypoints.
 
 ## Category Summary
 
@@ -149,7 +150,7 @@ and `--no-egglog` modes.
 | `declarations` | 6 | representative native tests exist |
 | `egglog` | 1 | optimized/unoptimized native agreement covered |
 | `expressions` | 13 | representative native tests exist, including user-defined infix operators and line-broken `where` layout |
-| `ffi` | 6 | static ccall, pointer/address, dynamic/wrapper, foreign export, StablePtr/ForeignPtr ownership, and broader Foreign library surface native fixtures link C helpers and run in default and `--no-egglog` modes |
+| `ffi` | 7 | static ccall, floating ccall, pointer/address, dynamic/wrapper, foreign export, StablePtr/ForeignPtr ownership, and broader Foreign library surface native fixtures link C helpers and run in default and `--no-egglog` modes |
 | `io` | 5 | current line-oriented stdin/stdout IO slice and recoverable IO-error behavior covered, including do-bind, explicit `(>>=)`, `getLine`, explicit `fail`, `ioError`, `catch`, `try`, and System.IO.Error examples |
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |

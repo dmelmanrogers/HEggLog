@@ -478,16 +478,16 @@ Deliverables:
 - `newtype`, type synonyms, deriving, and default declarations
 - structured foreign declaration frontend support, FFI signature typechecking,
   explicit Core/STG foreign-import IR, native ABI marshalling/lowering, and
-  conformance closure; scalar/pointer `foreign import ccall` now has native
-  LLVM declaration/call lowering and C-helper wet coverage, `Ptr`/`FunPtr`
-  address/pointer ABI support now covers static `&symbol`, pointer arguments,
-  and pointer results, `dynamic` imports lower to indirect `FunPtr` calls, and
-  `wrapper` imports generate C-callable callback trampolines. `foreign export
-  ccall` now emits C-callable native entrypoints for supported scalar/pointer
-  pure and `IO` functions, and explicit `StablePtr`/manual `ForeignPtr`
-  ownership APIs are implemented and wet-tested. Floating-point ABI, broader
-  link metadata, automatic GC finalization, and `freeHaskellFunPtr`/callback-slot
-  reclamation remain open
+  conformance closure; scalar/floating/pointer `foreign import ccall` now has
+  native LLVM declaration/call lowering and C-helper wet coverage,
+  `Ptr`/`FunPtr` address/pointer ABI support now covers static `&symbol`,
+  pointer arguments, and pointer results, `dynamic` imports lower to indirect
+  `FunPtr` calls, and `wrapper` imports generate C-callable callback
+  trampolines. `foreign export ccall` now emits C-callable native entrypoints
+  for supported scalar/floating/pointer pure and `IO` functions, and explicit
+  `StablePtr`/manual `ForeignPtr` ownership APIs are implemented and
+  wet-tested. Broader link metadata, automatic GC finalization, and
+  `freeHaskellFunPtr`/callback-slot reclamation remain open
 
 Acceptance criteria:
 
@@ -544,8 +544,8 @@ Acceptance criteria:
 Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
-`haskell2010-conformance-test` Cabal suite. The baseline currently records 134
-fixtures: 85 native-success cases, 5 native-runtime-error cases, 27 compile-error
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 135
+fixtures: 86 native-success cases, 5 native-runtime-error cases, 27 compile-error
 cases, and 17 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
@@ -643,13 +643,16 @@ remaining tasks.
 ### Remaining FFI Closure
 
 The FFI is no longer tracked as a whole-feature documented deviation. The
-current scalar/pointer/static/dynamic/wrapper/export/stable-pointer slice is
+current scalar/floating/pointer/static/dynamic/wrapper/export/stable-pointer slice is
 implemented, and the remaining work is now split into dedicated tasks:
 
-1. FFI-010 — floating-point FFI marshalling.
-2. FFI-011 — FFI link metadata.
-3. FFI-012 — callback and finalizer lifetime completion.
-4. FFI-013 — Foreign library surface completion. Status: complete for the
+FFI-010 is complete for native ABI marshalling of `Float`, `Double`,
+`CFloat`, and `CDouble` across static calls, dynamic calls, wrapper callbacks,
+and foreign export entrypoints.
+
+1. FFI-011 — FFI link metadata.
+2. FFI-012 — callback and finalizer lifetime completion.
+3. FFI-013 — Foreign library surface completion. Status: complete for the
    generated/importable `Foreign.Ptr`, `Foreign.ForeignPtr`,
    `Foreign.Marshal`, `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils`
    surface added under the current runtime model; errno, Storable, raw

@@ -263,7 +263,7 @@ are not scoped-down product slices.
    explicit ownership/finalizer term APIs.
 3. Typecheck the full foreign type grammar, including synonyms and visible
    newtypes. Status: complete for the current typechecker boundary:
-   `ccall`/`stdcall` validation, marshallable scalar/pointer/synonym/local
+   `ccall`/`stdcall` validation, marshallable scalar/floating/pointer/synonym/local
    visible-newtype validation, `static`/address/`dynamic`/`wrapper` import
    shape checks, and foreign export target type matching.
 4. Add explicit Core/STG foreign-import/export IR. Status: complete for static,
@@ -277,10 +277,11 @@ are not scoped-down product slices.
    static, dynamic, wrapper, and export `ccall` forms.
 5. Implement `foreign import ccall` static functions for scalar pure and `IO`
    functions by adding ABI marshalling and native call lowering. Status:
-   complete for direct C symbols with boxed `Int`/`Bool`/`Char` values,
-   `Ptr`/`FunPtr` pointer values, signed/unsigned integer C ABI declarations
-   and range-checked integer marshalling, LLVM `declare`/`call` emission, and
-   `IO` sequencing through the existing native `IO` runtime.
+   complete for direct C symbols with boxed `Int`/`Bool`/`Char`/`Float`/`Double`
+   values, `Ptr`/`FunPtr` pointer values, signed/unsigned integer C ABI
+   declarations and range-checked integer marshalling, `CFloat`/`CDouble`
+   floating-point ABI lowering, LLVM `declare`/`call` emission, and `IO`
+   sequencing through the existing native `IO` runtime.
 6. Add native wet tests that compile/link a C helper object with Haskell code.
    Status: complete for static scalar `ccall` calls covering pure results,
    `IO ()`, result-carrying `IO`, Bool and Char scalar conversion, and ordered
@@ -290,14 +291,16 @@ are not scoped-down product slices.
    covering indirect `FunPtr` invocation, multiple live callback wrappers, and
    Haskell callback re-entry with `IO` and result marshalling; and for
    `foreign export ccall` entrypoints covering C-to-Haskell calls into exported
-   pure and `IO` functions; and for explicit `StablePtr`/`ForeignPtr`
+   pure and `IO` functions; and for floating-point `Float`/`Double`,
+   `CFloat`, and `CDouble` marshalling across static calls, dynamic calls, wrapper callbacks,
+   and foreign export entrypoints; and for explicit `StablePtr`/`ForeignPtr`
    ownership, finalizer ordering, and idempotent finalization behavior.
 7. Implement static address imports with `Ptr`/`FunPtr`. Status: complete for
    direct C data symbols as boxed `Ptr a` values and direct C function symbols
    as boxed `FunPtr ft` values. Header-driven include/link planning remains
    deferred; the native wet tests link explicit helper objects.
 8. Implement `dynamic` imports and `wrapper` imports. Status: complete for the
-   current scalar/pointer ABI slice. `dynamic` imports unbox `FunPtr ft` and
+   current scalar/floating/pointer ABI slice. `dynamic` imports unbox `FunPtr ft` and
    emit typed indirect LLVM calls. `wrapper` imports allocate process-lifetime
    callback slots, return C-callable `FunPtr ft` trampolines, box C arguments
    before entering Haskell closures, force callback `IO` results, and marshal
@@ -305,7 +308,7 @@ are not scoped-down product slices.
    wrapper pool and aborts on exhaustion until `freeHaskellFunPtr`/richer
    callback lifetime management is implemented.
 9. Implement `foreign export ccall` generated entrypoints. Status: complete
-   for the current scalar/pointer ABI slice. Exported entrypoints box incoming
+   for the current scalar/floating/pointer ABI slice. Exported entrypoints box incoming
    C arguments, allocate the module closure graph, enter the exported Haskell
    closure, force pure or `IO` results, and unbox results back to C. Current
    entrypoints are emitted as normal externally visible LLVM functions for

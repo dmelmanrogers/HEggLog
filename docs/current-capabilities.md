@@ -125,19 +125,21 @@ patterns, plus `Int`/`Char` arithmetic sequences, list comprehensions, and
 Monad IO/Maybe/list do-notation in both default and `--no-egglog` modes.
 Static `foreign import ccall` declarations now lower through Core/STG foreign
 IR to native LLVM external declarations and direct calls for the supported
-scalar and pointer ABI slice: boxed `Int`/`Bool`/`Char`, boxed `Ptr`/`FunPtr`,
-static `&symbol` data and function addresses, signed and unsigned integer C ABI
-declarations, checked integer marshalling, pointer arguments/results, and
-result-carrying `IO` sequencing. `dynamic` imports now lower to indirect
-`FunPtr` calls, and `wrapper` imports now generate C-callable callback
-trampolines backed by process-lifetime closure slots. `foreign export ccall`
-declarations now lower to C-callable native LLVM entrypoints for the supported
-scalar/pointer ABI slice; entrypoints allocate the module closure graph, box C
-arguments, enter the exported Haskell closure, force pure or `IO` results, and
-marshal results back to C. Native wet tests link generated LLVM against C
-helper files and check side-effect ordering, pointer mutation, indirect
-function-pointer calls, Haskell callbacks re-entering boxed closures, and C
-helpers calling exported Haskell entrypoints. Explicit `StablePtr` ownership
+scalar, floating, and pointer ABI slice: boxed `Int`/`Bool`/`Char`/`Float` and
+`Double`, boxed `Ptr`/`FunPtr`, static `&symbol` data and function addresses,
+signed and unsigned integer C ABI declarations, `CFloat`/`CDouble` ABI
+declarations, checked integer marshalling, floating-point marshalling, pointer
+arguments/results, and result-carrying `IO` sequencing. `dynamic` imports now
+lower to indirect `FunPtr` calls, and `wrapper` imports now generate C-callable
+callback trampolines backed by process-lifetime closure slots. `foreign export
+ccall` declarations now lower to C-callable native LLVM entrypoints for the
+supported scalar/floating/pointer ABI slice; entrypoints allocate the module
+closure graph, box C arguments, enter the exported Haskell closure, force pure
+or `IO` results, and marshal results back to C. Native wet tests link generated
+LLVM against C helper files and check side-effect ordering, pointer mutation,
+floating-point round trips, indirect function-pointer calls, Haskell callbacks
+re-entering boxed closures, and C helpers calling exported Haskell entrypoints.
+Explicit `StablePtr` ownership
 and manual `ForeignPtr` finalizer APIs are implemented with native wet coverage:
 stable pointers can be created, dereferenced, cast to raw pointers, cast back,
 and explicitly freed, while foreign pointers own raw addresses, accept bounded
@@ -246,8 +248,8 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 134 manifest-tracked fixtures with
-  85 native-success cases, 5 native-runtime-error cases, 27 compile-error cases,
+  `haskell2010-conformance-test`; it contains 135 manifest-tracked fixtures with
+  86 native-success cases, 5 native-runtime-error cases, 27 compile-error cases,
   and 17 unsupported-documented cases
 - Haskell 2010 standard library layout: implemented for the current executable
   subset as generated/importable `Prelude`, `Control.Monad`, `Data.Int`,
@@ -277,9 +279,10 @@ PRELUDE-019 and PRELUDE-020 are complete for the current high-value function
 and standard-module interface slices. TEST-CONF-015 is complete for
 validator-backed reconciliation against Chapter 9 Prelude and the Part II
 Haskell 2010 Libraries module inventory. Remaining FFI closure is tracked
-separately by FFI-010 through FFI-013, with FFI-013 now documenting the
-implemented Foreign surface and the still-reserved errno, Storable, allocation,
-array, and C-string pieces.
+separately by FFI-011 through FFI-013. FFI-010 is complete for floating-point
+native ABI marshalling of `Float`, `Double`, `CFloat`, and `CDouble`, and
+FFI-013 documents the implemented Foreign surface plus the still-reserved
+errno, Storable, allocation, array, and C-string pieces.
 
 ## Carry-Forward Infrastructure
 

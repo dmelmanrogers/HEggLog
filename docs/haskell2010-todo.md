@@ -232,10 +232,11 @@ Haskell 2010 Libraries inventory.
 
 ## Remaining FFI closure chunk
 
-1. FFI-010 — floating-point FFI marshalling.
-2. FFI-011 — FFI link metadata.
-3. FFI-012 — callback and finalizer lifetime completion.
-4. FFI-013 — Foreign library surface completion.
+FFI-010 is complete for floating-point FFI marshalling.
+
+1. FFI-011 — FFI link metadata.
+2. FFI-012 — callback and finalizer lifetime completion.
+3. FFI-013 — Foreign library surface completion.
 
 # Task Backlog
 
@@ -16621,7 +16622,7 @@ Acceptance criteria:
 - The typechecker validates marshallable scalar, pointer, type-synonym, and local visible-newtype foreign types.
 - Static, address, `dynamic`, and `wrapper` import signatures receive shape-specific diagnostics.
 - `foreign export` declarations validate that the exported binding can instantiate to the declared foreign type.
-- Runtime primitive marshalling and ABI conversion are implemented for the supported scalar integer/Bool/Char and pointer ABI slice; floating-point and remaining Foreign library marshalling for Storable, allocation, arrays, errno, and C strings remain explicit future work.
+- Runtime primitive marshalling and ABI conversion are implemented for the supported scalar integer/Bool/Char/Float/Double and pointer ABI slice; remaining Foreign library marshalling for Storable, allocation, arrays, errno, and C strings remains explicit future work.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -16638,7 +16639,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, export validation, and the FFI-013 Foreign.Ptr/Foreign.ForeignPtr/Foreign.Marshal.Error/Foreign.Marshal.Utils surface are implemented; floating-point and remaining Foreign library marshalling for Storable, allocation, arrays, errno, and C strings remain explicit future work.
+- Milestone M15 (FFI). In progress: generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/Float/Double/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, export validation, and the FFI-013 Foreign.Ptr/Foreign.ForeignPtr/Foreign.Marshal.Error/Foreign.Marshal.Utils surface are implemented; remaining Foreign library marshalling for Storable, allocation, arrays, errno, and C strings remains explicit future work.
 
 ## FFI-006 — runtime integration
 
@@ -16674,8 +16675,8 @@ Acceptance criteria:
 - Address imports lower to explicit inert Core/STG foreign-import value nodes.
 - Core/STG validators, pretty-printers, evaluators, optimizer traversal, and native backend boundaries preserve the foreign IR without silently dropping imports.
 - Core/STG evaluation reports explicit unsupported runtime diagnostics when foreign calls are reached outside native lowering.
-- Supported `foreign import ccall` nodes lower to native LLVM declarations/direct calls or indirect `FunPtr` calls with scalar integer/Bool/Char marshalling, `Ptr`/`FunPtr` pointer marshalling, static `&symbol` address boxing, `wrapper` callback trampolines, and `IO` sequencing.
-- Explicit `StablePtr` ownership and manual `ForeignPtr` finalizer APIs are implemented and wet-tested; automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, broader callback lifetime management, and floating-point marshalling remain pending.
+- Supported `foreign import ccall` nodes lower to native LLVM declarations/direct calls or indirect `FunPtr` calls with scalar integer/Bool/Char/Float/Double marshalling, `Ptr`/`FunPtr` pointer marshalling, static `&symbol` address boxing, `wrapper` callback trampolines, and `IO` sequencing.
+- Explicit `StablePtr` ownership and manual `ForeignPtr` finalizer APIs are implemented and wet-tested; automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, and broader callback lifetime management remain pending.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -16690,7 +16691,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: Core/STG IR is complete for imports and export metadata, scalar/pointer/static-address/dynamic/wrapper/export ccall native runtime integration is implemented and wet-tested, and unsupported FFI entities still fail at explicit boundaries.
+- Milestone M15 (FFI). In progress: Core/STG IR is complete for imports and export metadata, scalar/floating/pointer/static-address/dynamic/wrapper/export ccall native runtime integration is implemented and wet-tested, and unsupported FFI entities still fail at explicit boundaries.
 
 ## FFI-007 — LLVM external declaration lowering
 
@@ -16726,9 +16727,9 @@ Acceptance criteria:
 - Static scalar and pointer calls emit direct LLVM `call` instructions and link successfully against C helper objects in native wet tests.
 - Static `&symbol` imports for `Ptr a` and `FunPtr ft` emit external data/function declarations and box the raw address as a pointer value.
 - `dynamic` imports emit typed indirect calls through unboxed `FunPtr` values.
-- `wrapper` imports emit process-lifetime callback slots and C-callable trampoline functions for the supported scalar/pointer ABI slice.
+- `wrapper` imports emit process-lifetime callback slots and C-callable trampoline functions for the supported scalar/floating/pointer ABI slice.
 - Unsupported FFI entities still report explicit native ABI diagnostics instead of being silently dropped.
-- Broader link metadata, floating-point marshalling, automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, and broader callback lifetime APIs remain pending.
+- Broader link metadata, automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, and broader callback lifetime APIs remain pending.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -16743,7 +16744,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: static scalar/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks, and foreign export ccall entrypoints are implemented; link metadata, floating-point, and callback-slot reclamation remain open.
+- Milestone M15 (FFI). In progress: static scalar/floating/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks, and foreign export ccall entrypoints are implemented; link metadata and callback-slot reclamation remain open.
 
 ## FFI-008 — FFI native tests
 
@@ -16775,7 +16776,7 @@ Files likely touched:
 - `docs/runtime-spec.md`
 
 Acceptance criteria:
-- Static scalar `ccall` native tests compile/link generated LLVM with a C helper and assert stdout.
+- Static scalar and floating `ccall` native tests compile/link generated LLVM with a C helper and assert stdout.
 - Static pointer/address native tests cover `Ptr`, `FunPtr`, data `&symbol`, function `&symbol`, pointer arguments, pointer results, and ordered pointer mutation through `IO`.
 - Dynamic/wrapper native tests cover indirect `FunPtr` calls, multiple live wrapped callbacks, C-to-Haskell callback re-entry, callback `IO`, and result marshalling.
 - Foreign export native tests cover C helpers calling exported pure and `IO` Haskell functions; remaining FFI forms add native tests as each ABI feature lands.
@@ -16793,7 +16794,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: static scalar, pointer/address, dynamic/wrapper, and foreign-export native C-helper wet tests are implemented; floating-point, link metadata, finalizer lifetime, and broader library coverage remain open.
+- Milestone M15 (FFI). In progress: static scalar, floating, pointer/address, dynamic/wrapper, and foreign-export native C-helper wet tests are implemented; link metadata, finalizer lifetime, and broader library coverage remain open.
 
 ## FFI-009 — FFI-wide deferral retired
 
@@ -16848,7 +16849,7 @@ Notes:
 ## FFI-010 — floating-point FFI marshalling
 
 Status:
-- not started
+- complete
 
 Category:
 - runtime
@@ -16880,7 +16881,7 @@ Acceptance criteria:
 - Foreign imports and exports validate and marshal `Float`, `Double`, `CFloat`, and `CDouble` according to the supported C ABI.
 - Core/STG/LLVM types distinguish floating-point ABI values from boxed runtime values without corrupting existing integer/pointer marshalling.
 - Native C-helper fixtures cover direct calls, callbacks, exports, and result marshalling for floating-point values.
-- Unsupported floating ABI combinations fail explicitly until implemented.
+- Unsupported foreign ABI combinations continue to fail explicitly until implemented.
 - Docs and matrix remove floating-point FFI from the remaining-gap list only after native coverage passes.
 
 Required tests:
@@ -16895,7 +16896,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete. Native floating FFI marshalling maps `Float`/`CFloat` to LLVM `float` and `Double`/`CDouble` to LLVM `double`, boxes runtime `Float`/`Double` values separately from integer/pointer objects, and covers static calls, dynamic `FunPtr` calls, wrapper callbacks, and `foreign export` through `ffi.floating-ccall` in default and no-egglog modes.
 
 ## FFI-011 — FFI link metadata
 

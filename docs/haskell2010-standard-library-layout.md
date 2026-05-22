@@ -32,10 +32,10 @@ graph path until that module has an implemented surface.
 | `Data.Word` | partial generated interface | `Word8`, `Word16`, `Word32`, `Word64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
 | `System.IO` | partial generated interface | `IO`, `Handle`, `FilePath`, `putStrLn`, `getLine`, and `print`; `LIB-012` owns handles, files, buffering, seek, and EOF-specific handle behavior |
 | `System.IO.Error` | partial generated interface | `IOError`, `IOErrorType`, error-type constants, `userError`, `mkIOError`, `annotateIOError`, classifiers, accessors, `ioError`, `catch`, and `try`; `LIB-012` owns handle/file-backed error producers beyond the current line-oriented IO subset |
-| `Foreign` | partial generated interface | supported scalar/pointer foreign type names, pointer null/cast helpers, `StablePtr`, manual `ForeignPtr` ownership APIs, and implemented `Foreign.Marshal.Error`/`Foreign.Marshal.Utils` helpers |
+| `Foreign` | partial generated interface | supported scalar/floating/pointer foreign type names, pointer null/cast helpers, `StablePtr`, manual `ForeignPtr` ownership APIs, and implemented `Foreign.Marshal.Error`/`Foreign.Marshal.Utils` helpers |
 | `Foreign.C` | partial generated interface | `CString`, `CStringLen`, `CWString`, `CWStringLen`, and supported `Foreign.C.Types` type names |
 | `Foreign.C.String` | partial generated interface | `CString`, `CStringLen`, `CWString`, and `CWStringLen` type synonyms |
-| `Foreign.C.Types` | partial generated interface | supported C scalar type names used by FFI typechecking and native ABI lowering |
+| `Foreign.C.Types` | partial generated interface | supported C scalar type names used by FFI typechecking and native ABI lowering, including `CFloat`/`CDouble` floating-point ABI values |
 | `Foreign.ForeignPtr` | partial generated interface | `ForeignPtr`, `FinalizerPtr`, `FinalizerEnvPtr`, `newForeignPtr`, `newForeignPtr_`, `addForeignPtrFinalizer`, `finalizeForeignPtr`, `unsafeForeignPtrToPtr`, `withForeignPtr`, `touchForeignPtr`, and `castForeignPtr` |
 | `Foreign.Marshal` | partial generated interface | implemented `Foreign.Marshal.Error` and `Foreign.Marshal.Utils` helper subset |
 | `Foreign.Marshal.Error` | partial generated interface | `throwIf`, `throwIf_`, `throwIfNull`, and `void` |

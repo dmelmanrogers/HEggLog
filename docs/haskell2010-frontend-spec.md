@@ -75,17 +75,17 @@ terms, and makes imported foreign names available through ordinary module
 interfaces. The typechecker validates the current FFI signature boundary
 against generated `Foreign`, `Foreign.C`, and `Foreign.C.Types` interfaces
 and valid imports lower into explicit Core/STG foreign-call or foreign-import
-value IR. The native backend lowers supported `foreign import ccall` scalar
+value IR. The native backend lowers supported `foreign import ccall` scalar/floating
 imports to LLVM external declarations/direct calls or indirect `FunPtr` calls
-with checked integer/Bool/Char marshalling, and now lowers boxed
+with checked integer/Bool/Char/Float/Double marshalling, and now lowers boxed
 `Ptr`/`FunPtr` values, static `&symbol` address imports, pointer
 arguments/results, and `wrapper` callback trampolines for the same ABI slice.
-Complete package search paths, complete Prelude module coverage, floating-point
-ABI work, broader link metadata, automatic GC finalization, and
+Complete package search paths, complete Prelude module coverage, broader link
+metadata, automatic GC finalization, and
 `freeHaskellFunPtr`/callback-slot reclamation remain later
 module-system/runtime work; `foreign export ccall` entrypoints and explicit
 `StablePtr`/manual `ForeignPtr` ownership APIs are implemented for the current
-scalar/pointer native ABI slice.
+scalar/floating/pointer native ABI slice.
 
 Required namespaces and scopes:
 

@@ -53,7 +53,7 @@ generated structural lists, and supported derived data/newtype declarations.
 Prelude also exposes `shows`.
 The implemented FFI slice includes structured `foreign import`/`foreign export`
 declarations, generated `Foreign`/`Foreign.C`/`Foreign.C.Types` interfaces,
-marshallable scalar/pointer/synonym/local-newtype validation, static `ccall`,
+marshallable scalar/floating/pointer/synonym/local-newtype validation, static `ccall`,
 address, `dynamic`, `wrapper`, foreign-export, `StablePtr`, and manual
 `ForeignPtr` native wet coverage for the supported ABI surface.
 The typechecker now also exposes source-spanned non-exhaustive and redundant
@@ -73,9 +73,9 @@ implemented:
   partial module interfaces
 - Haskell source desugaring and negative fixtures beyond the current executable subset
 - broader IO, including handles, files, buffering, seek, EOF-specific handle behavior, and effects beyond line-oriented stdin/stdout
-- remaining FFI closure for floating-point marshalling, link metadata,
-  callback/finalizer lifetimes, errno, Storable dictionaries, raw allocation,
-  array marshalling, and C string marshalling functions
+- remaining FFI closure for link metadata, callback/finalizer lifetimes, errno,
+  Storable dictionaries, raw allocation, array marshalling, and C string
+  marshalling functions
 - full Haskell 2010 conformance suite breadth beyond the current
   manifest-backed executable subset
 
@@ -106,9 +106,10 @@ library tasks now continue through the numbered LIB-001 through LIB-012
 standard-library module tasks.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
-through FFI-013 now own floating-point marshalling, link metadata, callback and
-finalizer lifetime completion, and the FFI-013-documented errno, Storable, raw
-allocation, array, and C-string library gaps.
+is complete for floating-point native ABI marshalling, and FFI-011 through
+FFI-013 now own link metadata, callback and finalizer lifetime completion, and
+the FFI-013-documented errno, Storable, raw allocation, array, and C-string
+library gaps.
 
 ## What Is Parsed Today
 
@@ -180,7 +181,7 @@ Foreign declarations now typecheck at the frontend boundary: generated
 `Foreign.ForeignPtr`, `Foreign.Marshal`, `Foreign.Marshal.Error`, and
 `Foreign.Marshal.Utils` module interfaces expose the current FFI library
 surface, valid `ccall`/`stdcall` imports and exports are
-checked for marshallable scalar/pointer/synonym/local-newtype shapes, and
+checked for marshallable scalar/floating/pointer/synonym/local-newtype shapes, and
 invalid address, `dynamic`, `wrapper`, or export signatures fail before
 lowering. Valid foreign imports now lower into explicit Core/STG foreign IR:
 static imports, `dynamic`, and `wrapper` become eta-expanded foreign-call
@@ -189,14 +190,16 @@ a precise unsupported runtime boundary when foreign calls are reached outside
 the native backend. The native LLVM backend now lowers supported
 `foreign import ccall` functions to external `declare`/direct `call`
 instructions or indirect `FunPtr` calls, with boxed `Int`/`Bool`/`Char`, signed
-and unsigned integer C ABI declarations, checked narrowing for outgoing integer
+`Float`/`Double`, signed and unsigned integer C ABI declarations,
+`CFloat`/`CDouble` ABI declarations, checked narrowing for outgoing integer
 arguments, checked unsigned 64-bit result boxing, boxed `Ptr`/`FunPtr` values,
 static `&symbol` data and function addresses, pointer arguments/results,
-`IO` sequencing, and C-callable `wrapper` callbacks backed by process-lifetime
-closure slots covered by linked C-helper native wet tests. `foreign export
-ccall` declarations now lower through Core/STG export metadata into C-callable
-native LLVM entrypoints for the supported scalar/pointer ABI slice; native wet
-tests cover a C helper calling exported pure and `IO` Haskell functions.
+floating-point arguments/results, `IO` sequencing, and C-callable `wrapper`
+callbacks backed by process-lifetime closure slots covered by linked C-helper
+native wet tests. `foreign export ccall` declarations now lower through
+Core/STG export metadata into C-callable native LLVM entrypoints for the
+supported scalar/floating/pointer ABI slice; native wet tests cover C helpers
+calling exported pure and `IO` Haskell functions.
 Explicit `StablePtr` ownership and manual `ForeignPtr` finalizer APIs are also
 implemented and wet-tested. The broader Foreign library surface now includes
 null pointer values, pointer and function-pointer casts, `FinalizerPtr` and

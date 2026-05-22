@@ -62,9 +62,11 @@ PRELUDE-019 is complete for the current high-value function slice, and
 PRELUDE-020 is complete for the current generated standard-library module
 interface slice. TEST-CONF-015 is complete: Chapter 9 Prelude and the Part II
 Haskell 2010 Libraries module inventory are reconciled against manifest-backed
-coverage and numbered remaining tasks. Remaining FFI closure is FFI-010 through
-FFI-012 plus the FFI-013-documented errno, Storable, allocation, array, and
-C-string library gaps.
+coverage and numbered remaining tasks. FFI-010 is complete for floating-point
+FFI marshalling across static calls, dynamic calls, wrapper callbacks, and
+foreign export entrypoints. Remaining FFI closure is FFI-011 through FFI-012
+plus the FFI-013-documented errno, Storable, allocation, array, and C-string
+library gaps.
 
 Completed Haskell 2010 roadmap work:
 
