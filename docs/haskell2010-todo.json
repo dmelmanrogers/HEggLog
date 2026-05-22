@@ -6970,8 +6970,8 @@
     },
     {
       "id": "TC-016",
-      "title": "Read, if implemented or documented deviation",
-      "status": "documented deviation",
+      "title": "Close Read documented deviation",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TYPE-016",
@@ -6980,9 +6980,11 @@
       "blocks": [],
       "milestone": "M11",
       "acceptance_criteria": [
-        "Read was explicitly documented as a Haskell 2010 Prelude/typeclass deviation until TC-030 could implement it coherently.",
+        "TC-016 is marked complete rather than documented deviation.",
+        "Read is no longer listed as an active Haskell 2010 Prelude/typeclass deviation.",
+        "The old unsupported Read conformance fixture is removed and replaced by positive standard and derived Read coverage.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to TC-030 for implemented Read work and to concrete LIB tasks for remaining library gaps."
       ],
       "required_tests": [
         "typechecker unit tests",
@@ -6995,7 +6997,7 @@
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
       ],
-      "notes": "Historical documented-deviation task. TC-030 now supersedes the active deviation by implementing Read dictionaries, lexical read helpers, standard supported instances, and derived Read with positive native conformance coverage."
+      "notes": "Complete. TC-016 is closed as an active deviation: Read is no longer represented as unsupported in the current Haskell 2010 tracker, matrix, or conformance manifest. TC-030 owns the implemented Read surface, including Read dictionaries, lexical read helpers, standard supported instances, and derived Read; the old unsupported fixture has been replaced by positive native conformance coverage."
     },
     {
       "id": "TC-017",

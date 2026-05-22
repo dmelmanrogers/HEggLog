@@ -129,7 +129,7 @@ Built-in dictionaries for `Monad IO`, `Monad Maybe`, and `Monad []` drive
 generic do-notation desugaring, including refutable pattern binds that call
 `fail` instead of relying on a raw no-match case.
 
-TC-030 promotes `Read` from the earlier TC-016 documented deviation into the
+TC-030 promotes `Read` from the now-closed TC-016 documented deviation into the
 supported Prelude/typeclass surface. The typechecker installs the `Read` class
 with Report-shaped `readsPrec` and `readList` methods, generated `ReadS` and
 `ShowS` synonyms, public `reads`, `read`, `lex`, and `readParen` bindings,

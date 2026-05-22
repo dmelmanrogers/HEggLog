@@ -12459,10 +12459,10 @@ Documentation updates:
 Notes:
 - Milestone M11 (Type classes and dictionaries). Completed for the broadened executable Show subset: exact `Int`, `Bool`, `Char`, and `String`, plus generated list dictionaries. TC-029 later promoted this surface to the Report-shaped `showsPrec`/`show`/`showList` hierarchy with derived constructor precedence and supported lexical escaping.
 
-## TC-016 — Read, if implemented or documented deviation
+## TC-016 — Close Read documented deviation
 
 Status:
-- documented deviation
+- complete
 
 Category:
 - typechecker
@@ -12475,7 +12475,7 @@ Blocks:
 - none
 
 Scope:
-- Decide and document that the Haskell 2010 `Read` class is not part of the current supported class surface. Keep the deviation explicit in the renamer/typechecker boundary and in the conformance suite until the compiler has a coherent `ReadS`/lexical parser surface, `readsPrec`/`readList` methods, standard instances, and derived `Read` synthesis.
+- Close the historical Haskell 2010 `Read` documented deviation now that TC-030 has implemented coherent `ReadS`/lexical parser support, `readsPrec`/`readList` methods, standard supported instances, and derived `Read` synthesis. The tracker, matrix, docs, and conformance suite must no longer present `Read` as an active unsupported/deviation boundary.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -12491,9 +12491,11 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- Read was explicitly documented as a Haskell 2010 Prelude/typeclass deviation until TC-030 could implement it coherently.
+- TC-016 is marked complete rather than documented deviation.
+- Read is no longer listed as an active Haskell 2010 Prelude/typeclass deviation.
+- The old unsupported Read conformance fixture is removed and replaced by positive standard and derived Read coverage.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
+- The Haskell 2010 conformance matrix points to TC-030 for implemented Read work and to concrete LIB tasks for remaining library gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12507,7 +12509,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). TC-016 is complete as the historical documented-deviation decision that held `Read` out of the supported surface until the implementation could be coherent. TC-030 now supersedes the active deviation by installing `Read` dictionaries, lexical read helpers, standard supported instances, and derived `Read`; the unsupported fixture has been replaced by positive native conformance coverage.
+- Milestone M11 (Type classes and dictionaries). Complete. TC-016 is closed as an active deviation: `Read` is no longer represented as unsupported in the current Haskell 2010 tracker, matrix, or conformance manifest. TC-030 owns the implemented Read surface, including `Read` dictionaries, lexical read helpers, standard supported instances, and derived `Read`; the old unsupported fixture has been replaced by positive native conformance coverage.
 
 ## TC-017 — Num
 
