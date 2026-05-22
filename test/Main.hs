@@ -190,6 +190,7 @@ testGroups =
       , pureTest "typechecks Char runtime representation" testHaskell2010Core0CharRuntime
       , pureTest "typechecks String as Char lists" testHaskell2010Core0StringCharList
       , pureTest "typechecks broader Show dictionaries" testHaskell2010Core0BroadShow
+      , pureTest "typechecks Report-shaped Read dictionaries" testHaskell2010Core0BroadRead
       , pureTest "typechecks Prelude append" testHaskell2010Core0Append
       , pureTest "typechecks Prelude foldl" testHaskell2010Core0Foldl
       , pureTest "typechecks Prelude function completion" testHaskell2010Core0PreludeFunctions
@@ -210,6 +211,7 @@ testGroups =
       , pureTest "typechecks derived Eq instances" testHaskell2010Core0DerivedEq
       , pureTest "typechecks derived Ord instances" testHaskell2010Core0DerivedOrd
       , pureTest "typechecks derived Show instances" testHaskell2010Core0DerivedShow
+      , pureTest "typechecks derived Read instances" testHaskell2010Core0DerivedRead
       , pureTest "typechecks derived Enum instances" testHaskell2010Core0DerivedEnum
       , pureTest "typechecks derived Bounded instances" testHaskell2010Core0DerivedBounded
       , pureTest "typechecks list comprehensions" testHaskell2010Core0ListComprehensions
@@ -245,6 +247,7 @@ testGroups =
       , pureTest "evaluates Char equality and literal cases" testHaskell2010Core0EvalCharRuntime
       , pureTest "evaluates String as Char lists" testHaskell2010Core0EvalStringCharList
       , pureTest "evaluates broader Show dictionaries" testHaskell2010Core0EvalBroadShow
+      , pureTest "evaluates Report-shaped Read dictionaries" testHaskell2010Core0EvalBroadRead
       , pureTest "evaluates Prelude append" testHaskell2010Core0EvalAppend
       , pureTest "evaluates Prelude foldl" testHaskell2010Core0EvalFoldl
       , pureTest "evaluates Prelude function completion" testHaskell2010Core0EvalPreludeFunctions
@@ -265,6 +268,7 @@ testGroups =
       , pureTest "evaluates derived Eq instances" testHaskell2010Core0EvalDerivedEq
       , pureTest "evaluates derived Ord instances" testHaskell2010Core0EvalDerivedOrd
       , pureTest "evaluates derived Show instances" testHaskell2010Core0EvalDerivedShow
+      , pureTest "evaluates derived Read instances" testHaskell2010Core0EvalDerivedRead
       , pureTest "evaluates derived Enum instances" testHaskell2010Core0EvalDerivedEnum
       , pureTest "reports derived Enum bounds errors" testHaskell2010Core0EvalDerivedEnumRuntimeError
       , pureTest "evaluates derived Bounded instances" testHaskell2010Core0EvalDerivedBounded
@@ -303,6 +307,7 @@ testGroups =
       , pureTest "preserves Char runtime semantics" testHaskell2010CoreToSTGCharRuntime
       , pureTest "preserves String as Char lists" testHaskell2010CoreToSTGStringCharList
       , pureTest "preserves broader Show semantics" testHaskell2010CoreToSTGBroadShow
+      , pureTest "preserves Report-shaped Read semantics" testHaskell2010CoreToSTGBroadRead
       , pureTest "preserves Prelude append semantics" testHaskell2010CoreToSTGAppend
       , pureTest "preserves Prelude foldl semantics" testHaskell2010CoreToSTGFoldl
       , pureTest "preserves Prelude function completion semantics" testHaskell2010CoreToSTGPreludeFunctions
@@ -321,6 +326,7 @@ testGroups =
       , pureTest "preserves derived Eq semantics" testHaskell2010CoreToSTGDerivedEq
       , pureTest "preserves derived Ord semantics" testHaskell2010CoreToSTGDerivedOrd
       , pureTest "preserves derived Show semantics" testHaskell2010CoreToSTGDerivedShow
+      , pureTest "preserves derived Read semantics" testHaskell2010CoreToSTGDerivedRead
       , pureTest "preserves derived Enum semantics" testHaskell2010CoreToSTGDerivedEnum
       , pureTest "preserves derived Bounded semantics" testHaskell2010CoreToSTGDerivedBounded
       , pureTest "preserves list comprehension semantics" testHaskell2010CoreToSTGListComprehensions
@@ -341,6 +347,7 @@ testGroups =
       , pureTest "emits derived Eq LLVM" testHaskell2010NativeDerivedEq
       , pureTest "emits derived Ord LLVM" testHaskell2010NativeDerivedOrd
       , pureTest "emits derived Show LLVM" testHaskell2010NativeDerivedShow
+      , pureTest "emits derived Read LLVM" testHaskell2010NativeDerivedRead
       , pureTest "emits derived Enum LLVM" testHaskell2010NativeDerivedEnum
       , pureTest "emits derived Bounded LLVM" testHaskell2010NativeDerivedBounded
       , pureTest "emits Prelude append LLVM" testHaskell2010NativeAppend
@@ -2190,6 +2197,17 @@ testHaskell2010Core0BroadShow = do
   assertBool "Prelude Show list method helper is emitted" (containsBindingOccurrence "$show_list" coreModule)
   expectCoreEvalIO "broader Show Core oracle" haskell2010BroadShowOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0BroadRead :: Either String ()
+testHaskell2010Core0BroadRead = do
+  coreModule <- typecheckHaskell2010 haskell2010BroadReadSource
+  assertBool "Prelude Read dictionary constructor is recorded" (containsConstructorOccurrence "$MkReadDict" coreModule)
+  assertBool "Prelude Read Int instance dictionary is emitted" (containsBindingOccurrence "$fReadInt" coreModule)
+  assertBool "Prelude Read Bool instance dictionary is emitted" (containsBindingOccurrence "$fReadBool" coreModule)
+  assertBool "Prelude Read Char instance dictionary is emitted" (containsBindingOccurrence "$fReadChar" coreModule)
+  assertBool "Prelude generic Read list dictionary is emitted" (containsBindingOccurrence "$fReadList" coreModule)
+  assertBool "Prelude Read lexical helper is emitted" (containsBindingOccurrence "$read_lex" coreModule)
+  expectCoreEvalIO "broader Read Core oracle" haskell2010BroadReadOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0Append :: Either String ()
 testHaskell2010Core0Append = do
   coreModule <- typecheckHaskell2010 haskell2010AppendSource
@@ -2382,6 +2400,17 @@ testHaskell2010Core0DerivedShow = do
   assertBool "derived Show Tree dictionary is emitted" (containsBindingPrefix "$fShowTree" coreModule)
   assertBool "generic Show list dictionary is emitted" (containsBindingOccurrence "$fShowList" coreModule)
   expectCoreEvalIO "derived Show Core oracle" haskell2010DerivedShowOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0DerivedRead :: Either String ()
+testHaskell2010Core0DerivedRead = do
+  coreModule <- typecheckHaskell2010 haskell2010DerivedReadSource
+  assertBool "Prelude Read dictionary constructor is recorded" (containsConstructorOccurrence "$MkReadDict" coreModule)
+  assertBool "derived Read Flag dictionary is emitted" (containsBindingPrefix "$fReadFlag" coreModule)
+  assertBool "derived Read Box dictionary is emitted" (containsBindingPrefix "$fReadBox" coreModule)
+  assertBool "derived Read Tree dictionary is emitted" (containsBindingPrefix "$fReadTree" coreModule)
+  assertBool "derived Read record dictionary is emitted" (containsBindingPrefix "$fReadPerson" coreModule)
+  assertBool "generic Read list dictionary is emitted" (containsBindingOccurrence "$fReadList" coreModule)
+  expectCoreEvalIO "derived Read Core oracle" haskell2010DerivedReadOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
 testHaskell2010Core0DerivedEnum :: Either String ()
 testHaskell2010Core0DerivedEnum = do
@@ -3187,6 +3216,13 @@ testHaskell2010Core0EvalBroadShow =
     haskell2010BroadShowOutput
     =<< evalHaskell2010Binding "main" haskell2010BroadShowSource
 
+testHaskell2010Core0EvalBroadRead :: Either String ()
+testHaskell2010Core0EvalBroadRead =
+  expectCoreEvalIO
+    "Core-0 broader Read evaluation"
+    haskell2010BroadReadOutput
+    =<< evalHaskell2010Binding "main" haskell2010BroadReadSource
+
 testHaskell2010Core0EvalAppend :: Either String ()
 testHaskell2010Core0EvalAppend =
   expectCoreEvalIO
@@ -3328,6 +3364,13 @@ testHaskell2010Core0EvalDerivedShow =
     "Core-0 derived Show evaluation"
     haskell2010DerivedShowOutput
     =<< evalHaskell2010Binding "main" haskell2010DerivedShowSource
+
+testHaskell2010Core0EvalDerivedRead :: Either String ()
+testHaskell2010Core0EvalDerivedRead =
+  expectCoreEvalIO
+    "Core-0 derived Read evaluation"
+    haskell2010DerivedReadOutput
+    =<< evalHaskell2010Binding "main" haskell2010DerivedReadSource
 
 testHaskell2010Core0EvalDerivedEnum :: Either String ()
 testHaskell2010Core0EvalDerivedEnum =
@@ -3612,6 +3655,10 @@ testHaskell2010CoreToSTGBroadShow :: Either String ()
 testHaskell2010CoreToSTGBroadShow =
   checkCoreToSTGIO "Core-to-STG broader Show" haskell2010BroadShowOutput haskell2010BroadShowSource
 
+testHaskell2010CoreToSTGBroadRead :: Either String ()
+testHaskell2010CoreToSTGBroadRead =
+  checkCoreToSTGIO "Core-to-STG broader Read" haskell2010BroadReadOutput haskell2010BroadReadSource
+
 testHaskell2010CoreToSTGAppend :: Either String ()
 testHaskell2010CoreToSTGAppend =
   checkCoreToSTGIO "Core-to-STG Prelude append" haskell2010AppendOutput haskell2010AppendSource
@@ -3689,6 +3736,10 @@ testHaskell2010CoreToSTGDerivedOrd =
 testHaskell2010CoreToSTGDerivedShow :: Either String ()
 testHaskell2010CoreToSTGDerivedShow =
   checkCoreToSTGIO "Core-to-STG derived Show" haskell2010DerivedShowOutput haskell2010DerivedShowSource
+
+testHaskell2010CoreToSTGDerivedRead :: Either String ()
+testHaskell2010CoreToSTGDerivedRead =
+  checkCoreToSTGIO "Core-to-STG derived Read" haskell2010DerivedReadOutput haskell2010DerivedReadSource
 
 testHaskell2010CoreToSTGDerivedEnum :: Either String ()
 testHaskell2010CoreToSTGDerivedEnum =
@@ -3820,6 +3871,12 @@ testHaskell2010NativeDerivedShow = do
   llvmText <- compileHaskell2010NativeText haskell2010DerivedShowSource
   assertBool "native derived Show emits synthesized append helpers" ("derived_ushow_uappend" `Text.isInfixOf` llvmText)
   assertBool "native derived Show keeps String fields as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeDerivedRead :: Either String ()
+testHaskell2010NativeDerivedRead = do
+  llvmText <- compileHaskell2010NativeText haskell2010DerivedReadSource
+  assertBool "native derived Read emits generated dictionaries" ("fReadBox" `Text.isInfixOf` llvmText)
+  assertBool "native derived Read emits lexical parser support" ("read_ulex" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeDerivedEnum :: Either String ()
 testHaskell2010NativeDerivedEnum = do
@@ -7566,6 +7623,7 @@ haskell2010NativeSuccessExamples =
   , ("string-show-output", haskell2010StringShowOutputSource, "42\nFalse\n")
   , ("string-char-patterns", haskell2010StringCharPatternsSource, "6\n")
   , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
+  , ("broad-read", haskell2010BroadReadSource, Text.unpack haskell2010BroadReadOutput)
   , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
   , ("prelude-foldl", haskell2010FoldlSource, Text.unpack haskell2010FoldlOutput)
   , ("prelude-functions", haskell2010PreludeFunctionsSource, Text.unpack haskell2010PreludeFunctionsOutput)
@@ -7584,6 +7642,7 @@ haskell2010NativeSuccessExamples =
   , ("derived-eq", haskell2010DerivedEqSource, "10\n")
   , ("derived-ord", haskell2010DerivedOrdSource, "11\n")
   , ("derived-show", haskell2010DerivedShowSource, Text.unpack haskell2010DerivedShowOutput)
+  , ("derived-read", haskell2010DerivedReadSource, Text.unpack haskell2010DerivedReadOutput)
   , ("derived-enum", haskell2010DerivedEnumSource, Text.unpack haskell2010DerivedEnumOutput)
   , ("derived-bounded", haskell2010DerivedBoundedSource, Text.unpack haskell2010DerivedBoundedOutput)
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
@@ -7611,6 +7670,7 @@ haskell2010NativeExecutableExamples =
   , ("string-show-output", haskell2010StringShowOutputSource, "42\nFalse\n")
   , ("string-char-patterns", haskell2010StringCharPatternsSource, "6\n")
   , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
+  , ("broad-read", haskell2010BroadReadSource, Text.unpack haskell2010BroadReadOutput)
   , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
   , ("prelude-foldl", haskell2010FoldlSource, Text.unpack haskell2010FoldlOutput)
   , ("prelude-functions", haskell2010PreludeFunctionsSource, Text.unpack haskell2010PreludeFunctionsOutput)
@@ -7629,6 +7689,7 @@ haskell2010NativeExecutableExamples =
   , ("derived-eq", haskell2010DerivedEqSource, "10\n")
   , ("derived-ord", haskell2010DerivedOrdSource, "11\n")
   , ("derived-show", haskell2010DerivedShowSource, Text.unpack haskell2010DerivedShowOutput)
+  , ("derived-read", haskell2010DerivedReadSource, Text.unpack haskell2010DerivedReadOutput)
   , ("derived-enum", haskell2010DerivedEnumSource, Text.unpack haskell2010DerivedEnumOutput)
   , ("derived-bounded", haskell2010DerivedBoundedSource, Text.unpack haskell2010DerivedBoundedOutput)
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
@@ -8143,6 +8204,54 @@ haskell2010DerivedShowOutput =
   \Box False!\n\
   \[Box True,Box False]!\n"
 
+haskell2010DerivedReadSource :: Text
+haskell2010DerivedReadSource =
+  "module Main where\n\
+  \data Flag = Off | On deriving (Read, Show)\n\
+  \data Box a = Box a deriving (Read, Show)\n\
+  \data Name = Name String deriving (Read, Show)\n\
+  \data Tree a = Leaf a | Node (Tree a) (Tree a) deriving (Read, Show)\n\
+  \data Person = Person { age :: Int, label :: String } deriving (Read, Show)\n\
+  \newtype Years = Years Int deriving (Read, Show)\n\
+  \mandatoryScore :: Int\n\
+  \mandatoryScore = case (readsPrec 11 \"(Box True)!\" :: [(Box Bool, String)]) of\n\
+  \  (Box True, \"!\") : [] -> 1\n\
+  \  _ -> 0\n\
+  \unparenthesizedScore :: Int\n\
+  \unparenthesizedScore = case (readsPrec 11 \"Box True!\" :: [(Box Bool, String)]) of\n\
+  \  [] -> 1\n\
+  \  _ -> 0\n\
+  \lexicalScore :: Int\n\
+  \lexicalScore = case (reads \"Boxy True\" :: [(Box Bool, String)]) of\n\
+  \  [] -> 1\n\
+  \  _ -> 0\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  putStrLn (show (read \"Off\" :: Flag))\n\
+  \  putStrLn (show (read \"Box 'x'\" :: Box Char))\n\
+  \  putStrLn (show (read \"Name \\\"aa\\\"\" :: Name))\n\
+  \  putStrLn (show (read \"Node (Leaf 'a') (Leaf 'b')\" :: Tree Char))\n\
+  \  putStrLn (show (read \"Years 7\" :: Years))\n\
+  \  putStrLn (show (read \"Person {age = 42, label = \\\"Ada\\\"}\" :: Person))\n\
+  \  putStrLn (show (read \"[Box True,Box False]\" :: [Box Bool]))\n\
+  \  print mandatoryScore\n\
+  \  print unparenthesizedScore\n\
+  \  print lexicalScore\n\
+  \  return ()\n"
+
+haskell2010DerivedReadOutput :: Text
+haskell2010DerivedReadOutput =
+  "Off\n\
+  \Box 'x'\n\
+  \Name \"aa\"\n\
+  \Node (Leaf 'a') (Leaf 'b')\n\
+  \Years 7\n\
+  \Person {age = 42, label = \"Ada\"}\n\
+  \[Box True,Box False]\n\
+  \1\n\
+  \1\n\
+  \1\n"
+
 haskell2010DerivedEnumSource :: Text
 haskell2010DerivedEnumSource =
   "module Main where\n\
@@ -8408,6 +8517,59 @@ haskell2010BroadShowSource =
 haskell2010BroadShowOutput :: Text
 haskell2010BroadShowOutput =
   "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Z'!\n\"hi\"!\n\"ab\"!\n[1,2]!\n'\\NUL'\n\"\\n\\\"\\\\\"\n\"\\SO\\&H\"\n'Q'\n\"ok\"\n"
+
+haskell2010BroadReadSource :: Text
+haskell2010BroadReadSource =
+  "module Main where\n\
+  \readScore :: Int\n\
+  \readScore = case (reads \"False trailing\" :: [(Bool, String)]) of\n\
+  \  (False, \" trailing\") : [] -> 1\n\
+  \  _ -> 0\n\
+  \lexScore :: Int\n\
+  \lexScore = case lex \"  Foo 123\" of\n\
+  \  (\"Foo\", \" 123\") : _ -> 1\n\
+  \  _ -> 0\n\
+  \boundaryScore :: Int\n\
+  \boundaryScore = case (reads \"Truex\" :: [(Bool, String)]) of\n\
+  \  [] -> 1\n\
+  \  _ -> 0\n\
+  \orderingScore :: Int\n\
+  \orderingScore = case (read \"LT\" :: Ordering) of\n\
+  \  LT -> 1\n\
+  \  _ -> 0\n\
+  \unitScore :: Int\n\
+  \unitScore = case (read \"()\" :: ()) of\n\
+  \  () -> 1\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (read \"123\" :: Int)\n\
+  \  print (read \"-45\" :: Int)\n\
+  \  print (read \"True\" :: Bool)\n\
+  \  print (read \"'Z'\" :: Char)\n\
+  \  putStrLn (read \"\\\"hi\\\"\" :: String)\n\
+  \  print (read \"[1,2,3]\" :: [Int])\n\
+  \  print (if read \"'\\\\n'\" == '\\n' then 1 else 0)\n\
+  \  print readScore\n\
+  \  print lexScore\n\
+  \  print boundaryScore\n\
+  \  print orderingScore\n\
+  \  print unitScore\n\
+  \  return ()\n"
+
+haskell2010BroadReadOutput :: Text
+haskell2010BroadReadOutput =
+  "123\n\
+  \-45\n\
+  \True\n\
+  \'Z'\n\
+  \hi\n\
+  \[1,2,3]\n\
+  \1\n\
+  \1\n\
+  \1\n\
+  \1\n\
+  \1\n\
+  \1\n"
 
 haskell2010AppendSource :: Text
 haskell2010AppendSource =
