@@ -32,12 +32,15 @@ graph path until that module has an implemented surface.
 | `Data.Word` | partial generated interface | `Word8`, `Word16`, `Word32`, `Word64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
 | `System.IO` | partial generated interface | `IO`, `Handle`, `FilePath`, `putStrLn`, `getLine`, and `print`; `LIB-012` owns handles, files, buffering, seek, and EOF-specific handle behavior |
 | `System.IO.Error` | partial generated interface | `IOError`, `IOErrorType`, error-type constants, `userError`, `mkIOError`, `annotateIOError`, classifiers, accessors, `ioError`, `catch`, and `try`; `LIB-012` owns handle/file-backed error producers beyond the current line-oriented IO subset |
-| `Foreign` | partial generated interface | supported scalar/pointer foreign type names plus `StablePtr` and manual `ForeignPtr` ownership APIs |
-| `Foreign.C` | partial generated interface | `CString`, `CWString`, and supported `Foreign.C.Types` type names |
-| `Foreign.C.String` | partial generated interface | `CString` and `CWString` type names |
+| `Foreign` | partial generated interface | supported scalar/pointer foreign type names, pointer null/cast helpers, `StablePtr`, manual `ForeignPtr` ownership APIs, and implemented `Foreign.Marshal.Error`/`Foreign.Marshal.Utils` helpers |
+| `Foreign.C` | partial generated interface | `CString`, `CStringLen`, `CWString`, `CWStringLen`, and supported `Foreign.C.Types` type names |
+| `Foreign.C.String` | partial generated interface | `CString`, `CStringLen`, `CWString`, and `CWStringLen` type synonyms |
 | `Foreign.C.Types` | partial generated interface | supported C scalar type names used by FFI typechecking and native ABI lowering |
-| `Foreign.ForeignPtr` | partial generated interface | `ForeignPtr`, `newForeignPtr`, `newForeignPtr_`, `addForeignPtrFinalizer`, `finalizeForeignPtr`, `withForeignPtr`, and `touchForeignPtr` |
-| `Foreign.Ptr` | partial generated interface | `Ptr` and `FunPtr` |
+| `Foreign.ForeignPtr` | partial generated interface | `ForeignPtr`, `FinalizerPtr`, `FinalizerEnvPtr`, `newForeignPtr`, `newForeignPtr_`, `addForeignPtrFinalizer`, `finalizeForeignPtr`, `unsafeForeignPtrToPtr`, `withForeignPtr`, `touchForeignPtr`, and `castForeignPtr` |
+| `Foreign.Marshal` | partial generated interface | implemented `Foreign.Marshal.Error` and `Foreign.Marshal.Utils` helper subset |
+| `Foreign.Marshal.Error` | partial generated interface | `throwIf`, `throwIf_`, `throwIfNull`, and `void` |
+| `Foreign.Marshal.Utils` | partial generated interface | `maybeNew`, `maybeWith`, and `maybePeek` |
+| `Foreign.Ptr` | partial generated interface | `Ptr`, `FunPtr`, `nullPtr`, `castPtr`, `nullFunPtr`, `castFunPtr`, `castFunPtrToPtr`, and `castPtrToFunPtr` |
 | `Foreign.StablePtr` | partial generated interface | `StablePtr`, `newStablePtr`, `deRefStablePtr`, `freeStablePtr`, `castStablePtrToPtr`, and `castPtrToStablePtr` |
 
 The generated interfaces reuse the same external names as the corresponding
@@ -60,11 +63,8 @@ exported value/type/class surface is not yet real in the compiler.
 | `Data.Ix` | reserved | `LIB-005` |
 | `Data.Ratio` | reserved | `LIB-007` |
 | `Foreign.C.Error` | reserved | `FFI-013` |
-| `Foreign.Marshal` | reserved | `FFI-013` |
 | `Foreign.Marshal.Alloc` | reserved | `FFI-013` |
 | `Foreign.Marshal.Array` | reserved | `FFI-013` |
-| `Foreign.Marshal.Error` | reserved | `FFI-013` |
-| `Foreign.Marshal.Utils` | reserved | `FFI-013` |
 | `Foreign.Storable` | reserved | `FFI-013` |
 | `Numeric` | reserved | `LIB-010` |
 | `System.Environment` | reserved | `LIB-011` |

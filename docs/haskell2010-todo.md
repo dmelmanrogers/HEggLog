@@ -16621,7 +16621,7 @@ Acceptance criteria:
 - The typechecker validates marshallable scalar, pointer, type-synonym, and local visible-newtype foreign types.
 - Static, address, `dynamic`, and `wrapper` import signatures receive shape-specific diagnostics.
 - `foreign export` declarations validate that the exported binding can instantiate to the declared foreign type.
-- Runtime primitive marshalling and ABI conversion are implemented for the supported scalar integer/Bool/Char and pointer ABI slice; floating-point and broader Foreign library marshalling remain explicit future work.
+- Runtime primitive marshalling and ABI conversion are implemented for the supported scalar integer/Bool/Char and pointer ABI slice; floating-point and remaining Foreign library marshalling for Storable, allocation, arrays, errno, and C strings remain explicit future work.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -16638,7 +16638,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, and export validation are implemented; floating-point and broader Foreign library marshalling remain explicit future work.
+- Milestone M15 (FFI). In progress: generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, export validation, and the FFI-013 Foreign.Ptr/Foreign.ForeignPtr/Foreign.Marshal.Error/Foreign.Marshal.Utils surface are implemented; floating-point and remaining Foreign library marshalling for Storable, allocation, arrays, errno, and C strings remain explicit future work.
 
 ## FFI-006 — runtime integration
 
@@ -17006,7 +17006,7 @@ Notes:
 ## FFI-013 — Foreign library surface completion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -17053,7 +17053,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete for the current generated/importable Foreign library surface. `Foreign.Ptr` now exposes null pointer values and pointer/function-pointer casts; `Foreign.ForeignPtr` exposes `FinalizerPtr`, `FinalizerEnvPtr`, `unsafeForeignPtrToPtr`, and `castForeignPtr`; `Foreign.Marshal`, `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils` expose the implemented guard and Maybe pointer-helper subset. Native conformance fixture `ffi.foreign-library-surface` covers the added surface in default and no-egglog modes. Remaining `Foreign.C.Error`, `Foreign.Storable`, raw allocation, array marshalling, and C string marshalling functions stay explicitly documented as reserved/pending rather than implicit omissions.
 
 ## EGG-CORE-001 — Core Egglog schema
 

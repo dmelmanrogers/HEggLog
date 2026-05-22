@@ -544,8 +544,8 @@ Acceptance criteria:
 Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
-`haskell2010-conformance-test` Cabal suite. The baseline currently records 133
-fixtures: 84 native-success cases, 5 native-runtime-error cases, 27 compile-error
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 134
+fixtures: 85 native-success cases, 5 native-runtime-error cases, 27 compile-error
 cases, and 17 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
@@ -649,7 +649,12 @@ implemented, and the remaining work is now split into dedicated tasks:
 1. FFI-010 — floating-point FFI marshalling.
 2. FFI-011 — FFI link metadata.
 3. FFI-012 — callback and finalizer lifetime completion.
-4. FFI-013 — Foreign library surface completion.
+4. FFI-013 — Foreign library surface completion. Status: complete for the
+   generated/importable `Foreign.Ptr`, `Foreign.ForeignPtr`,
+   `Foreign.Marshal`, `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils`
+   surface added under the current runtime model; errno, Storable, raw
+   allocation, array marshalling, and C string marshalling remain explicit
+   documented Foreign library gaps.
 
 Completed immediate tasks:
 

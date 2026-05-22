@@ -142,9 +142,15 @@ and manual `ForeignPtr` finalizer APIs are implemented with native wet coverage:
 stable pointers can be created, dereferenced, cast to raw pointers, cast back,
 and explicitly freed, while foreign pointers own raw addresses, accept bounded
 process-lifetime finalizer lists, support `withForeignPtr`, and finalize
-idempotently. Floating-point marshalling, broader link metadata, automatic GC
-finalizer scheduling, `freeHaskellFunPtr`/callback-slot reclamation, and richer
-`Foreign.*` marshalling modules remain later FFI work.
+idempotently. `Foreign.Ptr` also exposes null and representation-preserving
+pointer/function-pointer casts; `Foreign.ForeignPtr` exposes
+`FinalizerPtr`/`FinalizerEnvPtr`, `unsafeForeignPtrToPtr`, and
+`castForeignPtr`; and `Foreign.Marshal.Error`/`Foreign.Marshal.Utils` expose
+the implemented guard and `Maybe` pointer helpers. Floating-point marshalling,
+broader link metadata, automatic GC finalizer scheduling,
+`freeHaskellFunPtr`/callback-slot reclamation, errno, Storable dictionaries,
+raw allocation, array marshalling, and C string marshalling functions remain
+later FFI work.
 Multi-module Haskell 2010 compilation now also follows the Report's special
 instance import/export rule for the executable source-instance subset:
 instances move across empty export lists, empty import lists, and transitive
@@ -240,13 +246,14 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 133 manifest-tracked fixtures with
-  84 native-success cases, 5 native-runtime-error cases, 27 compile-error cases,
+  `haskell2010-conformance-test`; it contains 134 manifest-tracked fixtures with
+  85 native-success cases, 5 native-runtime-error cases, 27 compile-error cases,
   and 17 unsupported-documented cases
 - Haskell 2010 standard library layout: implemented for the current executable
   subset as generated/importable `Prelude`, `Control.Monad`, `Data.Int`,
   `Data.List`, `Data.Maybe`, `Data.Word`, `System.IO`, `System.IO.Error`, and implemented
-  `Foreign.*` module interfaces; `Control.Monad` includes real `Functor(fmap)`
+  `Foreign.*` module interfaces including `Foreign.Marshal.Error` and
+  `Foreign.Marshal.Utils`; `Control.Monad` includes real `Functor(fmap)`
   support for `[]`, `Maybe`, and `IO`; broader standard modules remain reserved and documented in
   [haskell2010-standard-library-layout.md](haskell2010-standard-library-layout.md)
 
@@ -270,7 +277,9 @@ PRELUDE-019 and PRELUDE-020 are complete for the current high-value function
 and standard-module interface slices. TEST-CONF-015 is complete for
 validator-backed reconciliation against Chapter 9 Prelude and the Part II
 Haskell 2010 Libraries module inventory. Remaining FFI closure is tracked
-separately by FFI-010 through FFI-013.
+separately by FFI-010 through FFI-013, with FFI-013 now documenting the
+implemented Foreign surface and the still-reserved errno, Storable, allocation,
+array, and C-string pieces.
 
 ## Carry-Forward Infrastructure
 

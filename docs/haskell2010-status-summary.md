@@ -74,7 +74,8 @@ implemented:
 - Haskell source desugaring and negative fixtures beyond the current executable subset
 - broader IO, including handles, files, buffering, seek, EOF-specific handle behavior, and effects beyond line-oriented stdin/stdout
 - remaining FFI closure for floating-point marshalling, link metadata,
-  callback/finalizer lifetimes, and broader `Foreign.*` modules
+  callback/finalizer lifetimes, errno, Storable dictionaries, raw allocation,
+  array marshalling, and C string marshalling functions
 - full Haskell 2010 conformance suite breadth beyond the current
   manifest-backed executable subset
 
@@ -106,7 +107,8 @@ standard-library module tasks.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
 through FFI-013 now own floating-point marshalling, link metadata, callback and
-finalizer lifetime completion, and broader `Foreign.*` library surface.
+finalizer lifetime completion, and the FFI-013-documented errno, Storable, raw
+allocation, array, and C-string library gaps.
 
 ## What Is Parsed Today
 
@@ -174,8 +176,10 @@ supported infix subset desugared to generated Core lambdas; built-in `Show Int`,
 `Show Bool`, `Show Char`, exact `Show String`, and generated list `Show`
 dictionaries; and primitive `/`.
 Foreign declarations now typecheck at the frontend boundary: generated
-`Foreign`, `Foreign.C`, and `Foreign.C.Types` module interfaces expose the
-initial FFI type surface, valid `ccall`/`stdcall` imports and exports are
+`Foreign`, `Foreign.C`, `Foreign.C.Types`, `Foreign.Ptr`,
+`Foreign.ForeignPtr`, `Foreign.Marshal`, `Foreign.Marshal.Error`, and
+`Foreign.Marshal.Utils` module interfaces expose the current FFI library
+surface, valid `ccall`/`stdcall` imports and exports are
 checked for marshallable scalar/pointer/synonym/local-newtype shapes, and
 invalid address, `dynamic`, `wrapper`, or export signatures fail before
 lowering. Valid foreign imports now lower into explicit Core/STG foreign IR:
@@ -194,9 +198,15 @@ ccall` declarations now lower through Core/STG export metadata into C-callable
 native LLVM entrypoints for the supported scalar/pointer ABI slice; native wet
 tests cover a C helper calling exported pure and `IO` Haskell functions.
 Explicit `StablePtr` ownership and manual `ForeignPtr` finalizer APIs are also
-implemented and wet-tested. Floating-point marshalling, broader link metadata,
-automatic GC finalization, and `freeHaskellFunPtr`/callback-slot reclamation
-remain pending.
+implemented and wet-tested. The broader Foreign library surface now includes
+null pointer values, pointer and function-pointer casts, `FinalizerPtr` and
+`FinalizerEnvPtr` aliases, `unsafeForeignPtrToPtr`, `castForeignPtr`,
+`throwIf`, `throwIf_`, `throwIfNull`, `void`, `maybeNew`, `maybeWith`, and
+`maybePeek`, covered by a native C-helper fixture. Floating-point marshalling,
+broader link metadata, automatic GC finalization,
+`freeHaskellFunPtr`/callback-slot reclamation, errno, Storable dictionaries,
+raw allocation, array marshalling, and C string marshalling functions remain
+pending.
 Recursive top-level functions, mutually recursive
 top-level groups, singleton self-recursive bindings, and local recursive `let`
 bindings now emit recursive Core groups in the supported subset. The initial

@@ -37,14 +37,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 133 |
-| Haskell source files in corpus | 140 |
-| HUnit test cases executed | 178 |
-| Native-success fixtures | 83 |
+| Manifest conformance fixtures | 134 |
+| Haskell source files in corpus | 141 |
+| HUnit test cases executed | 181 |
+| Native-success fixtures | 85 |
 | Native-runtime-error fixtures | 5 |
 | Compile-error fixtures | 27 |
-| Unsupported-documented fixtures | 18 |
-| Native subprocess compile/run checks | 133 |
+| Unsupported-documented fixtures | 17 |
+| Native subprocess compile/run checks | 137 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -131,11 +131,15 @@ numbered remaining tracker tasks, and requires the library closure fixtures to
 stay represented in the matrix. Reserved Report modules now have explicit
 unsupported-documented fixtures for `Data.Array`, `Data.Bits`, `Data.Char`,
 `Data.Complex`, `Data.Ix`, `Data.Ratio`, `Numeric`, `System.Environment`,
-`System.Exit`, `Foreign.C.Error`, `Foreign.Marshal.*`, and `Foreign.Storable`.
+`System.Exit`, `Foreign.C.Error`, `Foreign.Marshal.Alloc`/array allocation,
+and `Foreign.Storable`.
 `io.io-error` now positively checks the generated `System.IO.Error` surface for
 recoverable `IOError` behavior, and `modules.standard-library-scalar-types`
 positively checks the current generated `Data.Int`, `Data.Word`, and
-`Foreign.C.Types` type-name surface.
+`Foreign.C.Types` type-name surface. `ffi.foreign-library-surface` positively
+checks the implemented `Foreign.Ptr`, `Foreign.ForeignPtr`,
+`Foreign.Marshal.Error`, and `Foreign.Marshal.Utils` surface in native default
+and `--no-egglog` modes.
 
 ## Category Summary
 
@@ -145,7 +149,7 @@ positively checks the current generated `Data.Int`, `Data.Word`, and
 | `declarations` | 6 | representative native tests exist |
 | `egglog` | 1 | optimized/unoptimized native agreement covered |
 | `expressions` | 13 | representative native tests exist, including user-defined infix operators and line-broken `where` layout |
-| `ffi` | 5 | static ccall, pointer/address, dynamic/wrapper, foreign export, and StablePtr/ForeignPtr ownership native fixtures link C helpers and run in default and `--no-egglog` modes |
+| `ffi` | 6 | static ccall, pointer/address, dynamic/wrapper, foreign export, StablePtr/ForeignPtr ownership, and broader Foreign library surface native fixtures link C helpers and run in default and `--no-egglog` modes |
 | `io` | 5 | current line-oriented stdin/stdout IO slice and recoverable IO-error behavior covered, including do-bind, explicit `(>>=)`, `getLine`, explicit `fail`, `ioError`, `catch`, `try`, and System.IO.Error examples |
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |

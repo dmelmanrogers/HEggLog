@@ -63,7 +63,8 @@ PRELUDE-020 is complete for the current generated standard-library module
 interface slice. TEST-CONF-015 is complete: Chapter 9 Prelude and the Part II
 Haskell 2010 Libraries module inventory are reconciled against manifest-backed
 coverage and numbered remaining tasks. Remaining FFI closure is FFI-010 through
-FFI-013.
+FFI-012 plus the FFI-013-documented errno, Storable, allocation, array, and
+C-string library gaps.
 
 Completed Haskell 2010 roadmap work:
 
@@ -81,6 +82,11 @@ Completed Haskell 2010 roadmap work:
   slices, including real `Functor(fmap)` support for `[]`, `Maybe`, and `IO`,
   while keeping reserved Report modules unimportable until they have real
   support.
+- FFI-013 Foreign library surface completion: implemented for the current
+  runtime-supported `Foreign.Ptr`, `Foreign.ForeignPtr`, `Foreign.Marshal`,
+  `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils` slices with native
+  fixture coverage, while keeping errno, Storable, raw allocation, array
+  marshalling, and C string marshalling functions explicit as pending gaps.
 - PRELUDE-002/MOD-010 implicit Prelude import behavior: implemented with
   synthetic `import Prelude` insertion only when no explicit `Prelude` import
   exists, explicit Prelude import-list/hiding/qualified filtering, and native
