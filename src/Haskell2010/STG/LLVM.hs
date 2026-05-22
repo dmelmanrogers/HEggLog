@@ -487,6 +487,15 @@ emitPrim env op arguments =
       emitMakeIOFailure errorObject
     (PrimIOError, [value]) ->
       emitAtomAddress env value >>= emitMakeIOFailure
+    (PrimNullPtr, []) ->
+      emitMakePointer OConstNull
+    (PrimCastPtr, [pointer]) ->
+      emitAtomValue env pointer
+    (PrimIsNullPtr, [pointer]) -> do
+      pointerValue <- emitExpectAtomPointer env pointer
+      reg <- freshRegister "is_null_ptr"
+      emit (IIcmp reg ICmpEq LPtr pointerValue OConstNull)
+      emitMakeBool (OLocal LI1 reg)
     (PrimIOCatch, [action, handler]) -> do
       actionObject <- emitAtomAddress env action
       actionResult <- emitForce actionObject
@@ -571,6 +580,13 @@ emitPrim env op arguments =
       emit (ICall Nothing LVoid (DirectCall touchForeignPtrFunctionName) False [(LPtr, foreignPtrObject)])
       unitObject <- emitConstructorObject unitDataConName unitTy []
       emitMakeIOSuccess unitObject
+    (PrimUnsafeForeignPtrToPtr, [foreignPtr]) -> do
+      foreignPtrObject <- emitAtomAddress env foreignPtr
+      rawPointerReg <- freshRegister "foreign_ptr_payload"
+      emit (ICall (Just rawPointerReg) LPtr (DirectCall foreignPtrAddressFunctionName) False [(LPtr, foreignPtrObject)])
+      emitMakePointer (OLocal LPtr rawPointerReg)
+    (PrimCastForeignPtr, [foreignPtr]) ->
+      emitAtomValue env foreignPtr
     _ ->
       throwSTGLLVM
         ( STGLLVMUnsupported

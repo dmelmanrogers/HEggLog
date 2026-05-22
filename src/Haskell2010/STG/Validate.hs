@@ -302,6 +302,9 @@ validatePrimitive op arguments resultTy =
     PrimIOError -> validateIOErrorPrimitive op arguments resultTy
     PrimIOCatch -> validateIOCatchPrimitive op arguments resultTy
     PrimIOTry -> validateIOTryPrimitive op arguments resultTy
+    PrimNullPtr -> validateNullPtrPrimitive op arguments resultTy
+    PrimCastPtr -> validateCastPtrPrimitive op arguments resultTy
+    PrimIsNullPtr -> validateIsNullPtrPrimitive op arguments resultTy
     PrimNewStablePtr -> validateNewStablePtrPrimitive op arguments resultTy
     PrimDeRefStablePtr -> validateDeRefStablePtrPrimitive op arguments resultTy
     PrimFreeStablePtr -> validateFreeStablePtrPrimitive op arguments resultTy
@@ -313,6 +316,8 @@ validatePrimitive op arguments resultTy =
     PrimFinalizeForeignPtr -> validateFinalizeForeignPtrPrimitive op arguments resultTy
     PrimWithForeignPtr -> validateWithForeignPtrPrimitive op arguments resultTy
     PrimTouchForeignPtr -> validateTouchForeignPtrPrimitive op arguments resultTy
+    PrimUnsafeForeignPtrToPtr -> validateUnsafeForeignPtrToPtrPrimitive op arguments resultTy
+    PrimCastForeignPtr -> validateCastForeignPtrPrimitive op arguments resultTy
     PrimEq ->
       [ checkPrimitiveArity op 2 arguments
       , validatePrimitiveEq op arguments
@@ -470,6 +475,35 @@ validateIOTryPrimitive op arguments resultTy =
       _ -> Right ()
   ]
 
+validateNullPtrPrimitive :: CorePrimOp -> [STGAtom] -> CoreType -> [Either [STGValidationError] ()]
+validateNullPtrPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 0 arguments
+  , if isPtrLikeType resultTy
+      then Right ()
+      else Left [STGPrimitiveResultMismatch op (ptrTy unknownForeignTypeVariableTy) resultTy]
+  ]
+
+validateCastPtrPrimitive :: CorePrimOp -> [STGAtom] -> CoreType -> [Either [STGValidationError] ()]
+validateCastPtrPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map stgAtomType arguments of
+      [pointerTy]
+        | isPtrLikeType pointerTy && isPtrLikeType resultTy -> Right ()
+        | isPtrLikeType pointerTy -> Left [STGPrimitiveResultMismatch op (ptrTy unknownForeignTypeVariableTy) resultTy]
+        | otherwise -> Left [STGPrimitiveArgumentMismatch op 0 (ptrTy unknownForeignTypeVariableTy) pointerTy]
+      _ -> Right ()
+  ]
+
+validateIsNullPtrPrimitive :: CorePrimOp -> [STGAtom] -> CoreType -> [Either [STGValidationError] ()]
+validateIsNullPtrPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map stgAtomType arguments of
+      [pointerTy]
+        | isPtrLikeType pointerTy -> checkPrimitiveResult op boolTy resultTy
+        | otherwise -> Left [STGPrimitiveArgumentMismatch op 0 (ptrTy unknownForeignTypeVariableTy) pointerTy]
+      _ -> Right ()
+  ]
+
 validateNewStablePtrPrimitive :: CorePrimOp -> [STGAtom] -> CoreType -> [Either [STGValidationError] ()]
 validateNewStablePtrPrimitive op arguments resultTy =
   [ checkPrimitiveArity op 1 arguments
@@ -608,11 +642,45 @@ validateWithForeignPtrPrimitive op arguments resultTy =
       _ -> Right ()
   ]
 
+validateUnsafeForeignPtrToPtrPrimitive :: CorePrimOp -> [STGAtom] -> CoreType -> [Either [STGValidationError] ()]
+validateUnsafeForeignPtrToPtrPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map stgAtomType arguments of
+      [foreignTy]
+        | Just payloadTy <- foreignPtrPayloadType foreignTy ->
+            checkPrimitiveResult op (ptrTy payloadTy) resultTy
+        | otherwise ->
+            Left [STGPrimitiveArgumentMismatch op 0 (foreignPtrTy unknownForeignTypeVariableTy) foreignTy]
+      _ -> Right ()
+  ]
+
+validateCastForeignPtrPrimitive :: CorePrimOp -> [STGAtom] -> CoreType -> [Either [STGValidationError] ()]
+validateCastForeignPtrPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map stgAtomType arguments of
+      [foreignTy]
+        | Just _ <- foreignPtrPayloadType foreignTy
+        , Just _ <- foreignPtrPayloadType resultTy ->
+            Right ()
+        | Just _ <- foreignPtrPayloadType foreignTy ->
+            Left [STGPrimitiveResultMismatch op (foreignPtrTy unknownForeignTypeVariableTy) resultTy]
+        | otherwise ->
+            Left [STGPrimitiveArgumentMismatch op 0 (foreignPtrTy unknownForeignTypeVariableTy) foreignTy]
+      _ -> Right ()
+  ]
+
 ptrPayloadType :: CoreType -> Maybe CoreType
 ptrPayloadType = \case
   CTyApp (CTyCon name) payloadTy
     | nameOcc name == "Ptr" -> Just payloadTy
   _ -> Nothing
+
+isPtrLikeType :: CoreType -> Bool
+isPtrLikeType ty =
+  case ty of
+    CTyApp (CTyCon name) _
+      | nameOcc name == "Ptr" || nameOcc name == "FunPtr" -> True
+    _ -> False
 
 stablePtrPayloadType :: CoreType -> Maybe CoreType
 stablePtrPayloadType = \case

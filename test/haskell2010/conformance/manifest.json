@@ -889,6 +889,22 @@
       "notes": "StablePtr and manual ForeignPtr APIs compile natively with stable pointer dereference/free, casts, withForeignPtr, finalizer registration, reverse-order dispatch, and idempotent finalization."
     },
     {
+      "name": "ffi.foreign-library-surface",
+      "sourceFile": "test/haskell2010/conformance/ffi/foreign-library-surface.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "7\npositive1\nunit\nvoid\nnull\nfun\nptrfun\n41\n41\n41\nmaybe-new\n41\nmaybe-with\n41\nnothing\n41\nok\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c"
+      ],
+      "notes": "Broader Foreign library surface imports and runs through null pointer guards, pointer casts, ForeignPtr casts/extraction, and implemented Foreign.Marshal.Error/Utils helpers."
+    },
+    {
       "name": "negative.type-error",
       "sourceFile": "test/haskell2010/conformance/negative/type-error.hs",
       "category": "negative",
@@ -1347,7 +1363,7 @@
       "expectedStatus": "unsupported-documented",
       "expectedDiagnosticCategory": "could not read",
       "requiredStage": "module-graph",
-      "notes": "Foreign.Marshal.* remains reserved until allocation, array, error, and utility marshalling APIs are implemented under FFI-013."
+      "notes": "Foreign.Marshal.Alloc and array allocation remain reserved until raw memory allocation and Storable-backed array marshalling are implemented; Foreign.Marshal.Error and the supported Foreign.Marshal.Utils subset are covered by ffi.foreign-library-surface."
     },
     {
       "name": "unsupported.library-foreign-storable",

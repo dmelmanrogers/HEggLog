@@ -403,6 +403,14 @@ evalPrimitive coreEnv op values =
       coreStringText coreEnv value >>= \message -> Right (CoreIO [] (CoreIOFailure (coreUserIOError message)))
     (PrimIOError, [value]) ->
       Right (CoreIO [] (CoreIOFailure value))
+    (PrimNullPtr, []) ->
+      Right (CorePointer Nothing)
+    (PrimCastPtr, [CorePointer value]) ->
+      Right (CorePointer value)
+    (PrimIsNullPtr, [CorePointer Nothing]) ->
+      Right (CoreBool True)
+    (PrimIsNullPtr, [CorePointer (Just _)]) ->
+      Right (CoreBool False)
     (PrimNewStablePtr, [value]) ->
       Right (CoreIO [] (CoreIOSuccess (CoreStablePtr value)))
     (PrimDeRefStablePtr, [CoreStablePtr value]) ->
@@ -430,6 +438,10 @@ evalPrimitive coreEnv op values =
           Left (CoreEvalTypeError ("expected Core IO action from withForeignPtr continuation, got " <> renderCoreValue other))
     (PrimTouchForeignPtr, [CoreForeignPtr _]) ->
       Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimUnsafeForeignPtrToPtr, [CoreForeignPtr pointer]) ->
+      Right pointer
+    (PrimCastForeignPtr, [CoreForeignPtr pointer]) ->
+      Right (CoreForeignPtr pointer)
     _ ->
       Left (CoreEvalTypeError ("invalid Core primitive operands for " <> renderCorePrimOpName op))
  where
@@ -579,6 +591,9 @@ renderCorePrimOpName = \case
   PrimIOError -> "ioError#"
   PrimIOCatch -> "catchIO#"
   PrimIOTry -> "tryIO#"
+  PrimNullPtr -> "nullPtr#"
+  PrimCastPtr -> "castPtr#"
+  PrimIsNullPtr -> "isNullPtr#"
   PrimNewStablePtr -> "newStablePtr#"
   PrimDeRefStablePtr -> "deRefStablePtr#"
   PrimFreeStablePtr -> "freeStablePtr#"
@@ -590,3 +605,5 @@ renderCorePrimOpName = \case
   PrimFinalizeForeignPtr -> "finalizeForeignPtr#"
   PrimWithForeignPtr -> "withForeignPtr#"
   PrimTouchForeignPtr -> "touchForeignPtr#"
+  PrimUnsafeForeignPtrToPtr -> "unsafeForeignPtrToPtr#"
+  PrimCastForeignPtr -> "castForeignPtr#"

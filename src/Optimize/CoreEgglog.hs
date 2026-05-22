@@ -691,6 +691,9 @@ corePrimToANF = \case
   PrimIOError -> Nothing
   PrimIOCatch -> Nothing
   PrimIOTry -> Nothing
+  PrimNullPtr -> Nothing
+  PrimCastPtr -> Nothing
+  PrimIsNullPtr -> Nothing
   PrimNewStablePtr -> Nothing
   PrimDeRefStablePtr -> Nothing
   PrimFreeStablePtr -> Nothing
@@ -702,6 +705,8 @@ corePrimToANF = \case
   PrimFinalizeForeignPtr -> Nothing
   PrimWithForeignPtr -> Nothing
   PrimTouchForeignPtr -> Nothing
+  PrimUnsafeForeignPtrToPtr -> Nothing
+  PrimCastForeignPtr -> Nothing
 
 anfPrimToCore :: BinOp -> CorePrimOp
 anfPrimToCore = \case

@@ -1823,6 +1823,12 @@ supportedPreludeValueOccurrences =
   , "ioError"
   , "catch"
   , "try"
+  , "nullPtr"
+  , "castPtr"
+  , "nullFunPtr"
+  , "castFunPtr"
+  , "castFunPtrToPtr"
+  , "castPtrToFunPtr"
   , "newStablePtr"
   , "deRefStablePtr"
   , "freeStablePtr"
@@ -1832,8 +1838,17 @@ supportedPreludeValueOccurrences =
   , "newForeignPtr_"
   , "addForeignPtrFinalizer"
   , "finalizeForeignPtr"
+  , "unsafeForeignPtrToPtr"
   , "withForeignPtr"
   , "touchForeignPtr"
+  , "castForeignPtr"
+  , "throwIf"
+  , "throwIf_"
+  , "throwIfNull"
+  , "void"
+  , "maybeNew"
+  , "maybeWith"
+  , "maybePeek"
   , "return"
   , "fail"
   , ">>="
@@ -5427,6 +5442,12 @@ preludeValueScheme name
             "ioError" -> Just (Scheme [a] [] (TyFun ioErrorMonoType (ioMonoType aTy)))
             "catch" -> Just (Scheme [a] [] (TyFun (ioMonoType aTy) (TyFun (TyFun ioErrorMonoType (ioMonoType aTy)) (ioMonoType aTy))))
             "try" -> Just (Scheme [a] [] (TyFun (ioMonoType aTy) (ioMonoType (TyApp (TyApp (TyCon eitherTyConName) ioErrorMonoType) aTy))))
+            "nullPtr" -> Just (Scheme [a] [] ptrA)
+            "castPtr" -> Just (Scheme [a, b] [] (TyFun ptrA ptrB))
+            "nullFunPtr" -> Just (Scheme [a] [] funPtrA)
+            "castFunPtr" -> Just (Scheme [a, b] [] (TyFun funPtrA funPtrB))
+            "castFunPtrToPtr" -> Just (Scheme [a, b] [] (TyFun funPtrA ptrB))
+            "castPtrToFunPtr" -> Just (Scheme [a, b] [] (TyFun ptrA funPtrB))
             "newStablePtr" -> Just (Scheme [a] [] (TyFun aTy (ioMonoType stablePtrA)))
             "deRefStablePtr" -> Just (Scheme [a] [] (TyFun stablePtrA (ioMonoType aTy)))
             "freeStablePtr" -> Just (Scheme [a] [] (TyFun stablePtrA ioUnit))
@@ -5436,8 +5457,17 @@ preludeValueScheme name
             "newForeignPtr_" -> Just (Scheme [a] [] (TyFun ptrA (ioMonoType foreignPtrA)))
             "addForeignPtrFinalizer" -> Just (Scheme [a] [] (TyFun finalizerPtrA (TyFun foreignPtrA ioUnit)))
             "finalizeForeignPtr" -> Just (Scheme [a] [] (TyFun foreignPtrA ioUnit))
+            "unsafeForeignPtrToPtr" -> Just (Scheme [a] [] (TyFun foreignPtrA ptrA))
             "withForeignPtr" -> Just (Scheme [a, b] [] (TyFun foreignPtrA (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy))))
             "touchForeignPtr" -> Just (Scheme [a] [] (TyFun foreignPtrA ioUnit))
+            "castForeignPtr" -> Just (Scheme [a, b] [] (TyFun foreignPtrA foreignPtrB))
+            "throwIf" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun (TyFun aTy stringMonoType) (TyFun (ioMonoType aTy) (ioMonoType aTy)))))
+            "throwIf_" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun (TyFun aTy stringMonoType) (TyFun (ioMonoType aTy) ioUnit))))
+            "throwIfNull" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (ioMonoType ptrA) (ioMonoType ptrA))))
+            "void" -> Just (Scheme [a] [] (TyFun (ioMonoType aTy) ioUnit))
+            "maybeNew" -> Just (Scheme [a] [] (TyFun (TyFun aTy (ioMonoType ptrA)) (TyFun maybeA (ioMonoType ptrA))))
+            "maybeWith" -> Just (Scheme [a, b, c] [] (TyFun (TyFun aTy (TyFun (TyFun ptrB (ioMonoType cTy)) (ioMonoType cTy))) (TyFun maybeA (TyFun (TyFun ptrB (ioMonoType cTy)) (ioMonoType cTy)))))
+            "maybePeek" -> Just (Scheme [a, b] [] (TyFun (TyFun ptrA (ioMonoType bTy)) (TyFun ptrA (ioMonoType maybeB))))
             _ -> Nothing
  where
   a = preludeTypeVariable "a" (-1201)
@@ -5449,6 +5479,8 @@ preludeValueScheme name
   listA = TyList aTy
   listB = TyList bTy
   tupleAB = TyTuple [aTy, bTy]
+  maybeA = TyApp (TyCon maybeTyConName) aTy
+  maybeB = TyApp (TyCon maybeTyConName) bTy
   readSA = TyFun stringMonoType (TyList (TyTuple [aTy, stringMonoType]))
   readListSA = TyFun stringMonoType (TyList (TyTuple [listA, stringMonoType]))
   intReadS = TyFun stringMonoType (TyList (TyTuple [intMonoType, stringMonoType]))
@@ -5460,9 +5492,13 @@ preludeValueScheme name
   maybeFilePath = TyApp (TyCon maybeTyConName) filePathMonoType
   ioErrorPredicateTy = TyFun ioErrorMonoType boolMonoType
   ptrA = TyApp (TyCon ptrTyConName) aTy
+  ptrB = TyApp (TyCon ptrTyConName) bTy
   ptrUnit = TyApp (TyCon ptrTyConName) unitMonoType
+  funPtrA = TyApp (TyCon funPtrTyConName) aTy
+  funPtrB = TyApp (TyCon funPtrTyConName) bTy
   stablePtrA = TyApp (TyCon stablePtrTyConName) aTy
   foreignPtrA = TyApp (TyCon foreignPtrTyConName) aTy
+  foreignPtrB = TyApp (TyCon foreignPtrTyConName) bTy
   finalizerPtrA = TyApp (TyCon funPtrTyConName) (TyFun ptrA ioUnit)
 
 inferInfixApp :: TypeEnv -> RExpr -> RName -> RExpr -> InferM TypedExpr
@@ -6877,6 +6913,10 @@ builtinTypeConstructorMonoType name =
         "FunPtr" -> pure (TyCon funPtrTyConName)
         "StablePtr" -> pure (TyCon stablePtrTyConName)
         "ForeignPtr" -> pure (TyCon foreignPtrTyConName)
+        "FinalizerPtr" -> pure (TyCon name)
+        "FinalizerEnvPtr" -> pure (TyCon name)
+        "CStringLen" -> pure (TyCon name)
+        "CWStringLen" -> pure (TyCon name)
         other
           | isBuiltinForeignTypeOccurrence other -> pure (TyCon name)
           | otherwise -> throwTypecheck (UnsupportedCore0 ("type constructor `" <> other <> "`"))
@@ -6905,6 +6945,10 @@ builtinTypeConstructorInfo name
           "Either" -> Just 2
           "Ordering" -> Just 0
           "()" -> Just 0
+          "FinalizerPtr" -> Just 1
+          "FinalizerEnvPtr" -> Just 2
+          "CStringLen" -> Just 0
+          "CWStringLen" -> Just 0
           other -> builtinForeignTypeArity other
 
 builtinForeignTypeArity :: Text -> Maybe Int
@@ -6941,9 +6985,50 @@ builtinTypeSynonymInfo name
               { typeSynonymParams = []
               , typeSynonymBody = stringSourceType
               }
+        "FinalizerPtr" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = [finalizerA]
+              , typeSynonymBody =
+                  RTyApp
+                    (RTyCon (preludeTypeName "FunPtr" (-120031)))
+                    ( RTyFun
+                        (RTyApp (RTyCon (preludeTypeName "Ptr" (-120030))) (RTyVar finalizerA))
+                        (RTyApp (RTyCon (preludeTypeName "IO" (-120007))) (RTyTuple []))
+                    )
+              }
+        "FinalizerEnvPtr" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = [finalizerEnv, finalizerA]
+              , typeSynonymBody =
+                  RTyApp
+                    (RTyCon (preludeTypeName "FunPtr" (-120031)))
+                    ( RTyFun
+                        (RTyApp (RTyCon (preludeTypeName "Ptr" (-120030))) (RTyVar finalizerEnv))
+                        ( RTyFun
+                            (RTyApp (RTyCon (preludeTypeName "Ptr" (-120030))) (RTyVar finalizerA))
+                            (RTyApp (RTyCon (preludeTypeName "IO" (-120007))) (RTyTuple []))
+                        )
+                    )
+              }
+        "CStringLen" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = []
+              , typeSynonymBody = RTyTuple [RTyCon (preludeTypeName "CString" (-120011)), RTyCon (preludeTypeName "Int" (-120001))]
+              }
+        "CWStringLen" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = []
+              , typeSynonymBody = RTyTuple [RTyCon (preludeTypeName "CWString" (-120012)), RTyCon (preludeTypeName "Int" (-120001))]
+              }
         _ -> Nothing
  where
   readSynonymA = preludeTypeVariable "a" (-1569)
+  finalizerA = preludeTypeVariable "a" (-1570)
+  finalizerEnv = preludeTypeVariable "env" (-1571)
   stringSourceType = RTyCon (preludeTypeName "String" (-120010))
 
 preludeTypeName :: Text -> Int -> RName
@@ -7341,6 +7426,18 @@ preludeCorePair name =
       Just (binderFor name catchTy, catchRhs)
     "try" ->
       Just (binderFor name tryTy, tryRhs)
+    "nullPtr" ->
+      Just (binderFor name nullPtrTy, CTypeLam [a] (CPrimOp PrimNullPtr [] ptrA) nullPtrTy)
+    "castPtr" ->
+      Just (binderFor name castPtrTy, CTypeLam [a, b] (lam ptrCastValue ptrA (CPrimOp PrimCastPtr [var ptrCastValue ptrA] ptrB)) castPtrTy)
+    "nullFunPtr" ->
+      Just (binderFor name nullFunPtrTy, CTypeLam [a] (CPrimOp PrimNullPtr [] funPtrA) nullFunPtrTy)
+    "castFunPtr" ->
+      Just (binderFor name castFunPtrTy, CTypeLam [a, b] (lam funPtrCastValue funPtrA (CPrimOp PrimCastPtr [var funPtrCastValue funPtrA] funPtrB)) castFunPtrTy)
+    "castFunPtrToPtr" ->
+      Just (binderFor name castFunPtrToPtrTy, CTypeLam [a, b] (lam funPtrToPtrValue funPtrA (CPrimOp PrimCastPtr [var funPtrToPtrValue funPtrA] ptrB)) castFunPtrToPtrTy)
+    "castPtrToFunPtr" ->
+      Just (binderFor name castPtrToFunPtrTy, CTypeLam [a, b] (lam ptrToFunPtrValue ptrA (CPrimOp PrimCastPtr [var ptrToFunPtrValue ptrA] funPtrB)) castPtrToFunPtrTy)
     "newStablePtr" ->
       Just
         ( binderFor name newStablePtrTy
@@ -7386,6 +7483,11 @@ preludeCorePair name =
         ( binderFor name finalizeForeignPtrTy
         , CTypeLam [a] (lam foreignPtrFinalizeValue foreignPtrA (CPrimOp PrimFinalizeForeignPtr [var foreignPtrFinalizeValue foreignPtrA] ioUnitTy)) finalizeForeignPtrTy
         )
+    "unsafeForeignPtrToPtr" ->
+      Just
+        ( binderFor name unsafeForeignPtrToPtrTy
+        , CTypeLam [a] (lam foreignPtrUnsafeValue foreignPtrA (CPrimOp PrimUnsafeForeignPtrToPtr [var foreignPtrUnsafeValue foreignPtrA] ptrA)) unsafeForeignPtrToPtrTy
+        )
     "withForeignPtr" ->
       Just
         ( binderFor name withForeignPtrTy
@@ -7396,6 +7498,25 @@ preludeCorePair name =
         ( binderFor name touchForeignPtrTy
         , CTypeLam [a] (lam foreignPtrTouchValue foreignPtrA (CPrimOp PrimTouchForeignPtr [var foreignPtrTouchValue foreignPtrA] ioUnitTy)) touchForeignPtrTy
         )
+    "castForeignPtr" ->
+      Just
+        ( binderFor name castForeignPtrTy
+        , CTypeLam [a, b] (lam foreignPtrCastValue foreignPtrA (CPrimOp PrimCastForeignPtr [var foreignPtrCastValue foreignPtrA] foreignPtrB)) castForeignPtrTy
+        )
+    "throwIf" ->
+      Just (binderFor name throwIfTy, throwIfRhs)
+    "throwIf_" ->
+      Just (binderFor name throwIfUnitTy, throwIfUnitRhs)
+    "throwIfNull" ->
+      Just (binderFor name throwIfNullTy, throwIfNullRhs)
+    "void" ->
+      Just (binderFor name voidTy, voidRhs)
+    "maybeNew" ->
+      Just (binderFor name maybeNewTy, maybeNewRhs)
+    "maybeWith" ->
+      Just (binderFor name maybeWithTy, maybeWithRhs)
+    "maybePeek" ->
+      Just (binderFor name maybePeekTy, maybePeekRhs)
     _ -> readPreludeCorePair name <|> arithmeticSequenceCorePair name
  where
   a = preludeTypeVariable "a" (-1201)
@@ -7409,11 +7530,18 @@ preludeCorePair name =
   listA = CTyList aTy
   listB = CTyList bTy
   tupleAB = CTyTuple [aTy, bTy]
+  maybeA = CTyApp (CTyCon maybeTyConName) aTy
+  maybeB = CTyApp (CTyCon maybeTyConName) bTy
   ioUnitTy = ioTy unitTy
+  ioA = ioTy aTy
   ptrA = ptrTy aTy
+  ptrB = ptrTy bTy
   ptrUnitTy = ptrTy unitTy
+  funPtrA = funPtrTy aTy
+  funPtrB = funPtrTy bTy
   stablePtrA = stablePtrTy aTy
   foreignPtrA = foreignPtrTy aTy
+  foreignPtrB = foreignPtrTy bTy
   finalizerPtrA = funPtrTy (CTyFun ptrA ioUnitTy)
   showDictA = CTyApp (CTyCon (classDictionaryTypeName builtinShowClassName)) aTy
   showMethodDictA = CTyApp (CTyCon (classDictionaryTypeName builtinShowClassName)) showMethodATy
@@ -7466,6 +7594,12 @@ preludeCorePair name =
   ioErrorTy_ = CTyForall [a] (CTyFun ioErrorTy (ioTy aTy))
   catchTy = CTyForall [a] (CTyFun (ioTy aTy) (CTyFun (CTyFun ioErrorTy (ioTy aTy)) (ioTy aTy)))
   tryTy = CTyForall [a] (CTyFun (ioTy aTy) (ioTy (CTyApp (CTyApp (CTyCon eitherTyConName) ioErrorTy) aTy)))
+  nullPtrTy = CTyForall [a] ptrA
+  castPtrTy = CTyForall [a, b] (CTyFun ptrA ptrB)
+  nullFunPtrTy = CTyForall [a] funPtrA
+  castFunPtrTy = CTyForall [a, b] (CTyFun funPtrA funPtrB)
+  castFunPtrToPtrTy = CTyForall [a, b] (CTyFun funPtrA ptrB)
+  castPtrToFunPtrTy = CTyForall [a, b] (CTyFun ptrA funPtrB)
   newStablePtrTy = CTyForall [a] (CTyFun aTy (ioTy stablePtrA))
   deRefStablePtrTy = CTyForall [a] (CTyFun stablePtrA (ioTy aTy))
   freeStablePtrTy = CTyForall [a] (CTyFun stablePtrA ioUnitTy)
@@ -7475,8 +7609,17 @@ preludeCorePair name =
   newForeignPtrTy_ = CTyForall [a] (CTyFun ptrA (ioTy foreignPtrA))
   addForeignPtrFinalizerTy = CTyForall [a] (CTyFun finalizerPtrA (CTyFun foreignPtrA ioUnitTy))
   finalizeForeignPtrTy = CTyForall [a] (CTyFun foreignPtrA ioUnitTy)
+  unsafeForeignPtrToPtrTy = CTyForall [a] (CTyFun foreignPtrA ptrA)
   withForeignPtrTy = CTyForall [a, b] (CTyFun foreignPtrA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))
   touchForeignPtrTy = CTyForall [a] (CTyFun foreignPtrA ioUnitTy)
+  castForeignPtrTy = CTyForall [a, b] (CTyFun foreignPtrA foreignPtrB)
+  throwIfTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun (CTyFun aTy stringTy) (CTyFun ioA ioA)))
+  throwIfUnitTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun (CTyFun aTy stringTy) (CTyFun ioA ioUnitTy)))
+  throwIfNullTy = CTyForall [a] (CTyFun stringTy (CTyFun (ioTy ptrA) (ioTy ptrA)))
+  voidTy = CTyForall [a] (CTyFun ioA ioUnitTy)
+  maybeNewTy = CTyForall [a] (CTyFun (CTyFun aTy (ioTy ptrA)) (CTyFun maybeA (ioTy ptrA)))
+  maybeWithTy = CTyForall [a, b, c] (CTyFun (CTyFun aTy (CTyFun (CTyFun ptrB (ioTy cTy)) (ioTy cTy))) (CTyFun maybeA (CTyFun (CTyFun ptrB (ioTy cTy)) (ioTy cTy))))
+  maybePeekTy = CTyForall [a, b] (CTyFun (CTyFun ptrA (ioTy bTy)) (CTyFun ptrA (ioTy maybeB)))
 
   idX = preludeTermName "$id_x" (-3001)
   constX = preludeTermName "$const_x" (-3002)
@@ -7567,6 +7710,10 @@ preludeCorePair name =
   catchAction = preludeTermName "$catch_action" (-3210)
   catchHandler = preludeTermName "$catch_handler" (-3211)
   tryAction = preludeTermName "$try_action" (-3212)
+  ptrCastValue = preludeTermName "$ptr_cast_value" (-3500)
+  funPtrCastValue = preludeTermName "$fun_ptr_cast_value" (-3501)
+  funPtrToPtrValue = preludeTermName "$fun_ptr_to_ptr_value" (-3502)
+  ptrToFunPtrValue = preludeTermName "$ptr_to_fun_ptr_value" (-3503)
   stablePtrNewValue = preludeTermName "$stable_ptr_new_value" (-3063)
   stablePtrDeRefValue = preludeTermName "$stable_ptr_deref_value" (-3064)
   stablePtrFreeValue = preludeTermName "$stable_ptr_free_value" (-3065)
@@ -7578,9 +7725,39 @@ preludeCorePair name =
   foreignPtrAddFinalizerValue = preludeTermName "$foreign_ptr_add_finalizer" (-3076)
   foreignPtrAddValue = preludeTermName "$foreign_ptr_add_value" (-3077)
   foreignPtrFinalizeValue = preludeTermName "$foreign_ptr_finalize_value" (-3078)
+  foreignPtrUnsafeValue = preludeTermName "$foreign_ptr_unsafe_value" (-3504)
   foreignPtrWithValue = preludeTermName "$foreign_ptr_with_value" (-3079)
   withForeignPtrK = preludeTermName "$with_foreign_ptr_k" (-3080)
   foreignPtrTouchValue = preludeTermName "$foreign_ptr_touch_value" (-3081)
+  foreignPtrCastValue = preludeTermName "$foreign_ptr_cast_value" (-3505)
+  throwIfPredicate = preludeTermName "$throw_if_predicate" (-3510)
+  throwIfMessage = preludeTermName "$throw_if_message" (-3511)
+  throwIfAction = preludeTermName "$throw_if_action" (-3512)
+  throwIfValue = preludeTermName "$throw_if_value" (-3513)
+  throwIfCase = preludeTermName "$throw_if_case" (-3514)
+  throwIfUnitPredicate = preludeTermName "$throw_if_unit_predicate" (-3515)
+  throwIfUnitMessage = preludeTermName "$throw_if_unit_message" (-3516)
+  throwIfUnitAction = preludeTermName "$throw_if_unit_action" (-3517)
+  throwIfUnitValue = preludeTermName "$throw_if_unit_value" (-3518)
+  throwIfUnitCase = preludeTermName "$throw_if_unit_case" (-3519)
+  throwIfNullLocation = preludeTermName "$throw_if_null_location" (-3520)
+  throwIfNullAction = preludeTermName "$throw_if_null_action" (-3521)
+  throwIfNullPointer = preludeTermName "$throw_if_null_pointer" (-3522)
+  throwIfNullCase = preludeTermName "$throw_if_null_case" (-3523)
+  voidAction = preludeTermName "$void_action" (-3524)
+  maybeNewFunction = preludeTermName "$maybe_new_function" (-3530)
+  maybeNewValue = preludeTermName "$maybe_new_value" (-3531)
+  maybeNewCase = preludeTermName "$maybe_new_case" (-3532)
+  maybeNewJust = preludeTermName "$maybe_new_just" (-3533)
+  maybeWithFunction = preludeTermName "$maybe_with_function" (-3534)
+  maybeWithValue = preludeTermName "$maybe_with_value" (-3535)
+  maybeWithContinuation = preludeTermName "$maybe_with_continuation" (-3536)
+  maybeWithCase = preludeTermName "$maybe_with_case" (-3537)
+  maybeWithJust = preludeTermName "$maybe_with_just" (-3538)
+  maybePeekFunction = preludeTermName "$maybe_peek_function" (-3539)
+  maybePeekPointer = preludeTermName "$maybe_peek_pointer" (-3540)
+  maybePeekCase = preludeTermName "$maybe_peek_case" (-3541)
+  maybePeekValue = preludeTermName "$maybe_peek_value" (-3542)
 
   binderFor binderName ty = CoreBinder binderName ty
   lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
@@ -8017,8 +8194,117 @@ preludeCorePair name =
   tryRhs =
     CTypeLam [a] (lam tryAction (ioTy aTy) (CPrimOp PrimIOTry [var tryAction (ioTy aTy)] (ioTy (CTyApp (CTyApp (CTyCon eitherTyConName) ioErrorTy) aTy)))) tryTy
 
+  throwIfRhs =
+    CTypeLam [a] (lam throwIfPredicate (CTyFun aTy boolTy) (lam throwIfMessage (CTyFun aTy stringTy) (lam throwIfAction ioA (CPrimOp PrimIOBind [var throwIfAction ioA, CLam (CoreBinder throwIfValue aTy) throwIfBody (CTyFun aTy ioA)] ioA)))) throwIfTy
+   where
+    value = var throwIfValue aTy
+    throwIfBody =
+      boolCase
+        (apply (var throwIfPredicate (CTyFun aTy boolTy)) value boolTy)
+        throwIfCase
+        ioA
+        (ioThrowUserError aTy (apply (var throwIfMessage (CTyFun aTy stringTy)) value stringTy))
+        (ioReturn aTy value)
+
+  throwIfUnitRhs =
+    CTypeLam [a] (lam throwIfUnitPredicate (CTyFun aTy boolTy) (lam throwIfUnitMessage (CTyFun aTy stringTy) (lam throwIfUnitAction ioA (CPrimOp PrimIOBind [var throwIfUnitAction ioA, CLam (CoreBinder throwIfUnitValue aTy) throwIfUnitBody (CTyFun aTy ioUnitTy)] ioUnitTy)))) throwIfUnitTy
+   where
+    value = var throwIfUnitValue aTy
+    throwIfUnitBody =
+      boolCase
+        (apply (var throwIfUnitPredicate (CTyFun aTy boolTy)) value boolTy)
+        throwIfUnitCase
+        ioUnitTy
+        (ioThrowUserError unitTy (apply (var throwIfUnitMessage (CTyFun aTy stringTy)) value stringTy))
+        (ioReturn unitTy unitValue)
+
+  throwIfNullRhs =
+    CTypeLam [a] (lam throwIfNullLocation stringTy (lam throwIfNullAction (ioTy ptrA) (CPrimOp PrimIOBind [var throwIfNullAction (ioTy ptrA), CLam (CoreBinder throwIfNullPointer ptrA) throwIfNullBody (CTyFun ptrA (ioTy ptrA))] (ioTy ptrA)))) throwIfNullTy
+   where
+    pointer = var throwIfNullPointer ptrA
+    throwIfNullBody =
+      boolCase
+        (CPrimOp PrimIsNullPtr [pointer] boolTy)
+        throwIfNullCase
+        (ioTy ptrA)
+        (ioThrowUserError ptrA (var throwIfNullLocation stringTy))
+        (ioReturn ptrA pointer)
+
+  voidRhs =
+    CTypeLam [a] (lam voidAction ioA (CPrimOp PrimIOThen [var voidAction ioA, ioReturn unitTy unitValue] ioUnitTy)) voidTy
+
+  maybeNewRhs =
+    CTypeLam [a] (lam maybeNewFunction (CTyFun aTy (ioTy ptrA)) (lam maybeNewValue maybeA maybeNewBody)) maybeNewTy
+   where
+    maybeNewBody =
+      CCase
+        (var maybeNewValue maybeA)
+        (CoreBinder maybeNewCase maybeA)
+        [ CoreAlt (ConstructorAlt maybeNothingDataConName) [] (ioReturn ptrA (CPrimOp PrimNullPtr [] ptrA))
+        , CoreAlt
+            (ConstructorAlt maybeJustDataConName)
+            [CoreBinder maybeNewJust aTy]
+            (apply (var maybeNewFunction (CTyFun aTy (ioTy ptrA))) (var maybeNewJust aTy) (ioTy ptrA))
+        ]
+        (ioTy ptrA)
+
+  maybeWithRhs =
+    CTypeLam [a, b, c] (lam maybeWithFunction withFunctionTy (lam maybeWithValue maybeA (lam maybeWithContinuation continuationTy maybeWithBody))) maybeWithTy
+   where
+    withFunctionTy = CTyFun aTy (CTyFun continuationTy (ioTy cTy))
+    continuationTy = CTyFun ptrB (ioTy cTy)
+    maybeWithBody =
+      CCase
+        (var maybeWithValue maybeA)
+        (CoreBinder maybeWithCase maybeA)
+        [ CoreAlt (ConstructorAlt maybeNothingDataConName) [] (apply (var maybeWithContinuation continuationTy) (CPrimOp PrimNullPtr [] ptrB) (ioTy cTy))
+        , CoreAlt
+            (ConstructorAlt maybeJustDataConName)
+            [CoreBinder maybeWithJust aTy]
+            ( apply
+                (apply (var maybeWithFunction withFunctionTy) (var maybeWithJust aTy) (CTyFun continuationTy (ioTy cTy)))
+                (var maybeWithContinuation continuationTy)
+                (ioTy cTy)
+            )
+        ]
+        (ioTy cTy)
+
+  maybePeekRhs =
+    CTypeLam [a, b] (lam maybePeekFunction (CTyFun ptrA (ioTy bTy)) (lam maybePeekPointer ptrA maybePeekBody)) maybePeekTy
+   where
+    pointer = var maybePeekPointer ptrA
+    maybePeekBody =
+      boolCase
+        (CPrimOp PrimIsNullPtr [pointer] boolTy)
+        maybePeekCase
+        (ioTy maybeB)
+        (ioReturn maybeB (maybeNothing bTy))
+        ( CPrimOp
+            PrimIOBind
+            [ apply (var maybePeekFunction (CTyFun ptrA (ioTy bTy))) pointer (ioTy bTy)
+            , CLam (CoreBinder maybePeekValue bTy) (ioReturn maybeB (maybeJust bTy (var maybePeekValue bTy))) (CTyFun bTy (ioTy maybeB))
+            ]
+            (ioTy maybeB)
+        )
+
   ioErrorValue errorType message maybeHandle maybeFile =
     constructorApp ioErrorDataConName [] [errorType, message, maybeHandle, maybeFile] ioErrorTy
+
+  ioThrowUserError resultTy message =
+    CPrimOp PrimIOError [ioErrorValue (CCon ioErrorUserTypeDataConName ioErrorTypeTy) message (maybeNothing handleTy) (maybeNothing stringTy)] (ioTy resultTy)
+
+  ioReturn resultTy value =
+    CPrimOp PrimIOReturn [value] (ioTy resultTy)
+
+  unitValue =
+    CCon unitDataConName unitTy
+
+  maybeNothing elementTy =
+    constructorApp maybeNothingDataConName [elementTy] [] (CTyApp (CTyCon maybeTyConName) elementTy)
+
+  maybeJust elementTy value =
+    constructorApp maybeJustDataConName [elementTy] [value] (CTyApp (CTyCon maybeTyConName) elementTy)
+
 
   ioErrorPredicateRhs expectedType occurrence unique =
     lam (preludeTermName (occurrence <> "_error") unique) ioErrorTy $

@@ -110,7 +110,7 @@ LIBRARY_CLOSURE_ROWS = {
     ("Data.Maybe", "module"),
     ("Data.Ratio", "module"),
     ("Foreign", "implemented slices"),
-    ("Foreign", "C.Error/Marshal/Storable modules"),
+    ("Foreign", "C.Error/Alloc/Array/Storable modules"),
     ("Numeric", "module"),
     ("System.Environment/System.Exit", "modules"),
     ("System.IO/System.IO.Error", "modules"),
@@ -119,6 +119,7 @@ LIBRARY_CLOSURE_ROWS = {
 LIBRARY_CLOSURE_REQUIRED_FIXTURES = {
     "test/haskell2010/conformance/adts/maybe-constructor-case.hs",
     "test/haskell2010/conformance/ffi/dynamic-wrapper.hs",
+    "test/haskell2010/conformance/ffi/foreign-library-surface.hs",
     "test/haskell2010/conformance/ffi/foreign-export.hs",
     "test/haskell2010/conformance/ffi/pointer-address.hs",
     "test/haskell2010/conformance/ffi/stable-foreignptr-finalizers.hs",

@@ -45,6 +45,9 @@ standardLibraryModuleInterfaces =
     , (foreignCStringModuleName, foreignCStringInterface)
     , (foreignCTypesModuleName, foreignCTypesInterface)
     , (foreignForeignPtrModuleName, foreignForeignPtrInterface)
+    , (foreignMarshalModuleName, foreignMarshalInterface)
+    , (foreignMarshalErrorModuleName, foreignMarshalErrorInterface)
+    , (foreignMarshalUtilsModuleName, foreignMarshalUtilsInterface)
     , (foreignPtrModuleName, foreignPtrInterface)
     , (foreignStablePtrModuleName, foreignStablePtrInterface)
     ]
@@ -270,6 +273,18 @@ foreignForeignPtrModuleName :: S.ModuleName
 foreignForeignPtrModuleName =
   S.ModuleName ["Foreign", "ForeignPtr"]
 
+foreignMarshalModuleName :: S.ModuleName
+foreignMarshalModuleName =
+  S.ModuleName ["Foreign", "Marshal"]
+
+foreignMarshalErrorModuleName :: S.ModuleName
+foreignMarshalErrorModuleName =
+  S.ModuleName ["Foreign", "Marshal", "Error"]
+
+foreignMarshalUtilsModuleName :: S.ModuleName
+foreignMarshalUtilsModuleName =
+  S.ModuleName ["Foreign", "Marshal", "Utils"]
+
 foreignCModuleName :: S.ModuleName
 foreignCModuleName =
   S.ModuleName ["Foreign", "C"]
@@ -340,6 +355,18 @@ foreignForeignPtrInterface :: ModuleInterface
 foreignForeignPtrInterface =
   standardLibraryInterface foreignForeignPtrModuleName foreignForeignPtrNames
 
+foreignMarshalInterface :: ModuleInterface
+foreignMarshalInterface =
+  standardLibraryInterface foreignMarshalModuleName foreignMarshalNames
+
+foreignMarshalErrorInterface :: ModuleInterface
+foreignMarshalErrorInterface =
+  standardLibraryInterface foreignMarshalErrorModuleName foreignMarshalErrorNames
+
+foreignMarshalUtilsInterface :: ModuleInterface
+foreignMarshalUtilsInterface =
+  standardLibraryInterface foreignMarshalUtilsModuleName foreignMarshalUtilsNames
+
 foreignCInterface :: ModuleInterface
 foreignCInterface =
   standardLibraryInterface foreignCModuleName foreignCNames
@@ -395,6 +422,7 @@ standardLibraryNames =
     <> foreignCStringNames
     <> foreignCTypesNames
     <> foreignPtrNames
+    <> foreignMarshalNames
     <> controlMonadNames
     <> dataIntNames
     <> dataListNames
@@ -469,7 +497,7 @@ systemIOErrorNames =
 
 foreignNames :: [(Namespace, Text)]
 foreignNames =
-  foreignTypeNames <> foreignStablePtrNames <> foreignForeignPtrNames
+  foreignTypeNames <> foreignStablePtrNames <> foreignForeignPtrNames <> foreignMarshalNames
 
 foreignTypeNames :: [(Namespace, Text)]
 foreignTypeNames =
@@ -478,6 +506,15 @@ foreignTypeNames =
 foreignPtrNames :: [(Namespace, Text)]
 foreignPtrNames =
   fmap (TypeNamespace,) ["Ptr", "FunPtr"]
+    <> fmap
+      (TermNamespace,)
+      [ "nullPtr"
+      , "castPtr"
+      , "nullFunPtr"
+      , "castFunPtr"
+      , "castFunPtrToPtr"
+      , "castPtrToFunPtr"
+      ]
 
 foreignStablePtrNames :: [(Namespace, Text)]
 foreignStablePtrNames =
@@ -493,16 +530,30 @@ foreignStablePtrNames =
 
 foreignForeignPtrNames :: [(Namespace, Text)]
 foreignForeignPtrNames =
-  (TypeNamespace, "ForeignPtr")
-    : fmap
+  fmap (TypeNamespace,) ["ForeignPtr", "FinalizerPtr", "FinalizerEnvPtr"]
+    <> fmap
       (TermNamespace,)
       [ "newForeignPtr"
       , "newForeignPtr_"
       , "addForeignPtrFinalizer"
       , "finalizeForeignPtr"
+      , "unsafeForeignPtrToPtr"
       , "withForeignPtr"
       , "touchForeignPtr"
+      , "castForeignPtr"
       ]
+
+foreignMarshalNames :: [(Namespace, Text)]
+foreignMarshalNames =
+  foreignMarshalErrorNames <> foreignMarshalUtilsNames
+
+foreignMarshalErrorNames :: [(Namespace, Text)]
+foreignMarshalErrorNames =
+  fmap (TermNamespace,) ["throwIf", "throwIf_", "throwIfNull", "void"]
+
+foreignMarshalUtilsNames :: [(Namespace, Text)]
+foreignMarshalUtilsNames =
+  fmap (TermNamespace,) ["maybeNew", "maybeWith", "maybePeek"]
 
 foreignCNames :: [(Namespace, Text)]
 foreignCNames =
@@ -510,7 +561,7 @@ foreignCNames =
 
 foreignCStringNames :: [(Namespace, Text)]
 foreignCStringNames =
-  fmap (TypeNamespace,) ["CString", "CWString"]
+  fmap (TypeNamespace,) ["CString", "CStringLen", "CWString", "CWStringLen"]
 
 foreignCTypesNames :: [(Namespace, Text)]
 foreignCTypesNames =

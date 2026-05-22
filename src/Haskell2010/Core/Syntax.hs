@@ -176,6 +176,9 @@ data CorePrimOp
   | PrimIOError
   | PrimIOCatch
   | PrimIOTry
+  | PrimNullPtr
+  | PrimCastPtr
+  | PrimIsNullPtr
   | PrimNewStablePtr
   | PrimDeRefStablePtr
   | PrimFreeStablePtr
@@ -187,6 +190,8 @@ data CorePrimOp
   | PrimFinalizeForeignPtr
   | PrimWithForeignPtr
   | PrimTouchForeignPtr
+  | PrimUnsafeForeignPtrToPtr
+  | PrimCastForeignPtr
   deriving stock (Show, Eq, Ord)
 
 exprType :: CoreExpr -> CoreType

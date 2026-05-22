@@ -139,6 +139,9 @@ renderCorePrimOp = \case
   PrimIOError -> "ioError#"
   PrimIOCatch -> "catchIO#"
   PrimIOTry -> "tryIO#"
+  PrimNullPtr -> "nullPtr#"
+  PrimCastPtr -> "castPtr#"
+  PrimIsNullPtr -> "isNullPtr#"
   PrimNewStablePtr -> "newStablePtr#"
   PrimDeRefStablePtr -> "deRefStablePtr#"
   PrimFreeStablePtr -> "freeStablePtr#"
@@ -150,6 +153,8 @@ renderCorePrimOp = \case
   PrimFinalizeForeignPtr -> "finalizeForeignPtr#"
   PrimWithForeignPtr -> "withForeignPtr#"
   PrimTouchForeignPtr -> "touchForeignPtr#"
+  PrimUnsafeForeignPtrToPtr -> "unsafeForeignPtrToPtr#"
+  PrimCastForeignPtr -> "castForeignPtr#"
 
 renderForeignImport :: CoreForeignImport -> Text
 renderForeignImport foreignImport =

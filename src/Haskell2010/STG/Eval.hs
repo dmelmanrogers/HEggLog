@@ -533,6 +533,14 @@ evalPrimitiveValues op values =
       pure (STGIO [] (STGIOFailure err))
     (PrimIOError, [value]) ->
       pure (STGIO [] (STGIOFailure value))
+    (PrimNullPtr, []) ->
+      pure (STGPointer Nothing)
+    (PrimCastPtr, [STGPointer value]) ->
+      pure (STGPointer value)
+    (PrimIsNullPtr, [STGPointer Nothing]) ->
+      pure (STGBool True)
+    (PrimIsNullPtr, [STGPointer (Just _)]) ->
+      pure (STGBool False)
     (PrimNewStablePtr, [value]) ->
       pure (STGIO [] (STGIOSuccess (STGStablePtr value)))
     (PrimDeRefStablePtr, [STGStablePtr value]) ->
@@ -561,6 +569,10 @@ evalPrimitiveValues op values =
           typeError ("expected STG IO action from withForeignPtr continuation, got " <> renderSTGValue other)
     (PrimTouchForeignPtr, [STGForeignPtr _]) ->
       pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimUnsafeForeignPtrToPtr, [STGForeignPtr pointer]) ->
+      pure pointer
+    (PrimCastForeignPtr, [STGForeignPtr pointer]) ->
+      pure (STGForeignPtr pointer)
     _ ->
       throwEval (STGEvalTypeError ("invalid STG primitive operands for " <> renderCorePrimOpName op))
  where
@@ -789,6 +801,9 @@ renderCorePrimOpName = \case
   PrimIOError -> "ioError#"
   PrimIOCatch -> "catchIO#"
   PrimIOTry -> "tryIO#"
+  PrimNullPtr -> "nullPtr#"
+  PrimCastPtr -> "castPtr#"
+  PrimIsNullPtr -> "isNullPtr#"
   PrimNewStablePtr -> "newStablePtr#"
   PrimDeRefStablePtr -> "deRefStablePtr#"
   PrimFreeStablePtr -> "freeStablePtr#"
@@ -800,3 +815,5 @@ renderCorePrimOpName = \case
   PrimFinalizeForeignPtr -> "finalizeForeignPtr#"
   PrimWithForeignPtr -> "withForeignPtr#"
   PrimTouchForeignPtr -> "touchForeignPtr#"
+  PrimUnsafeForeignPtrToPtr -> "unsafeForeignPtrToPtr#"
+  PrimCastForeignPtr -> "castForeignPtr#"
