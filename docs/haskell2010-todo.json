@@ -8284,7 +8284,7 @@
       "blocks": [],
       "milestone": "M12",
       "acceptance_criteria": [
-        "Data.Int and Data.Word fixed-width types have real runtime representations, numeric instances, bounds, enum behavior, and conversions rather than only importable type names.",
+        "Data.Word.Word and the fixed-width Data.Int/Data.Word types have real runtime representations, numeric instances, bounds, enum behavior, and conversions rather than only importable type names.",
         "Overflow, bounds, show/read, enum, bits, and FFI interactions are specified and tested.",
         "Generated module interfaces expose only implemented types and instances."
       ],

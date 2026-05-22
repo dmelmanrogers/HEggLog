@@ -454,6 +454,10 @@ dataMaybeNames =
 
 dataWordNames :: [(Namespace, Text)]
 dataWordNames =
+  fmap (TypeNamespace,) ["Word", "Word8", "Word16", "Word32", "Word64"]
+
+fixedWidthWordNames :: [(Namespace, Text)]
+fixedWidthWordNames =
   fmap (TypeNamespace,) ["Word8", "Word16", "Word32", "Word64"]
 
 systemIONames :: [(Namespace, Text)]
@@ -501,7 +505,7 @@ foreignNames =
 
 foreignTypeNames :: [(Namespace, Text)]
 foreignTypeNames =
-  dataIntNames <> dataWordNames <> foreignPtrNames
+  dataIntNames <> fixedWidthWordNames <> foreignPtrNames
 
 foreignPtrNames :: [(Namespace, Text)]
 foreignPtrNames =

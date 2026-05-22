@@ -6898,6 +6898,7 @@ builtinTypeConstructorMonoType name =
         "Integer" -> pure intMonoType
         "Bool" -> pure boolMonoType
         "Char" -> pure charMonoType
+        "Word" -> pure wordMonoType
         "Rational" -> pure rationalMonoType
         "String" -> pure stringMonoType
         "ShowS" -> pure (TyFun stringMonoType stringMonoType)
@@ -6917,10 +6918,12 @@ builtinTypeConstructorMonoType name =
         "ForeignPtr" -> pure (TyCon foreignPtrTyConName)
         "FinalizerPtr" -> pure (TyCon name)
         "FinalizerEnvPtr" -> pure (TyCon name)
+        "CString" -> pure (TyApp (TyCon ptrTyConName) (builtinForeignTypeMonoType "CChar"))
+        "CWString" -> pure (TyApp (TyCon ptrTyConName) (builtinForeignTypeMonoType "CWchar"))
         "CStringLen" -> pure (TyCon name)
         "CWStringLen" -> pure (TyCon name)
         other
-          | isBuiltinForeignTypeOccurrence other -> pure (TyCon name)
+          | isBuiltinForeignTypeOccurrence other -> pure (builtinForeignTypeMonoType other)
           | otherwise -> throwTypecheck (UnsupportedCore0 ("type constructor `" <> other <> "`"))
 
 builtinTypeConstructorInfo :: RName -> Maybe TypeConstructorInfo
@@ -6933,6 +6936,7 @@ builtinTypeConstructorInfo name
           "Integer" -> Just 0
           "Bool" -> Just 0
           "Char" -> Just 0
+          "Word" -> Just 0
           "Rational" -> Just 0
           "String" -> Just 0
           "ShowS" -> Just 0
@@ -6949,6 +6953,8 @@ builtinTypeConstructorInfo name
           "()" -> Just 0
           "FinalizerPtr" -> Just 1
           "FinalizerEnvPtr" -> Just 2
+          "CString" -> Just 0
+          "CWString" -> Just 0
           "CStringLen" -> Just 0
           "CWStringLen" -> Just 0
           other -> builtinForeignTypeArity other
@@ -7026,6 +7032,18 @@ builtinTypeSynonymInfo name
               { typeSynonymParams = []
               , typeSynonymBody = RTyTuple [RTyCon (preludeTypeName "CWString" (-120012)), RTyCon (preludeTypeName "Int" (-120001))]
               }
+        "CString" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = []
+              , typeSynonymBody = RTyApp (RTyCon (preludeTypeName "Ptr" (-120030))) (RTyCon (preludeTypeName "CChar" (-120041)))
+              }
+        "CWString" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = []
+              , typeSynonymBody = RTyApp (RTyCon (preludeTypeName "Ptr" (-120030))) (RTyCon (preludeTypeName "CWchar" (-120042)))
+              }
         _ -> Nothing
  where
   readSynonymA = preludeTypeVariable "a" (-1569)
@@ -7039,13 +7057,15 @@ preludeTypeName occurrence unique =
 
 scalarForeignTypeOccurrences :: Set.Set Text
 scalarForeignTypeOccurrences =
-  Set.fromList
+  Set.fromList scalarForeignTypeOccurrenceList
+
+scalarForeignTypeOccurrenceList :: [Text]
+scalarForeignTypeOccurrenceList =
     [ "Int"
     , "Bool"
     , "Char"
     , "Float"
     , "Double"
-    , "Word"
     , "Int8"
     , "Int16"
     , "Int32"
@@ -7054,8 +7074,6 @@ scalarForeignTypeOccurrences =
     , "Word16"
     , "Word32"
     , "Word64"
-    , "CString"
-    , "CWString"
     , "CChar"
     , "CSChar"
     , "CUChar"
@@ -7087,6 +7105,24 @@ scalarForeignTypeOccurrences =
 pointerForeignTypeOccurrences :: Set.Set Text
 pointerForeignTypeOccurrences =
   Set.fromList ["Ptr", "FunPtr", "StablePtr", "ForeignPtr"]
+
+builtinForeignTypeMonoType :: Text -> MonoType
+builtinForeignTypeMonoType occurrence =
+  TyCon (builtinForeignTypeName occurrence)
+
+builtinForeignTypeName :: Text -> RName
+builtinForeignTypeName occurrence =
+  RName TypeNamespace occurrence (builtinForeignTypeUnique occurrence) True
+
+builtinForeignTypeUnique :: Text -> Int
+builtinForeignTypeUnique occurrence =
+  case List.elemIndex occurrence scalarForeignTypeOccurrenceList of
+    Just index -> -121000 - index
+    Nothing -> -121999
+
+wordMonoType :: MonoType
+wordMonoType =
+  TyCon (RName TypeNamespace "Word" (-121500) True)
 
 instantiate :: Scheme -> InferM (MonoType, [MonoType])
 instantiate (Scheme variables _ body) = do

@@ -14820,7 +14820,7 @@ Blocks:
 - none
 
 Scope:
-- Move fixed-width `Data.Int` and `Data.Word` support from importable type names to real representations, instances, and runtime behavior.
+- Move `Data.Word.Word` plus the fixed-width `Data.Int`/`Data.Word` support from importable type names to real representations, instances, and runtime behavior.
 
 Non-goals:
 - Do not conflate C ABI type aliases with Haskell fixed-width types unless the representation contract is explicit.
@@ -14833,7 +14833,7 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- `Data.Int` and `Data.Word` fixed-width types have real runtime representations, numeric instances, bounds, enum behavior, and conversions rather than only importable type names.
+- `Data.Word.Word` and the fixed-width `Data.Int`/`Data.Word` types have real runtime representations, numeric instances, bounds, enum behavior, and conversions rather than only importable type names.
 - Overflow, bounds, show/read, enum, bits, and FFI interactions are specified and tested.
 - Generated module interfaces expose only implemented types and instances.
 

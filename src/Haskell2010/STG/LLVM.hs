@@ -2186,8 +2186,7 @@ signedForeignIntegerABI =
 unsignedForeignIntegerABI :: Map.Map Text (LLVMType, ForeignIntegerSignedness)
 unsignedForeignIntegerABI =
   Map.fromList
-    [ ("Word", unsigned LI64)
-    , ("Word8", unsigned LI8)
+    [ ("Word8", unsigned LI8)
     , ("Word16", unsigned LI16)
     , ("Word32", unsigned LI32)
     , ("Word64", unsigned LI64)

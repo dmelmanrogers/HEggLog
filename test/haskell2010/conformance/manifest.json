@@ -1134,6 +1134,15 @@
       "notes": "ForeignPtr is an ownership wrapper, not a direct C ABI argument type; code must use withForeignPtr to expose Ptr."
     },
     {
+      "name": "negative.ffi-word-not-basic",
+      "sourceFile": "test/haskell2010/conformance/negative/ffi-word-not-basic.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "non-marshallable",
+      "requiredStage": "typecheck",
+      "notes": "Data.Word exports Word as a library type name, but Haskell 2010 FFI basic foreign types include Word8/Word16/Word32/Word64 rather than plain Word."
+    },
+    {
       "name": "negative.ffi-wrapper-bad-shape",
       "sourceFile": "test/haskell2010/conformance/negative/ffi-wrapper-bad-shape.hs",
       "category": "negative",
