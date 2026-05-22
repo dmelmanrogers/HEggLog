@@ -114,6 +114,27 @@ Fixity handling belongs at the boundary between parsing and renaming. The
 frontend may parse infix expressions as unresolved operator trees, then resolve
 precedence and associativity after fixity declarations are known.
 
+## Module Compilation Boundary
+
+The current Haskell 2010 module pipeline is explicit source-graph
+whole-program compilation. `Haskell2010.ModuleGraph.currentModuleCompilationBoundary`
+records the active policy:
+
+- `SameDirectorySourceSearch` resolves source imports under the root module's
+  directory, with generated standard-library modules supplied by
+  `Haskell2010.StandardLibrary`.
+- `WholeProgramSourceCompilation` keeps loaded source modules together through
+  renaming, typechecking, Core/STG lowering, and native compilation.
+- `InterfaceFilesDeferredUntilStableSearchPaths` documents that `.hi`-style
+  interface artifacts are intentionally deferred until package/search-path
+  identity and generated standard-library boundaries are stable.
+
+This boundary is specified in
+`docs/haskell2010-module-compilation-boundary.md`. Future separate compilation
+must preserve current import/export behavior, fixities, instance visibility,
+implicit/explicit `Prelude` semantics, generated library interfaces, and FFI
+link metadata before replacing the whole-program pipeline.
+
 ## Typechecker
 
 The Haskell 2010 typechecker target is Hindley-Milner inference plus Haskell

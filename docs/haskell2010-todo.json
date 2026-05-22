@@ -9041,7 +9041,7 @@
     {
       "id": "MOD-011",
       "title": "separate compilation decision/documentation",
-      "status": "not started",
+      "status": "complete",
       "category": "modules",
       "depends_on": [
         "REN-015",
@@ -9050,7 +9050,7 @@
       "blocks": [],
       "milestone": "M14",
       "acceptance_criteria": [
-        "separate compilation decision/documentation is implemented, completed, or explicitly documented according to status `not started`.",
+        "separate compilation decision/documentation is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -9062,13 +9062,14 @@
       "docs": [
         "docs/haskell2010-frontend-spec.md",
         "docs/haskell2010-conformance-matrix.md",
-        "docs/haskell2010-todo.md"
+        "docs/haskell2010-todo.md",
+        "docs/haskell2010-module-compilation-boundary.md"
       ]
     },
     {
       "id": "MOD-012",
       "title": "interface file future plan",
-      "status": "not started",
+      "status": "complete",
       "category": "modules",
       "depends_on": [
         "REN-015",
@@ -9077,7 +9078,7 @@
       "blocks": [],
       "milestone": "M14",
       "acceptance_criteria": [
-        "interface file future plan is implemented, completed, or explicitly documented according to status `not started`.",
+        "interface file future plan is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -9089,7 +9090,8 @@
       "docs": [
         "docs/haskell2010-frontend-spec.md",
         "docs/haskell2010-conformance-matrix.md",
-        "docs/haskell2010-todo.md"
+        "docs/haskell2010-todo.md",
+        "docs/haskell2010-module-compilation-boundary.md"
       ]
     },
     {

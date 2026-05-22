@@ -16191,7 +16191,7 @@ Notes:
 ## MOD-011 — separate compilation decision/documentation
 
 Status:
-- not started
+- complete
 
 Category:
 - modules
@@ -16204,7 +16204,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver separate compilation decision/documentation for Full modules while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver separate compilation decision/documentation for Full modules while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Current behavior is explicit source-graph whole-program compilation behind `Haskell2010.ModuleGraph.currentModuleCompilationBoundary`; true separate compilation is deferred until package/search-path identity and interface artifact invalidation are stable.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -16217,10 +16217,12 @@ Files likely touched:
 - `src/Haskell2010/ModuleGraph.hs`
 - `src/Haskell2010/Renamer.hs`
 - `src/Haskell2010/Native.hs`
+- `test/Main.hs`
 - `test/haskell2010/conformance/modules/`
+- `docs/haskell2010-module-compilation-boundary.md`
 
 Acceptance criteria:
-- separate compilation decision/documentation is implemented, completed, or explicitly documented according to status `not started`.
+- separate compilation decision/documentation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -16233,14 +16235,15 @@ Documentation updates:
 - `docs/haskell2010-frontend-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 - `docs/haskell2010-todo.md`
+- `docs/haskell2010-module-compilation-boundary.md`
 
 Notes:
-- Milestone M14 (Full modules). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M14 (Full modules). Complete as a documented and code-level boundary: same-directory source modules compile as one loaded graph, while persistent interface/object reuse remains a future implementation gated by stable module search policy.
 
 ## MOD-012 — interface file future plan
 
 Status:
-- not started
+- complete
 
 Category:
 - modules
@@ -16253,7 +16256,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver interface file future plan for Full modules while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver interface file future plan for Full modules while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Current behavior deliberately emits no interface files; the planned artifact shape, invalidation requirements, and implementation order are documented in `docs/haskell2010-module-compilation-boundary.md`.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -16266,10 +16269,12 @@ Files likely touched:
 - `src/Haskell2010/ModuleGraph.hs`
 - `src/Haskell2010/Renamer.hs`
 - `src/Haskell2010/Native.hs`
+- `test/Main.hs`
 - `test/haskell2010/conformance/modules/`
+- `docs/haskell2010-module-compilation-boundary.md`
 
 Acceptance criteria:
-- interface file future plan is implemented, completed, or explicitly documented according to status `not started`.
+- interface file future plan is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -16282,9 +16287,10 @@ Documentation updates:
 - `docs/haskell2010-frontend-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 - `docs/haskell2010-todo.md`
+- `docs/haskell2010-module-compilation-boundary.md`
 
 Notes:
-- Milestone M14 (Full modules). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M14 (Full modules). Complete as a future plan and explicit code policy; interface files remain intentionally deferred until search roots, generated library module identity, fingerprints, and native link metadata can be encoded soundly.
 
 ## MOD-013 — multi-module native wet tests
 
