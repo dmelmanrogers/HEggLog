@@ -364,6 +364,8 @@ testGroups =
       , ioTest "native static ccall imports link and run" testHaskell2010NativeStaticCCall
       , ioTest "native pointer and address imports link and run" testHaskell2010NativePointerAddressCCall
       , ioTest "native dynamic and wrapper imports link and run" testHaskell2010NativeDynamicWrapperCCall
+      , ioTest "native wrapper slots reclaim freed callbacks" testHaskell2010NativeWrapperReclamation
+      , ioTest "native wrapper callbacks reject use after free" testHaskell2010NativeWrapperAfterFreeRuntimeError
       , ioTest "native foreign exports link and run" testHaskell2010NativeForeignExportCCall
       , ioTest "native StablePtr ForeignPtr finalizers link and run" testHaskell2010NativeStableForeignPtrFinalizers
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
@@ -4180,6 +4182,86 @@ testHaskell2010NativeDynamicWrapperCCall = do
                   LLVMTools.NativeRunIOError message ->
                     Left ("Haskell 2010 dynamic/wrapper ccall execution I/O error for " <> outputPath <> ": " <> message)
 
+testHaskell2010NativeWrapperReclamation :: IO (Either String ())
+testHaskell2010NativeWrapperReclamation = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} ->
+      case compileHaskell2010Native haskell2010WrapperReclamationSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          createDirectoryIfMissing True ".context/native-tests"
+          let llvmText = H2010Native.haskell2010LLVMText result
+              outputPath = ".context/native-tests/haskell2010-wrapper-reclamation"
+              helperPath = "test/native/haskell2010/ffi_helpers.c"
+          pureChecks <-
+            pure $
+              assertBool
+                "freeHaskellFunPtr clears wrapper callback slots"
+                ("store ptr null" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "wrapper slot allocator no longer relies on monotonic next counters"
+                  (not ("wrapper_next" `Text.isInfixOf` llvmText))
+          case pureChecks of
+            Left err ->
+              pure (Left err)
+            Right () -> do
+              buildResult <- LLVMTools.buildNativeExecutableWithObjects tools llvmText [helperPath] outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    expectEqual "Haskell 2010 wrapper reclamation stdout" (Text.unpack haskell2010WrapperReclamationOutput) stdoutText
+                  LLVMTools.NativeRunFailed code stdoutText stderrText ->
+                    Left
+                      ( "Haskell 2010 wrapper reclamation execution failed for "
+                          <> outputPath
+                          <> " with "
+                          <> show code
+                          <> "\nstdout:\n"
+                          <> stdoutText
+                          <> "\nstderr:\n"
+                          <> stderrText
+                      )
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("Haskell 2010 wrapper reclamation execution I/O error for " <> outputPath <> ": " <> message)
+
+testHaskell2010NativeWrapperAfterFreeRuntimeError :: IO (Either String ())
+testHaskell2010NativeWrapperAfterFreeRuntimeError = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} ->
+      case compileHaskell2010Native haskell2010WrapperAfterFreeSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          createDirectoryIfMissing True ".context/native-tests"
+          let llvmText = H2010Native.haskell2010LLVMText result
+              outputPath = ".context/native-tests/haskell2010-wrapper-after-free"
+              helperPath = "test/native/haskell2010/ffi_helpers.c"
+          pureChecks <-
+            pure $
+              assertBool
+                "wrapper callback entry checks for freed slots"
+                ("call void @abort()" `Text.isInfixOf` llvmText)
+          case pureChecks of
+            Left err ->
+              pure (Left err)
+            Right () -> do
+              buildResult <- LLVMTools.buildNativeExecutableWithObjects tools llvmText [helperPath] outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunFailed {} ->
+                    Right ()
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    Left ("expected wrapper callback after free to fail, got stdout:\n" <> stdoutText)
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("Haskell 2010 wrapper after-free execution I/O error for " <> outputPath <> ": " <> message)
+
 testHaskell2010NativeForeignExportCCall :: IO (Either String ())
 testHaskell2010NativeForeignExportCCall = do
   tools <- LLVMTools.findLLVMTools
@@ -7945,6 +8027,46 @@ haskell2010DynamicWrapperCCallOutput :: Text
 haskell2010DynamicWrapperCCallOutput =
   "11\n21\n40\n42\n15\n22\n3\n4\n11\n"
 
+haskell2010WrapperReclamationSource :: Text
+haskell2010WrapperReclamationSource =
+  "module Main where\n\
+  \import Foreign (FunPtr, freeHaskellFunPtr)\n\
+  \foreign import ccall \"wrapper\" wrapIntFun :: (Int -> IO Int) -> IO (FunPtr (Int -> IO Int))\n\
+  \foreign import ccall \"hegglog_ffi_apply_i64\" c_apply :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
+  \callback :: Int -> IO Int\n\
+  \callback value = return (value + 1)\n\
+  \callback2 :: Int -> IO Int\n\
+  \callback2 value = return (value + 20)\n\
+  \fill count = if count == 0 then return () else do\n\
+  \  unused <- wrapIntFun callback\n\
+  \  fill (count - 1)\n\
+  \main = do\n\
+  \  first <- wrapIntFun callback\n\
+  \  fill 63\n\
+  \  freeHaskellFunPtr first\n\
+  \  freeHaskellFunPtr first\n\
+  \  reused <- wrapIntFun callback2\n\
+  \  value <- c_apply reused 10\n\
+  \  print value\n"
+
+haskell2010WrapperReclamationOutput :: Text
+haskell2010WrapperReclamationOutput =
+  "30\n"
+
+haskell2010WrapperAfterFreeSource :: Text
+haskell2010WrapperAfterFreeSource =
+  "module Main where\n\
+  \import Foreign (FunPtr, freeHaskellFunPtr)\n\
+  \foreign import ccall \"wrapper\" wrapIntFun :: (Int -> IO Int) -> IO (FunPtr (Int -> IO Int))\n\
+  \foreign import ccall \"hegglog_ffi_apply_i64\" c_apply :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
+  \callback :: Int -> IO Int\n\
+  \callback value = return (value + 1)\n\
+  \main = do\n\
+  \  callbackPtr <- wrapIntFun callback\n\
+  \  freeHaskellFunPtr callbackPtr\n\
+  \  value <- c_apply callbackPtr 10\n\
+  \  print value\n"
+
 haskell2010ForeignExportCCallSource :: Text
 haskell2010ForeignExportCCallSource =
   "module Main where\n\
@@ -7973,9 +8095,11 @@ haskell2010StableForeignPtrFinalizersSource =
   "module Main where\n\
   \import Foreign (Ptr, FunPtr, StablePtr, ForeignPtr, newStablePtr, deRefStablePtr, freeStablePtr, castStablePtrToPtr, castPtrToStablePtr, newForeignPtr, addForeignPtrFinalizer, finalizeForeignPtr, withForeignPtr, touchForeignPtr)\n\
   \foreign import ccall \"&hegglog_ffi_global_i64\" c_global :: Ptr Int\n\
-  \foreign import ccall \"&hegglog_ffi_count_i64_finalizer\" c_finalizer :: FunPtr (Ptr Int -> IO ())\n\
+  \foreign import ccall \"&hegglog_ffi_count_i64_finalizer_one\" c_finalizer_one :: FunPtr (Ptr Int -> IO ())\n\
+  \foreign import ccall \"&hegglog_ffi_count_i64_finalizer_two\" c_finalizer_two :: FunPtr (Ptr Int -> IO ())\n\
   \foreign import ccall \"hegglog_ffi_reset_finalizers\" c_reset_finalizers :: IO ()\n\
   \foreign import ccall \"hegglog_ffi_finalizer_total_value\" c_finalizer_total :: IO Int\n\
+  \foreign import ccall \"hegglog_ffi_finalizer_order_value\" c_finalizer_order :: IO Int\n\
   \foreign import ccall \"hegglog_ffi_expect_i64\" c_expect :: Int -> Int -> IO ()\n\
   \foreign import ccall \"hegglog_ffi_read_i64_ptr\" c_read :: Ptr Int -> IO Int\n\
   \foreign import ccall \"hegglog_ffi_write_i64_ptr\" c_write :: Ptr Int -> Int -> IO ()\n\
@@ -7991,14 +8115,16 @@ haskell2010StableForeignPtrFinalizersSource =
   \foreignRoundTrip = do\n\
   \  c_reset_finalizers\n\
   \  c_write c_global 5\n\
-  \  managed <- newForeignPtr c_finalizer c_global\n\
+  \  managed <- newForeignPtr c_finalizer_one c_global\n\
   \  first <- withForeignPtr managed c_read\n\
   \  c_write c_global 7\n\
-  \  addForeignPtrFinalizer c_finalizer managed\n\
+  \  addForeignPtrFinalizer c_finalizer_two managed\n\
   \  touchForeignPtr managed\n\
   \  finalizeForeignPtr managed\n\
   \  finalizeForeignPtr managed\n\
   \  total <- c_finalizer_total\n\
+  \  order <- c_finalizer_order\n\
+  \  c_expect order 21\n\
   \  return (first + total)\n\
   \main = do\n\
   \  stable <- stableRoundTrip 21\n\

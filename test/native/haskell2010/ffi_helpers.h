@@ -9,5 +9,11 @@ int64_t hegglog_ffi_accum(int64_t value);
 int64_t hegglog_ffi_current(void);
 int64_t hegglog_ffi_bool_to_i64(uint8_t value);
 int32_t hegglog_ffi_next_char(int32_t value);
+void hegglog_ffi_reset_finalizers(void);
+void hegglog_ffi_count_i64_finalizer(int64_t *ptr);
+void hegglog_ffi_count_i64_finalizer_one(int64_t *ptr);
+void hegglog_ffi_count_i64_finalizer_two(int64_t *ptr);
+int64_t hegglog_ffi_finalizer_total_value(void);
+int64_t hegglog_ffi_finalizer_order_value(void);
 
 #endif

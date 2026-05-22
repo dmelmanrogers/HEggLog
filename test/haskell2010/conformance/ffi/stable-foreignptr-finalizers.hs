@@ -3,9 +3,11 @@ module Main where
 import Foreign (ForeignPtr, FunPtr, Ptr, StablePtr, addForeignPtrFinalizer, castPtrToStablePtr, castStablePtrToPtr, deRefStablePtr, finalizeForeignPtr, freeStablePtr, newForeignPtr, newStablePtr, touchForeignPtr, withForeignPtr)
 
 foreign import ccall "&hegglog_ffi_global_i64" c_global :: Ptr Int
-foreign import ccall "&hegglog_ffi_count_i64_finalizer" c_finalizer :: FunPtr (Ptr Int -> IO ())
+foreign import ccall "&hegglog_ffi_count_i64_finalizer_one" c_finalizer_one :: FunPtr (Ptr Int -> IO ())
+foreign import ccall "&hegglog_ffi_count_i64_finalizer_two" c_finalizer_two :: FunPtr (Ptr Int -> IO ())
 foreign import ccall "hegglog_ffi_reset_finalizers" c_reset_finalizers :: IO ()
 foreign import ccall "hegglog_ffi_finalizer_total_value" c_finalizer_total :: IO Int
+foreign import ccall "hegglog_ffi_finalizer_order_value" c_finalizer_order :: IO Int
 foreign import ccall "hegglog_ffi_expect_i64" c_expect :: Int -> Int -> IO ()
 foreign import ccall "hegglog_ffi_read_i64_ptr" c_read :: Ptr Int -> IO Int
 foreign import ccall "hegglog_ffi_write_i64_ptr" c_write :: Ptr Int -> Int -> IO ()
@@ -23,14 +25,16 @@ foreignRoundTrip :: IO Int
 foreignRoundTrip = do
   c_reset_finalizers
   c_write c_global 5
-  managed <- newForeignPtr c_finalizer c_global
+  managed <- newForeignPtr c_finalizer_one c_global
   first <- withForeignPtr managed c_read
   c_write c_global 7
-  addForeignPtrFinalizer c_finalizer managed
+  addForeignPtrFinalizer c_finalizer_two managed
   touchForeignPtr managed
   finalizeForeignPtr managed
   finalizeForeignPtr managed
   total <- c_finalizer_total
+  order <- c_finalizer_order
+  c_expect order 21
   return (first + total)
 
 main :: IO ()

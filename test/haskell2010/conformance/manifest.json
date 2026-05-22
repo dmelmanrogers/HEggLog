@@ -857,6 +857,37 @@
       "notes": "dynamic imports emit indirect FunPtr calls and wrapper imports create C-callable callbacks that re-enter Haskell closures."
     },
     {
+      "name": "ffi.wrapper-reclamation",
+      "sourceFile": "test/haskell2010/conformance/ffi/wrapper-reclamation.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "30\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c"
+      ],
+      "notes": "freeHaskellFunPtr clears wrapper callback slots, is idempotent for already-freed wrapper pointers, and allows later wrapper allocations to reclaim freed slots instead of exhausting the fixed callback pool."
+    },
+    {
+      "name": "ffi.wrapper-after-free",
+      "sourceFile": "test/haskell2010/conformance/ffi/wrapper-after-free.hs",
+      "category": "ffi",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c"
+      ],
+      "notes": "C calls through a Haskell wrapper FunPtr after freeHaskellFunPtr fail at runtime instead of re-entering stale Haskell callback closures."
+    },
+    {
       "name": "ffi.floating-ccall",
       "sourceFile": "test/haskell2010/conformance/ffi/floating-ccall.hs",
       "category": "ffi",

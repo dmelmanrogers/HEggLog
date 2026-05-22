@@ -4,6 +4,7 @@
 
 static int64_t hegglog_ffi_total = 0;
 static int64_t hegglog_ffi_finalizer_total = 0;
+static int64_t hegglog_ffi_finalizer_order = 0;
 int64_t hegglog_ffi_global_i64 = 77;
 int64_t hegglog_ffi_alt_i64 = 99;
 
@@ -64,14 +65,29 @@ void hegglog_ffi_expect_i64(int64_t actual, int64_t expected) {
 
 void hegglog_ffi_reset_finalizers(void) {
   hegglog_ffi_finalizer_total = 0;
+  hegglog_ffi_finalizer_order = 0;
 }
 
 void hegglog_ffi_count_i64_finalizer(int64_t *ptr) {
   hegglog_ffi_finalizer_total += *ptr;
 }
 
+void hegglog_ffi_count_i64_finalizer_one(int64_t *ptr) {
+  hegglog_ffi_finalizer_total += *ptr;
+  hegglog_ffi_finalizer_order = hegglog_ffi_finalizer_order * 10 + 1;
+}
+
+void hegglog_ffi_count_i64_finalizer_two(int64_t *ptr) {
+  hegglog_ffi_finalizer_total += *ptr;
+  hegglog_ffi_finalizer_order = hegglog_ffi_finalizer_order * 10 + 2;
+}
+
 int64_t hegglog_ffi_finalizer_total_value(void) {
   return hegglog_ffi_finalizer_total;
+}
+
+int64_t hegglog_ffi_finalizer_order_value(void) {
+  return hegglog_ffi_finalizer_order;
 }
 
 double hegglog_ffi_double_const(void) {
