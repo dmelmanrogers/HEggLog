@@ -629,16 +629,18 @@ is to make the standard library and derived-instance behavior look like Haskell
    escaping.
 2. TC-030 — implement `Read`, including `ReadS`, `readsPrec`, `readList`,
    lexical read parsing, standard instances, and derived `Read`.
-3. TEST-CONF-015 — keep every newly claimed class, function, deriving rule, and
-   module backed by manifest-tracked positive and negative fixtures, and run a
-   Report-facing reconciliation against Chapter 9 Prelude plus the Part II
-   library module inventory before any additional standard-library surface is
-   treated as supported.
+3. LIB-001 through LIB-012 — implement the numbered standard-library module
+   gaps produced by the TEST-CONF-015 reconciliation, starting with
+   `Control.Monad`, `Data.List`, `Data.Maybe`, `Data.Char`, `Data.Ratio`, and
+   `Numeric` after the Show/Read method shape is in place.
 
 This chunk must not treat the current generated library modules as the end
 state. They are importable checkpoints on the path to the full Haskell 2010
 Report surface, and unsupported Report modules or values must stay explicit in
 the tracker, conformance matrix, and generated module boundary.
+TEST-CONF-015 is complete: the library closure table is now validator-backed,
+and every Report library group has manifest-backed coverage plus numbered
+remaining tasks.
 
 ### Remaining FFI Closure
 

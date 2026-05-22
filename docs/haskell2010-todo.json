@@ -8051,6 +8051,334 @@
       "notes": "Complete. `Haskell2010.StandardLibrary` now exposes generated/importable interfaces for `Prelude`, `Control.Monad`, `Data.Int`, `Data.List`, `Data.Maybe`, `Data.Word`, `System.IO`, and the implemented `Foreign`, `Foreign.C`, `Foreign.C.String`, `Foreign.C.Types`, `Foreign.ForeignPtr`, `Foreign.Ptr`, and `Foreign.StablePtr` slices. The generated modules use the shared `ModuleInterface` export, child-export, fixity, and instance slots; no reserved module is importable as an empty placeholder. Native e2e and conformance fixtures cover explicit imports from `Data.List`, `Data.Maybe`, `Control.Monad`, and `System.IO`, including `Functor(fmap)` execution for lists, `Maybe`, and `IO`; the unsupported package/search-path fixture now targets reserved `Data.Char` so unsupported standard-library modules still fail explicitly. The standard-library layout doc identifies every Haskell 2010 Libraries module as implemented, partial, reserved, or owned by a follow-up task."
     },
     {
+      "id": "LIB-001",
+      "title": "Control.Monad report completion",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "TC-020",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Control.Monad exports the full Haskell 2010 report surface for Functor, Monad, and standard monadic combinators.",
+        "mapM, mapM_, sequence, sequence_, (=<<), and related combinators compile through Core/STG/native for supported Monad instances.",
+        "Generated module interfaces, Prelude exports, fixities, conformance matrix rows, and fixtures agree on the supported surface."
+      ],
+      "required_tests": [
+        "module import conformance tests",
+        "Monad native wet tests",
+        "negative unsupported-boundary tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "LIB-002",
+      "title": "Data.List report completion",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "PRELUDE-019",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Data.List exports the Haskell 2010 list API beyond the current generated slice.",
+        "List transformations, folds, scans, sublists, searches, indexing, zips, unzips, special-list helpers, and generic functions have real implementations or explicit narrower deviations.",
+        "Partial functions and bottom behavior are documented and tested through native or runtime-error fixtures."
+      ],
+      "required_tests": [
+        "Data.List conformance fixtures",
+        "native wet tests",
+        "runtime-error tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "LIB-003",
+      "title": "Data.Maybe report completion",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "PRELUDE-DATA-003",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Data.Maybe exports Maybe(..), maybe, isJust, isNothing, fromJust, fromMaybe, maybeToList, listToMaybe, catMaybes, and mapMaybe where required by the Haskell 2010 Libraries Report.",
+        "Partial fromJust behavior has an explicit runtime-error fixture.",
+        "Prelude and Data.Maybe imports share the same implemented definitions without ambiguity."
+      ],
+      "required_tests": [
+        "Data.Maybe conformance fixtures",
+        "native wet tests",
+        "runtime-error tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "LIB-004",
+      "title": "Data.Char report completion",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "PRELUDE-DATA-007",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Data.Char exports report-compatible character classification, case conversion, digit, numeric representation, and string representation functions.",
+        "Character ordinal behavior, escape rendering, and lexical read helpers agree with Show/Read tasks where they overlap.",
+        "Reserved Data.Char imports are replaced by positive and negative fixtures once implemented."
+      ],
+      "required_tests": [
+        "Data.Char conformance fixtures",
+        "Show/Read character tests",
+        "native wet tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "LIB-005",
+      "title": "Data.Array and Data.Ix report completion",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "PRELUDE-020",
+        "TC-031"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Data.Ix exports the Ix class and range/index/inRange/rangeSize behavior with derived Ix support where required.",
+        "Data.Array exports immutable non-strict arrays, construction, access, updates, derived arrays, and report-specified errors.",
+        "Array and Ix semantics are covered by native and negative conformance fixtures."
+      ],
+      "required_tests": [
+        "Data.Ix conformance fixtures",
+        "Data.Array native wet tests",
+        "negative bounds/error tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "LIB-006",
+      "title": "Data.Bits report completion",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "TC-033",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Data.Bits exports the Haskell 2010 bit class and operations for supported integral types.",
+        "Bit shifts, rotates, complements, bit tests, and pop-count style helpers have checked behavior for fixed-width and Int-backed representations.",
+        "Unsupported type combinations fail explicitly until broader numeric representations are implemented."
+      ],
+      "required_tests": [
+        "Data.Bits conformance fixtures",
+        "native wet tests",
+        "negative type tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "LIB-007",
+      "title": "Data.Ratio and Rational report completion",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "TC-033",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Data.Ratio exports Ratio, Rational, (%), numerator, denominator, and report-compatible normalization behavior.",
+        "Prelude Rational and toRational use the same representation instead of the current executable-subset pair encoding.",
+        "Zero denominator and sign normalization behavior are tested explicitly."
+      ],
+      "required_tests": [
+        "Data.Ratio conformance fixtures",
+        "numeric native wet tests",
+        "negative/runtime-error tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "LIB-008",
+      "title": "Data.Complex and floating numeric tower",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "FFI-010",
+        "LIB-007",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Float and Double representations support Fractional, Floating, RealFrac, and RealFloat methods required by Prelude.",
+        "Data.Complex exports Complex and rectangular, polar, magnitude, phase, conjugate, and numeric instances.",
+        "Floating edge cases and native lowering are tested for supported targets."
+      ],
+      "required_tests": [
+        "floating numeric conformance fixtures",
+        "Data.Complex native wet tests",
+        "backend/FFI marshalling tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "LIB-009",
+      "title": "Data.Int and Data.Word report completion",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "TC-033",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Data.Int and Data.Word fixed-width types have real runtime representations, numeric instances, bounds, enum behavior, and conversions rather than only importable type names.",
+        "Overflow, bounds, show/read, enum, bits, and FFI interactions are specified and tested.",
+        "Generated module interfaces expose only implemented types and instances."
+      ],
+      "required_tests": [
+        "fixed-width numeric conformance fixtures",
+        "native wet tests",
+        "FFI scalar tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "LIB-010",
+      "title": "Numeric report completion",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "TC-029",
+        "TC-030",
+        "LIB-007",
+        "LIB-008"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Numeric exports report-compatible showing, reading, and miscellaneous numeric formatting/parsing helpers.",
+        "showSigned/showInt/readSigned/readDec/showFloat/readFloat/lexDigits integrate with Show and Read implementation choices.",
+        "Positive and negative fixtures cover representative bases, signs, floats, and malformed inputs."
+      ],
+      "required_tests": [
+        "Numeric conformance fixtures",
+        "Show/Read integration tests",
+        "native wet tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "LIB-011",
+      "title": "System.Environment and System.Exit report completion",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "IO-014",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "System.Environment exports argument, program name, environment lookup, and environment mutation/query APIs where required by the Libraries Report.",
+        "System.Exit exports ExitCode and process exit actions with deterministic native behavior.",
+        "Command-line and environment-sensitive tests isolate process state and document platform limitations."
+      ],
+      "required_tests": [
+        "System.Environment conformance fixtures",
+        "System.Exit native wet tests",
+        "CLI integration tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
+      "id": "LIB-012",
+      "title": "System.IO report completion",
+      "status": "not started",
+      "category": "libraries",
+      "depends_on": [
+        "IO-011",
+        "IO-014",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "System.IO expands from the line-oriented stdin/stdout subset to the report handle, file open/close, buffering, seek, text input/output, and error behavior surface.",
+        "System.IO.Error integration is coordinated with IO-011 and tested through recoverable and unrecoverable IO cases.",
+        "Native tests manage temporary files and handles deterministically."
+      ],
+      "required_tests": [
+        "System.IO conformance fixtures",
+        "System.IO.Error conformance fixtures",
+        "native wet tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ]
+    },
+    {
       "id": "IO-001",
       "title": "IO type representation",
       "status": "complete",
@@ -10992,16 +11320,9 @@
     {
       "id": "TEST-CONF-015",
       "title": "library conformance closure",
-      "status": "not started",
+      "status": "complete",
       "category": "testing",
       "depends_on": [
-        "PRELUDE-018",
-        "TC-029",
-        "TC-030",
-        "TC-031",
-        "TC-032",
-        "TC-033",
-        "PRELUDE-019",
         "PRELUDE-020"
       ],
       "blocks": [],
@@ -11026,7 +11347,7 @@
         "docs/haskell2010-conformance-results.md",
         "docs/haskell2010-todo.md"
       ],
-      "notes": "This is the Report-facing library closure task. It must use the Haskell 2010 Chapter 9 Prelude and Part II Libraries inventory as the source of truth, turning every unsupported class, function, module, or FFI library surface into an explicit tracker/matrix entry before further library support is claimed."
+      "notes": "Complete. Reconciled the Haskell 2010 Chapter 9 Prelude and Part II Libraries inventory against the generated standard-library boundary, conformance matrix, manifest, and tracker. Added a validator-backed Library Conformance Closure table, explicit unsupported-documented fixtures for reserved Report modules, a positive scalar type import fixture for Data.Int/Data.Word/Foreign.C.Types, and numbered LIB follow-up tasks for every previously unnumbered library gap. Further library implementation must update the table, matrix, manifest, and generated module boundary together."
     },
     {
       "id": "DOC-001",

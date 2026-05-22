@@ -92,15 +92,15 @@ pattern-match diagnostics, TEST-CONF-013 completed source-surface negative
 fixtures, TEST-CONF-014 completed machine-checked source matrix closure, and
 ADT-007 completed record update expressions for the supported record subset.
 
-The following chunk is Prelude, deriving, and typeclass library completion:
-TC-029, TC-030, and TEST-CONF-015. PRELUDE-019 is complete for `($)`, `(.)`,
-`flip`, `head`, `tail`, `null`, `fst`, and `snd`; PRELUDE-020 is complete for
-generated/importable standard-library module interfaces that have real support,
-including `Control.Monad` `Functor(fmap)` for `[]`, `Maybe`, and `IO`.
-The remaining tasks cover report-shaped `Show`, `Read`, and a Report-facing
-library conformance closure pass that reconciles Chapter 9 Prelude plus the
-Part II library module inventory against the tracker before additional library
-surface is claimed.
+The following chunk is Prelude, deriving, and typeclass library completion.
+PRELUDE-019 is complete for `($)`, `(.)`, `flip`, `head`, `tail`, `null`,
+`fst`, and `snd`; PRELUDE-020 is complete for generated/importable
+standard-library module interfaces that have real support, including
+`Control.Monad` `Functor(fmap)` for `[]`, `Maybe`, and `IO`; and
+TEST-CONF-015 is complete for validator-backed reconciliation of Chapter 9
+Prelude plus the Part II library module inventory. The remaining tasks start
+with TC-029 and TC-030 for report-shaped `Show` and `Read`, then continue
+through the numbered LIB-001 through LIB-012 standard-library module tasks.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
 through FFI-013 now own floating-point marshalling, link metadata, callback and

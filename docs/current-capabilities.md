@@ -264,11 +264,11 @@ source matrix closure, and ADT-007 completed record
 update expressions.
 
 The following coherent chunk is Prelude, deriving, and typeclass library
-completion: TC-029, TC-030, and TEST-CONF-015. PRELUDE-019 and PRELUDE-020 are
-complete for the current high-value function and standard-module interface slices.
-TEST-CONF-015 is the required reconciliation point against Chapter 9 Prelude
-and the Part II Haskell 2010 Libraries module inventory before more
-standard-library support is claimed. Remaining FFI closure is tracked
+completion: TC-029, TC-030, and the numbered LIB follow-ups from TEST-CONF-015.
+PRELUDE-019 and PRELUDE-020 are complete for the current high-value function
+and standard-module interface slices. TEST-CONF-015 is complete for
+validator-backed reconciliation against Chapter 9 Prelude and the Part II
+Haskell 2010 Libraries module inventory. Remaining FFI closure is tracked
 separately by FFI-010 through FFI-013.
 
 ## Carry-Forward Infrastructure

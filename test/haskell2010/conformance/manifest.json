@@ -245,6 +245,19 @@
       "notes": "Implemented generated standard-library modules import through ModuleInterface with explicit export lists, child exports, fixities, and ordinary Prelude-backed semantics."
     },
     {
+      "name": "modules.standard-library-scalar-types",
+      "sourceFile": "test/haskell2010/conformance/modules/standard-library-scalar-types.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "0\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Generated Data.Int, Data.Word, and Foreign.C.Types interfaces expose the currently supported scalar type-name surface."
+    },
+    {
       "name": "declarations.top-level-function",
       "sourceFile": "test/haskell2010/conformance/declarations/top-level-function.hs",
       "category": "declarations",
@@ -1233,6 +1246,123 @@
         "no-egglog"
       ],
       "notes": "Unit and wildcard function patterns compile natively without forcing an unused argument."
+    },
+    {
+      "name": "unsupported.library-data-array",
+      "sourceFile": "test/haskell2010/conformance/unsupported/library-data-array.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "module-graph",
+      "notes": "Data.Array remains reserved until array construction, indexing, updates, and Ix integration are implemented under LIB-005."
+    },
+    {
+      "name": "unsupported.library-data-bits",
+      "sourceFile": "test/haskell2010/conformance/unsupported/library-data-bits.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "module-graph",
+      "notes": "Data.Bits remains reserved until bit classes and operations are implemented under LIB-006."
+    },
+    {
+      "name": "unsupported.library-data-char",
+      "sourceFile": "test/haskell2010/conformance/unsupported/library-data-char.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "module-graph",
+      "notes": "Data.Char remains reserved until character classification, conversion, numeric, and string representation functions are implemented under LIB-004."
+    },
+    {
+      "name": "unsupported.library-data-complex",
+      "sourceFile": "test/haskell2010/conformance/unsupported/library-data-complex.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "module-graph",
+      "notes": "Data.Complex remains reserved until the floating numeric tower and Complex API are implemented under LIB-008."
+    },
+    {
+      "name": "unsupported.library-data-ix",
+      "sourceFile": "test/haskell2010/conformance/unsupported/library-data-ix.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "module-graph",
+      "notes": "Data.Ix remains reserved until Ix class methods and derived Ix support are implemented under LIB-005."
+    },
+    {
+      "name": "unsupported.library-data-ratio",
+      "sourceFile": "test/haskell2010/conformance/unsupported/library-data-ratio.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "module-graph",
+      "notes": "Data.Ratio remains reserved until exact Ratio/Rational representation and operations are implemented under LIB-007."
+    },
+    {
+      "name": "unsupported.library-foreign-c-error",
+      "sourceFile": "test/haskell2010/conformance/unsupported/library-foreign-c-error.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "module-graph",
+      "notes": "Foreign.C.Error remains reserved until errno and IO-error marshalling are implemented under FFI-013."
+    },
+    {
+      "name": "unsupported.library-foreign-marshal",
+      "sourceFile": "test/haskell2010/conformance/unsupported/library-foreign-marshal.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "module-graph",
+      "notes": "Foreign.Marshal.* remains reserved until allocation, array, error, and utility marshalling APIs are implemented under FFI-013."
+    },
+    {
+      "name": "unsupported.library-foreign-storable",
+      "sourceFile": "test/haskell2010/conformance/unsupported/library-foreign-storable.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "module-graph",
+      "notes": "Foreign.Storable remains reserved until Storable dictionaries and memory access primitives are implemented under FFI-013."
+    },
+    {
+      "name": "unsupported.library-numeric",
+      "sourceFile": "test/haskell2010/conformance/unsupported/library-numeric.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "module-graph",
+      "notes": "Numeric remains reserved until Report-compatible numeric showing, reading, and miscellaneous helpers are implemented under LIB-010."
+    },
+    {
+      "name": "unsupported.library-system-environment",
+      "sourceFile": "test/haskell2010/conformance/unsupported/library-system-environment.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "module-graph",
+      "notes": "System.Environment remains reserved until process environment APIs are implemented under LIB-011."
+    },
+    {
+      "name": "unsupported.library-system-exit",
+      "sourceFile": "test/haskell2010/conformance/unsupported/library-system-exit.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "module-graph",
+      "notes": "System.Exit remains reserved until ExitCode and exit actions are implemented under LIB-011."
+    },
+    {
+      "name": "unsupported.library-system-io-error",
+      "sourceFile": "test/haskell2010/conformance/unsupported/library-system-io-error.hs",
+      "category": "unsupported",
+      "expectedStatus": "unsupported-documented",
+      "expectedDiagnosticCategory": "could not read",
+      "requiredStage": "module-graph",
+      "notes": "System.IO.Error remains reserved until rich IO error types, predicates, and catch/throw behavior are implemented under IO-011."
     },
     {
       "name": "unsupported.package-module-search-path",

@@ -25,12 +25,12 @@ graph path until that module has an implemented surface.
 | Module | Status | Generated surface |
 | --- | --- | --- |
 | `Prelude` | implemented for current executable subset | supported built-in data constructors, classes, class methods, list functions, IO functions, tuple/list/unit types, `Thing(..)` children, and Prelude fixities |
-| `Control.Monad` | partial generated interface | `Functor(fmap)` plus `Monad(..)` for `return`, `(>>=)`, `(>>)`, and `fail`, with method fixities where applicable |
-| `Data.Int` | partial generated interface | `Int8`, `Int16`, `Int32`, `Int64` type names for the supported scalar foreign-type surface |
-| `Data.List` | partial generated interface | `(++)`, `head`, `tail`, `null`, `length`, `map`, `reverse`, `foldl`, `foldr`, and `filter`, plus `(++)` fixity |
-| `Data.Maybe` | partial generated interface | `Maybe(..)` with `Nothing` and `Just` |
-| `Data.Word` | partial generated interface | `Word8`, `Word16`, `Word32`, `Word64` type names for the supported scalar foreign-type surface |
-| `System.IO` | partial generated interface | `IO`, `putStrLn`, `getLine`, and `print` |
+| `Control.Monad` | partial generated interface | `Functor(fmap)` plus `Monad(..)` for `return`, `(>>=)`, `(>>)`, and `fail`, with method fixities where applicable; `LIB-001` owns the remaining Report combinators |
+| `Data.Int` | partial generated interface | `Int8`, `Int16`, `Int32`, `Int64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
+| `Data.List` | partial generated interface | `(++)`, `head`, `tail`, `null`, `length`, `map`, `reverse`, `foldl`, `foldr`, and `filter`, plus `(++)` fixity; `LIB-002` owns the remaining Report list API |
+| `Data.Maybe` | partial generated interface | `Maybe(..)` with `Nothing` and `Just`; `LIB-003` owns the remaining Report functions |
+| `Data.Word` | partial generated interface | `Word8`, `Word16`, `Word32`, `Word64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
+| `System.IO` | partial generated interface | `IO`, `putStrLn`, `getLine`, and `print`; `LIB-012` and `IO-011` own handles, files, buffering, and error behavior |
 | `Foreign` | partial generated interface | supported scalar/pointer foreign type names plus `StablePtr` and manual `ForeignPtr` ownership APIs |
 | `Foreign.C` | partial generated interface | `CString`, `CWString`, and supported `Foreign.C.Types` type names |
 | `Foreign.C.String` | partial generated interface | `CString` and `CWString` type names |
@@ -52,28 +52,28 @@ exported value/type/class surface is not yet real in the compiler.
 
 | Module | Status | Owner task |
 | --- | --- | --- |
-| `Data.Array` | reserved | future array/Ix library task |
-| `Data.Bits` | reserved | future bit operations task |
-| `Data.Char` | reserved | future character classification/conversion task |
-| `Data.Complex` | reserved | future numeric tower task |
-| `Data.Ix` | reserved | future `Ix` class/array indexing task |
-| `Data.Ratio` | reserved | future `Ratio`/`Rational` implementation task |
-| `Foreign.C.Error` | reserved | `FFI-013` or narrower error marshalling task |
+| `Data.Array` | reserved | `LIB-005` |
+| `Data.Bits` | reserved | `LIB-006` |
+| `Data.Char` | reserved | `LIB-004` |
+| `Data.Complex` | reserved | `LIB-008` |
+| `Data.Ix` | reserved | `LIB-005` |
+| `Data.Ratio` | reserved | `LIB-007` |
+| `Foreign.C.Error` | reserved | `FFI-013` |
 | `Foreign.Marshal` | reserved | `FFI-013` |
 | `Foreign.Marshal.Alloc` | reserved | `FFI-013` |
 | `Foreign.Marshal.Array` | reserved | `FFI-013` |
 | `Foreign.Marshal.Error` | reserved | `FFI-013` |
 | `Foreign.Marshal.Utils` | reserved | `FFI-013` |
 | `Foreign.Storable` | reserved | `FFI-013` |
-| `Numeric` | reserved | `TC-029`, `TC-030`, and later numeric formatting/parsing tasks |
-| `System.Environment` | reserved | future system/environment IO task |
-| `System.Exit` | reserved | future system/exit IO task |
-| `System.IO.Error` | reserved | future rich IO error task |
+| `Numeric` | reserved | `LIB-010` |
+| `System.Environment` | reserved | `LIB-011` |
+| `System.Exit` | reserved | `LIB-011` |
+| `System.IO.Error` | reserved | `IO-011` |
 
-`TEST-CONF-015` owns the next Report-wide reconciliation for this table. That
-pass must turn each reserved module and each partial generated interface into
-either implemented support with fixtures or a narrower numbered tracker item
-before the compiler claims more standard-library conformance.
+`TEST-CONF-015` completed the Report-wide reconciliation for this table. Each
+reserved module and each partial generated interface now points to implemented
+support with fixtures or to a narrower numbered tracker item before the
+compiler claims more standard-library conformance.
 
 ## Instance Boundary
 

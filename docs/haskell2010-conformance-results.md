@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-21 08:14:15 UTC
+Date/time: 2026-05-22 01:55:28 UTC
 
-Commit hash tested: working tree with PRELUDE-020 standard-library module expansion audit changes.
+Commit hash tested: working tree with TEST-CONF-015 library reconciliation changes.
 
 Primary conformance command run:
 
@@ -37,14 +37,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 118 |
-| Haskell source files in corpus | 125 |
-| HUnit test cases executed | 160 |
-| Native-success fixtures | 80 |
+| Manifest conformance fixtures | 132 |
+| Haskell source files in corpus | 139 |
+| HUnit test cases executed | 175 |
+| Native-success fixtures | 81 |
 | Native-runtime-error fixtures | 5 |
 | Compile-error fixtures | 27 |
-| Unsupported-documented fixtures | 6 |
-| Native subprocess compile/run checks | 127 |
+| Unsupported-documented fixtures | 19 |
+| Native subprocess compile/run checks | 129 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -115,6 +115,19 @@ ordinary Prelude-backed semantics, and default plus `--no-egglog` native executi
 unsupported package/search-path fixture now imports reserved `Data.Char` so
 unimplemented standard-library modules continue to fail explicitly.
 
+TEST-CONF-015 is now validator-backed. The conformance matrix contains a
+Library Conformance Closure table covering Chapter 9 Prelude areas and every
+Part II Libraries module group. The conformance validator now checks all 18
+library closure rows, verifies that each row cites manifest-backed fixtures and
+numbered remaining tracker tasks, and requires the library closure fixtures to
+stay represented in the matrix. Reserved Report modules now have explicit
+unsupported-documented fixtures for `Data.Array`, `Data.Bits`, `Data.Char`,
+`Data.Complex`, `Data.Ix`, `Data.Ratio`, `Numeric`, `System.Environment`,
+`System.Exit`, `System.IO.Error`, `Foreign.C.Error`, `Foreign.Marshal.*`, and
+`Foreign.Storable`. `modules.standard-library-scalar-types` positively checks
+the current generated `Data.Int`, `Data.Word`, and `Foreign.C.Types` type-name
+surface.
+
 ## Category Summary
 
 | Category | Manifest fixtures | Status |
@@ -128,11 +141,11 @@ unimplemented standard-library modules continue to fail explicitly.
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
-| `modules` | 7 | single-module, same-directory import, implicit/explicit/qualified Prelude import, source-instance import/export, and generated standard-library module imports exist |
+| `modules` | 8 | single-module, same-directory import, implicit/explicit/qualified Prelude import, source-instance import/export, generated standard-library module imports, and scalar standard-library type-name imports exist |
 | `negative` | 27 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid default declarations, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
 | `prelude` | 17 | list functions, append, foldl, function/selector completion, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
 | `typeclasses` | 11 | user dictionary, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, derived Enum, and derived Bounded tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |
-| `unsupported` | 6 | unsupported features documented by failing cases, including TC-016 `Read` and constrained expression signatures |
+| `unsupported` | 19 | unsupported features documented by failing cases, including TC-016 `Read`, constrained expression signatures, handle IO, package/module search paths, and reserved Report library modules |

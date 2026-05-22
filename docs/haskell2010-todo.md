@@ -115,7 +115,7 @@ This document is the authoritative engineering backlog. The matching machine-rea
 
 - Goal: Provide a coherent Prelude strategy and enough library behavior for representative Haskell 2010 programs.
 - Exit criteria: Representative Prelude programs compile; implicit import behavior works; deviations are explicit.
-- Task IDs included: PRELUDE-001, PRELUDE-002, PRELUDE-003, PRELUDE-004, PRELUDE-005, PRELUDE-006, PRELUDE-007, PRELUDE-008, PRELUDE-009, PRELUDE-010, PRELUDE-011, PRELUDE-012, PRELUDE-013, PRELUDE-014, PRELUDE-015, PRELUDE-016, PRELUDE-017, PRELUDE-018, PRELUDE-019, PRELUDE-020
+- Task IDs included: PRELUDE-001, PRELUDE-002, PRELUDE-003, PRELUDE-004, PRELUDE-005, PRELUDE-006, PRELUDE-007, PRELUDE-008, PRELUDE-009, PRELUDE-010, PRELUDE-011, PRELUDE-012, PRELUDE-013, PRELUDE-014, PRELUDE-015, PRELUDE-016, PRELUDE-017, PRELUDE-018, PRELUDE-019, PRELUDE-020, LIB-001, LIB-002, LIB-003, LIB-004, LIB-005, LIB-006, LIB-007, LIB-008, LIB-009, LIB-010, LIB-011, LIB-012
 - Required wet tests: Prelude function and implicit-import native wet tests.
 - Risk level: high
 
@@ -219,28 +219,17 @@ Complete: SURFACE-001, SURFACE-002, and SURFACE-003.
 
 1. TC-029 — report-shaped Show hierarchy.
 2. TC-030 — Read implementation.
-3. TEST-CONF-015 — library conformance closure.
-
-TEST-CONF-015 is the Report-facing closure task for the standard-library
-surface, not just a fixture chore. It must reconcile Chapter 9 Prelude and the
-Part II Haskell 2010 Libraries module inventory against the tracker before
-additional library implementation continues, so missing work is recorded
-explicitly instead of rediscovered ad hoc.
-
-Its audit scope includes:
-
-- report-shaped `Show` (`showsPrec`, `shows`, `show`, `showList`) and `Read`
-  (`ReadS`, `readsPrec`, `readList`, `reads`, `read`)
-- remaining Prelude classes, functions, and derived-instance behavior not yet
-  implemented
-- `Control.Monad`, `Data.Array`, `Data.Bits`, `Data.Char`, `Data.Complex`,
-  `Data.Int`, `Data.Ix`, `Data.List`, `Data.Maybe`, `Data.Ratio`, `Data.Word`,
-  `Numeric`, `System.Environment`, `System.Exit`, `System.IO`, and
-  `System.IO.Error`
-- remaining `Foreign.*` modules tracked by FFI-010 through FFI-013
+3. LIB-001 — Control.Monad report completion.
+4. LIB-002 — Data.List report completion.
+5. LIB-003 — Data.Maybe report completion.
+6. LIB-004 — Data.Char report completion.
+7. LIB-007 — Data.Ratio and Rational report completion.
+8. LIB-010 — Numeric report completion.
 
 Completed in this chunk: PRELUDE-019 — Prelude function completion;
-PRELUDE-020 — standard library module expansion.
+PRELUDE-020 — standard library module expansion; TEST-CONF-015 — validator-backed
+library conformance reconciliation against Chapter 9 Prelude and the Part II
+Haskell 2010 Libraries inventory.
 
 ## Remaining FFI closure chunk
 
@@ -14456,6 +14445,556 @@ Documentation updates:
 Notes:
 - Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
 
+## LIB-001 — Control.Monad report completion
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- TC-020
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Complete the Haskell 2010 `Control.Monad` surface around `Functor`, `Monad`, `mapM`, `mapM_`, `sequence`, `sequence_`, `(=<<)`, and related report combinators for supported Monad instances.
+
+Non-goals:
+- Do not add transformer libraries or post-2010 APIs.
+- Do not claim polymorphic behavior without Core/STG/native tests.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Control.Monad` exports the full Haskell 2010 report surface for Functor, Monad, and standard monadic combinators.
+- `mapM`, `mapM_`, `sequence`, `sequence_`, `(=<<)`, and related combinators compile through Core/STG/native for supported Monad instances.
+- Generated module interfaces, Prelude exports, fixities, conformance matrix rows, and fixtures agree on the supported surface.
+
+Required tests:
+- module import conformance tests
+- Monad native wet tests
+- negative unsupported-boundary tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015 so `Control.Monad` completion is tracked by number instead of roadmap prose.
+
+## LIB-002 — Data.List report completion
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- PRELUDE-019
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Complete the Haskell 2010 `Data.List` report API beyond the generated list/function slice.
+
+Non-goals:
+- Do not introduce fusion rewrites or optimizer-specific behavior as part of the library semantics.
+- Do not weaken existing list laziness or partial-function boundaries.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Data.List` exports the Haskell 2010 list API beyond the current generated slice.
+- List transformations, folds, scans, sublists, searches, indexing, zips, unzips, special-list helpers, and generic functions have real implementations or explicit narrower deviations.
+- Partial functions and bottom behavior are documented and tested through native or runtime-error fixtures.
+
+Required tests:
+- `Data.List` conformance fixtures
+- native wet tests
+- runtime-error tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015 to make remaining list-library breadth explicit.
+
+## LIB-003 — Data.Maybe report completion
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- PRELUDE-DATA-003
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Complete the Haskell 2010 `Data.Maybe` module surface using the existing built-in `Maybe` constructors and dictionary machinery.
+
+Non-goals:
+- Do not change the representation of `Maybe`.
+- Do not hide partial `fromJust` behavior behind total helpers.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Data.Maybe` exports `Maybe(..)`, `maybe`, `isJust`, `isNothing`, `fromJust`, `fromMaybe`, `maybeToList`, `listToMaybe`, `catMaybes`, and `mapMaybe` where required by the Haskell 2010 Libraries Report.
+- Partial `fromJust` behavior has an explicit runtime-error fixture.
+- Prelude and `Data.Maybe` imports share the same implemented definitions without ambiguity.
+
+Required tests:
+- `Data.Maybe` conformance fixtures
+- native wet tests
+- runtime-error tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015 to track the currently partial generated `Data.Maybe` interface.
+
+## LIB-004 — Data.Char report completion
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- PRELUDE-DATA-007
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Implement the Haskell 2010 `Data.Char` classification, conversion, digit, numeric representation, and string representation APIs.
+
+Non-goals:
+- Do not claim full Unicode behavior without explicit tests and documented character-table policy.
+- Do not implement Show/Read escape behavior separately from TC-029 and TC-030.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Data.Char` exports report-compatible character classification, case conversion, digit, numeric representation, and string representation functions.
+- Character ordinal behavior, escape rendering, and lexical read helpers agree with Show/Read tasks where they overlap.
+- Reserved `Data.Char` imports are replaced by positive and negative fixtures once implemented.
+
+Required tests:
+- `Data.Char` conformance fixtures
+- Show/Read character tests
+- native wet tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015; the unsupported fixture keeps this reserved module explicit.
+
+## LIB-005 — Data.Array and Data.Ix report completion
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- PRELUDE-020
+- TC-031
+
+Blocks:
+- none
+
+Scope:
+- Implement `Data.Ix` and immutable non-strict `Data.Array` per the Haskell 2010 Libraries Report.
+
+Non-goals:
+- Do not implement mutable arrays or post-2010 array packages.
+- Do not add boxed-array runtime behavior without clear forcing and bounds semantics.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `src/Haskell2010/STG/LLVM.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Data.Ix` exports the `Ix` class and `range`/`index`/`inRange`/`rangeSize` behavior with derived `Ix` support where required.
+- `Data.Array` exports immutable non-strict arrays, construction, access, updates, derived arrays, and report-specified errors.
+- Array and Ix semantics are covered by native and negative conformance fixtures.
+
+Required tests:
+- `Data.Ix` conformance fixtures
+- `Data.Array` native wet tests
+- negative bounds/error tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015 to replace unnumbered array/Ix future work.
+
+## LIB-006 — Data.Bits report completion
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- TC-033
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Implement the Haskell 2010 `Data.Bits` class and operations for supported integral representations.
+
+Non-goals:
+- Do not silently generalize over numeric types without checked dictionary support.
+- Do not rely on undefined target shift behavior.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `src/Haskell2010/STG/LLVM.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Data.Bits` exports the Haskell 2010 bit class and operations for supported integral types.
+- Bit shifts, rotates, complements, bit tests, and pop-count style helpers have checked behavior for fixed-width and Int-backed representations.
+- Unsupported type combinations fail explicitly until broader numeric representations are implemented.
+
+Required tests:
+- `Data.Bits` conformance fixtures
+- native wet tests
+- negative type tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015 so the reserved `Data.Bits` module has a numbered owner.
+
+## LIB-007 — Data.Ratio and Rational report completion
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- TC-033
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Replace the current executable-subset rational pair behavior with a report-shaped `Ratio`/`Rational` library surface.
+
+Non-goals:
+- Do not implement floating decimal parsing here.
+- Do not change `Integral Int` behavior without preserving existing tests.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Data.Ratio` exports `Ratio`, `Rational`, `(%)`, `numerator`, `denominator`, and report-compatible normalization behavior.
+- Prelude `Rational` and `toRational` use the same representation instead of the current executable-subset pair encoding.
+- Zero denominator and sign normalization behavior are tested explicitly.
+
+Required tests:
+- `Data.Ratio` conformance fixtures
+- numeric native wet tests
+- negative/runtime-error tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015 to make the Rational gap explicit.
+
+## LIB-008 — Data.Complex and floating numeric tower
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- FFI-010
+- LIB-007
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Implement `Float`/`Double`, the floating Prelude classes, and the Haskell 2010 `Data.Complex` module.
+
+Non-goals:
+- Do not claim IEEE edge-case conformance before explicit platform tests exist.
+- Do not implement only parser syntax without native semantics.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `src/Haskell2010/STG/LLVM.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Float` and `Double` representations support `Fractional`, `Floating`, `RealFrac`, and `RealFloat` methods required by Prelude.
+- `Data.Complex` exports `Complex` and rectangular, polar, magnitude, phase, conjugate, and numeric instances.
+- Floating edge cases and native lowering are tested for supported targets.
+
+Required tests:
+- floating numeric conformance fixtures
+- `Data.Complex` native wet tests
+- backend/FFI marshalling tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015 to tie the reserved `Data.Complex` module to the numeric tower work.
+
+## LIB-009 — Data.Int and Data.Word report completion
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- TC-033
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Move fixed-width `Data.Int` and `Data.Word` support from importable type names to real representations, instances, and runtime behavior.
+
+Non-goals:
+- Do not conflate C ABI type aliases with Haskell fixed-width types unless the representation contract is explicit.
+- Do not widen silently without checked conversions.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `src/Haskell2010/STG/LLVM.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Data.Int` and `Data.Word` fixed-width types have real runtime representations, numeric instances, bounds, enum behavior, and conversions rather than only importable type names.
+- Overflow, bounds, show/read, enum, bits, and FFI interactions are specified and tested.
+- Generated module interfaces expose only implemented types and instances.
+
+Required tests:
+- fixed-width numeric conformance fixtures
+- native wet tests
+- FFI scalar tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- TEST-CONF-015 added a positive import fixture for the current type-name-only boundary and this task owns the real implementation.
+
+## LIB-010 — Numeric report completion
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- TC-029
+- TC-030
+- LIB-007
+- LIB-008
+
+Blocks:
+- none
+
+Scope:
+- Implement the Haskell 2010 `Numeric` module and integrate it with report-shaped Show, Read, Ratio, and floating support.
+
+Non-goals:
+- Do not implement duplicate numeric parsers separate from TC-030 lexical read behavior.
+- Do not claim formatting bases or floating rendering without golden tests.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Numeric` exports report-compatible showing, reading, and miscellaneous numeric formatting/parsing helpers.
+- `showSigned`/`showInt`/`readSigned`/`readDec`/`showFloat`/`readFloat`/`lexDigits` integrate with Show and Read implementation choices.
+- Positive and negative fixtures cover representative bases, signs, floats, and malformed inputs.
+
+Required tests:
+- `Numeric` conformance fixtures
+- Show/Read integration tests
+- native wet tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015 so the reserved `Numeric` module is not hidden behind TC-029/TC-030 alone.
+
+## LIB-011 — System.Environment and System.Exit report completion
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- IO-014
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Implement the Haskell 2010 process environment and exit modules with deterministic native behavior.
+
+Non-goals:
+- Do not introduce platform-specific process behavior without documented deviations.
+- Do not mutate global environment state in tests without isolation.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `src/Haskell2010/STG/LLVM.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `System.Environment` exports argument, program name, environment lookup, and environment mutation/query APIs where required by the Libraries Report.
+- `System.Exit` exports `ExitCode` and process exit actions with deterministic native behavior.
+- Command-line and environment-sensitive tests isolate process state and document platform limitations.
+
+Required tests:
+- `System.Environment` conformance fixtures
+- `System.Exit` native wet tests
+- CLI integration tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015 to replace unnumbered System module future work.
+
+## LIB-012 — System.IO report completion
+
+Status:
+- not started
+
+Category:
+- libraries
+
+Depends on:
+- IO-011
+- IO-014
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Expand `System.IO` from line-oriented stdin/stdout to the Haskell 2010 handle, file, buffering, seek, text IO, and error surfaces.
+
+Non-goals:
+- Do not implement asynchronous or post-2010 IO APIs.
+- Do not expose handles before lifetime, close, and error behavior are specified.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `src/Haskell2010/STG/LLVM.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `System.IO` expands from the line-oriented stdin/stdout subset to the report handle, file open/close, buffering, seek, text input/output, and error behavior surface.
+- `System.IO.Error` integration is coordinated with IO-011 and tested through recoverable and unrecoverable IO cases.
+- Native tests manage temporary files and handles deterministically.
+
+Required tests:
+- `System.IO` conformance fixtures
+- `System.IO.Error` conformance fixtures
+- native wet tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015 to make the remaining IO library surface explicit.
+
 ## IO-001 — IO type representation
 
 Status:
@@ -19831,26 +20370,19 @@ Notes:
 ## TEST-CONF-015 — library conformance closure
 
 Status:
-- not started
+- complete
 
 Category:
 - testing
 
 Depends on:
-- PRELUDE-018
-- TC-029
-- TC-030
-- TC-031
-- TC-032
-- TC-033
-- PRELUDE-019
 - PRELUDE-020
 
 Blocks:
 - none
 
 Scope:
-- Every newly claimed standard class, derived instance, Prelude function, and standard-library module has manifest-backed positive and negative coverage.
+- Reconcile the Haskell 2010 Chapter 9 Prelude and Part II Libraries inventory against the generated standard-library boundary, conformance matrix, manifest, and tracker before additional library surface is claimed.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -19867,7 +20399,9 @@ Files likely touched:
 
 Acceptance criteria:
 - Every newly claimed standard class, derived instance, Prelude function, and standard-library module has manifest-backed positive and negative coverage.
+- Chapter 9 Prelude and the Part II Haskell 2010 Libraries module inventory are reconciled against the tracker before additional library surface is claimed.
 - Unsupported library features remain explicit unsupported-documented cases until implemented.
+- The closure audit explicitly accounts for report-shaped Show/Read, remaining Prelude classes/functions, Control.Monad, Data.Array, Data.Bits, Data.Char, Data.Complex, Data.Int, Data.Ix, Data.List, Data.Maybe, Data.Ratio, Data.Word, Numeric, System.Environment, System.Exit, System.IO, System.IO.Error, and the FFI-owned Foreign.* modules.
 - The conformance results summary reports library coverage by class/function/module instead of only by broad category.
 - Docs, tracker, matrix, and manifest agree on library support boundaries.
 - The validator catches manifest cases that are missing from the matrix or docs coverage summary.
@@ -19884,7 +20418,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete. Reconciled the Haskell 2010 Chapter 9 Prelude and Part II Libraries inventory against the generated standard-library boundary, conformance matrix, manifest, and tracker. Added a validator-backed Library Conformance Closure table, explicit unsupported-documented fixtures for reserved Report modules, a positive scalar type import fixture for `Data.Int`/`Data.Word`/`Foreign.C.Types`, and numbered `LIB-*` follow-up tasks for every previously unnumbered library gap. Further library implementation must update the table, matrix, manifest, and generated module boundary together.
 
 ## DOC-001 — Backlog and roadmap consistency policy
 

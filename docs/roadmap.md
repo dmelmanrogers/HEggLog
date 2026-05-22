@@ -55,13 +55,14 @@ The next chunk is Prelude, deriving, and typeclass library completion.
 TEST-CONF-014 source matrix closure is complete and now enforced by the
 conformance validator.
 
-The next library chunk is TC-029, TC-030, and TEST-CONF-015.
+The next library chunk is TC-029, TC-030, and the numbered LIB follow-ups from
+TEST-CONF-015.
 PRELUDE-019 is complete for the current high-value function slice, and
 PRELUDE-020 is complete for the current generated standard-library module
-interface slice. TEST-CONF-015 must reconcile Chapter 9 Prelude and the Part
-II Haskell 2010 Libraries module inventory against the tracker before any
-additional standard-library surface is treated as supported. Remaining FFI
-closure is FFI-010 through FFI-013.
+interface slice. TEST-CONF-015 is complete: Chapter 9 Prelude and the Part II
+Haskell 2010 Libraries module inventory are reconciled against manifest-backed
+coverage and numbered remaining tasks. Remaining FFI closure is FFI-010 through
+FFI-013.
 
 Completed Haskell 2010 roadmap work:
 

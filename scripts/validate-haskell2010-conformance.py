@@ -33,6 +33,11 @@ SOURCE_SURFACE_TABLE_HEADER = (
     "Remaining task/deviation | Notes |"
 )
 
+LIBRARY_CLOSURE_TABLE_HEADER = (
+    "| Library area | Report surface | Coverage status | Manifest fixtures | "
+    "Remaining task/deviation | Notes |"
+)
+
 SOURCE_SURFACE_MANIFEST_CATEGORIES = {"declarations", "expressions", "patterns"}
 
 SOURCE_SURFACE_ADDITIONAL_FIXTURES = {
@@ -88,6 +93,71 @@ SOURCE_SURFACE_ROWS = {
     ("Patterns", "irrefutable patterns"),
     ("Patterns", "nested patterns"),
     ("Patterns", "guards"),
+}
+
+LIBRARY_CLOSURE_ROWS = {
+    ("Prelude", "root exported data/types"),
+    ("Prelude", "classes and numeric tower"),
+    ("Prelude", "text Show/Read"),
+    ("Prelude", "list/function exports"),
+    ("Control.Monad", "module"),
+    ("Data.Array/Data.Ix", "modules"),
+    ("Data.Bits", "module"),
+    ("Data.Char", "module"),
+    ("Data.Complex", "module"),
+    ("Data.Int/Data.Word", "modules"),
+    ("Data.List", "module"),
+    ("Data.Maybe", "module"),
+    ("Data.Ratio", "module"),
+    ("Foreign", "implemented slices"),
+    ("Foreign", "C.Error/Marshal/Storable modules"),
+    ("Numeric", "module"),
+    ("System.Environment/System.Exit", "modules"),
+    ("System.IO/System.IO.Error", "modules"),
+}
+
+LIBRARY_CLOSURE_REQUIRED_FIXTURES = {
+    "test/haskell2010/conformance/adts/maybe-constructor-case.hs",
+    "test/haskell2010/conformance/ffi/dynamic-wrapper.hs",
+    "test/haskell2010/conformance/ffi/foreign-export.hs",
+    "test/haskell2010/conformance/ffi/pointer-address.hs",
+    "test/haskell2010/conformance/ffi/stable-foreignptr-finalizers.hs",
+    "test/haskell2010/conformance/ffi/static-ccall.hs",
+    "test/haskell2010/conformance/io/getline.hs",
+    "test/haskell2010/conformance/io/printing.hs",
+    "test/haskell2010/conformance/modules/standard-library-modules.hs",
+    "test/haskell2010/conformance/modules/standard-library-scalar-types.hs",
+    "test/haskell2010/conformance/prelude/append.hs",
+    "test/haskell2010/conformance/prelude/broad-show.hs",
+    "test/haskell2010/conformance/prelude/char-runtime.hs",
+    "test/haskell2010/conformance/prelude/enum-bounded.hs",
+    "test/haskell2010/conformance/prelude/foldl.hs",
+    "test/haskell2010/conformance/prelude/functions.hs",
+    "test/haskell2010/conformance/prelude/head-empty.hs",
+    "test/haskell2010/conformance/prelude/numeric-hierarchy.hs",
+    "test/haskell2010/conformance/prelude/prelude-classes.hs",
+    "test/haskell2010/conformance/prelude/prelude-lists.hs",
+    "test/haskell2010/conformance/prelude/string-char-list.hs",
+    "test/haskell2010/conformance/typeclasses/derived-bounded.hs",
+    "test/haskell2010/conformance/typeclasses/derived-enum.hs",
+    "test/haskell2010/conformance/typeclasses/derived-show.hs",
+    "test/haskell2010/conformance/typeclasses/monad-explicit-fail.hs",
+    "test/haskell2010/conformance/typeclasses/monad.hs",
+    "test/haskell2010/conformance/unsupported/handle-io.hs",
+    "test/haskell2010/conformance/unsupported/library-data-array.hs",
+    "test/haskell2010/conformance/unsupported/library-data-bits.hs",
+    "test/haskell2010/conformance/unsupported/library-data-char.hs",
+    "test/haskell2010/conformance/unsupported/library-data-complex.hs",
+    "test/haskell2010/conformance/unsupported/library-data-ix.hs",
+    "test/haskell2010/conformance/unsupported/library-data-ratio.hs",
+    "test/haskell2010/conformance/unsupported/library-foreign-c-error.hs",
+    "test/haskell2010/conformance/unsupported/library-foreign-marshal.hs",
+    "test/haskell2010/conformance/unsupported/library-foreign-storable.hs",
+    "test/haskell2010/conformance/unsupported/library-numeric.hs",
+    "test/haskell2010/conformance/unsupported/library-system-environment.hs",
+    "test/haskell2010/conformance/unsupported/library-system-exit.hs",
+    "test/haskell2010/conformance/unsupported/library-system-io-error.hs",
+    "test/haskell2010/conformance/unsupported/read-class.hs",
 }
 
 FIXTURE_PATH_RE = re.compile(r"`(test/haskell2010/conformance/[^`]+\.hs)`")
@@ -155,6 +225,37 @@ def read_source_surface_rows(matrix_text: str) -> list[list[str]]:
     return rows
 
 
+def read_library_closure_rows(matrix_text: str) -> list[list[str]]:
+    lines = matrix_text.splitlines()
+    header_index = next(
+        (index for index, line in enumerate(lines) if line.strip() == LIBRARY_CLOSURE_TABLE_HEADER),
+        None,
+    )
+    if header_index is None:
+        fail("missing Library Conformance Closure table")
+    if header_index + 1 >= len(lines):
+        fail("Library Conformance Closure table is missing its separator row")
+
+    separator_cells = parse_table_cells(lines[header_index + 1])
+    if len(separator_cells) != 6 or not is_markdown_separator(separator_cells):
+        fail("Library Conformance Closure table has an invalid separator row")
+
+    rows: list[list[str]] = []
+    for line in lines[header_index + 2 :]:
+        if not line.strip():
+            break
+        if not line.lstrip().startswith("|"):
+            break
+        cells = parse_table_cells(line)
+        if len(cells) != 6:
+            fail(f"Library Conformance Closure table row must have 6 cells: {line}")
+        rows.append(cells)
+
+    if not rows:
+        fail("Library Conformance Closure table must contain at least one row")
+    return rows
+
+
 def validate_source_surface_closure(
     matrix_text: str,
     manifest_sources_by_category: dict[str, set[str]],
@@ -215,6 +316,69 @@ def validate_source_surface_closure(
         fail(
             "source-surface manifest fixtures are missing from the closure table: "
             + ", ".join(missing_manifest_sources)
+        )
+
+    return len(seen_rows)
+
+
+def validate_library_closure(
+    matrix_text: str,
+    manifest_sources_by_category: dict[str, set[str]],
+) -> int:
+    manifest_sources = {
+        source_file
+        for sources in manifest_sources_by_category.values()
+        for source_file in sources
+    }
+
+    seen_rows: set[tuple[str, str]] = set()
+    table_fixture_paths: set[str] = set()
+
+    for area, report_surface, status, fixtures, task_or_deviation, notes in read_library_closure_rows(matrix_text):
+        key = (area, report_surface)
+        if key in seen_rows:
+            fail(f"duplicate Library Conformance Closure row: {area} / {report_surface}")
+        if key not in LIBRARY_CLOSURE_ROWS:
+            fail(f"unexpected Library Conformance Closure row: {area} / {report_surface}")
+        if not status:
+            fail(f"Library Conformance Closure row {area} / {report_surface} must have a coverage status")
+        if not task_or_deviation:
+            fail(
+                f"Library Conformance Closure row {area} / {report_surface} "
+                "must have a remaining task/deviation"
+            )
+        if task_or_deviation != "none" and not TASK_ID_RE.search(task_or_deviation):
+            fail(
+                f"Library Conformance Closure row {area} / {report_surface} must use `none` "
+                "or cite a tracker task ID"
+            )
+        if not notes:
+            fail(f"Library Conformance Closure row {area} / {report_surface} must have notes")
+
+        fixture_paths = set(FIXTURE_PATH_RE.findall(fixtures))
+        if not fixture_paths:
+            fail(f"Library Conformance Closure row {area} / {report_surface} must list a manifest fixture")
+        for fixture_path in sorted(fixture_paths):
+            if fixture_path not in manifest_sources:
+                fail(
+                    f"Library Conformance Closure row {area} / {report_surface} references "
+                    f"a fixture not in the manifest: {fixture_path}"
+                )
+        table_fixture_paths.update(fixture_paths)
+        seen_rows.add(key)
+
+    missing_rows = sorted(LIBRARY_CLOSURE_ROWS - seen_rows)
+    if missing_rows:
+        fail(
+            "Library Conformance Closure table is missing rows: "
+            + ", ".join(f"{area} / {surface}" for area, surface in missing_rows)
+        )
+
+    missing_required_fixtures = sorted(LIBRARY_CLOSURE_REQUIRED_FIXTURES - table_fixture_paths)
+    if missing_required_fixtures:
+        fail(
+            "library conformance fixtures are missing from the closure table: "
+            + ", ".join(missing_required_fixtures)
         )
 
     return len(seen_rows)
@@ -289,11 +453,13 @@ def main() -> None:
         fail("duplicate case names: " + ", ".join(duplicate_names))
 
     source_surface_row_count = validate_source_surface_closure(matrix_text, manifest_sources_by_category)
+    library_row_count = validate_library_closure(matrix_text, manifest_sources_by_category)
 
     print(
         "validated "
         f"{len(cases)} Haskell 2010 conformance cases; "
         f"source_surface_rows={source_surface_row_count}; "
+        f"library_rows={library_row_count}; "
         f"statuses={dict(sorted(status_counts.items()))}; "
         f"categories={dict(sorted(category_counts.items()))}"
     )
