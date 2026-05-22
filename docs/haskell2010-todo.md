@@ -15281,7 +15281,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M13 (IO and do-notation). Complete for current line-input subset: `getLine :: IO String` lowers through Core/STG/native, native runtime input builds list-backed strings, and stdin fixtures cover two sequential reads. EOF/error behavior remains owned by IO-011.
+- Milestone M13 (IO and do-notation). Complete for current line-input subset: `getLine :: IO String` lowers through Core/STG/native, native runtime input builds list-backed strings, and stdin fixtures cover two sequential reads. Recoverable `IOError` behavior is implemented by IO-011; EOF-specific handle behavior remains owned by LIB-012.
 
 ## IO-007 — return
 
@@ -15381,7 +15381,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M13 (IO and do-notation). Completed for explicit `(>>=)`, do-bind statements, `return`-produced values, normal `putStrLn`/`print` examples over `String`, `Char`, and lists, native `getLine` over stdin, and the supported `Monad IO` dictionary. Handles and rich recoverable IO error behavior remain separate tasks.
+- Milestone M13 (IO and do-notation). Completed for explicit `(>>=)`, do-bind statements, `return`-produced values, normal `putStrLn`/`print` examples over `String`, `Char`, and lists, native `getLine` over stdin, recoverable `IOError` behavior, and the supported `Monad IO` dictionary. Handles, files, buffering, and seek behavior remain separate LIB-012 work.
 
 ## IO-009 — (>>)
 
@@ -15484,7 +15484,7 @@ Notes:
 ## IO-011 — IO error behavior
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -15497,7 +15497,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver IO error behavior for IO and do-notation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver IO error behavior for IO and do-notation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Core, STG, and native IO actions now carry explicit success/failure results so handlers can observe `IOError` payloads instead of native execution aborting before recovery.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -15513,7 +15513,9 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- IO error behavior is implemented, completed, or explicitly documented according to status `not started`.
+- Core, STG, and native IO actions represent success and failure explicitly so `ioError`, `catch`, `try`, and `fail` compose instead of aborting before handlers run.
+- `System.IO.Error` exposes `IOError`, `IOErrorType` constants, `mkIOError`, `annotateIOError`, classifiers, accessors, `userError`, `ioError`, `catch`, and `try` for the supported executable subset.
+- Uncaught native IO failures terminate nonzero, while caught failures preserve `IOError` payloads through `catch` and `try`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 

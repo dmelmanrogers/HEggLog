@@ -8658,7 +8658,7 @@
     {
       "id": "IO-011",
       "title": "IO error behavior",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "RTS-017",
@@ -8667,7 +8667,9 @@
       "blocks": [],
       "milestone": "M13",
       "acceptance_criteria": [
-        "IO error behavior is implemented, completed, or explicitly documented according to status `not started`.",
+        "Core, STG, and native IO actions represent success and failure explicitly so `ioError`, `catch`, `try`, and `fail` compose instead of aborting before handlers run.",
+        "System.IO.Error exposes IOError, IOErrorType constants, mkIOError, annotateIOError, classifiers, accessors, userError, ioError, catch, and try for the supported executable subset.",
+        "Uncaught native IO failures terminate nonzero, while caught failures preserve IOError payloads through `catch` and `try`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

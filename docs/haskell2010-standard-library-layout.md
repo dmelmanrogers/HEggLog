@@ -30,7 +30,8 @@ graph path until that module has an implemented surface.
 | `Data.List` | partial generated interface | `(++)`, `head`, `tail`, `null`, `length`, `map`, `reverse`, `foldl`, `foldr`, and `filter`, plus `(++)` fixity; `LIB-002` owns the remaining Report list API |
 | `Data.Maybe` | partial generated interface | `Maybe(..)` with `Nothing` and `Just`; `LIB-003` owns the remaining Report functions |
 | `Data.Word` | partial generated interface | `Word8`, `Word16`, `Word32`, `Word64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
-| `System.IO` | partial generated interface | `IO`, `putStrLn`, `getLine`, and `print`; `LIB-012` and `IO-011` own handles, files, buffering, and error behavior |
+| `System.IO` | partial generated interface | `IO`, `Handle`, `FilePath`, `putStrLn`, `getLine`, and `print`; `LIB-012` owns handles, files, buffering, seek, and EOF-specific handle behavior |
+| `System.IO.Error` | partial generated interface | `IOError`, `IOErrorType`, error-type constants, `userError`, `mkIOError`, `annotateIOError`, classifiers, accessors, `ioError`, `catch`, and `try`; `LIB-012` owns handle/file-backed error producers beyond the current line-oriented IO subset |
 | `Foreign` | partial generated interface | supported scalar/pointer foreign type names plus `StablePtr` and manual `ForeignPtr` ownership APIs |
 | `Foreign.C` | partial generated interface | `CString`, `CWString`, and supported `Foreign.C.Types` type names |
 | `Foreign.C.String` | partial generated interface | `CString` and `CWString` type names |
@@ -68,7 +69,6 @@ exported value/type/class surface is not yet real in the compiler.
 | `Numeric` | reserved | `LIB-010` |
 | `System.Environment` | reserved | `LIB-011` |
 | `System.Exit` | reserved | `LIB-011` |
-| `System.IO.Error` | reserved | `IO-011` |
 
 `TEST-CONF-015` completed the Report-wide reconciliation for this table. Each
 reserved module and each partial generated interface now points to implemented

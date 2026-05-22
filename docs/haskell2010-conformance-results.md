@@ -131,10 +131,11 @@ numbered remaining tracker tasks, and requires the library closure fixtures to
 stay represented in the matrix. Reserved Report modules now have explicit
 unsupported-documented fixtures for `Data.Array`, `Data.Bits`, `Data.Char`,
 `Data.Complex`, `Data.Ix`, `Data.Ratio`, `Numeric`, `System.Environment`,
-`System.Exit`, `System.IO.Error`, `Foreign.C.Error`, `Foreign.Marshal.*`, and
-`Foreign.Storable`. `modules.standard-library-scalar-types` positively checks
-the current generated `Data.Int`, `Data.Word`, and `Foreign.C.Types` type-name
-surface.
+`System.Exit`, `Foreign.C.Error`, `Foreign.Marshal.*`, and `Foreign.Storable`.
+`io.io-error` now positively checks the generated `System.IO.Error` surface for
+recoverable `IOError` behavior, and `modules.standard-library-scalar-types`
+positively checks the current generated `Data.Int`, `Data.Word`, and
+`Foreign.C.Types` type-name surface.
 
 ## Category Summary
 
@@ -145,7 +146,7 @@ surface.
 | `egglog` | 1 | optimized/unoptimized native agreement covered |
 | `expressions` | 13 | representative native tests exist, including user-defined infix operators and line-broken `where` layout |
 | `ffi` | 5 | static ccall, pointer/address, dynamic/wrapper, foreign export, and StablePtr/ForeignPtr ownership native fixtures link C helpers and run in default and `--no-egglog` modes |
-| `io` | 4 | current line-oriented stdin/stdout IO slice covered, including do-bind, explicit `(>>=)`, `getLine`, and explicit `fail` examples |
+| `io` | 5 | current line-oriented stdin/stdout IO slice and recoverable IO-error behavior covered, including do-bind, explicit `(>>=)`, `getLine`, explicit `fail`, `ioError`, `catch`, `try`, and System.IO.Error examples |
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
@@ -156,4 +157,4 @@ surface.
 | `recursion` | 1 | top-level recursion representative native test exists |
 | `typeclasses` | 12 | user dictionary, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, derived Read, derived Enum, and derived Bounded tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |
-| `unsupported` | 18 | unsupported features documented by failing cases, including constrained expression signatures, handle IO, package/module search paths, and reserved Report library modules |
+| `unsupported` | 17 | unsupported features documented by failing cases, including constrained expression signatures, handle IO, package/module search paths, and reserved Report library modules |

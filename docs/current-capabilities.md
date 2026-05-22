@@ -88,7 +88,8 @@ aliases, and guard-fallthrough no-match behavior, plus the first IO printing/inp
 slice for `IO`, `main :: IO ()`,
 `putStrLn`, `getLine`, `print`, and higher-kinded `Monad` dictionaries for
 `IO`, `Maybe`, and lists, including `return`, `(>>)`, `(>>=)`, `fail`, generic
-expression and bind-statement `do` sequencing, and refutable do-bind failure, and
+expression and bind-statement `do` sequencing, refutable do-bind failure, and
+recoverable `IOError` behavior through `ioError`, `catch`, and `try`, and
 built-in Report-shaped `Show Int`/`Show Bool`/`Show Char`/`Show String` plus generated
 structural list `Show` dictionaries and Prelude `shows`, plus executable arithmetic sequences over
 `Int`, `Char`, and derived-enumeration ranges, public `Enum Int`/`Enum Char` and
@@ -115,8 +116,9 @@ toolchain path to produce native executables. The Haskell 2010 native path also
 executes `main :: IO ()` actions for `putStrLn`, `getLine`, and `print` using
 list-of-`Char` traversal, built-in scalar/string `Show` results represented as
 lists, generated list `Show` dictionaries, Monad-backed do-bind result values,
-explicit `(>>=)`, `failIO#` aborts for IO fail paths, and a compatibility path
-for legacy internal string payloads. Dedicated
+explicit `(>>=)`, explicit IO success/failure wrappers, catchable `failIO#`,
+`ioError`, `catch`, `try`, and a compatibility path for legacy internal string
+payloads. Dedicated
 native wet tests now cover direct string output, list operations over strings,
 show-produced strings, explicit `Char` cons patterns, and string literal
 patterns, plus `Int`/`Char` arithmetic sequences, list comprehensions, and
@@ -238,12 +240,12 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 118 manifest-tracked fixtures with
-  80 native-success cases, 5 native-runtime-error cases, 27 compile-error cases,
-  and 6 unsupported-documented cases
+  `haskell2010-conformance-test`; it contains 133 manifest-tracked fixtures with
+  84 native-success cases, 5 native-runtime-error cases, 27 compile-error cases,
+  and 17 unsupported-documented cases
 - Haskell 2010 standard library layout: implemented for the current executable
   subset as generated/importable `Prelude`, `Control.Monad`, `Data.Int`,
-  `Data.List`, `Data.Maybe`, `Data.Word`, `System.IO`, and implemented
+  `Data.List`, `Data.Maybe`, `Data.Word`, `System.IO`, `System.IO.Error`, and implemented
   `Foreign.*` module interfaces; `Control.Monad` includes real `Functor(fmap)`
   support for `[]`, `Maybe`, and `IO`; broader standard modules remain reserved and documented in
   [haskell2010-standard-library-layout.md](haskell2010-standard-library-layout.md)
@@ -308,7 +310,7 @@ Current tests include:
   monomorphism/defaulting decision programs, multi-file module programs,
   implicit, explicit, and qualified Prelude import programs,
   known-constructor optimizer programs, plus line-oriented IO
-  printing/input programs, and compiles selected emitted LLVM through `clang`
+  printing/input and recoverable IO-error programs, and compiles selected emitted LLVM through `clang`
 - `haskell2010-conformance-test`, included in `cabal test all`, which reads the
   JSON conformance manifest, invokes the built `hegglog` executable as a
   subprocess, compiles native-success cases to actual executables, executes
@@ -319,6 +321,6 @@ Current tests include:
 Future Haskell 2010 conformance work should extend this direct executable
 coverage as report-complete pattern coverage/runtime attribution, broader
 Unicode/string escape edge cases, additional string library behavior, and
-broader IO are implemented. Source-spanned
+handle/file-oriented IO are implemented. Source-spanned
 non-exhaustive and redundant pattern warnings are already exposed through the
 Haskell 2010 typechecker, native compilation result APIs, and compile CLI.

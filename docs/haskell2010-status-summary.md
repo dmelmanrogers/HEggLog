@@ -66,13 +66,13 @@ implemented:
 - report-complete pattern coverage and runtime source attribution beyond the
   current executable-subset diagnostics
 - remaining source-surface implementation closure
-- instance contexts and derived `Read`
+- instance contexts
 - Fractional/Floating classes, arbitrary-precision `Integer`, full
   `Ratio`/`Rational` behavior, and broader Prelude/library subset
 - remaining standard-library value surfaces beyond the currently generated
   partial module interfaces
 - Haskell source desugaring and negative fixtures beyond the current executable subset
-- broader IO, including handles, rich recoverable IO errors, and effects beyond line-oriented stdin/stdout
+- broader IO, including handles, files, buffering, seek, EOF-specific handle behavior, and effects beyond line-oriented stdin/stdout
 - remaining FFI closure for floating-point marshalling, link metadata,
   callback/finalizer lifetimes, and broader `Foreign.*` modules
 - full Haskell 2010 conformance suite breadth beyond the current

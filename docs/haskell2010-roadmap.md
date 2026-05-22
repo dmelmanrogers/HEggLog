@@ -392,8 +392,11 @@ values, and boxed `Char` values, `Eq Char`, scalar `main :: Char`, Report-shaped
 `Show` dictionaries for `Int`/`Bool`/`Char`/`String`/lists support the current
 IO subset through default/no-egglog wet tests. Native `getLine` reads stdin
 line-by-line, strips line terminators, and returns ordinary `[Char]` strings.
-Real-world IO handles, rich IO errors, `fail`, and broader Prelude IO remain
-planned.
+Core, STG, and native IO actions now carry explicit success/failure results:
+`fail` raises a catchable user `IOError`, `ioError`, `catch`, and `try` compose
+through `System.IO.Error`, and uncaught native IO failures terminate nonzero.
+Real-world handles, files, buffering, seek, EOF-specific handle behavior, and
+broader Prelude IO remain planned.
 
 Deliverables:
 
@@ -541,9 +544,9 @@ Acceptance criteria:
 Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
-`haskell2010-conformance-test` Cabal suite. The baseline currently records 118
-fixtures: 80 native-success cases, 5 native-runtime-error cases, 27 compile-error
-cases, and 6 unsupported-documented cases. The suite invokes the built
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 133
+fixtures: 84 native-success cases, 5 native-runtime-error cases, 27 compile-error
+cases, and 17 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
 runtime-error exits, checks compile-error diagnostics, links manifest-declared
