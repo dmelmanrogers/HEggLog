@@ -39,6 +39,7 @@ standardLibraryModuleInterfaces =
     , (dataMaybeModuleName, dataMaybeInterface)
     , (dataWordModuleName, dataWordInterface)
     , (systemIOModuleName, systemIOInterface)
+    , (systemIOErrorModuleName, systemIOErrorInterface)
     , (foreignModuleName, foreignInterface)
     , (foreignCModuleName, foreignCInterface)
     , (foreignCStringModuleName, foreignCStringInterface)
@@ -155,13 +156,16 @@ standardPreludeNames =
     , "putStrLn"
     , "getLine"
     , "print"
+    , "ioError"
+    , "userError"
+    , "catch"
     , "not"
     , "id"
     , "const"
     , "otherwise"
     ]
     <> fmap (ConstructorNamespace,) ["True", "False", "Nothing", "Just", "Left", "Right", "LT", "EQ", "GT", ":"]
-    <> fmap (TypeNamespace,) ["Int", "Integer", "Rational", "Bool", "Char", "String", "ReadS", "ShowS", "[]", "IO", "CString", "Maybe", "Either", "Ordering", "()"]
+    <> fmap (TypeNamespace,) ["Int", "Integer", "Rational", "Bool", "Char", "String", "FilePath", "ReadS", "ShowS", "[]", "IO", "IOError", "CString", "Maybe", "Either", "Ordering", "()"]
     <> fmap (ClassNamespace,) ["Eq", "Ord", "Show", "Read", "Num", "Real", "Integral", "Enum", "Bounded", "Functor", "Monad"]
 
 standardPreludeExportNames :: [RName]
@@ -246,6 +250,10 @@ systemIOModuleName :: S.ModuleName
 systemIOModuleName =
   S.ModuleName ["System", "IO"]
 
+systemIOErrorModuleName :: S.ModuleName
+systemIOErrorModuleName =
+  S.ModuleName ["System", "IO", "Error"]
+
 foreignModuleName :: S.ModuleName
 foreignModuleName =
   S.ModuleName ["Foreign"]
@@ -311,6 +319,10 @@ dataWordInterface =
 systemIOInterface :: ModuleInterface
 systemIOInterface =
   standardLibraryInterface systemIOModuleName systemIONames
+
+systemIOErrorInterface :: ModuleInterface
+systemIOErrorInterface =
+  standardLibraryInterface systemIOErrorModuleName systemIOErrorNames
 
 foreignInterface :: ModuleInterface
 foreignInterface =
@@ -389,6 +401,7 @@ standardLibraryNames =
     <> dataMaybeNames
     <> dataWordNames
     <> systemIONames
+    <> systemIOErrorNames
 
 controlMonadNames :: [(Namespace, Text)]
 controlMonadNames =
@@ -418,7 +431,41 @@ dataWordNames =
 systemIONames :: [(Namespace, Text)]
 systemIONames =
   (TypeNamespace, "IO")
+    : (TypeNamespace, "Handle")
+    : (TypeNamespace, "FilePath")
     : fmap (TermNamespace,) ["putStrLn", "getLine", "print"]
+
+systemIOErrorNames :: [(Namespace, Text)]
+systemIOErrorNames =
+  fmap (TypeNamespace,) ["IOError", "IOErrorType"]
+    <> fmap
+      (TermNamespace,)
+      [ "userError"
+      , "mkIOError"
+      , "annotateIOError"
+      , "isAlreadyExistsError"
+      , "isDoesNotExistError"
+      , "isAlreadyInUseError"
+      , "isFullError"
+      , "isEOFError"
+      , "isIllegalOperation"
+      , "isPermissionError"
+      , "isUserError"
+      , "ioeGetErrorString"
+      , "ioeGetHandle"
+      , "ioeGetFileName"
+      , "alreadyExistsErrorType"
+      , "doesNotExistErrorType"
+      , "alreadyInUseErrorType"
+      , "fullErrorType"
+      , "eofErrorType"
+      , "illegalOperationErrorType"
+      , "permissionErrorType"
+      , "userErrorType"
+      , "ioError"
+      , "catch"
+      , "try"
+      ]
 
 foreignNames :: [(Namespace, Text)]
 foreignNames =

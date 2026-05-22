@@ -202,6 +202,7 @@ testGroups =
       , pureTest "typechecks IO printing" testHaskell2010Core0IOPrinting
       , pureTest "typechecks normal IO examples" testHaskell2010Core0IONormalExamples
       , pureTest "typechecks IO getLine" testHaskell2010Core0IOGetLine
+      , pureTest "typechecks IO error behavior" testHaskell2010Core0IOError
       , pureTest "typechecks higher-kinded Monad constraints and dictionaries" testHaskell2010Core0Monad
       , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
       , pureTest "desugars operator sections to Core lambdas" testHaskell2010Core0Sections
@@ -259,6 +260,7 @@ testGroups =
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
       , pureTest "evaluates normal IO examples" testHaskell2010Core0EvalIONormalExamples
       , pureTest "evaluates IO getLine with empty interpreter stdin" testHaskell2010Core0EvalIOGetLine
+      , pureTest "evaluates IO error behavior" testHaskell2010Core0EvalIOError
       , pureTest "evaluates Monad IO Maybe and list do-notation" testHaskell2010Core0EvalMonad
       , pureTest "evaluates guards and as-patterns" testHaskell2010Core0EvalGuardsAndAsPatterns
       , pureTest "evaluates operator sections" testHaskell2010Core0EvalSections
@@ -318,6 +320,7 @@ testGroups =
       , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
       , pureTest "preserves normal IO example semantics" testHaskell2010CoreToSTGIONormalExamples
       , pureTest "preserves IO getLine empty-stdin semantics" testHaskell2010CoreToSTGIOGetLine
+      , pureTest "preserves IO error behavior" testHaskell2010CoreToSTGIOError
       , pureTest "preserves guard and as-pattern semantics" testHaskell2010CoreToSTGGuardsAndAsPatterns
       , pureTest "preserves operator section semantics" testHaskell2010CoreToSTGSections
       , pureTest "preserves user-defined operator semantics" testHaskell2010CoreToSTGUserDefinedOperators
@@ -2296,6 +2299,16 @@ testHaskell2010Core0IOGetLine = do
   assertBool "Prelude append binding is emitted for getLine output formatting" (containsBindingOccurrence "++" coreModule)
   expectCoreEvalIO "IO getLine empty-stdin Core oracle" haskell2010IOGetLineEmptyOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0IOError :: Either String ()
+testHaskell2010Core0IOError = do
+  coreModule <- typecheckHaskell2010 haskell2010IOErrorSource
+  assertBool "Prelude ioError binding is emitted" (containsBindingOccurrence "ioError" coreModule)
+  assertBool "Prelude catch binding is emitted" (containsBindingOccurrence "catch" coreModule)
+  assertBool "System.IO.Error try binding is emitted" (containsBindingOccurrence "try" coreModule)
+  assertBool "IOErrorType Eq instance dictionary is emitted" (containsBindingOccurrence "$fEqIOErrorType" coreModule)
+  assertBool "IOErrorType Show instance dictionary is emitted" (containsBindingOccurrence "$fShowIOErrorType" coreModule)
+  expectCoreEvalIO "IO error Core oracle" haskell2010IOErrorOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0Monad :: Either String ()
 testHaskell2010Core0Monad = do
   coreModule <- typecheckHaskell2010 haskell2010MonadSource
@@ -3302,6 +3315,13 @@ testHaskell2010Core0EvalIOGetLine =
     haskell2010IOGetLineEmptyOutput
     =<< evalHaskell2010Binding "main" haskell2010IOGetLineSource
 
+testHaskell2010Core0EvalIOError :: Either String ()
+testHaskell2010Core0EvalIOError =
+  expectCoreEvalIO
+    "Core-0 IO error evaluation"
+    haskell2010IOErrorOutput
+    =<< evalHaskell2010Binding "main" haskell2010IOErrorSource
+
 testHaskell2010Core0EvalMonad :: Either String ()
 testHaskell2010Core0EvalMonad =
   expectCoreEvalIO
@@ -3704,6 +3724,10 @@ testHaskell2010CoreToSTGIONormalExamples =
 testHaskell2010CoreToSTGIOGetLine :: Either String ()
 testHaskell2010CoreToSTGIOGetLine =
   checkCoreToSTGIO "Core-to-STG IO getLine empty stdin" haskell2010IOGetLineEmptyOutput haskell2010IOGetLineSource
+
+testHaskell2010CoreToSTGIOError :: Either String ()
+testHaskell2010CoreToSTGIOError =
+  checkCoreToSTGIO "Core-to-STG IO error behavior" haskell2010IOErrorOutput haskell2010IOErrorSource
 
 testHaskell2010CoreToSTGGuardsAndAsPatterns :: Either String ()
 testHaskell2010CoreToSTGGuardsAndAsPatterns =
@@ -8901,6 +8925,54 @@ haskell2010IOGetLineOutput =
 haskell2010IOGetLineEmptyOutput :: Text
 haskell2010IOGetLineEmptyOutput =
   "first=\nsecond=\n0\n"
+
+haskell2010IOErrorSource :: Text
+haskell2010IOErrorSource =
+  "module Main where\n\
+  \import System.IO.Error (annotateIOError, doesNotExistErrorType, ioeGetErrorString, ioeGetFileName, isDoesNotExistError, isUserError, mkIOError, try, userErrorType)\n\
+  \missingAction :: IO Int\n\
+  \missingAction = ioError (mkIOError doesNotExistErrorType \"missing\" Nothing (Just \"path.txt\"))\n\
+  \okAction :: IO Int\n\
+  \okAction = return 7\n\
+  \failAction :: IO Int\n\
+  \failAction = fail \"failed\"\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  catch (ioError (userError \"boom\")) (\\err -> putStrLn (\"caught:\" ++ ioeGetErrorString err))\n\
+  \  missingResult <- try missingAction\n\
+  \  case missingResult of\n\
+  \    Left err -> do\n\
+  \      print (isDoesNotExistError err)\n\
+  \      putStrLn (ioeGetErrorString err)\n\
+  \      case ioeGetFileName err of\n\
+  \        Just path -> putStrLn path\n\
+  \        Nothing -> putStrLn \"missing file\"\n\
+  \    Right value -> print value\n\
+  \  okResult <- try okAction\n\
+  \  case okResult of\n\
+  \    Left err -> putStrLn (ioeGetErrorString err)\n\
+  \    Right value -> print value\n\
+  \  failResult <- try failAction\n\
+  \  case failResult of\n\
+  \    Left err -> do\n\
+  \      print (isUserError err)\n\
+  \      putStrLn (ioeGetErrorString err)\n\
+  \    Right value -> print value\n\
+  \  let annotated = annotateIOError (userError \"old\") \"new\" Nothing (Just \"ann.txt\")\n\
+  \  print (isUserError annotated)\n\
+  \  putStrLn (ioeGetErrorString annotated)\n\
+  \  case ioeGetFileName annotated of\n\
+  \    Just path -> putStrLn path\n\
+  \    Nothing -> putStrLn \"missing file\"\n\
+  \  putStrLn (show userErrorType)\n\
+  \  putStrLn (show doesNotExistErrorType)\n\
+  \  print (userErrorType == userErrorType)\n\
+  \  print (userErrorType /= doesNotExistErrorType)\n\
+  \  return ()\n"
+
+haskell2010IOErrorOutput :: Text
+haskell2010IOErrorOutput =
+  "caught:boom\nTrue\nmissing\npath.txt\n7\nTrue\nfailed\nTrue\nnew\nann.txt\nuser error\ndoes not exist\nTrue\nTrue\n"
 
 haskell2010MonadSource :: Text
 haskell2010MonadSource =

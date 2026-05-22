@@ -1422,6 +1422,27 @@ builtinDataConstructors =
     , (orderingLTDataConName, positionalDataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
     , (orderingEQDataConName, positionalDataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
     , (orderingGTDataConName, positionalDataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
+    ,
+      ( ioErrorDataConName
+      , positionalDataConstructorInfo
+          []
+          [ioErrorTypeMonoType, stringMonoType, maybeHandleMonoType, maybeFilePathMonoType]
+          ioErrorMonoType
+          ( Scheme
+              []
+              []
+              (TyFun ioErrorTypeMonoType (TyFun stringMonoType (TyFun maybeHandleMonoType (TyFun maybeFilePathMonoType ioErrorMonoType))))
+          )
+          CoreDataConstructor
+      )
+    , (ioErrorAlreadyExistsTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioErrorDoesNotExistTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioErrorAlreadyInUseTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioErrorFullTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioErrorEOFTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioErrorIllegalOperationTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioErrorPermissionTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioErrorUserTypeDataConName, ioErrorTypeDataConstructorInfo)
     ]
  where
   a = preludeTypeVariable "a" (-1001)
@@ -1431,6 +1452,10 @@ builtinDataConstructors =
   listA = TyList aTy
   maybeA = TyApp (TyCon maybeTyConName) aTy
   eitherAB = TyApp (TyApp (TyCon eitherTyConName) aTy) bTy
+  maybeHandleMonoType = TyApp (TyCon maybeTyConName) handleMonoType
+  maybeFilePathMonoType = TyApp (TyCon maybeTyConName) filePathMonoType
+  ioErrorTypeDataConstructorInfo =
+    positionalDataConstructorInfo [] [] ioErrorTypeMonoType (Scheme [] [] ioErrorTypeMonoType) CoreDataConstructor
 
 preludeTypeVariable :: Text -> Int -> RName
 preludeTypeVariable occurrence unique =
@@ -1773,6 +1798,31 @@ supportedPreludeValueOccurrences =
   , "putStrLn"
   , "getLine"
   , "print"
+  , "userError"
+  , "mkIOError"
+  , "annotateIOError"
+  , "isAlreadyExistsError"
+  , "isDoesNotExistError"
+  , "isAlreadyInUseError"
+  , "isFullError"
+  , "isEOFError"
+  , "isIllegalOperation"
+  , "isPermissionError"
+  , "isUserError"
+  , "ioeGetErrorString"
+  , "ioeGetHandle"
+  , "ioeGetFileName"
+  , "alreadyExistsErrorType"
+  , "doesNotExistErrorType"
+  , "alreadyInUseErrorType"
+  , "fullErrorType"
+  , "eofErrorType"
+  , "illegalOperationErrorType"
+  , "permissionErrorType"
+  , "userErrorType"
+  , "ioError"
+  , "catch"
+  , "try"
   , "newStablePtr"
   , "deRefStablePtr"
   , "freeStablePtr"
@@ -5352,6 +5402,31 @@ preludeValueScheme name
             "putStrLn" -> Just (Scheme [] [] (TyFun stringMonoType ioUnit))
             "getLine" -> Just (Scheme [] [] (ioMonoType stringMonoType))
             "print" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun aTy ioUnit))
+            "userError" -> Just (Scheme [] [] (TyFun stringMonoType ioErrorMonoType))
+            "mkIOError" -> Just (Scheme [] [] (TyFun ioErrorTypeMonoType (TyFun stringMonoType (TyFun maybeHandle (TyFun maybeFilePath ioErrorMonoType)))))
+            "annotateIOError" -> Just (Scheme [] [] (TyFun ioErrorMonoType (TyFun stringMonoType (TyFun maybeHandle (TyFun maybeFilePath ioErrorMonoType)))))
+            "isAlreadyExistsError" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "isDoesNotExistError" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "isAlreadyInUseError" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "isFullError" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "isEOFError" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "isIllegalOperation" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "isPermissionError" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "isUserError" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "ioeGetErrorString" -> Just (Scheme [] [] (TyFun ioErrorMonoType stringMonoType))
+            "ioeGetHandle" -> Just (Scheme [] [] (TyFun ioErrorMonoType maybeHandle))
+            "ioeGetFileName" -> Just (Scheme [] [] (TyFun ioErrorMonoType maybeFilePath))
+            "alreadyExistsErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "doesNotExistErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "alreadyInUseErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "fullErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "eofErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "illegalOperationErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "permissionErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "userErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "ioError" -> Just (Scheme [a] [] (TyFun ioErrorMonoType (ioMonoType aTy)))
+            "catch" -> Just (Scheme [a] [] (TyFun (ioMonoType aTy) (TyFun (TyFun ioErrorMonoType (ioMonoType aTy)) (ioMonoType aTy))))
+            "try" -> Just (Scheme [a] [] (TyFun (ioMonoType aTy) (ioMonoType (TyApp (TyApp (TyCon eitherTyConName) ioErrorMonoType) aTy))))
             "newStablePtr" -> Just (Scheme [a] [] (TyFun aTy (ioMonoType stablePtrA)))
             "deRefStablePtr" -> Just (Scheme [a] [] (TyFun stablePtrA (ioMonoType aTy)))
             "freeStablePtr" -> Just (Scheme [a] [] (TyFun stablePtrA ioUnit))
@@ -5381,6 +5456,9 @@ preludeValueScheme name
   charReadS = TyFun stringMonoType (TyList (TyTuple [charMonoType, stringMonoType]))
   stringReadS = TyFun stringMonoType (TyList (TyTuple [stringMonoType, stringMonoType]))
   ioUnit = ioMonoType unitMonoType
+  maybeHandle = TyApp (TyCon maybeTyConName) handleMonoType
+  maybeFilePath = TyApp (TyCon maybeTyConName) filePathMonoType
+  ioErrorPredicateTy = TyFun ioErrorMonoType boolMonoType
   ptrA = TyApp (TyCon ptrTyConName) aTy
   ptrUnit = TyApp (TyCon ptrTyConName) unitMonoType
   stablePtrA = TyApp (TyCon stablePtrTyConName) aTy
@@ -6785,8 +6863,12 @@ builtinTypeConstructorMonoType name =
         "Rational" -> pure rationalMonoType
         "String" -> pure stringMonoType
         "ShowS" -> pure (TyFun stringMonoType stringMonoType)
+        "FilePath" -> pure filePathMonoType
         "[]" -> pure (TyCon listTyConName)
         "IO" -> pure (TyCon ioTyConName)
+        "IOError" -> pure ioErrorMonoType
+        "IOErrorType" -> pure ioErrorTypeMonoType
+        "Handle" -> pure handleMonoType
         "Maybe" -> pure (TyCon maybeTyConName)
         "Either" -> pure (TyCon eitherTyConName)
         "Ordering" -> pure orderingMonoType
@@ -6813,8 +6895,12 @@ builtinTypeConstructorInfo name
           "String" -> Just 0
           "ShowS" -> Just 0
           "ReadS" -> Just 1
+          "FilePath" -> Just 0
           "[]" -> Just 1
           "IO" -> Just 1
+          "IOError" -> Just 0
+          "IOErrorType" -> Just 0
+          "Handle" -> Just 0
           "Maybe" -> Just 1
           "Either" -> Just 2
           "Ordering" -> Just 0
@@ -6848,6 +6934,12 @@ builtinTypeSynonymInfo name
             TypeSynonymInfo
               { typeSynonymParams = [readSynonymA]
               , typeSynonymBody = RTyFun stringSourceType (RTyList (RTyTuple [RTyVar readSynonymA, stringSourceType]))
+              }
+        "FilePath" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = []
+              , typeSynonymBody = stringSourceType
               }
         _ -> Nothing
  where
@@ -7199,6 +7291,56 @@ preludeCorePair name =
       Just (binderFor name getLineTy, CPrimOp PrimGetLine [] getLineTy)
     "print" ->
       Just (binderFor name printTy, printRhs)
+    "userError" ->
+      Just (binderFor name userErrorTy, userErrorRhs)
+    "mkIOError" ->
+      Just (binderFor name mkIOErrorTy, mkIOErrorRhs)
+    "annotateIOError" ->
+      Just (binderFor name annotateIOErrorTy, annotateIOErrorRhs)
+    "isAlreadyExistsError" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorAlreadyExistsTypeDataConName "$is_already_exists_error" (-3300))
+    "isDoesNotExistError" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorDoesNotExistTypeDataConName "$is_does_not_exist_error" (-3310))
+    "isAlreadyInUseError" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorAlreadyInUseTypeDataConName "$is_already_in_use_error" (-3320))
+    "isFullError" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorFullTypeDataConName "$is_full_error" (-3330))
+    "isEOFError" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorEOFTypeDataConName "$is_eof_error" (-3340))
+    "isIllegalOperation" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorIllegalOperationTypeDataConName "$is_illegal_operation" (-3350))
+    "isPermissionError" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorPermissionTypeDataConName "$is_permission_error" (-3360))
+    "isUserError" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorUserTypeDataConName "$is_user_error" (-3370))
+    "ioeGetErrorString" ->
+      Just (binderFor name ioeGetErrorStringTy, ioErrorAccessorRhs stringTy ioErrorStringField "$ioe_get_error_string" (-3380))
+    "ioeGetHandle" ->
+      Just (binderFor name ioeGetHandleTy, ioErrorAccessorRhs maybeHandleTy ioErrorHandleField "$ioe_get_handle" (-3390))
+    "ioeGetFileName" ->
+      Just (binderFor name ioeGetFileNameTy, ioErrorAccessorRhs maybeFilePathTy ioErrorFilePathField "$ioe_get_file_name" (-3400))
+    "alreadyExistsErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorAlreadyExistsTypeDataConName ioErrorTypeTy)
+    "doesNotExistErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorDoesNotExistTypeDataConName ioErrorTypeTy)
+    "alreadyInUseErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorAlreadyInUseTypeDataConName ioErrorTypeTy)
+    "fullErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorFullTypeDataConName ioErrorTypeTy)
+    "eofErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorEOFTypeDataConName ioErrorTypeTy)
+    "illegalOperationErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorIllegalOperationTypeDataConName ioErrorTypeTy)
+    "permissionErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorPermissionTypeDataConName ioErrorTypeTy)
+    "userErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorUserTypeDataConName ioErrorTypeTy)
+    "ioError" ->
+      Just (binderFor name ioErrorTy_, ioErrorRhs)
+    "catch" ->
+      Just (binderFor name catchTy, catchRhs)
+    "try" ->
+      Just (binderFor name tryTy, tryRhs)
     "newStablePtr" ->
       Just
         ( binderFor name newStablePtrTy
@@ -7312,6 +7454,18 @@ preludeCorePair name =
   lexTy = CTyFun stringTy (CTyList (CTyTuple [stringTy, stringTy]))
   readParenTy = CTyForall [a] (CTyFun boolTy (CTyFun readSTy readSTy))
   printTy = CTyForall [a] (CTyFun showDictA (CTyFun aTy ioUnitTy))
+  maybeHandleTy = CTyApp (CTyCon maybeTyConName) handleTy
+  maybeFilePathTy = CTyApp (CTyCon maybeTyConName) stringTy
+  userErrorTy = CTyFun stringTy ioErrorTy
+  mkIOErrorTy = CTyFun ioErrorTypeTy (CTyFun stringTy (CTyFun maybeHandleTy (CTyFun maybeFilePathTy ioErrorTy)))
+  annotateIOErrorTy = CTyFun ioErrorTy (CTyFun stringTy (CTyFun maybeHandleTy (CTyFun maybeFilePathTy ioErrorTy)))
+  ioErrorPredicateTy = CTyFun ioErrorTy boolTy
+  ioeGetErrorStringTy = CTyFun ioErrorTy stringTy
+  ioeGetHandleTy = CTyFun ioErrorTy maybeHandleTy
+  ioeGetFileNameTy = CTyFun ioErrorTy maybeFilePathTy
+  ioErrorTy_ = CTyForall [a] (CTyFun ioErrorTy (ioTy aTy))
+  catchTy = CTyForall [a] (CTyFun (ioTy aTy) (CTyFun (CTyFun ioErrorTy (ioTy aTy)) (ioTy aTy)))
+  tryTy = CTyForall [a] (CTyFun (ioTy aTy) (ioTy (CTyApp (CTyApp (CTyCon eitherTyConName) ioErrorTy) aTy)))
   newStablePtrTy = CTyForall [a] (CTyFun aTy (ioTy stablePtrA))
   deRefStablePtrTy = CTyForall [a] (CTyFun stablePtrA (ioTy aTy))
   freeStablePtrTy = CTyForall [a] (CTyFun stablePtrA ioUnitTy)
@@ -7400,6 +7554,19 @@ preludeCorePair name =
   readInput = preludeTermName "$read_input" (-3086)
   printDict = preludeTermName "$print_dict" (-3061)
   printX = preludeTermName "$print_x" (-3062)
+  userErrorMessage = preludeTermName "$user_error_message" (-3200)
+  mkIOErrorType = preludeTermName "$mk_io_error_type" (-3201)
+  mkIOErrorString = preludeTermName "$mk_io_error_string" (-3202)
+  mkIOErrorHandle = preludeTermName "$mk_io_error_handle" (-3203)
+  mkIOErrorFile = preludeTermName "$mk_io_error_file" (-3204)
+  annotateError = preludeTermName "$annotate_io_error" (-3205)
+  annotateString = preludeTermName "$annotate_io_error_string" (-3206)
+  annotateHandle = preludeTermName "$annotate_io_error_handle" (-3207)
+  annotateFile = preludeTermName "$annotate_io_error_file" (-3208)
+  ioErrorRaise = preludeTermName "$io_error_raise" (-3209)
+  catchAction = preludeTermName "$catch_action" (-3210)
+  catchHandler = preludeTermName "$catch_handler" (-3211)
+  tryAction = preludeTermName "$try_action" (-3212)
   stablePtrNewValue = preludeTermName "$stable_ptr_new_value" (-3063)
   stablePtrDeRefValue = preludeTermName "$stable_ptr_deref_value" (-3064)
   stablePtrFreeValue = preludeTermName "$stable_ptr_free_value" (-3065)
@@ -7787,6 +7954,123 @@ preludeCorePair name =
       apply showFunction (var printX aTy) stringTy
     printBody =
       CPrimOp PrimPutStrLn [shownValue] ioUnitTy
+
+  userErrorRhs =
+    lam userErrorMessage stringTy $
+      ioErrorValue
+        (CCon ioErrorUserTypeDataConName ioErrorTypeTy)
+        (var userErrorMessage stringTy)
+        (nothingCore handleTy)
+        (nothingCore stringTy)
+
+  mkIOErrorRhs =
+    lam mkIOErrorType ioErrorTypeTy $
+      lam mkIOErrorString stringTy $
+        lam mkIOErrorHandle maybeHandleTy $
+          lam mkIOErrorFile maybeFilePathTy $
+            ioErrorValue
+              (var mkIOErrorType ioErrorTypeTy)
+              (var mkIOErrorString stringTy)
+              (var mkIOErrorHandle maybeHandleTy)
+              (var mkIOErrorFile maybeFilePathTy)
+
+  annotateIOErrorRhs =
+    lam annotateError ioErrorTy $
+      lam annotateString stringTy $
+        lam annotateHandle maybeHandleTy $
+          lam annotateFile maybeFilePathTy $
+            CCase
+              (var annotateError ioErrorTy)
+              (CoreBinder annotateCase ioErrorTy)
+              [ CoreAlt
+                  (ConstructorAlt ioErrorDataConName)
+                  [ CoreBinder annotateOldType ioErrorTypeTy
+                  , CoreBinder annotateOldString stringTy
+                  , CoreBinder annotateOldHandle maybeHandleTy
+                  , CoreBinder annotateOldFile maybeFilePathTy
+                  ]
+                  ( ioErrorValue
+                      (var annotateOldType ioErrorTypeTy)
+                      (var annotateString stringTy)
+                      (maybeOverride handleTy (var annotateOldHandle maybeHandleTy) (var annotateHandle maybeHandleTy) annotateHandleCase annotateHandleJust)
+                      (maybeOverride stringTy (var annotateOldFile maybeFilePathTy) (var annotateFile maybeFilePathTy) annotateFileCase annotateFileJust)
+                  )
+              ]
+              ioErrorTy
+
+  annotateCase = preludeTermName "$annotate_io_error_case" (-3220)
+  annotateOldType = preludeTermName "$annotate_io_error_old_type" (-3221)
+  annotateOldString = preludeTermName "$annotate_io_error_old_string" (-3222)
+  annotateOldHandle = preludeTermName "$annotate_io_error_old_handle" (-3223)
+  annotateOldFile = preludeTermName "$annotate_io_error_old_file" (-3224)
+  annotateHandleCase = preludeTermName "$annotate_io_error_handle_case" (-3225)
+  annotateHandleJust = preludeTermName "$annotate_io_error_handle_just" (-3226)
+  annotateFileCase = preludeTermName "$annotate_io_error_file_case" (-3227)
+  annotateFileJust = preludeTermName "$annotate_io_error_file_just" (-3228)
+
+  ioErrorRhs =
+    CTypeLam [a] (lam ioErrorRaise ioErrorTy (CPrimOp PrimIOError [var ioErrorRaise ioErrorTy] (ioTy aTy))) ioErrorTy_
+
+  catchRhs =
+    CTypeLam [a] (lam catchAction (ioTy aTy) (lam catchHandler (CTyFun ioErrorTy (ioTy aTy)) (CPrimOp PrimIOCatch [var catchAction (ioTy aTy), var catchHandler (CTyFun ioErrorTy (ioTy aTy))] (ioTy aTy)))) catchTy
+
+  tryRhs =
+    CTypeLam [a] (lam tryAction (ioTy aTy) (CPrimOp PrimIOTry [var tryAction (ioTy aTy)] (ioTy (CTyApp (CTyApp (CTyCon eitherTyConName) ioErrorTy) aTy)))) tryTy
+
+  ioErrorValue errorType message maybeHandle maybeFile =
+    constructorApp ioErrorDataConName [] [errorType, message, maybeHandle, maybeFile] ioErrorTy
+
+  ioErrorPredicateRhs expectedType occurrence unique =
+    lam (preludeTermName (occurrence <> "_error") unique) ioErrorTy $
+      CCase
+        (var (preludeTermName (occurrence <> "_error") unique) ioErrorTy)
+        (CoreBinder (preludeTermName (occurrence <> "_case") (unique - 1)) ioErrorTy)
+        [ CoreAlt
+            (ConstructorAlt ioErrorDataConName)
+            [ CoreBinder (preludeTermName (occurrence <> "_type") (unique - 2)) ioErrorTypeTy
+            , CoreBinder (preludeTermName (occurrence <> "_message") (unique - 3)) stringTy
+            , CoreBinder (preludeTermName (occurrence <> "_handle") (unique - 4)) maybeHandleTy
+            , CoreBinder (preludeTermName (occurrence <> "_file") (unique - 5)) maybeFilePathTy
+            ]
+            ( CCase
+                (var (preludeTermName (occurrence <> "_type") (unique - 2)) ioErrorTypeTy)
+                (CoreBinder (preludeTermName (occurrence <> "_type_case") (unique - 6)) ioErrorTypeTy)
+                [ CoreAlt (ConstructorAlt expectedType) [] (con trueDataConName boolTy)
+                , CoreAlt DefaultAlt [] (con falseDataConName boolTy)
+                ]
+                boolTy
+            )
+        ]
+        boolTy
+
+  ioErrorAccessorRhs fieldTy field occurrence unique =
+    lam (preludeTermName (occurrence <> "_error") unique) ioErrorTy $
+      CCase
+        (var (preludeTermName (occurrence <> "_error") unique) ioErrorTy)
+        (CoreBinder (preludeTermName (occurrence <> "_case") (unique - 1)) ioErrorTy)
+        [ CoreAlt
+            (ConstructorAlt ioErrorDataConName)
+            [ CoreBinder (preludeTermName (occurrence <> "_type") (unique - 2)) ioErrorTypeTy
+            , CoreBinder (preludeTermName (occurrence <> "_message") (unique - 3)) stringTy
+            , CoreBinder (preludeTermName (occurrence <> "_handle") (unique - 4)) maybeHandleTy
+            , CoreBinder (preludeTermName (occurrence <> "_file") (unique - 5)) maybeFilePathTy
+            ]
+            (field (preludeTermName (occurrence <> "_message") (unique - 3)) (preludeTermName (occurrence <> "_handle") (unique - 4)) (preludeTermName (occurrence <> "_file") (unique - 5)))
+        ]
+        fieldTy
+
+  ioErrorStringField message _handle _file = var message stringTy
+  ioErrorHandleField _message handle _file = var handle maybeHandleTy
+  ioErrorFilePathField _message _handle file = var file maybeFilePathTy
+
+  maybeOverride elementTy oldMaybe newMaybe caseName justName =
+    CCase
+      newMaybe
+      (CoreBinder caseName (CTyApp (CTyCon maybeTyConName) elementTy))
+      [ CoreAlt (ConstructorAlt maybeNothingDataConName) [] oldMaybe
+      , CoreAlt (ConstructorAlt maybeJustDataConName) [CoreBinder justName elementTy] newMaybe
+      ]
+      (CTyApp (CTyCon maybeTyConName) elementTy)
 
 readSupportPreludeNames :: [RName]
 readSupportPreludeNames =
@@ -9931,6 +10215,11 @@ builtinInstanceDictionaries classes =
         charMonoType
         (preludeTermName "$fEqChar" (-1503))
         [charEqMethod, charNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        ioErrorTypeMonoType
+        (preludeTermName "$fEqIOErrorType" (-1505))
+        [ioErrorTypeEqMethod, ioErrorTypeNotEqMethod]
     ]
 
   ordInstances info =
@@ -10031,6 +10320,11 @@ builtinInstanceDictionaries classes =
         stringMonoType
         (preludeTermName "$fShowString" (-1534))
         [stringShowsPrecMethod, stringShowMethod, stringShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        ioErrorTypeMonoType
+        (preludeTermName "$fShowIOErrorType" (-1535))
+        [ioErrorTypeShowsPrecMethod, ioErrorTypeShowMethod, ioErrorTypeShowListMethod]
     ]
 
   readInstances info =
@@ -10260,6 +10554,44 @@ charEqMethod =
 charNotEqMethod :: CoreExpr
 charNotEqMethod =
   binaryBoolMethod "$neq_char" (-1881) charTy (\lhs rhs -> boolNotCore "$neq_char_not" (-1884) (CPrimOp PrimEq [lhs, rhs] boolTy))
+
+ioErrorTypeEqMethod :: CoreExpr
+ioErrorTypeEqMethod =
+  binaryBoolMethod "$eq_io_error_type" (-2801) ioErrorTypeTy ioErrorTypeEqCore
+
+ioErrorTypeNotEqMethod :: CoreExpr
+ioErrorTypeNotEqMethod =
+  binaryBoolMethod "$neq_io_error_type" (-2811) ioErrorTypeTy (\lhs rhs -> boolNotCore "$neq_io_error_type_not" (-2814) (ioErrorTypeEqCore lhs rhs))
+
+ioErrorTypeEqCore :: CoreExpr -> CoreExpr -> CoreExpr
+ioErrorTypeEqCore lhs rhs =
+  CCase lhs (CoreBinder lhsCase ioErrorTypeTy) lhsAlts boolTy
+ where
+  lhsCase = builtinLocalTermName "$eq_io_error_type_lhs_case" (-2820)
+  lhsAlts =
+    [ CoreAlt (ConstructorAlt constructorName) [] (rhsCase constructorName index)
+    | (index, constructorName) <- zip [0 :: Int ..] ioErrorTypeConstructors
+    ]
+  rhsCase constructorName index =
+    CCase
+      rhs
+      (CoreBinder (builtinLocalTermName ("$eq_io_error_type_rhs_case" <> renderInt index) (-2821 - index)) ioErrorTypeTy)
+      [ CoreAlt (ConstructorAlt constructorName) [] (CCon trueDataConName boolTy)
+      , CoreAlt DefaultAlt [] (CCon falseDataConName boolTy)
+      ]
+      boolTy
+
+ioErrorTypeConstructors :: [RName]
+ioErrorTypeConstructors =
+  [ ioErrorAlreadyExistsTypeDataConName
+  , ioErrorDoesNotExistTypeDataConName
+  , ioErrorAlreadyInUseTypeDataConName
+  , ioErrorFullTypeDataConName
+  , ioErrorEOFTypeDataConName
+  , ioErrorIllegalOperationTypeDataConName
+  , ioErrorPermissionTypeDataConName
+  , ioErrorUserTypeDataConName
+  ]
 
 intCompareMethod :: CoreExpr
 intCompareMethod =
@@ -10675,6 +11007,34 @@ stringShowMethod =
 stringShowListMethod :: CoreExpr
 stringShowListMethod =
   showListFromShowsMethod stringTy (showsPrecFromRenderedMethod "$show_list_shows_string" (-2421) stringTy showStringLiteralCore)
+
+ioErrorTypeShowsPrecMethod :: CoreExpr
+ioErrorTypeShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_io_error_type" (-2830) ioErrorTypeTy ioErrorTypeShowCore
+
+ioErrorTypeShowMethod :: CoreExpr
+ioErrorTypeShowMethod =
+  unaryMethod "$show_io_error_type" (-2831) ioErrorTypeTy stringTy ioErrorTypeShowCore
+
+ioErrorTypeShowListMethod :: CoreExpr
+ioErrorTypeShowListMethod =
+  showListFromShowsMethod ioErrorTypeTy (showsPrecFromRenderedMethod "$show_list_shows_io_error_type" (-2832) ioErrorTypeTy ioErrorTypeShowCore)
+
+ioErrorTypeShowCore :: CoreExpr -> CoreExpr
+ioErrorTypeShowCore value =
+  CCase value (CoreBinder caseName ioErrorTypeTy) alts stringTy
+ where
+  caseName = builtinLocalTermName "$show_io_error_type_case" (-2833)
+  alts =
+    [ CoreAlt (ConstructorAlt ioErrorAlreadyExistsTypeDataConName) [] (stringLiteralCore "already exists")
+    , CoreAlt (ConstructorAlt ioErrorDoesNotExistTypeDataConName) [] (stringLiteralCore "does not exist")
+    , CoreAlt (ConstructorAlt ioErrorAlreadyInUseTypeDataConName) [] (stringLiteralCore "already in use")
+    , CoreAlt (ConstructorAlt ioErrorFullTypeDataConName) [] (stringLiteralCore "resource exhausted")
+    , CoreAlt (ConstructorAlt ioErrorEOFTypeDataConName) [] (stringLiteralCore "end of file")
+    , CoreAlt (ConstructorAlt ioErrorIllegalOperationTypeDataConName) [] (stringLiteralCore "illegal operation")
+    , CoreAlt (ConstructorAlt ioErrorPermissionTypeDataConName) [] (stringLiteralCore "permission denied")
+    , CoreAlt (ConstructorAlt ioErrorUserTypeDataConName) [] (stringLiteralCore "user error")
+    ]
 
 intReadsPrecMethod, boolReadsPrecMethod, charReadsPrecMethod, orderingReadsPrecMethod, unitReadsPrecMethod :: CoreExpr
 intReadsPrecMethod =
@@ -12938,6 +13298,22 @@ orderingMonoType =
 stringMonoType :: MonoType
 stringMonoType =
   coreTypeToMono stringTy
+
+filePathMonoType :: MonoType
+filePathMonoType =
+  stringMonoType
+
+ioErrorMonoType :: MonoType
+ioErrorMonoType =
+  coreTypeToMono ioErrorTy
+
+ioErrorTypeMonoType :: MonoType
+ioErrorTypeMonoType =
+  coreTypeToMono ioErrorTypeTy
+
+handleMonoType :: MonoType
+handleMonoType =
+  coreTypeToMono handleTy
 
 rationalMonoType :: MonoType
 rationalMonoType =

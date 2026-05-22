@@ -155,30 +155,31 @@ lowerMainFunction (STGProgram _ binds _foreignExports) mainBinder =
     mainObject <- resolveName env (stgBinderName mainBinder)
     if stgBinderType mainBinder == ioTy unitTy
       then do
-        _ <- emitForce mainObject
-        pure ()
+        ioResult <- emitForce mainObject
+        emitIOResultExitCode ioResult
       else do
         printedValue <- printableMainValue (stgBinderType mainBinder) mainObject
         fmt <- formatPointer (stgBinderType mainBinder)
         printedReg <- freshRegister "printed"
         emit (ICall (Just printedReg) LI32 (DirectCall "printf") True [(LPtr, fmt), (operandType printedValue, printedValue)])
-    pure (OConstInt LI32 0)
+        pure (OConstInt LI32 0)
 
 lowerForeignExportFunction :: STGProgram -> CoreForeignExport -> ModuleM LLVMFunction
 lowerForeignExportFunction program foreignExport = do
   abi <- liftEitherModule (foreignExportFunctionABI foreignExport)
-  let params = foreignABIParameters abi
+  let (_argumentTypes, declaredResultTy) = splitForeignFunctionType (coreForeignExportType foreignExport)
+      params = foreignABIParameters abi
       symbol = foreignFunctionSymbol abi
   case foreignFunctionResult abi of
     ForeignABIVoid ->
       runVoidFunction symbol params $ do
         resultObject <- emitForeignExportResult program foreignExport abi params
-        _ <- emitForce resultObject
+        _ <- emitForeignReturnValue declaredResultTy resultObject
         pure ()
     resultABI ->
       runFunction symbol (foreignABITypeLLVM resultABI) params $ do
         resultObject <- emitForeignExportResult program foreignExport abi params
-        forcedResult <- emitForce resultObject
+        forcedResult <- emitForeignReturnValue declaredResultTy resultObject
         emitUnboxForeignReturn resultABI forcedResult
 
 emitForeignExportResult :: STGProgram -> CoreForeignExport -> ForeignFunctionABI -> [(LLVMType, Register)] -> FunctionM LLVMOperand
@@ -456,44 +457,78 @@ emitPrim env op arguments =
     (PrimPutStrLn, [value]) -> do
       valueObject <- emitAtomAddress env value
       emit (ICall Nothing LVoid (DirectCall putStrLnFunctionName) False [(LPtr, valueObject)])
-      emitConstructorObject unitDataConName unitTy []
+      unitObject <- emitConstructorObject unitDataConName unitTy []
+      emitMakeIOSuccess unitObject
     (PrimGetLine, []) -> do
       resultReg <- freshRegister "getline"
       emit (ICall (Just resultReg) LPtr (DirectCall getLineFunctionName) False [])
-      pure (OLocal LPtr resultReg)
+      emitMakeIOSuccess (OLocal LPtr resultReg)
     (PrimIOThen, [firstAction, secondAction]) -> do
       firstObject <- emitAtomAddress env firstAction
-      _ <- emitForce firstObject
-      secondObject <- emitAtomAddress env secondAction
-      emitForce secondObject
+      firstResult <- emitForce firstObject
+      emitIOResultBranch
+        firstResult
+        (pure firstResult)
+        (emitAtomAddress env secondAction >>= emitForce)
     (PrimIOBind, [firstAction, continuation]) -> do
       firstObject <- emitAtomAddress env firstAction
       firstResult <- emitForce firstObject
-      continuationObject <- emitAtomAddress env continuation
-      functionObject <- emitExpectFunction continuationObject
-      secondAction <- enterFunction functionObject firstResult
-      emitForce secondAction
+      emitIOResultBranch firstResult (pure firstResult) $ do
+        firstPayload <- emitIOResultPayload firstResult
+        continuationObject <- emitAtomAddress env continuation
+        functionObject <- emitExpectFunction continuationObject
+        secondAction <- enterFunction functionObject firstPayload
+        emitForce secondAction
     (PrimIOReturn, [value]) ->
-      emitAtomAddress env value
-    (PrimIOFail, [_message]) -> do
-      emitAbort
-      continueLabel <- freshBlockLabel "io_fail_unreachable"
-      startBlock continueLabel
-      pure OConstNull
+      emitAtomAddress env value >>= emitMakeIOSuccess
+    (PrimIOFail, [message]) -> do
+      messageObject <- emitAtomAddress env message
+      errorObject <- emitUserIOError messageObject
+      emitMakeIOFailure errorObject
+    (PrimIOError, [value]) ->
+      emitAtomAddress env value >>= emitMakeIOFailure
+    (PrimIOCatch, [action, handler]) -> do
+      actionObject <- emitAtomAddress env action
+      actionResult <- emitForce actionObject
+      emitIOResultBranch actionResult
+        ( do
+            errorObject <- emitIOResultPayload actionResult
+            handlerObject <- emitAtomAddress env handler
+            functionObject <- emitExpectFunction handlerObject
+            handledAction <- enterFunction functionObject errorObject
+            emitForce handledAction
+        )
+        (pure actionResult)
+    (PrimIOTry, [action]) -> do
+      actionObject <- emitAtomAddress env action
+      actionResult <- emitForce actionObject
+      resultTy <- ioTryResultType action
+      emitIOResultBranch actionResult
+        ( do
+            errorObject <- emitIOResultPayload actionResult
+            leftObject <- emitConstructorObject eitherLeftDataConName resultTy [errorObject]
+            emitMakeIOSuccess leftObject
+        )
+        ( do
+            valueObject <- emitIOResultPayload actionResult
+            rightObject <- emitConstructorObject eitherRightDataConName resultTy [valueObject]
+            emitMakeIOSuccess rightObject
+        )
     (PrimNewStablePtr, [value]) -> do
       valueObject <- emitAtomAddress env value
       reg <- freshRegister "stable_ptr"
       emit (ICall (Just reg) LPtr (DirectCall newStablePtrFunctionName) False [(LPtr, valueObject)])
-      pure (OLocal LPtr reg)
+      emitMakeIOSuccess (OLocal LPtr reg)
     (PrimDeRefStablePtr, [stable]) -> do
       stableObject <- emitAtomAddress env stable
       reg <- freshRegister "stable_value"
       emit (ICall (Just reg) LPtr (DirectCall deRefStablePtrFunctionName) False [(LPtr, stableObject)])
-      pure (OLocal LPtr reg)
+      emitMakeIOSuccess (OLocal LPtr reg)
     (PrimFreeStablePtr, [stable]) -> do
       stableObject <- emitAtomAddress env stable
       emit (ICall Nothing LVoid (DirectCall freeStablePtrFunctionName) False [(LPtr, stableObject)])
-      emitConstructorObject unitDataConName unitTy []
+      unitObject <- emitConstructorObject unitDataConName unitTy []
+      emitMakeIOSuccess unitObject
     (PrimCastStablePtrToPtr, [stable]) ->
       emitAtomValue env stable
     (PrimCastPtrToStablePtr, [pointer]) ->
@@ -503,21 +538,23 @@ emitPrim env op arguments =
       rawPointer <- emitExpectAtomPointer env pointer
       reg <- freshRegister "foreign_ptr"
       emit (ICall (Just reg) LPtr (DirectCall makeForeignPtrFunctionName) False [(LPtr, rawPointer), (LPtr, finalizerPointer)])
-      pure (OLocal LPtr reg)
+      emitMakeIOSuccess (OLocal LPtr reg)
     (PrimNewForeignPtr_, [pointer]) -> do
       rawPointer <- emitExpectAtomPointer env pointer
       reg <- freshRegister "foreign_ptr"
       emit (ICall (Just reg) LPtr (DirectCall makeForeignPtrFunctionName) False [(LPtr, rawPointer), (LPtr, OConstNull)])
-      pure (OLocal LPtr reg)
+      emitMakeIOSuccess (OLocal LPtr reg)
     (PrimAddForeignPtrFinalizer, [finalizer, foreignPtr]) -> do
       finalizerPointer <- emitExpectAtomPointer env finalizer
       foreignPtrObject <- emitAtomAddress env foreignPtr
       emit (ICall Nothing LVoid (DirectCall addForeignPtrFinalizerFunctionName) False [(LPtr, foreignPtrObject), (LPtr, finalizerPointer)])
-      emitConstructorObject unitDataConName unitTy []
+      unitObject <- emitConstructorObject unitDataConName unitTy []
+      emitMakeIOSuccess unitObject
     (PrimFinalizeForeignPtr, [foreignPtr]) -> do
       foreignPtrObject <- emitAtomAddress env foreignPtr
       emit (ICall Nothing LVoid (DirectCall finalizeForeignPtrFunctionName) False [(LPtr, foreignPtrObject)])
-      emitConstructorObject unitDataConName unitTy []
+      unitObject <- emitConstructorObject unitDataConName unitTy []
+      emitMakeIOSuccess unitObject
     (PrimWithForeignPtr, [foreignPtr, continuation]) -> do
       foreignPtrObject <- emitAtomAddress env foreignPtr
       rawPointerReg <- freshRegister "foreign_ptr_payload"
@@ -532,7 +569,8 @@ emitPrim env op arguments =
     (PrimTouchForeignPtr, [foreignPtr]) -> do
       foreignPtrObject <- emitAtomAddress env foreignPtr
       emit (ICall Nothing LVoid (DirectCall touchForeignPtrFunctionName) False [(LPtr, foreignPtrObject)])
-      emitConstructorObject unitDataConName unitTy []
+      unitObject <- emitConstructorObject unitDataConName unitTy []
+      emitMakeIOSuccess unitObject
     _ ->
       throwSTGLLVM
         ( STGLLVMUnsupported
@@ -556,7 +594,8 @@ emitForeignCall env foreignImport arguments =
 emitStaticForeignCall :: ValueEnv -> CoreForeignImport -> [STGAtom] -> FunctionM LLVMOperand
 emitStaticForeignCall env foreignImport arguments = do
   abi <- liftEitherSTGLLVM (foreignFunctionABI foreignImport)
-  let expectedArity = length (foreignFunctionArguments abi)
+  let (_argumentTypes, declaredResultTy) = splitForeignFunctionType (coreForeignImportType foreignImport)
+      expectedArity = length (foreignFunctionArguments abi)
       actualArity = length arguments
   if expectedArity == actualArity
     then pure ()
@@ -578,7 +617,8 @@ emitStaticForeignCall env foreignImport arguments = do
   case foreignFunctionResult abi of
     ForeignABIVoid -> do
       emit (ICall Nothing LVoid (DirectCall (foreignFunctionSymbol abi)) False marshalledArguments)
-      emitConstructorObject unitDataConName unitTy []
+      unitObject <- emitConstructorObject unitDataConName unitTy []
+      emitForeignResult declaredResultTy unitObject
     resultABI -> do
       resultRegister <- freshRegister "foreign_result"
       emit
@@ -589,12 +629,14 @@ emitStaticForeignCall env foreignImport arguments = do
             False
             marshalledArguments
         )
-      emitBoxForeignResult resultABI (OLocal (foreignABITypeLLVM resultABI) resultRegister)
+      boxedResult <- emitBoxForeignResult resultABI (OLocal (foreignABITypeLLVM resultABI) resultRegister)
+      emitForeignResult declaredResultTy boxedResult
 
 emitForeignDynamicCall :: ValueEnv -> CoreForeignImport -> [STGAtom] -> FunctionM LLVMOperand
 emitForeignDynamicCall env foreignImport arguments = do
   abi <- liftEitherSTGLLVM (foreignDynamicFunctionABI foreignImport)
-  let expectedArity = 1 + length (foreignFunctionArguments abi)
+  let (_argumentTypes, declaredResultTy) = splitForeignFunctionType (coreForeignImportType foreignImport)
+      expectedArity = 1 + length (foreignFunctionArguments abi)
       actualArity = length arguments
   if expectedArity == actualArity
     then pure ()
@@ -619,7 +661,8 @@ emitForeignDynamicCall env foreignImport arguments = do
       case foreignFunctionResult abi of
         ForeignABIVoid -> do
           emit (ICall Nothing LVoid (IndirectCall functionPointer) False marshalledArguments)
-          emitConstructorObject unitDataConName unitTy []
+          unitObject <- emitConstructorObject unitDataConName unitTy []
+          emitForeignResult declaredResultTy unitObject
         resultABI -> do
           resultRegister <- freshRegister "foreign_dynamic_result"
           emit
@@ -630,7 +673,8 @@ emitForeignDynamicCall env foreignImport arguments = do
                 False
                 marshalledArguments
             )
-          emitBoxForeignResult resultABI (OLocal (foreignABITypeLLVM resultABI) resultRegister)
+          boxedResult <- emitBoxForeignResult resultABI (OLocal (foreignABITypeLLVM resultABI) resultRegister)
+          emitForeignResult declaredResultTy boxedResult
     [] ->
       throwSTGLLVM (STGLLVMUnsupported ("foreign dynamic call `" <> renderRName (coreForeignImportName foreignImport) <> "` is missing its FunPtr argument"))
 
@@ -639,13 +683,15 @@ emitForeignWrapperCall env foreignImport arguments = do
   _ <- liftEitherSTGLLVM (foreignWrapperFunctionABI foreignImport)
   case arguments of
     [callbackAtom] -> do
+      let (_argumentTypes, declaredResultTy) = splitForeignFunctionType (coreForeignImportType foreignImport)
       wrapperFunctions <- ensureForeignWrapperFunctions foreignImport
       callbackObject <- emitAtomAddress env callbackAtom
       wrapperIndex <- emitClaimForeignWrapperSlot foreignImport
       slotPointer <- emitForeignWrapperSlotPointer (foreignWrapperSlotsName foreignImport) wrapperIndex
       emit (IStore LPtr callbackObject slotPointer)
       functionPointer <- emitForeignWrapperFunctionPointer wrapperIndex wrapperFunctions
-      emitMakePointer functionPointer
+      pointerObject <- emitMakePointer functionPointer
+      emitForeignResult declaredResultTy pointerObject
     _ ->
       throwSTGLLVM
         ( STGLLVMUnsupported
@@ -665,12 +711,13 @@ ensureForeignWrapperFunctions foreignImport =
         pure functionNames
       Nothing -> do
         abi <- liftEitherModule (foreignWrapperFunctionABI foreignImport)
+        targetTy <- liftEitherModule (foreignWrapperTargetType foreignImport)
         let functionNames = foreignWrapperFunctionNames foreignImport
             slotsName = foreignWrapperSlotsName foreignImport
         functions <-
           traverse
             ( \(index, functionName) ->
-                buildForeignWrapperFunction slotsName index functionName abi
+                buildForeignWrapperFunction slotsName index functionName targetTy abi
             )
             (zip [0 :: Int ..] functionNames)
         modify' $
@@ -739,22 +786,24 @@ emitForeignWrapperFunctionPointer index functionNames = do
       startBlock nextLabel
       go joinLabel (incoming <> [(OGlobal LPtr functionName, matchedPredecessor)]) rest
 
-buildForeignWrapperFunction :: Text -> Int -> Text -> ForeignFunctionABI -> ModuleM LLVMFunction
-buildForeignWrapperFunction slotsName slotIndex functionName abi =
+buildForeignWrapperFunction :: Text -> Int -> Text -> CoreType -> ForeignFunctionABI -> ModuleM LLVMFunction
+buildForeignWrapperFunction slotsName slotIndex functionName targetTy abi =
   case foreignFunctionResult abi of
     ForeignABIVoid ->
       runVoidFunction functionName params $ do
         resultObject <- emitForeignWrapperCallbackResult slotsName slotIndex abi params
-        _ <- emitForce resultObject
+        _ <- emitForeignReturnValue declaredResultTy resultObject
         pure ()
     resultABI ->
       runFunction functionName (foreignABITypeLLVM resultABI) params $ do
         resultObject <- emitForeignWrapperCallbackResult slotsName slotIndex abi params
-        forcedResult <- emitForce resultObject
+        forcedResult <- emitForeignReturnValue declaredResultTy resultObject
         emitUnboxForeignReturn resultABI forcedResult
  where
   params =
     foreignABIParameters abi
+  (_argumentTypes, declaredResultTy) =
+    splitForeignFunctionType targetTy
 
 foreignABIParameters :: ForeignFunctionABI -> [(LLVMType, Register)]
 foreignABIParameters abi =
@@ -1307,6 +1356,118 @@ emitMakePointer value = do
   emit (ICall (Just reg) LPtr (DirectCall makePointerFunctionName) False [(LPtr, value)])
   pure (OLocal LPtr reg)
 
+emitMakeIOSuccess :: LLVMOperand -> FunctionM LLVMOperand
+emitMakeIOSuccess value = do
+  reg <- freshRegister "io_success"
+  emit (ICall (Just reg) LPtr (DirectCall makeIOSuccessFunctionName) False [(LPtr, value)])
+  pure (OLocal LPtr reg)
+
+emitMakeIOFailure :: LLVMOperand -> FunctionM LLVMOperand
+emitMakeIOFailure value = do
+  reg <- freshRegister "io_failure"
+  emit (ICall (Just reg) LPtr (DirectCall makeIOFailureFunctionName) False [(LPtr, value)])
+  pure (OLocal LPtr reg)
+
+emitUserIOError :: LLVMOperand -> FunctionM LLVMOperand
+emitUserIOError messageObject = do
+  errorType <- emitConstructorObject ioErrorUserTypeDataConName ioErrorTypeTy []
+  nothingHandle <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) handleTy) []
+  nothingFile <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) stringTy) []
+  emitConstructorObject ioErrorDataConName ioErrorTy [errorType, messageObject, nothingHandle, nothingFile]
+
+emitIOResultBranch :: LLVMOperand -> FunctionM LLVMOperand -> FunctionM LLVMOperand -> FunctionM LLVMOperand
+emitIOResultBranch result onFailure onSuccess = do
+  isFailure <- emitIOResultIsFailure result
+  failureLabel <- freshBlockLabel "io_failure"
+  successLabel <- freshBlockLabel "io_success"
+  joinLabel <- freshBlockLabel "io_join"
+  terminateCurrent (TCondBr isFailure failureLabel successLabel)
+
+  startBlock failureLabel
+  failureResult <- onFailure
+  failurePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock successLabel
+  successResult <- onSuccess
+  successPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  resultRegister <- freshRegister "io_result"
+  emit (IPhi resultRegister LPtr [(failureResult, failurePredecessor), (successResult, successPredecessor)])
+  pure (OLocal LPtr resultRegister)
+
+emitIOResultIsFailure :: LLVMOperand -> FunctionM LLVMOperand
+emitIOResultIsFailure result = do
+  tag <- loadObjectI64Field result 0 "io_result_tag"
+  failureRegister <- freshRegister "io_is_failure"
+  emit (IIcmp failureRegister ICmpEq LI64 tag (OConstInt LI64 tagIOFailure))
+  pure (OLocal LI1 failureRegister)
+
+emitIOResultPayload :: LLVMOperand -> FunctionM LLVMOperand
+emitIOResultPayload result =
+  loadObjectPtrField result 2 "io_result_payload"
+
+emitIOResultExitCode :: LLVMOperand -> FunctionM LLVMOperand
+emitIOResultExitCode result = do
+  isFailure <- emitIOResultIsFailure result
+  failureLabel <- freshBlockLabel "io_main_failure"
+  successLabel <- freshBlockLabel "io_main_success"
+  joinLabel <- freshBlockLabel "io_main_join"
+  terminateCurrent (TCondBr isFailure failureLabel successLabel)
+
+  startBlock failureLabel
+  failurePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock successLabel
+  successPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  exitRegister <- freshRegister "io_exit"
+  emit (IPhi exitRegister LI32 [(OConstInt LI32 1, failurePredecessor), (OConstInt LI32 0, successPredecessor)])
+  pure (OLocal LI32 exitRegister)
+
+emitIOResultSuccessPayloadOrAbort :: LLVMOperand -> FunctionM LLVMOperand
+emitIOResultSuccessPayloadOrAbort result = do
+  tag <- loadObjectI64Field result 0 "io_result_tag"
+  successRegister <- freshRegister "io_is_success"
+  emit (IIcmp successRegister ICmpEq LI64 tag (OConstInt LI64 tagIOSuccess))
+  successLabel <- freshBlockLabel "io_unwrap_success"
+  abortLabel <- freshBlockLabel "io_unwrap_failure"
+  terminateCurrent (TCondBr (OLocal LI1 successRegister) successLabel abortLabel)
+
+  startBlock abortLabel
+  emitAbort
+
+  startBlock successLabel
+  emitIOResultPayload result
+
+emitForeignResult :: CoreType -> LLVMOperand -> FunctionM LLVMOperand
+emitForeignResult resultTy value =
+  case foreignIOPayloadTypeMaybe resultTy of
+    Just _ -> emitMakeIOSuccess value
+    Nothing -> pure value
+
+emitForeignReturnValue :: CoreType -> LLVMOperand -> FunctionM LLVMOperand
+emitForeignReturnValue resultTy resultObject =
+  case foreignIOPayloadTypeMaybe resultTy of
+    Just _ -> do
+      ioResult <- emitForce resultObject
+      emitIOResultSuccessPayloadOrAbort ioResult
+    Nothing ->
+      emitForce resultObject
+
+ioTryResultType :: STGAtom -> FunctionM CoreType
+ioTryResultType action =
+  case foreignIOPayloadTypeMaybe (stgAtomType action) of
+    Just payloadTy ->
+      pure (CTyApp (CTyApp (CTyCon eitherTyConName) ioErrorTy) payloadTy)
+    Nothing ->
+      throwSTGLLVM (STGLLVMUnsupported ("try# expected IO action, got " <> renderCoreType (stgAtomType action)))
+
 emitMakeStringLiteral :: Text -> FunctionM LLVMOperand
 emitMakeStringLiteral value =
   Text.foldr cons nil value
@@ -1705,13 +1866,18 @@ foreignDynamicFunctionABI foreignImport = do
 
 foreignWrapperFunctionABI :: CoreForeignImport -> Either STGLLVMError ForeignFunctionABI
 foreignWrapperFunctionABI foreignImport = do
+  targetTy <- foreignWrapperTargetType foreignImport
+  foreignFunctionABIFromType (foreignDynamicTargetSymbolName foreignImport) targetTy
+
+foreignWrapperTargetType :: CoreForeignImport -> Either STGLLVMError CoreType
+foreignWrapperTargetType foreignImport = do
   validateNativeCCall "native FFI wrapper import" foreignImport
   case splitForeignFunctionType (coreForeignImportType foreignImport) of
     ([targetTy], resultTy)
       | Just resultPayload <- foreignIOPayloadTypeMaybe resultTy
       , Just (ForeignFunctionPointer pointerTargetTy) <- foreignPointerKind resultPayload
       , pointerTargetTy == targetTy ->
-          foreignFunctionABIFromType (foreignDynamicTargetSymbolName foreignImport) targetTy
+          Right targetTy
     _ ->
       Left (STGLLVMUnsupported ("native FFI wrapper import `" <> renderRName (coreForeignImportName foreignImport) <> "` must have type ft -> IO (FunPtr ft)"))
 
@@ -2042,6 +2208,8 @@ runtimeFunctions =
   , makeBoolFunction
   , makeCharFunction
   , makePointerFunction
+  , makeIOSuccessFunction
+  , makeIOFailureFunction
   , makeStringFunction
   , makeDataFunction
   , makeFunctionFunction
@@ -2149,6 +2317,24 @@ makePointerFunction =
     makePointerFunctionName
     [(LPtr, Register "value")]
     [ (0, LI64, OConstInt LI64 tagPointer)
+    , (2, LPtr, OLocal LPtr (Register "value"))
+    ]
+
+makeIOSuccessFunction :: LLVMFunction
+makeIOSuccessFunction =
+  makeValueFunction
+    makeIOSuccessFunctionName
+    [(LPtr, Register "value")]
+    [ (0, LI64, OConstInt LI64 tagIOSuccess)
+    , (2, LPtr, OLocal LPtr (Register "value"))
+    ]
+
+makeIOFailureFunction :: LLVMFunction
+makeIOFailureFunction =
+  makeValueFunction
+    makeIOFailureFunctionName
+    [(LPtr, Register "value")]
+    [ (0, LI64, OConstInt LI64 tagIOFailure)
     , (2, LPtr, OLocal LPtr (Register "value"))
     ]
 
@@ -2961,7 +3147,7 @@ foreignPtrFinalizerSlot :: Int -> [(LLVMType, LLVMOperand)]
 foreignPtrFinalizerSlot index =
   [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 (fromIntegral index))]
 
-tagInt, tagBool, tagFunction, tagThunk, tagBlackHole, tagIndirection, tagData, tagChar, tagString, tagPointer :: Integer
+tagInt, tagBool, tagFunction, tagThunk, tagBlackHole, tagIndirection, tagData, tagChar, tagString, tagPointer, tagIOSuccess, tagIOFailure :: Integer
 tagInt = 0
 tagBool = 1
 tagFunction = 2
@@ -2972,6 +3158,8 @@ tagData = 6
 tagChar = 7
 tagString = 8
 tagPointer = 9
+tagIOSuccess = 10
+tagIOFailure = 11
 
 updatableCode, singleEntryCode :: Integer
 updatableCode = 0
@@ -2986,13 +3174,15 @@ constructorRuntimeTag :: RName -> Integer
 constructorRuntimeTag =
   fromIntegral . nameUnique
 
-processLifetimeAllocFunctionName, allocObjectFunctionName, makeIntFunctionName, makeBoolFunctionName, makeCharFunctionName, makePointerFunctionName, makeStringFunctionName, makeDataFunctionName :: Text
+processLifetimeAllocFunctionName, allocObjectFunctionName, makeIntFunctionName, makeBoolFunctionName, makeCharFunctionName, makePointerFunctionName, makeIOSuccessFunctionName, makeIOFailureFunctionName, makeStringFunctionName, makeDataFunctionName :: Text
 processLifetimeAllocFunctionName = "hegglog_hs_alloc_process_lifetime"
 allocObjectFunctionName = "hegglog_hs_alloc_object"
 makeIntFunctionName = "hegglog_hs_make_int"
 makeBoolFunctionName = "hegglog_hs_make_bool"
 makeCharFunctionName = "hegglog_hs_make_char"
 makePointerFunctionName = "hegglog_hs_make_ptr"
+makeIOSuccessFunctionName = "hegglog_hs_make_io_success"
+makeIOFailureFunctionName = "hegglog_hs_make_io_failure"
 makeStringFunctionName = "hegglog_hs_make_string"
 makeDataFunctionName = "hegglog_hs_make_data"
 

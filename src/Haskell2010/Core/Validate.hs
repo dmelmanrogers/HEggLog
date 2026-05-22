@@ -328,6 +328,9 @@ validatePrimitive op arguments resultTy =
     PrimIOBind -> validateIOBindPrimitive op arguments resultTy
     PrimIOReturn -> validateIOReturnPrimitive op arguments resultTy
     PrimIOFail -> validateIOFailPrimitive op arguments resultTy
+    PrimIOError -> validateIOErrorPrimitive op arguments resultTy
+    PrimIOCatch -> validateIOCatchPrimitive op arguments resultTy
+    PrimIOTry -> validateIOTryPrimitive op arguments resultTy
     PrimNewStablePtr -> validateNewStablePtrPrimitive op arguments resultTy
     PrimDeRefStablePtr -> validateDeRefStablePtrPrimitive op arguments resultTy
     PrimFreeStablePtr -> validateFreeStablePtrPrimitive op arguments resultTy
@@ -447,6 +450,48 @@ validateIOFailPrimitive op arguments resultTy =
             Left [CorePrimitiveResultMismatch op (ioTy (CTyVar unknownIOTypeVariable)) resultTy]
         | otherwise ->
             Left [CorePrimitiveArgumentMismatch op 0 stringTy messageTy]
+      _ -> Right ()
+  ]
+
+validateIOErrorPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateIOErrorPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [errorTy]
+        | normalizeCoreType errorTy == ioErrorTy
+        , Just _ <- ioResultType resultTy ->
+            Right ()
+        | normalizeCoreType errorTy == ioErrorTy ->
+            Left [CorePrimitiveResultMismatch op (ioTy (CTyVar unknownIOTypeVariable)) resultTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 ioErrorTy errorTy]
+      _ -> Right ()
+  ]
+
+validateIOCatchPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateIOCatchPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 2 arguments
+  , case map exprType arguments of
+      [actionTy, handlerTy]
+        | Just _ <- ioResultType actionTy
+        , handlerTy == CTyFun ioErrorTy actionTy ->
+            checkPrimitiveResult op actionTy resultTy
+        | Just actionResultTy <- ioResultType actionTy ->
+            Left [CorePrimitiveArgumentMismatch op 1 (CTyFun ioErrorTy (ioTy actionResultTy)) handlerTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ioTy (CTyVar unknownIOTypeVariable)) actionTy]
+      _ -> Right ()
+  ]
+
+validateIOTryPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateIOTryPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [actionTy]
+        | Just actionResultTy <- ioResultType actionTy ->
+            checkPrimitiveResult op (ioTy (eitherTy ioErrorTy actionResultTy)) resultTy
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ioTy (CTyVar unknownIOTypeVariable)) actionTy]
       _ -> Right ()
   ]
 
@@ -619,6 +664,10 @@ ioResultType = \case
   CTyApp (CTyCon name) resultTy
     | name == ioTyConName -> Just resultTy
   _ -> Nothing
+
+eitherTy :: CoreType -> CoreType -> CoreType
+eitherTy lhs rhs =
+  CTyApp (CTyApp (CTyCon eitherTyConName) lhs) rhs
 
 unknownIOTypeVariable :: RName
 unknownIOTypeVariable =

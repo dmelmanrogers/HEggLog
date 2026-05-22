@@ -38,7 +38,7 @@ data CoreValue
   | CoreBool Bool
   | CoreChar Char
   | CoreString Text
-  | CoreIO [Text] CoreValue
+  | CoreIO [Text] CoreIOResult
   | CorePointer (Maybe CoreValue)
   | CoreStablePtr CoreValue
   | CoreForeignPtr CoreValue
@@ -46,6 +46,11 @@ data CoreValue
   | CoreTypeClosure Env [RName] CoreExpr
   | CoreConstructor RName [CoreThunk]
   | CoreData RName [CoreThunk]
+  deriving stock (Show)
+
+data CoreIOResult
+  = CoreIOSuccess CoreValue
+  | CoreIOFailure CoreValue
   deriving stock (Show)
 
 data CoreEvalError
@@ -158,7 +163,7 @@ evalExpr coreEnv env = \case
   CCoerce expression _ ->
     evalExpr coreEnv env expression
   CPrimOp op arguments _ ->
-    traverse (evalExpr coreEnv env) arguments >>= evalPrimitive coreEnv op
+    evalPrimitiveExpr coreEnv env op arguments
   CForeignCall foreignImport arguments _ -> do
     _ <- traverse (evalExpr coreEnv env) arguments
     Left (CoreEvalUnsupportedForeign ("foreign call `" <> renderRName (coreForeignImportName foreignImport) <> "` requires native FFI ABI support"))
@@ -283,6 +288,73 @@ alternativeFields altCon value =
     _ ->
       Nothing
 
+evalPrimitiveExpr :: CoreValidate.CoreValidationEnv -> Env -> CorePrimOp -> [CoreExpr] -> Either CoreEvalError CoreValue
+evalPrimitiveExpr coreEnv env op arguments =
+  case (op, arguments) of
+    (PrimIOThen, [firstExpr, secondExpr]) -> do
+      first <- evalExpr coreEnv env firstExpr
+      case first of
+        CoreIO firstChunks (CoreIOFailure err) ->
+          Right (CoreIO firstChunks (CoreIOFailure err))
+        CoreIO firstChunks (CoreIOSuccess _) -> do
+          second <- evalExpr coreEnv env secondExpr
+          case second of
+            CoreIO secondChunks result ->
+              Right (CoreIO (firstChunks <> secondChunks) result)
+            other ->
+              Left (CoreEvalTypeError ("expected Core IO action from then continuation, got " <> renderCoreValue other))
+        other ->
+          Left (CoreEvalTypeError ("expected Core IO action, got " <> renderCoreValue other))
+    (PrimIOBind, [firstExpr, continuationExpr]) -> do
+      first <- evalExpr coreEnv env firstExpr
+      case first of
+        CoreIO firstChunks (CoreIOFailure err) ->
+          Right (CoreIO firstChunks (CoreIOFailure err))
+        CoreIO firstChunks (CoreIOSuccess value) -> do
+          continuation <- evalExpr coreEnv env continuationExpr
+          case continuation of
+            CoreClosure closureEnv binder body -> do
+              second <- evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated value) closureEnv) body
+              case second of
+                CoreIO secondChunks result ->
+                  Right (CoreIO (firstChunks <> secondChunks) result)
+                other ->
+                  Left (CoreEvalTypeError ("expected Core IO action from bind continuation, got " <> renderCoreValue other))
+            other ->
+              Left (CoreEvalTypeError ("expected Core IO bind continuation, got " <> renderCoreValue other))
+        other ->
+          Left (CoreEvalTypeError ("expected Core IO action, got " <> renderCoreValue other))
+    (PrimIOCatch, [actionExpr, handlerExpr]) -> do
+      action <- evalExpr coreEnv env actionExpr
+      case action of
+        CoreIO chunks (CoreIOSuccess value) ->
+          Right (CoreIO chunks (CoreIOSuccess value))
+        CoreIO chunks (CoreIOFailure err) -> do
+          handler <- evalExpr coreEnv env handlerExpr
+          case handler of
+            CoreClosure closureEnv binder body -> do
+              handled <- evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated err) closureEnv) body
+              case handled of
+                CoreIO handledChunks result ->
+                  Right (CoreIO (chunks <> handledChunks) result)
+                other ->
+                  Left (CoreEvalTypeError ("expected Core IO action from catch handler, got " <> renderCoreValue other))
+            other ->
+              Left (CoreEvalTypeError ("expected Core IO catch handler, got " <> renderCoreValue other))
+        other ->
+          Left (CoreEvalTypeError ("expected Core IO action, got " <> renderCoreValue other))
+    (PrimIOTry, [actionExpr]) -> do
+      action <- evalExpr coreEnv env actionExpr
+      case action of
+        CoreIO chunks (CoreIOSuccess value) ->
+          Right (CoreIO chunks (CoreIOSuccess (CoreData eitherRightDataConName [Evaluated value])))
+        CoreIO chunks (CoreIOFailure err) ->
+          Right (CoreIO chunks (CoreIOSuccess (CoreData eitherLeftDataConName [Evaluated err])))
+        other ->
+          Left (CoreEvalTypeError ("expected Core IO action, got " <> renderCoreValue other))
+    _ ->
+      traverse (evalExpr coreEnv env) arguments >>= evalPrimitive coreEnv op
+
 evalPrimitive :: CoreValidate.CoreValidationEnv -> CorePrimOp -> [CoreValue] -> Either CoreEvalError CoreValue
 evalPrimitive coreEnv op values =
   case (op, values) of
@@ -322,40 +394,33 @@ evalPrimitive coreEnv op values =
     (PrimShowBool, [CoreBool False]) ->
       Right (coreStringList "False")
     (PrimPutStrLn, [value]) ->
-      (\text -> CoreIO [text <> "\n"] (CoreData unitDataConName [])) <$> coreStringText coreEnv value
+      (\text -> CoreIO [text <> "\n"] (CoreIOSuccess (CoreData unitDataConName []))) <$> coreStringText coreEnv value
     (PrimGetLine, []) ->
-      Right (CoreIO [] (coreStringList ""))
-    (PrimIOThen, [CoreIO first _, CoreIO second result]) ->
-      Right (CoreIO (first <> second) result)
-    (PrimIOBind, [CoreIO first value, CoreClosure closureEnv binder body]) -> do
-      second <- evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated value) closureEnv) body
-      case second of
-        CoreIO secondChunks result ->
-          Right (CoreIO (first <> secondChunks) result)
-        other ->
-          Left (CoreEvalTypeError ("expected Core IO action from bind continuation, got " <> renderCoreValue other))
+      Right (CoreIO [] (CoreIOSuccess (coreStringList "")))
     (PrimIOReturn, [value]) ->
-      Right (CoreIO [] value)
+      Right (CoreIO [] (CoreIOSuccess value))
     (PrimIOFail, [value]) ->
-      coreStringText coreEnv value >>= \message -> Left (CoreEvalTypeError ("IO fail: " <> message))
+      coreStringText coreEnv value >>= \message -> Right (CoreIO [] (CoreIOFailure (coreUserIOError message)))
+    (PrimIOError, [value]) ->
+      Right (CoreIO [] (CoreIOFailure value))
     (PrimNewStablePtr, [value]) ->
-      Right (CoreIO [] (CoreStablePtr value))
+      Right (CoreIO [] (CoreIOSuccess (CoreStablePtr value)))
     (PrimDeRefStablePtr, [CoreStablePtr value]) ->
-      Right (CoreIO [] value)
+      Right (CoreIO [] (CoreIOSuccess value))
     (PrimFreeStablePtr, [CoreStablePtr _]) ->
-      Right (CoreIO [] (CoreData unitDataConName []))
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
     (PrimCastStablePtrToPtr, [CoreStablePtr value]) ->
       Right (CorePointer (Just value))
     (PrimCastPtrToStablePtr, [CorePointer (Just value)]) ->
       Right (CoreStablePtr value)
     (PrimNewForeignPtr, [_finalizer, pointer]) ->
-      Right (CoreIO [] (CoreForeignPtr pointer))
+      Right (CoreIO [] (CoreIOSuccess (CoreForeignPtr pointer)))
     (PrimNewForeignPtr_, [pointer]) ->
-      Right (CoreIO [] (CoreForeignPtr pointer))
+      Right (CoreIO [] (CoreIOSuccess (CoreForeignPtr pointer)))
     (PrimAddForeignPtrFinalizer, [_finalizer, CoreForeignPtr _]) ->
-      Right (CoreIO [] (CoreData unitDataConName []))
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
     (PrimFinalizeForeignPtr, [CoreForeignPtr _]) ->
-      Right (CoreIO [] (CoreData unitDataConName []))
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
     (PrimWithForeignPtr, [CoreForeignPtr pointer, CoreClosure closureEnv binder body]) -> do
       action <- evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated pointer) closureEnv) body
       case action of
@@ -364,7 +429,7 @@ evalPrimitive coreEnv op values =
         other ->
           Left (CoreEvalTypeError ("expected Core IO action from withForeignPtr continuation, got " <> renderCoreValue other))
     (PrimTouchForeignPtr, [CoreForeignPtr _]) ->
-      Right (CoreIO [] (CoreData unitDataConName []))
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
     _ ->
       Left (CoreEvalTypeError ("invalid Core primitive operands for " <> renderCorePrimOpName op))
  where
@@ -376,6 +441,16 @@ evalPrimitive coreEnv op values =
     case mkHIntLiteral 0 of
       Right value -> value
       Left err -> error (Text.unpack (renderIntError err))
+
+coreUserIOError :: Text -> CoreValue
+coreUserIOError message =
+  CoreData
+    ioErrorDataConName
+    [ Evaluated (CoreData ioErrorUserTypeDataConName [])
+    , Evaluated (coreStringList message)
+    , Evaluated (CoreData maybeNothingDataConName [])
+    , Evaluated (CoreData maybeNothingDataConName [])
+    ]
 
 coreStringText :: CoreValidate.CoreValidationEnv -> CoreValue -> Either CoreEvalError Text
 coreStringText coreEnv = \case
@@ -501,6 +576,9 @@ renderCorePrimOpName = \case
   PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"
   PrimIOFail -> "failIO#"
+  PrimIOError -> "ioError#"
+  PrimIOCatch -> "catchIO#"
+  PrimIOTry -> "tryIO#"
   PrimNewStablePtr -> "newStablePtr#"
   PrimDeRefStablePtr -> "deRefStablePtr#"
   PrimFreeStablePtr -> "freeStablePtr#"

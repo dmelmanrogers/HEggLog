@@ -757,6 +757,19 @@
       "notes": "Explicit IO fail compiles through the Monad IO dictionary and exits nonzero at runtime."
     },
     {
+      "name": "io.io-error",
+      "sourceFile": "test/haskell2010/conformance/io/io-error.hs",
+      "category": "io",
+      "expectedStatus": "native-success",
+      "expectedStdout": "caught:boom\nTrue\nmissing\npath.txt\n7\nTrue\nfailed\nTrue\nnew\nann.txt\nuser error\ndoes not exist\nTrue\nTrue\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "System.IO.Error values, IOErrorType constants, classifiers, accessors, annotateIOError, catch, try, and IO fail recovery compose through native IO result wrappers."
+    },
+    {
       "name": "egglog.known-constructor",
       "sourceFile": "test/haskell2010/conformance/egglog/known-constructor.hs",
       "category": "egglog",
@@ -1371,15 +1384,6 @@
       "expectedDiagnosticCategory": "could not read",
       "requiredStage": "module-graph",
       "notes": "System.Exit remains reserved until ExitCode and exit actions are implemented under LIB-011."
-    },
-    {
-      "name": "unsupported.library-system-io-error",
-      "sourceFile": "test/haskell2010/conformance/unsupported/library-system-io-error.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
-      "requiredStage": "module-graph",
-      "notes": "System.IO.Error remains reserved until rich IO error types, predicates, and catch/throw behavior are implemented under IO-011."
     },
     {
       "name": "unsupported.package-module-search-path",

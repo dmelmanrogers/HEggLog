@@ -49,12 +49,17 @@ data STGValue
   | STGBool Bool
   | STGChar Char
   | STGString Text
-  | STGIO [Text] STGValue
+  | STGIO [Text] STGIOResult
   | STGPointer (Maybe STGValue)
   | STGStablePtr STGValue
   | STGForeignPtr STGValue
   | STGData RName [STGHeapAddress]
   | STGFunctionValue STGHeapAddress
+  deriving stock (Show, Eq, Ord)
+
+data STGIOResult
+  = STGIOSuccess STGValue
+  | STGIOFailure STGValue
   deriving stock (Show, Eq, Ord)
 
 data STGEvalStats = STGEvalStats
@@ -407,8 +412,79 @@ alternativeFields altCon value =
       Nothing
 
 evalPrimitive :: RuntimeEnv -> CorePrimOp -> [STGAtom] -> EvalM STGValue
-evalPrimitive env op arguments = do
-  values <- traverse (evalAtom env) arguments
+evalPrimitive env op arguments =
+  case (op, arguments) of
+    (PrimIOThen, [firstAtom, secondAtom]) -> do
+      first <- evalAtom env firstAtom
+      case first of
+        STGIO firstChunks (STGIOFailure err) ->
+          pure (STGIO firstChunks (STGIOFailure err))
+        STGIO firstChunks (STGIOSuccess _) -> do
+          second <- evalAtom env secondAtom
+          case second of
+            STGIO secondChunks result ->
+              pure (STGIO (firstChunks <> secondChunks) result)
+            other ->
+              typeError ("expected STG IO action from then continuation, got " <> renderSTGValue other)
+        other ->
+          typeError ("expected STG IO action, got " <> renderSTGValue other)
+    (PrimIOBind, [firstAtom, continuationAtom]) -> do
+      first <- evalAtom env firstAtom
+      case first of
+        STGIO firstChunks (STGIOFailure err) ->
+          pure (STGIO firstChunks (STGIOFailure err))
+        STGIO firstChunks (STGIOSuccess value) -> do
+          continuation <- evalAtom env continuationAtom
+          case continuation of
+            STGFunctionValue functionAddress -> do
+              valueAddress <- allocateClosure (ValueClosure value)
+              second <- enterFunctionAddressWithArguments ioBindContinuationName functionAddress [valueAddress]
+              case second of
+                STGIO secondChunks result ->
+                  pure (STGIO (firstChunks <> secondChunks) result)
+                other ->
+                  typeError ("expected STG IO action from bind continuation, got " <> renderSTGValue other)
+            other ->
+              typeError ("expected STG IO bind continuation, got " <> renderSTGValue other)
+        other ->
+          typeError ("expected STG IO action, got " <> renderSTGValue other)
+    (PrimIOCatch, [actionAtom, handlerAtom]) -> do
+      action <- evalAtom env actionAtom
+      case action of
+        STGIO chunks (STGIOSuccess value) ->
+          pure (STGIO chunks (STGIOSuccess value))
+        STGIO chunks (STGIOFailure err) -> do
+          handler <- evalAtom env handlerAtom
+          case handler of
+            STGFunctionValue functionAddress -> do
+              errorAddress <- allocateClosure (ValueClosure err)
+              handled <- enterFunctionAddressWithArguments ioCatchHandlerName functionAddress [errorAddress]
+              case handled of
+                STGIO handledChunks result ->
+                  pure (STGIO (chunks <> handledChunks) result)
+                other ->
+                  typeError ("expected STG IO action from catch handler, got " <> renderSTGValue other)
+            other ->
+              typeError ("expected STG IO catch handler, got " <> renderSTGValue other)
+        other ->
+          typeError ("expected STG IO action, got " <> renderSTGValue other)
+    (PrimIOTry, [actionAtom]) -> do
+      action <- evalAtom env actionAtom
+      case action of
+        STGIO chunks (STGIOSuccess value) -> do
+          valueAddress <- allocateClosure (ValueClosure value)
+          pure (STGIO chunks (STGIOSuccess (STGData eitherRightDataConName [valueAddress])))
+        STGIO chunks (STGIOFailure err) -> do
+          errorAddress <- allocateClosure (ValueClosure err)
+          pure (STGIO chunks (STGIOSuccess (STGData eitherLeftDataConName [errorAddress])))
+        other ->
+          typeError ("expected STG IO action, got " <> renderSTGValue other)
+    _ -> do
+      values <- traverse (evalAtom env) arguments
+      evalPrimitiveValues op values
+
+evalPrimitiveValues :: CorePrimOp -> [STGValue] -> EvalM STGValue
+evalPrimitiveValues op values =
   case (op, values) of
     (PrimAdd, [STGInt lhs, STGInt rhs]) ->
       liftEither (checkedIntValue (addHInt lhs rhs))
@@ -446,41 +522,35 @@ evalPrimitive env op arguments = do
     (PrimShowBool, [STGBool False]) ->
       stringListValue "False"
     (PrimPutStrLn, [value]) ->
-      (\text -> STGIO [text <> "\n"] (STGData unitDataConName [])) <$> stgStringText value
+      (\text -> STGIO [text <> "\n"] (STGIOSuccess (STGData unitDataConName []))) <$> stgStringText value
     (PrimGetLine, []) ->
-      stringListValue "" >>= \line -> pure (STGIO [] line)
-    (PrimIOThen, [STGIO first _, STGIO second result]) ->
-      pure (STGIO (first <> second) result)
-    (PrimIOBind, [STGIO first value, STGFunctionValue functionAddress]) -> do
-      valueAddress <- allocateClosure (ValueClosure value)
-      second <- enterFunctionAddressWithArguments ioBindContinuationName functionAddress [valueAddress]
-      case second of
-        STGIO secondChunks result ->
-          pure (STGIO (first <> secondChunks) result)
-        other ->
-          typeError ("expected STG IO action from bind continuation, got " <> renderSTGValue other)
+      stringListValue "" >>= \line -> pure (STGIO [] (STGIOSuccess line))
     (PrimIOReturn, [value]) ->
-      pure (STGIO [] value)
-    (PrimIOFail, [value]) ->
-      stgStringText value >>= \message -> typeError ("IO fail: " <> message)
+      pure (STGIO [] (STGIOSuccess value))
+    (PrimIOFail, [value]) -> do
+      message <- stgStringText value
+      err <- stgUserIOError message
+      pure (STGIO [] (STGIOFailure err))
+    (PrimIOError, [value]) ->
+      pure (STGIO [] (STGIOFailure value))
     (PrimNewStablePtr, [value]) ->
-      pure (STGIO [] (STGStablePtr value))
+      pure (STGIO [] (STGIOSuccess (STGStablePtr value)))
     (PrimDeRefStablePtr, [STGStablePtr value]) ->
-      pure (STGIO [] value)
+      pure (STGIO [] (STGIOSuccess value))
     (PrimFreeStablePtr, [STGStablePtr _]) ->
-      pure (STGIO [] (STGData unitDataConName []))
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
     (PrimCastStablePtrToPtr, [STGStablePtr value]) ->
       pure (STGPointer (Just value))
     (PrimCastPtrToStablePtr, [STGPointer (Just value)]) ->
       pure (STGStablePtr value)
     (PrimNewForeignPtr, [_finalizer, pointer]) ->
-      pure (STGIO [] (STGForeignPtr pointer))
+      pure (STGIO [] (STGIOSuccess (STGForeignPtr pointer)))
     (PrimNewForeignPtr_, [pointer]) ->
-      pure (STGIO [] (STGForeignPtr pointer))
+      pure (STGIO [] (STGIOSuccess (STGForeignPtr pointer)))
     (PrimAddForeignPtrFinalizer, [_finalizer, STGForeignPtr _]) ->
-      pure (STGIO [] (STGData unitDataConName []))
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
     (PrimFinalizeForeignPtr, [STGForeignPtr _]) ->
-      pure (STGIO [] (STGData unitDataConName []))
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
     (PrimWithForeignPtr, [STGForeignPtr pointer, STGFunctionValue functionAddress]) -> do
       pointerAddress <- allocateClosure (ValueClosure pointer)
       action <- enterFunctionAddressWithArguments withForeignPtrContinuationName functionAddress [pointerAddress]
@@ -490,14 +560,10 @@ evalPrimitive env op arguments = do
         other ->
           typeError ("expected STG IO action from withForeignPtr continuation, got " <> renderSTGValue other)
     (PrimTouchForeignPtr, [STGForeignPtr _]) ->
-      pure (STGIO [] (STGData unitDataConName []))
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
     _ ->
       throwEval (STGEvalTypeError ("invalid STG primitive operands for " <> renderCorePrimOpName op))
  where
-  ioBindContinuationName =
-    RName TermNamespace "$io_bind_continuation" (-3921) False
-  withForeignPtrContinuationName =
-    RName TermNamespace "$with_foreign_ptr_continuation" (-3922) False
   checkedIntValue =
     \case
       Right value -> Right (STGInt value)
@@ -506,6 +572,14 @@ evalPrimitive env op arguments = do
     case mkHIntLiteral 0 of
       Right value -> value
       Left err -> error (Text.unpack (renderIntError err))
+
+ioBindContinuationName, withForeignPtrContinuationName, ioCatchHandlerName :: RName
+ioBindContinuationName =
+  RName TermNamespace "$io_bind_continuation" (-3921) False
+withForeignPtrContinuationName =
+  RName TermNamespace "$with_foreign_ptr_continuation" (-3922) False
+ioCatchHandlerName =
+  RName TermNamespace "$io_catch_handler" (-3923) False
 
 stgStringText :: STGValue -> EvalM Text
 stgStringText = \case
@@ -534,6 +608,15 @@ stringListValue value =
       tailValue <- stringListValue rest
       tailAddress <- allocateClosure (ValueClosure tailValue)
       pure (constructorValue listConsDataConName [headAddress, tailAddress])
+
+stgUserIOError :: Text -> EvalM STGValue
+stgUserIOError message = do
+  errorTypeAddress <- allocateClosure (ValueClosure (constructorValue ioErrorUserTypeDataConName []))
+  messageValue <- stringListValue message
+  messageAddress <- allocateClosure (ValueClosure messageValue)
+  handleAddress <- allocateClosure (ValueClosure (constructorValue maybeNothingDataConName []))
+  fileAddress <- allocateClosure (ValueClosure (constructorValue maybeNothingDataConName []))
+  pure (constructorValue ioErrorDataConName [errorTypeAddress, messageAddress, handleAddress, fileAddress])
 
 valueEquals :: STGValue -> STGValue -> Either STGEvalError Bool
 valueEquals lhs rhs =
@@ -703,6 +786,9 @@ renderCorePrimOpName = \case
   PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"
   PrimIOFail -> "failIO#"
+  PrimIOError -> "ioError#"
+  PrimIOCatch -> "catchIO#"
+  PrimIOTry -> "tryIO#"
   PrimNewStablePtr -> "newStablePtr#"
   PrimDeRefStablePtr -> "deRefStablePtr#"
   PrimFreeStablePtr -> "freeStablePtr#"

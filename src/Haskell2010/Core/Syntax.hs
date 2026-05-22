@@ -22,7 +22,22 @@ module Haskell2010.Core.Syntax
   , funTy
   , funPtrTy
   , funPtrTyConName
+  , handleTy
+  , handleTyConName
   , intTy
+  , ioErrorAlreadyExistsTypeDataConName
+  , ioErrorAlreadyInUseTypeDataConName
+  , ioErrorDataConName
+  , ioErrorDoesNotExistTypeDataConName
+  , ioErrorEOFTypeDataConName
+  , ioErrorFullTypeDataConName
+  , ioErrorIllegalOperationTypeDataConName
+  , ioErrorPermissionTypeDataConName
+  , ioErrorTy
+  , ioErrorTyConName
+  , ioErrorTypeTy
+  , ioErrorTypeTyConName
+  , ioErrorUserTypeDataConName
   , ioTy
   , ioTyConName
   , listTyConName
@@ -158,6 +173,9 @@ data CorePrimOp
   | PrimIOBind
   | PrimIOReturn
   | PrimIOFail
+  | PrimIOError
+  | PrimIOCatch
+  | PrimIOTry
   | PrimNewStablePtr
   | PrimDeRefStablePtr
   | PrimFreeStablePtr
@@ -235,6 +253,30 @@ ioTyConName =
 ioTy :: CoreType -> CoreType
 ioTy =
   CTyApp (CTyCon ioTyConName)
+
+ioErrorTyConName :: RName
+ioErrorTyConName =
+  builtinTypeName "IOError" (-22)
+
+ioErrorTy :: CoreType
+ioErrorTy =
+  CTyCon ioErrorTyConName
+
+ioErrorTypeTyConName :: RName
+ioErrorTypeTyConName =
+  builtinTypeName "IOErrorType" (-23)
+
+ioErrorTypeTy :: CoreType
+ioErrorTypeTy =
+  CTyCon ioErrorTypeTyConName
+
+handleTyConName :: RName
+handleTyConName =
+  builtinTypeName "Handle" (-24)
+
+handleTy :: CoreType
+handleTy =
+  CTyCon handleTyConName
 
 listTyConName :: RName
 listTyConName =
@@ -319,6 +361,42 @@ orderingEQDataConName =
 orderingGTDataConName :: RName
 orderingGTDataConName =
   builtinCon "GT" (-21)
+
+ioErrorDataConName :: RName
+ioErrorDataConName =
+  builtinCon "$IOError" (-40)
+
+ioErrorAlreadyExistsTypeDataConName :: RName
+ioErrorAlreadyExistsTypeDataConName =
+  builtinCon "$AlreadyExistsErrorType" (-41)
+
+ioErrorDoesNotExistTypeDataConName :: RName
+ioErrorDoesNotExistTypeDataConName =
+  builtinCon "$DoesNotExistErrorType" (-42)
+
+ioErrorAlreadyInUseTypeDataConName :: RName
+ioErrorAlreadyInUseTypeDataConName =
+  builtinCon "$AlreadyInUseErrorType" (-43)
+
+ioErrorFullTypeDataConName :: RName
+ioErrorFullTypeDataConName =
+  builtinCon "$FullErrorType" (-44)
+
+ioErrorEOFTypeDataConName :: RName
+ioErrorEOFTypeDataConName =
+  builtinCon "$EOFErrorType" (-45)
+
+ioErrorIllegalOperationTypeDataConName :: RName
+ioErrorIllegalOperationTypeDataConName =
+  builtinCon "$IllegalOperationErrorType" (-46)
+
+ioErrorPermissionTypeDataConName :: RName
+ioErrorPermissionTypeDataConName =
+  builtinCon "$PermissionErrorType" (-47)
+
+ioErrorUserTypeDataConName :: RName
+ioErrorUserTypeDataConName =
+  builtinCon "$UserErrorType" (-48)
 
 tupleDataConName :: Int -> RName
 tupleDataConName arity =

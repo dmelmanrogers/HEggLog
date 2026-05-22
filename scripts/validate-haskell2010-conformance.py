@@ -124,6 +124,7 @@ LIBRARY_CLOSURE_REQUIRED_FIXTURES = {
     "test/haskell2010/conformance/ffi/stable-foreignptr-finalizers.hs",
     "test/haskell2010/conformance/ffi/static-ccall.hs",
     "test/haskell2010/conformance/io/getline.hs",
+    "test/haskell2010/conformance/io/io-error.hs",
     "test/haskell2010/conformance/io/printing.hs",
     "test/haskell2010/conformance/modules/standard-library-modules.hs",
     "test/haskell2010/conformance/modules/standard-library-scalar-types.hs",
@@ -158,7 +159,6 @@ LIBRARY_CLOSURE_REQUIRED_FIXTURES = {
     "test/haskell2010/conformance/unsupported/library-numeric.hs",
     "test/haskell2010/conformance/unsupported/library-system-environment.hs",
     "test/haskell2010/conformance/unsupported/library-system-exit.hs",
-    "test/haskell2010/conformance/unsupported/library-system-io-error.hs",
 }
 
 FIXTURE_PATH_RE = re.compile(r"`(test/haskell2010/conformance/[^`]+\.hs)`")
