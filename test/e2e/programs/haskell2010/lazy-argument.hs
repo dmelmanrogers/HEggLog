@@ -3,4 +3,4 @@ module Main where
 const :: a -> b -> a
 const x y = x
 
-main = const 1 (1 / 0)
+main = const 1 (div 1 0)

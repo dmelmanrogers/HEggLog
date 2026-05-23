@@ -80,6 +80,14 @@ emitInstruction = \case
     assign reg ("sdiv " <> emitTypedOperands ty lhs rhs)
   IRem reg ty lhs rhs ->
     assign reg ("srem " <> emitTypedOperands ty lhs rhs)
+  IFAdd reg ty lhs rhs ->
+    assign reg ("fadd " <> emitTypedOperands ty lhs rhs)
+  IFSub reg ty lhs rhs ->
+    assign reg ("fsub " <> emitTypedOperands ty lhs rhs)
+  IFMul reg ty lhs rhs ->
+    assign reg ("fmul " <> emitTypedOperands ty lhs rhs)
+  IFDiv reg ty lhs rhs ->
+    assign reg ("fdiv " <> emitTypedOperands ty lhs rhs)
   IAnd reg ty lhs rhs ->
     assign reg ("and " <> emitTypedOperands ty lhs rhs)
   IOr reg ty lhs rhs ->
@@ -93,13 +101,21 @@ emitInstruction = \case
   ILshr reg ty lhs rhs ->
     assign reg ("lshr " <> emitTypedOperands ty lhs rhs)
   IIcmp reg predicate ty lhs rhs ->
-    assign reg ("icmp " <> emitPredicate predicate <> " " <> emitTypedOperands ty lhs rhs)
+    assign reg (emitCompareKind predicate <> " " <> emitPredicate predicate <> " " <> emitTypedOperands ty lhs rhs)
   IZext reg value targetType ->
     assign reg ("zext " <> emitType (operandType value) <> " " <> emitOperand value <> " to " <> emitType targetType)
   ISext reg value targetType ->
     assign reg ("sext " <> emitType (operandType value) <> " " <> emitOperand value <> " to " <> emitType targetType)
   ITrunc reg value targetType ->
     assign reg ("trunc " <> emitType (operandType value) <> " " <> emitOperand value <> " to " <> emitType targetType)
+  ISIToFP reg value targetType ->
+    assign reg ("sitofp " <> emitType (operandType value) <> " " <> emitOperand value <> " to " <> emitType targetType)
+  IFPToSI reg value targetType ->
+    assign reg ("fptosi " <> emitType (operandType value) <> " " <> emitOperand value <> " to " <> emitType targetType)
+  IFPExt reg value targetType ->
+    assign reg ("fpext " <> emitType (operandType value) <> " " <> emitOperand value <> " to " <> emitType targetType)
+  IFPTrunc reg value targetType ->
+    assign reg ("fptrunc " <> emitType (operandType value) <> " " <> emitOperand value <> " to " <> emitType targetType)
   IGetElementPtr reg elementType base indices ->
     assign reg $
       "getelementptr inbounds "
@@ -204,6 +220,8 @@ emitOperand = \case
     "true"
   OConstInt _ n ->
     Text.pack (show n)
+  OConstFloat _ n ->
+    n
   OConstNull ->
     "null"
 
@@ -221,10 +239,21 @@ emitType = \case
   LStruct fields -> "{ " <> Text.intercalate ", " (map emitType fields) <> " }"
   LVoid -> "void"
 
+emitCompareKind :: LLVMPredicate -> Text
+emitCompareKind = \case
+  ICmpEq -> "icmp"
+  ICmpSlt -> "icmp"
+  FCmpOeq -> "fcmp"
+  FCmpOlt -> "fcmp"
+  FCmpUno -> "fcmp"
+
 emitPredicate :: LLVMPredicate -> Text
 emitPredicate = \case
   ICmpEq -> "eq"
   ICmpSlt -> "slt"
+  FCmpOeq -> "oeq"
+  FCmpOlt -> "olt"
+  FCmpUno -> "uno"
 
 escapeCString :: Text -> Text
 escapeCString =

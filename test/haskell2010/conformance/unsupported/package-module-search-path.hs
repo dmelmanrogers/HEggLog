@@ -1,5 +1,5 @@
 module Main where
 
-import Data.Complex (Complex)
+import Data.Set (Set)
 
 main = 0

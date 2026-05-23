@@ -47,6 +47,8 @@ import Runtime.Int
 
 data CoreValue
   = CoreInt HInt
+  | CoreFloat Float
+  | CoreDouble Double
   | CoreBool Bool
   | CoreChar Char
   | CoreString Text
@@ -210,6 +212,10 @@ evalLiteral = \case
     case mkHIntLiteral value of
       Right intValue -> Right (CoreInt intValue)
       Left err -> Left (CoreEvalIntError err)
+  LFloat value ->
+    Right (CoreFloat value)
+  LDouble value ->
+    Right (CoreDouble value)
   LChar value ->
     Right (CoreChar value)
   LString value ->
@@ -429,6 +435,10 @@ evalPrimitive coreEnv op values =
       Right (coreStringList "True")
     (PrimShowBool, [CoreBool False]) ->
       Right (coreStringList "False")
+    (PrimFloat width floatingOp, arguments) ->
+      evalFloatingPrimitive width floatingOp arguments
+    (PrimFloatInt width floatingOp, arguments) ->
+      evalFloatingIntPrimitive width floatingOp arguments
     (PrimPutStrLn, [value]) ->
       (\text -> CoreIO [text <> "\n"] (CoreIOSuccess (CoreData unitDataConName []))) <$> coreStringText coreEnv value
     (PrimGetLine, []) ->
@@ -492,6 +502,81 @@ evalPrimitive coreEnv op values =
       Right value -> value
       Left err -> error (Text.unpack (renderIntError err))
 
+evalFloatingPrimitive :: FloatingWidth -> FloatingPrimOp -> [CoreValue] -> Either CoreEvalError CoreValue
+evalFloatingPrimitive width op values =
+  case (width, op, values) of
+    (FloatWidth, FloatEq, [CoreFloat lhs, CoreFloat rhs]) -> Right (CoreBool (lhs == rhs))
+    (FloatWidth, FloatLt, [CoreFloat lhs, CoreFloat rhs]) -> Right (CoreBool (lhs < rhs))
+    (FloatWidth, FloatShow, [CoreFloat value]) -> Right (coreStringList (Text.pack (show value)))
+    (FloatWidth, FloatFromInt, [CoreInt value]) -> Right (CoreFloat (fromInteger (hintToInteger value)))
+    (FloatWidth, _, [CoreFloat lhs, CoreFloat rhs])
+      | Just f <- binaryFloating op -> Right (CoreFloat (realToFrac (f (realToFrac lhs) (realToFrac rhs) :: Double)))
+    (FloatWidth, _, [CoreFloat value])
+      | Just f <- unaryFloating op -> Right (CoreFloat (realToFrac (f (realToFrac value) :: Double)))
+    (DoubleWidth, FloatEq, [CoreDouble lhs, CoreDouble rhs]) -> Right (CoreBool (lhs == rhs))
+    (DoubleWidth, FloatLt, [CoreDouble lhs, CoreDouble rhs]) -> Right (CoreBool (lhs < rhs))
+    (DoubleWidth, FloatShow, [CoreDouble value]) -> Right (coreStringList (Text.pack (show value)))
+    (DoubleWidth, FloatFromInt, [CoreInt value]) -> Right (CoreDouble (fromInteger (hintToInteger value)))
+    (DoubleWidth, _, [CoreDouble lhs, CoreDouble rhs])
+      | Just f <- binaryFloating op -> Right (CoreDouble (f lhs rhs))
+    (DoubleWidth, _, [CoreDouble value])
+      | Just f <- unaryFloating op -> Right (CoreDouble (f value))
+    _ -> Left (CoreEvalTypeError ("floating primitive received unsupported values " <> Text.pack (show (map renderCoreValue values))))
+ where
+  unaryFloating = \case
+    FloatNegate -> Just negate
+    FloatAbs -> Just abs
+    FloatSignum -> Just signum
+    FloatExp -> Just exp
+    FloatLog -> Just log
+    FloatSqrt -> Just sqrt
+    FloatSin -> Just sin
+    FloatCos -> Just cos
+    FloatTan -> Just tan
+    FloatAsin -> Just asin
+    FloatAcos -> Just acos
+    FloatAtan -> Just atan
+    FloatSinh -> Just sinh
+    FloatCosh -> Just cosh
+    FloatTanh -> Just tanh
+    FloatAsinh -> Just asinh
+    FloatAcosh -> Just acosh
+    FloatAtanh -> Just atanh
+    _ -> Nothing
+
+  binaryFloating = \case
+    FloatAdd -> Just (+)
+    FloatSub -> Just (-)
+    FloatMul -> Just (*)
+    FloatDiv -> Just (/)
+    FloatPow -> Just (**)
+    FloatAtan2 -> Just atan2
+    _ -> Nothing
+
+evalFloatingIntPrimitive :: FloatingWidth -> FloatingIntPrimOp -> [CoreValue] -> Either CoreEvalError CoreValue
+evalFloatingIntPrimitive width op values =
+  case (width, values) of
+    (FloatWidth, [CoreFloat value]) -> evalRealFloatInt op value
+    (DoubleWidth, [CoreDouble value]) -> evalRealFloatInt op value
+    _ -> Left (CoreEvalTypeError ("floating/int primitive received unsupported values " <> Text.pack (show (map renderCoreValue values))))
+
+evalRealFloatInt :: RealFloat a => FloatingIntPrimOp -> a -> Either CoreEvalError CoreValue
+evalRealFloatInt op value =
+  case op of
+    FloatTruncate -> checkedCoreIntValue (mkHIntLiteral (toInteger (truncate value :: Integer)))
+    FloatRound -> checkedCoreIntValue (mkHIntLiteral (toInteger (round value :: Integer)))
+    FloatCeiling -> checkedCoreIntValue (mkHIntLiteral (toInteger (ceiling value :: Integer)))
+    FloatFloor -> checkedCoreIntValue (mkHIntLiteral (toInteger (floor value :: Integer)))
+    FloatIsNaN -> Right (CoreBool (isNaN value))
+    FloatIsInfinite -> Right (CoreBool (isInfinite value))
+    FloatIsDenormalized -> Right (CoreBool (isDenormalized value))
+    FloatIsNegativeZero -> Right (CoreBool (isNegativeZero value))
+
+checkedCoreIntValue :: Either IntError HInt -> Either CoreEvalError CoreValue
+checkedCoreIntValue = \case
+  Right value -> Right (CoreInt value)
+  Left err -> Left (CoreEvalIntError err)
+
 coreUserIOError :: Text -> CoreValue
 coreUserIOError message =
   CoreData
@@ -533,6 +618,10 @@ valueEquals lhs rhs =
   case (lhs, rhs) of
     (CoreInt lhsInt, CoreInt rhsInt) ->
       Right (eqHInt lhsInt rhsInt)
+    (CoreFloat lhsFloat, CoreFloat rhsFloat) ->
+      Right (lhsFloat == rhsFloat)
+    (CoreDouble lhsDouble, CoreDouble rhsDouble) ->
+      Right (lhsDouble == rhsDouble)
     (CoreBool lhsBool, CoreBool rhsBool) ->
       Right (lhsBool == rhsBool)
     (CoreChar lhsChar, CoreChar rhsChar) ->
@@ -549,6 +638,10 @@ renderCoreValue :: CoreValue -> Text
 renderCoreValue = \case
   CoreInt value ->
     renderHInt value
+  CoreFloat value ->
+    Text.pack (show value)
+  CoreDouble value ->
+    Text.pack (show value)
   CoreBool True ->
     "True"
   CoreBool False ->
@@ -658,3 +751,5 @@ renderCorePrimOpName = \case
   PrimTouchForeignPtr -> "touchForeignPtr#"
   PrimUnsafeForeignPtrToPtr -> "unsafeForeignPtrToPtr#"
   PrimCastForeignPtr -> "castForeignPtr#"
+  PrimFloat width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
+  PrimFloatInt width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"

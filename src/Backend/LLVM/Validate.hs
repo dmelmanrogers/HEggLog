@@ -83,6 +83,10 @@ validateInstruction function labels registers = \case
   IMul _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IDiv _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IRem _ ty lhs rhs -> validateBinary function registers ty lhs rhs
+  IFAdd _ ty lhs rhs -> validateBinary function registers ty lhs rhs
+  IFSub _ ty lhs rhs -> validateBinary function registers ty lhs rhs
+  IFMul _ ty lhs rhs -> validateBinary function registers ty lhs rhs
+  IFDiv _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IAnd _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IOr _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IXor _ ty lhs rhs -> validateBinary function registers ty lhs rhs
@@ -93,6 +97,10 @@ validateInstruction function labels registers = \case
   IZext _ value _ -> validateOperand function registers value
   ISext _ value _ -> validateOperand function registers value
   ITrunc _ value _ -> validateOperand function registers value
+  ISIToFP _ value _ -> validateOperand function registers value
+  IFPToSI _ value _ -> validateOperand function registers value
+  IFPExt _ value _ -> validateOperand function registers value
+  IFPTrunc _ value _ -> validateOperand function registers value
   IGetElementPtr _ _ base indices -> do
     assertOperandType function registers LPtr base
     mapM_ (validateOperand function registers . snd) indices
@@ -185,6 +193,8 @@ validateOperand function registers = \case
     Right ()
   OConstInt {} ->
     Right ()
+  OConstFloat {} ->
+    Right ()
   OConstNull ->
     Right ()
 
@@ -206,6 +216,10 @@ instructionResult = \case
   IMul reg _ _ _ -> Just reg
   IDiv reg _ _ _ -> Just reg
   IRem reg _ _ _ -> Just reg
+  IFAdd reg _ _ _ -> Just reg
+  IFSub reg _ _ _ -> Just reg
+  IFMul reg _ _ _ -> Just reg
+  IFDiv reg _ _ _ -> Just reg
   IAnd reg _ _ _ -> Just reg
   IOr reg _ _ _ -> Just reg
   IXor reg _ _ _ -> Just reg
@@ -216,6 +230,10 @@ instructionResult = \case
   IZext reg _ _ -> Just reg
   ISext reg _ _ -> Just reg
   ITrunc reg _ _ -> Just reg
+  ISIToFP reg _ _ -> Just reg
+  IFPToSI reg _ _ -> Just reg
+  IFPExt reg _ _ -> Just reg
+  IFPTrunc reg _ _ -> Just reg
   IGetElementPtr reg _ _ _ -> Just reg
   ILoad reg _ _ -> Just reg
   IStore {} -> Nothing
@@ -230,6 +248,10 @@ instructionResultType = \case
   IMul _ ty _ _ -> ty
   IDiv _ ty _ _ -> ty
   IRem _ ty _ _ -> ty
+  IFAdd _ ty _ _ -> ty
+  IFSub _ ty _ _ -> ty
+  IFMul _ ty _ _ -> ty
+  IFDiv _ ty _ _ -> ty
   IAnd _ ty _ _ -> ty
   IOr _ ty _ _ -> ty
   IXor _ ty _ _ -> ty
@@ -240,6 +262,10 @@ instructionResultType = \case
   IZext _ _ ty -> ty
   ISext _ _ ty -> ty
   ITrunc _ _ ty -> ty
+  ISIToFP _ _ ty -> ty
+  IFPToSI _ _ ty -> ty
+  IFPExt _ _ ty -> ty
+  IFPTrunc _ _ ty -> ty
   IGetElementPtr {} -> LPtr
   ILoad _ ty _ -> ty
   IStore {} -> LVoid

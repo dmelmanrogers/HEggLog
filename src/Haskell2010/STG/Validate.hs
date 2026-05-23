@@ -319,6 +319,8 @@ validatePrimitive op arguments resultTy =
     PrimTouchForeignPtr -> validateTouchForeignPtrPrimitive op arguments resultTy
     PrimUnsafeForeignPtrToPtr -> validateUnsafeForeignPtrToPtrPrimitive op arguments resultTy
     PrimCastForeignPtr -> validateCastForeignPtrPrimitive op arguments resultTy
+    PrimFloat width floatingOp -> validateFloatingPrimitive op width floatingOp arguments resultTy
+    PrimFloatInt width floatingOp -> validateFloatingIntPrimitive op width floatingOp arguments resultTy
     PrimEq ->
       [ checkPrimitiveArity op 2 arguments
       , validatePrimitiveEq op arguments
@@ -348,6 +350,76 @@ validateFixedPrimitive op expectedArgs expectedResult arguments resultTy =
   checkPrimitiveArity op (length expectedArgs) arguments
     : zipWith (checkPrimitiveArgument op) [0 ..] (zip expectedArgs (map stgAtomType arguments))
       <> [checkPrimitiveResult op expectedResult resultTy]
+
+validateFloatingPrimitive ::
+  CorePrimOp ->
+  FloatingWidth ->
+  FloatingPrimOp ->
+  [STGAtom] ->
+  CoreType ->
+  [Either [STGValidationError] ()]
+validateFloatingPrimitive op width floatingOp arguments resultTy =
+  case floatingOp of
+    FloatAdd -> binaryValue
+    FloatSub -> binaryValue
+    FloatMul -> binaryValue
+    FloatDiv -> binaryValue
+    FloatEq -> binaryBool
+    FloatLt -> binaryBool
+    FloatNegate -> unaryValue
+    FloatAbs -> unaryValue
+    FloatSignum -> unaryValue
+    FloatFromInt -> validateFixedPrimitive op [intTy] valueTy arguments resultTy
+    FloatShow -> validateFixedPrimitive op [valueTy] stringTy arguments resultTy
+    FloatExp -> unaryValue
+    FloatLog -> unaryValue
+    FloatSqrt -> unaryValue
+    FloatSin -> unaryValue
+    FloatCos -> unaryValue
+    FloatTan -> unaryValue
+    FloatAsin -> unaryValue
+    FloatAcos -> unaryValue
+    FloatAtan -> unaryValue
+    FloatSinh -> unaryValue
+    FloatCosh -> unaryValue
+    FloatTanh -> unaryValue
+    FloatAsinh -> unaryValue
+    FloatAcosh -> unaryValue
+    FloatAtanh -> unaryValue
+    FloatPow -> binaryValue
+    FloatAtan2 -> binaryValue
+ where
+  valueTy = floatingWidthType width
+  unaryValue = validateFixedPrimitive op [valueTy] valueTy arguments resultTy
+  binaryValue = validateFixedPrimitive op [valueTy, valueTy] valueTy arguments resultTy
+  binaryBool = validateFixedPrimitive op [valueTy, valueTy] boolTy arguments resultTy
+
+validateFloatingIntPrimitive ::
+  CorePrimOp ->
+  FloatingWidth ->
+  FloatingIntPrimOp ->
+  [STGAtom] ->
+  CoreType ->
+  [Either [STGValidationError] ()]
+validateFloatingIntPrimitive op width floatingOp arguments resultTy =
+  case floatingOp of
+    FloatTruncate -> intResult
+    FloatRound -> intResult
+    FloatCeiling -> intResult
+    FloatFloor -> intResult
+    FloatIsNaN -> boolResult
+    FloatIsInfinite -> boolResult
+    FloatIsDenormalized -> boolResult
+    FloatIsNegativeZero -> boolResult
+ where
+  valueTy = floatingWidthType width
+  intResult = validateFixedPrimitive op [valueTy] intTy arguments resultTy
+  boolResult = validateFixedPrimitive op [valueTy] boolTy arguments resultTy
+
+floatingWidthType :: FloatingWidth -> CoreType
+floatingWidthType = \case
+  FloatWidth -> floatTy
+  DoubleWidth -> doubleTy
 
 validatePrimitiveEq :: CorePrimOp -> [STGAtom] -> Either [STGValidationError] ()
 validatePrimitiveEq op arguments =

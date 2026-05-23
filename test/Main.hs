@@ -115,7 +115,7 @@ testGroups =
       , pureTest "Haskell 2010 record field syntax parses" testHaskell2010RecordFieldSyntaxParsing
       , pureTest "Haskell 2010 record update syntax parses" testHaskell2010RecordUpdateSyntaxParsing
       , pureTest "Haskell 2010 user-defined operator bindings parse" testHaskell2010UserDefinedOperatorParsing
-      , pureTest "Haskell 2010 constructor operator bindings are rejected" testHaskell2010ConstructorOperatorBindingRejected
+      , pureTest "Haskell 2010 constructor operator pattern bindings parse" testHaskell2010ConstructorOperatorPatternBindingParsing
       , pureTest "Haskell 2010 malformed layout is rejected" testHaskell2010MalformedLayout
       , pureTest "Haskell 2010 imports after declarations are rejected" testHaskell2010ImportAfterDecl
       ]
@@ -936,8 +936,8 @@ testHaskell2010UserDefinedOperatorParsing = do
   assertBool "symbolic fixity declaration parses" ("<+>" `elem` fixityNames)
   assertBool "backtick fixity declaration parses" ("combine" `elem` fixityNames)
 
-testHaskell2010ConstructorOperatorBindingRejected :: Either String ()
-testHaskell2010ConstructorOperatorBindingRejected =
+testHaskell2010ConstructorOperatorPatternBindingParsing :: Either String ()
+testHaskell2010ConstructorOperatorPatternBindingParsing =
   case
     H2010Parser.parseSourceModule
       "<haskell2010-constructor-operator-binding>"
@@ -945,8 +945,8 @@ testHaskell2010ConstructorOperatorBindingRejected =
       \x :*: y = x\n\
       \main = 1\n"
     of
-      Left _ -> Right ()
-      Right parsed -> Left ("constructor operator binding parsed unexpectedly: " <> show parsed)
+      Right _ -> Right ()
+      Left err -> Left ("constructor operator pattern binding failed to parse: " <> show err)
 
 testHaskell2010MalformedLayout :: Either String ()
 testHaskell2010MalformedLayout =
@@ -2878,7 +2878,7 @@ testHaskell2010ForeignTypechecking = do
         ( typecheckHaskell2010Raw
             "module Core0 where\n\
             \foreign import ccall \"abs\" c_abs :: Int -> IO Int\n\
-            \bad = 1 / 0\n\
+            \bad = div 1 0\n\
             \main = c_abs bad\n"
         )
     case H2010CoreEval.evalCoreModuleBindingByOccurrence "main" coreModule of
@@ -3555,7 +3555,7 @@ testHaskell2010Core0EvalLazyLet =
       "main"
       "module Eval where\n\
       \main = let\n\
-      \  x = 1 / 0\n\
+      \  x = div 1 0\n\
       \in 5\n"
 
 testHaskell2010Core0EvalLazyArgument :: Either String ()
@@ -3568,7 +3568,7 @@ testHaskell2010Core0EvalLazyArgument =
       "module Eval where\n\
       \const :: a -> b -> a\n\
       \const x y = x\n\
-      \main = const 1 (1 / 0)\n"
+      \main = const 1 (div 1 0)\n"
 
 testHaskell2010Core0EvalDivisionByZero :: Either String ()
 testHaskell2010Core0EvalDivisionByZero =
@@ -3576,7 +3576,7 @@ testHaskell2010Core0EvalDivisionByZero =
     evalHaskell2010BindingRaw
       "main"
       "module Eval where\n\
-      \main = 1 / 0\n"
+      \main = div 1 0\n"
     of
       Left H2010CoreEval.CoreEvalDivisionByZero -> Right ()
       Left err -> Left ("expected Core-0 division by zero, got: " <> show err)
@@ -3724,7 +3724,7 @@ testHaskell2010CoreToSTGLazyLet =
     5
     "module Lower where\n\
     \main = let\n\
-    \  x = 1 / 0\n\
+    \  x = div 1 0\n\
     \in 5\n"
 
 testHaskell2010CoreToSTGLazyArgument :: Either String ()
@@ -3735,7 +3735,7 @@ testHaskell2010CoreToSTGLazyArgument =
     "module Lower where\n\
     \const :: a -> b -> a\n\
     \const x y = x\n\
-    \main = const 1 (1 / 0)\n"
+    \main = const 1 (div 1 0)\n"
 
 testHaskell2010CoreToSTGBoolCase :: Either String ()
 testHaskell2010CoreToSTGBoolCase =
@@ -3909,7 +3909,7 @@ testHaskell2010CoreToSTGDivisionByZero =
     lowerAndEvalHaskell2010BindingRaw
       "main"
       "module Lower where\n\
-      \main = 1 / 0\n"
+      \main = div 1 0\n"
     of
       Left (Right H2010STGEval.STGEvalDivisionByZero) -> Right ()
       Left err -> Left ("expected lowered STG division by zero, got: " <> show err)
@@ -3931,7 +3931,7 @@ testHaskell2010CoreToSTGPartialApplication =
     \const :: a -> b -> a\n\
     \const x y = x\n\
     \one = const 1\n\
-    \main = one (1 / 0)\n"
+    \main = one (div 1 0)\n"
 
 testHaskell2010CoreToSTGRejectsInvalidCore :: Either String ()
 testHaskell2010CoreToSTGRejectsInvalidCore =
@@ -4672,7 +4672,7 @@ testHaskell2010CoreEgglogPreservesStrictBottom = do
     optimizeHaskell2010Core
       "module Optimize where\n\
       \f x = x * 0\n\
-      \main = f (1 / 0)\n"
+      \main = f (div 1 0)\n"
   case evalHaskell2010CoreModuleBindingRaw "main" (H2010CoreEgglog.coreEgglogOptimizedModule result) of
     Left H2010CoreEval.CoreEvalDivisionByZero -> Right ()
     Left err ->
@@ -8276,7 +8276,7 @@ haskell2010LazyLetSource :: Text
 haskell2010LazyLetSource =
   "module Main where\n\
   \main = let\n\
-  \  x = 1 / 0\n\
+  \  x = div 1 0\n\
   \in 5\n"
 
 haskell2010LazyArgumentSource :: Text
@@ -8284,7 +8284,7 @@ haskell2010LazyArgumentSource =
   "module Main where\n\
   \const :: a -> b -> a\n\
   \const x y = x\n\
-  \main = const 1 (1 / 0)\n"
+  \main = const 1 (div 1 0)\n"
 
 haskell2010BoolCaseSource :: Text
 haskell2010BoolCaseSource =
@@ -8340,14 +8340,14 @@ haskell2010KnownConstructorLazyFieldSource :: Text
 haskell2010KnownConstructorLazyFieldSource =
   "module Main where\n\
   \data Pair = Pair Int Int\n\
-  \main = case Pair (1 / 0) 5 of\n\
+  \main = case Pair (div 1 0) 5 of\n\
   \  Pair _ y -> y\n"
 
 haskell2010KnownConstructorForcedFieldSource :: Text
 haskell2010KnownConstructorForcedFieldSource =
   "module Main where\n\
   \data Box = Box Int\n\
-  \main = case Box (1 / 0) of\n\
+  \main = case Box (div 1 0) of\n\
   \  Box x -> x\n"
 
 haskell2010TupleCaseSource :: Text
@@ -8382,7 +8382,7 @@ haskell2010PreludeMaybeOrderingSource =
 haskell2010ShortCircuitSource :: Text
 haskell2010ShortCircuitSource =
   "module Main where\n\
-  \main = if (False && ((1 / 0) == 0)) || True then 7 else 1\n"
+  \main = if (False && ((div 1 0) == 0)) || True then 7 else 1\n"
 
 haskell2010SectionsSource :: Text
 haskell2010SectionsSource =
@@ -8395,7 +8395,7 @@ haskell2010SectionsSource =
   \over = (> 3)\n\
   \short :: Bool -> Bool\n\
   \short = (False &&)\n\
-  \main = if short ((1 / 0) == 0) then 0 else if over (right 3) then left (right 4) else 0\n"
+  \main = if short ((div 1 0) == 0) then 0 else if over (right 3) then left (right 4) else 0\n"
 
 haskell2010UserDefinedOperatorsSource :: Text
 haskell2010UserDefinedOperatorsSource =
@@ -8981,7 +8981,7 @@ haskell2010FoldlSource =
   \count :: Int -> Bool -> Int\n\
   \count acc flag = if flag then acc + 1 else acc\n\
   \explode :: Int -> Bool -> Int\n\
-  \explode _ _ = 1 / 0\n\
+  \explode _ _ = div 1 0\n\
   \ignoreLeft :: Int -> Int -> Int\n\
   \ignoreLeft _ x = x\n\
   \main :: IO ()\n\
@@ -8991,7 +8991,7 @@ haskell2010FoldlSource =
   \  putStrLn (foldl snoc \"\" ['a', 'b', 'c', 'd'])\n\
   \  print (foldl count 0 [True, False, True])\n\
   \  print (foldl explode 7 [])\n\
-  \  print (foldl ignoreLeft (1 / 0) [5])\n\
+  \  print (foldl ignoreLeft (div 1 0) [5])\n\
   \  return ()\n"
 
 haskell2010FoldlOutput :: Text
@@ -9380,8 +9380,8 @@ haskell2010IrrefutablePatternSource =
   \ignore ~(Just x) = 5\n\
   \pick :: (Int, Int) -> Int\n\
   \pick ~(x, _) = x\n\
-  \main = case (1 / 0) of\n\
-  \  z@(~x) -> ignore Nothing + pick (2, 1 / 0)\n"
+  \main = case (div (1 :: Int) 0) of\n\
+  \  z@(~x) -> ignore Nothing + pick (2, div (1 :: Int) 0)\n"
 
 haskell2010IrrefutablePatternDemandSource :: Text
 haskell2010IrrefutablePatternDemandSource =
@@ -9439,7 +9439,7 @@ haskell2010LazyADTFieldSource :: Text
 haskell2010LazyADTFieldSource =
   "module Main where\n\
   \data Box = Box Int\n\
-  \main = case Box (1 / 0) of\n\
+  \main = case Box (div 1 0) of\n\
   \  Box _ -> 5\n"
 
 haskell2010PartialApplicationSource :: Text
@@ -9448,12 +9448,12 @@ haskell2010PartialApplicationSource =
   \const :: a -> b -> a\n\
   \const x y = x\n\
   \one = const 1\n\
-  \main = one (1 / 0)\n"
+  \main = one (div 1 0)\n"
 
 haskell2010DivisionByZeroSource :: Text
 haskell2010DivisionByZeroSource =
   "module Main where\n\
-  \main = 1 / 0\n"
+  \main = div 1 0\n"
 
 expectSTGInt :: String -> Integer -> H2010STGEval.STGValue -> Either String ()
 expectSTGInt label expected = \case

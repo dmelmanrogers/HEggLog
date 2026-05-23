@@ -1,3 +1,3 @@
 module Main where
 
-main = let x = 1 / 0 in 5
+main = let x = div 1 0 in 5

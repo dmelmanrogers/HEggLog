@@ -180,10 +180,12 @@ Part II Libraries module group. The conformance validator now checks all 18
 library closure rows, verifies that each row cites manifest-backed fixtures and
 numbered remaining tracker tasks, and requires the library closure fixtures to
 stay represented in the matrix. Reserved Report modules now have explicit
-unsupported-documented fixtures for `Data.Complex`,
-`Numeric`, `System.Environment`,
+unsupported-documented fixtures for `Numeric`, `System.Environment`,
 `System.Exit`, `Foreign.C.Error`, `Foreign.Marshal.Alloc`/array allocation,
 and `Foreign.Storable`.
+`modules.data-complex` and `prelude.floating-numeric` now positively check
+the LIB-008 floating numeric tower and importable `Data.Complex` module in
+default and `--no-egglog` native modes.
 `io.io-error` now positively checks the generated `System.IO.Error` surface for
 recoverable `IOError` behavior, and `modules.standard-library-scalar-types`
 positively checks the current generated `Data.Int`, `Data.Word`, and

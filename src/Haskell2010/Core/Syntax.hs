@@ -10,13 +10,18 @@ module Haskell2010.Core.Syntax
   , CoreForeignImport (..)
   , CoreModule (..)
   , CorePrimOp (..)
+  , FloatingIntPrimOp (..)
+  , FloatingPrimOp (..)
+  , FloatingWidth (..)
   , CoreType (..)
   , boolTy
   , charTy
+  , doubleTy
   , eitherLeftDataConName
   , eitherRightDataConName
   , eitherTyConName
   , falseDataConName
+  , floatTy
   , foreignPtrTy
   , foreignPtrTyConName
   , funTy
@@ -208,6 +213,55 @@ data CorePrimOp
   | PrimTouchForeignPtr
   | PrimUnsafeForeignPtrToPtr
   | PrimCastForeignPtr
+  | PrimFloat FloatingWidth FloatingPrimOp
+  | PrimFloatInt FloatingWidth FloatingIntPrimOp
+  deriving stock (Show, Eq, Ord)
+
+data FloatingWidth
+  = FloatWidth
+  | DoubleWidth
+  deriving stock (Show, Eq, Ord)
+
+data FloatingPrimOp
+  = FloatAdd
+  | FloatSub
+  | FloatMul
+  | FloatDiv
+  | FloatEq
+  | FloatLt
+  | FloatNegate
+  | FloatAbs
+  | FloatSignum
+  | FloatFromInt
+  | FloatShow
+  | FloatExp
+  | FloatLog
+  | FloatSqrt
+  | FloatSin
+  | FloatCos
+  | FloatTan
+  | FloatAsin
+  | FloatAcos
+  | FloatAtan
+  | FloatSinh
+  | FloatCosh
+  | FloatTanh
+  | FloatAsinh
+  | FloatAcosh
+  | FloatAtanh
+  | FloatPow
+  | FloatAtan2
+  deriving stock (Show, Eq, Ord)
+
+data FloatingIntPrimOp
+  = FloatTruncate
+  | FloatRound
+  | FloatCeiling
+  | FloatFloor
+  | FloatIsNaN
+  | FloatIsInfinite
+  | FloatIsDenormalized
+  | FloatIsNegativeZero
   deriving stock (Show, Eq, Ord)
 
 exprType :: CoreExpr -> CoreType
@@ -246,6 +300,14 @@ boolTy =
 charTy :: CoreType
 charTy =
   builtinType "Char" (-3)
+
+floatTy :: CoreType
+floatTy =
+  builtinType "Float" (-10)
+
+doubleTy :: CoreType
+doubleTy =
+  builtinType "Double" (-11)
 
 unitTy :: CoreType
 unitTy =

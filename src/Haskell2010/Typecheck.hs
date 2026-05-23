@@ -25,6 +25,7 @@ import qualified Data.Graph as Graph
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import qualified Data.Ratio as Ratio
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -577,7 +578,7 @@ runInfer initialTypeConstructors action =
           , dataConstructors = Map.empty
           , recordSelectors = Map.empty
           , classInfos = Map.empty
-          , defaultTypes = [intMonoType]
+          , defaultTypes = [intMonoType, doubleMonoType]
           , typecheckSpanStack = []
           , typecheckWarnings = []
           }
@@ -1111,6 +1112,10 @@ builtinClassInfos =
     , (builtinNumClassName, numInfo)
     , (builtinRealClassName, realInfo)
     , (builtinIntegralClassName, integralInfo)
+    , (builtinFractionalClassName, fractionalInfo)
+    , (builtinFloatingClassName, floatingInfo)
+    , (builtinRealFracClassName, realFracInfo)
+    , (builtinRealFloatClassName, realFloatInfo)
     , (builtinBitsClassName, bitsInfo)
     , (builtinShowClassName, showInfo)
     , (builtinReadClassName, readInfo)
@@ -1195,6 +1200,88 @@ builtinClassInfos =
       , ("quotRem", -1485, TyFun integralATy (TyFun integralATy integralPairTy))
       , ("divMod", -1486, TyFun integralATy (TyFun integralATy integralPairTy))
       , ("toInteger", -1487, TyFun integralATy intMonoType)
+      ]
+
+  fractionalA = preludeTypeVariable "a" (-1388)
+  fractionalATy = TyVar fractionalA
+  fractionalInfo =
+    builtinClassInfo
+      builtinFractionalClassName
+      fractionalA
+      [singleClassConstraint builtinNumClassName fractionalATy]
+      [ ("/", -3401, TyFun fractionalATy (TyFun fractionalATy fractionalATy))
+      , ("recip", -3402, TyFun fractionalATy fractionalATy)
+      , ("fromRational", -3403, TyFun rationalMonoType fractionalATy)
+      ]
+
+  floatingA = preludeTypeVariable "a" (-1497)
+  floatingATy = TyVar floatingA
+  floatingInfo =
+    builtinClassInfo
+      builtinFloatingClassName
+      floatingA
+      [singleClassConstraint builtinFractionalClassName floatingATy]
+      [ ("pi", -3411, floatingATy)
+      , ("exp", -3412, TyFun floatingATy floatingATy)
+      , ("log", -3413, TyFun floatingATy floatingATy)
+      , ("sqrt", -3414, TyFun floatingATy floatingATy)
+      , ("**", -3415, TyFun floatingATy (TyFun floatingATy floatingATy))
+      , ("logBase", -3416, TyFun floatingATy (TyFun floatingATy floatingATy))
+      , ("sin", -3417, TyFun floatingATy floatingATy)
+      , ("cos", -3418, TyFun floatingATy floatingATy)
+      , ("tan", -3419, TyFun floatingATy floatingATy)
+      , ("asin", -3420, TyFun floatingATy floatingATy)
+      , ("acos", -3421, TyFun floatingATy floatingATy)
+      , ("atan", -3422, TyFun floatingATy floatingATy)
+      , ("sinh", -3423, TyFun floatingATy floatingATy)
+      , ("cosh", -3424, TyFun floatingATy floatingATy)
+      , ("tanh", -3425, TyFun floatingATy floatingATy)
+      , ("asinh", -3426, TyFun floatingATy floatingATy)
+      , ("acosh", -3427, TyFun floatingATy floatingATy)
+      , ("atanh", -3428, TyFun floatingATy floatingATy)
+      ]
+
+  realFracA = preludeTypeVariable "a" (-1515)
+  realFracATy = TyVar realFracA
+  realFracPairTy = TyTuple [intMonoType, realFracATy]
+  realFracInfo =
+    builtinClassInfo
+      builtinRealFracClassName
+      realFracA
+      [ singleClassConstraint builtinRealClassName realFracATy
+      , singleClassConstraint builtinFractionalClassName realFracATy
+      ]
+      [ ("properFraction", -3431, TyFun realFracATy realFracPairTy)
+      , ("truncate", -3432, TyFun realFracATy intMonoType)
+      , ("round", -3433, TyFun realFracATy intMonoType)
+      , ("ceiling", -3434, TyFun realFracATy intMonoType)
+      , ("floor", -3435, TyFun realFracATy intMonoType)
+      ]
+
+  realFloatA = preludeTypeVariable "a" (-1520)
+  realFloatATy = TyVar realFloatA
+  intPairTy = TyTuple [intMonoType, intMonoType]
+  realFloatInfo =
+    builtinClassInfo
+      builtinRealFloatClassName
+      realFloatA
+      [ singleClassConstraint builtinRealFracClassName realFloatATy
+      , singleClassConstraint builtinFloatingClassName realFloatATy
+      ]
+      [ ("floatRadix", -3441, TyFun realFloatATy intMonoType)
+      , ("floatDigits", -3442, TyFun realFloatATy intMonoType)
+      , ("floatRange", -3443, TyFun realFloatATy intPairTy)
+      , ("decodeFloat", -3444, TyFun realFloatATy intPairTy)
+      , ("encodeFloat", -3445, TyFun intMonoType (TyFun intMonoType realFloatATy))
+      , ("exponent", -3446, TyFun realFloatATy intMonoType)
+      , ("significand", -3447, TyFun realFloatATy realFloatATy)
+      , ("scaleFloat", -3448, TyFun intMonoType (TyFun realFloatATy realFloatATy))
+      , ("isNaN", -3449, TyFun realFloatATy boolMonoType)
+      , ("isInfinite", -3450, TyFun realFloatATy boolMonoType)
+      , ("isDenormalized", -3451, TyFun realFloatATy boolMonoType)
+      , ("isNegativeZero", -3452, TyFun realFloatATy boolMonoType)
+      , ("isIEEE", -3453, TyFun realFloatATy boolMonoType)
+      , ("atan2", -3454, TyFun realFloatATy (TyFun realFloatATy realFloatATy))
       ]
 
   bitsA = preludeTypeVariable "a" (-1393)
@@ -1400,6 +1487,22 @@ builtinIntegralClassName :: RName
 builtinIntegralClassName =
   preludeClassName "Integral" (-1380)
 
+builtinFractionalClassName :: RName
+builtinFractionalClassName =
+  preludeClassName "Fractional" (-1388)
+
+builtinFloatingClassName :: RName
+builtinFloatingClassName =
+  preludeClassName "Floating" (-1497)
+
+builtinRealFracClassName :: RName
+builtinRealFracClassName =
+  preludeClassName "RealFrac" (-1515)
+
+builtinRealFloatClassName :: RName
+builtinRealFloatClassName =
+  preludeClassName "RealFloat" (-1520)
+
 builtinBitsClassName :: RName
 builtinBitsClassName =
   preludeClassName "Bits" (-1394)
@@ -1449,6 +1552,10 @@ canonicalClassName name
         "Num" -> builtinNumClassName
         "Real" -> builtinRealClassName
         "Integral" -> builtinIntegralClassName
+        "Fractional" -> builtinFractionalClassName
+        "Floating" -> builtinFloatingClassName
+        "RealFrac" -> builtinRealFracClassName
+        "RealFloat" -> builtinRealFloatClassName
         "Bits" -> builtinBitsClassName
         "Show" -> builtinShowClassName
         "Read" -> builtinReadClassName
@@ -1476,6 +1583,10 @@ builtinClassInfoByOccurrence occurrence = do
           "Num" -> builtinNumClassName
           "Real" -> builtinRealClassName
           "Integral" -> builtinIntegralClassName
+          "Fractional" -> builtinFractionalClassName
+          "Floating" -> builtinFloatingClassName
+          "RealFrac" -> builtinRealFracClassName
+          "RealFloat" -> builtinRealFloatClassName
           "Bits" -> builtinBitsClassName
           "Show" -> builtinShowClassName
           "Read" -> builtinReadClassName
@@ -2170,24 +2281,28 @@ altFreeTermNames (RAlt _ rhs whereDecls) =
 defaultBindingGroupConstraints :: [InferredBinding] -> InferM ()
 defaultBindingGroupConstraints inferred = do
   defaults <- defaultTypes <$> get
-  case defaults of
-    [] -> pure ()
-    defaultTy : _ -> do
-      subst <- substitution <$> get
-      let constraints =
-            List.nub
-              ( map
-                  (applyConstraintSubst subst)
-                  (concatMap inferredBindingClassConstraints inferred)
-              )
-          protectedMetas =
-            Set.unions
-              [ freeMetaVars (applySubst subst (typedExprType rhs))
-              | InferredBinding prepared rhs <- inferred
-              , not (canDefaultBindingResult prepared)
-              ]
-          candidates = defaultableConstraintMetas protectedMetas constraints
-      traverse_ (\meta -> unify (TyMeta meta) defaultTy) candidates
+  unless (null defaults) $ do
+    subst <- substitution <$> get
+    let constraints =
+          List.nub
+            ( map
+                (applyConstraintSubst subst)
+                (concatMap inferredBindingClassConstraints inferred)
+            )
+        protectedMetas =
+          Set.unions
+            [ freeMetaVars (applySubst subst (typedExprType rhs))
+            | InferredBinding prepared rhs <- inferred
+            , not (canDefaultBindingResult prepared)
+            ]
+        candidates = defaultableConstraintMetas protectedMetas constraints
+    traverse_
+      ( \(meta, metaConstraints) ->
+          case selectDefaultType meta metaConstraints defaults of
+            Just defaultTy -> unify (TyMeta meta) defaultTy
+            Nothing -> pure ()
+      )
+      candidates
 
 inferredBindingClassConstraints :: InferredBinding -> [ClassConstraint]
 inferredBindingClassConstraints (InferredBinding _ rhs) =
@@ -2231,13 +2346,13 @@ canDefaultBindingResult :: PreparedBinding -> Bool
 canDefaultBindingResult prepared =
   not (preparedHasSignature prepared) && null (preparedPatterns prepared)
 
-defaultableConstraintMetas :: Set.Set Int -> [ClassConstraint] -> [Int]
+defaultableConstraintMetas :: Set.Set Int -> [ClassConstraint] -> [(Int, [ClassConstraint])]
 defaultableConstraintMetas protectedMetas constraints =
-  [ meta
+  [ (meta, metaConstraints)
   | (meta, metaConstraints) <- Map.toAscList constraintsByMeta
   , meta `Set.notMember` protectedMetas
   , all (isDefaultingCompatibleConstraint meta) metaConstraints
-  , any ((== builtinNumClassName) . constraintClassName) metaConstraints
+  , any (isDefaultingTriggerClass . constraintClassName) metaConstraints
   ]
  where
   constraintsByMeta =
@@ -2277,6 +2392,32 @@ isStandardDefaultingClass :: RName -> Bool
 isStandardDefaultingClass className =
   className `Set.member` standardDefaultingClasses
 
+isDefaultingTriggerClass :: RName -> Bool
+isDefaultingTriggerClass className =
+  className `Set.member` numericDefaultingClasses
+
+selectDefaultType :: Int -> [ClassConstraint] -> [MonoType] -> Maybe MonoType
+selectDefaultType meta constraints =
+  List.find (satisfiesAll . replaceMeta)
+ where
+  replaceMeta defaultTy =
+    map (mapClassConstraintArguments (replaceDefaultableMeta defaultTy)) constraints
+  satisfiesAll =
+    all isBuiltinInstanceConstraint
+  replaceDefaultableMeta defaultTy = \case
+    TyMeta candidate
+      | candidate == meta -> defaultTy
+    TyApp fn arg ->
+      TyApp (replaceDefaultableMeta defaultTy fn) (replaceDefaultableMeta defaultTy arg)
+    TyFun arg result ->
+      TyFun (replaceDefaultableMeta defaultTy arg) (replaceDefaultableMeta defaultTy result)
+    TyTuple fields ->
+      TyTuple (map (replaceDefaultableMeta defaultTy) fields)
+    TyList element ->
+      TyList (replaceDefaultableMeta defaultTy element)
+    other ->
+      other
+
 standardDefaultingClasses :: Set.Set RName
 standardDefaultingClasses =
   Set.fromList
@@ -2287,7 +2428,23 @@ standardDefaultingClasses =
     , builtinNumClassName
     , builtinRealClassName
     , builtinIntegralClassName
+    , builtinFractionalClassName
+    , builtinFloatingClassName
+    , builtinRealFracClassName
+    , builtinRealFloatClassName
     , builtinShowClassName
+    ]
+
+numericDefaultingClasses :: Set.Set RName
+numericDefaultingClasses =
+  Set.fromList
+    [ builtinNumClassName
+    , builtinRealClassName
+    , builtinIntegralClassName
+    , builtinFractionalClassName
+    , builtinFloatingClassName
+    , builtinRealFracClassName
+    , builtinRealFloatClassName
     ]
 
 refreshBindingReferences :: Subst -> Map.Map RName Scheme -> TypedBinding -> TypedBinding
@@ -2459,7 +2616,7 @@ collectDefaultTypes :: [RDecl] -> InferM [MonoType]
 collectDefaultTypes decls =
   case [types | RDefaultDecl types <- decls] of
     [] ->
-      pure [intMonoType]
+      pure [intMonoType, doubleMonoType]
     [types] ->
       traverse defaultTypeMonoType types
     _ ->
@@ -2472,6 +2629,8 @@ defaultTypeMonoType sourceType = do
     RTyCon name
       | nameOcc name == "Int" -> pure intMonoType
       | nameOcc name == "Integer" -> pure intMonoType
+      | nameOcc name == "Float" -> pure floatMonoType
+      | nameOcc name == "Double" -> pure doubleMonoType
     other ->
       throwTypecheck (UnsupportedCore0 ("default type " <> Text.pack (show other)))
 
@@ -4889,6 +5048,10 @@ inferExpr env expr =
         pure (stringLiteralTypedExpr value)
       RLit (LInt value) ->
         inferIntegerLiteral value
+      RLit (LFloat value) ->
+        inferFractionalLiteral (toRational value)
+      RLit (LDouble value) ->
+        inferFractionalLiteral (toRational value)
       RLit literal ->
         pure (TLit literal (literalMonoType literal))
       RApp fn arg -> do
@@ -5721,6 +5884,44 @@ inferIntegerLiteral value = do
             )
         )
 
+inferFractionalLiteral :: Rational -> InferM TypedExpr
+inferFractionalLiteral value = do
+  resultTy <- freshMeta
+  method <- builtinClassMethod "Fractional" "fromRational"
+  classVariable <- classMethodSingleVariable "fromRational" method
+  sourceRange <- currentTypecheckSpan
+  let methodScheme = withSchemeConstraintSpan sourceRange (classMethodScheme method)
+      methodTy =
+        replaceTypeVars
+          (Map.singleton classVariable resultTy)
+          (schemeBody methodScheme)
+      methodExpr = TVar (classMethodName method) methodScheme [resultTy] methodTy
+      literalExpr = rationalLiteralTypedExpr (Ratio.numerator value) (Ratio.denominator value)
+  case methodTy of
+    TyFun _ result ->
+      pure (TApp methodExpr literalExpr result)
+    other ->
+      throwTypecheck
+        ( UnsupportedCore0
+            ( "built-in method `fromRational` has unexpected type "
+                <> renderMonoType other
+            )
+        )
+
+rationalLiteralTypedExpr :: Integer -> Integer -> TypedExpr
+rationalLiteralTypedExpr numeratorValue denominatorValue =
+  TApp (TApp conExpr numeratorExpr (TyFun intMonoType rationalMonoType)) denominatorExpr rationalMonoType
+ where
+  conScheme = dataConstructorScheme (builtinDataConstructors Map.! ratioDataConName)
+  conExpr =
+    TCon
+      ratioDataConName
+      conScheme
+      [intMonoType]
+      (TyFun intMonoType (TyFun intMonoType rationalMonoType))
+  numeratorExpr = TLit (LInt numeratorValue) intMonoType
+  denominatorExpr = TLit (LInt denominatorValue) intMonoType
+
 preludeValueCoreName :: RName -> RName
 preludeValueCoreName name =
   case builtinMethodInfoByOccurrence (nameOcc name) of
@@ -5973,7 +6174,7 @@ inferPrimitive env lhs op rhs =
     "+" -> overloadedBinary "Num" "+"
     "-" -> overloadedBinary "Num" "-"
     "*" -> overloadedBinary "Num" "*"
-    "/" -> fixedInt PrimDiv
+    "/" -> overloadedBinary "Fractional" "/"
     "++" -> inferExpr env (RApp (RApp (RVar op) lhs) rhs)
     "<" -> overloadedBinary "Ord" "<"
     "<=" -> overloadedBinary "Ord" "<="
@@ -6003,13 +6204,6 @@ inferPrimitive env lhs op rhs =
           | continueName == falseDataConName = TypedAlt (ConstructorAlt falseDataConName) [] typedRhs
           | otherwise = TypedAlt (ConstructorAlt falseDataConName) [] shortcutValue
     pure (TCase typedLhs caseBinder [trueAlt, falseAlt] boolMonoType)
-
-  fixedInt prim = do
-    typedLhs <- inferExpr env lhs
-    typedRhs <- inferExpr env rhs
-    unify (typedExprType typedLhs) intMonoType
-    unify (typedExprType typedRhs) intMonoType
-    pure (TPrim prim [typedLhs, typedRhs] intMonoType)
 
   overloadedBinary classOccurrence methodOccurrence = do
     typedLhs <- inferExpr env lhs
@@ -7334,6 +7528,8 @@ builtinTypeConstructorMonoType name =
       case nameOcc name of
         "Int" -> pure intMonoType
         "Integer" -> pure intMonoType
+        "Float" -> pure floatMonoType
+        "Double" -> pure doubleMonoType
         "Bool" -> pure boolMonoType
         "Char" -> pure charMonoType
         "Word" -> pure wordMonoType
@@ -7373,6 +7569,8 @@ builtinTypeConstructorInfo name
         <$> case nameOcc name of
           "Int" -> Just 0
           "Integer" -> Just 0
+          "Float" -> Just 0
+          "Double" -> Just 0
           "Bool" -> Just 0
           "Char" -> Just 0
           "Word" -> Just 0
@@ -12678,6 +12876,10 @@ builtinInstanceDictionaries classes =
     , maybe [] numInstances (Map.lookup builtinNumClassName classes)
     , maybe [] realInstances (Map.lookup builtinRealClassName classes)
     , maybe [] integralInstances (Map.lookup builtinIntegralClassName classes)
+    , maybe [] fractionalInstances (Map.lookup builtinFractionalClassName classes)
+    , maybe [] floatingInstances (Map.lookup builtinFloatingClassName classes)
+    , maybe [] realFracInstances (Map.lookup builtinRealFracClassName classes)
+    , maybe [] realFloatInstances (Map.lookup builtinRealFloatClassName classes)
     , maybe [] bitsInstances (Map.lookup builtinBitsClassName classes)
     , maybe [] showInstances (Map.lookup builtinShowClassName classes)
     , maybe [] readInstances (Map.lookup builtinReadClassName classes)
@@ -12725,6 +12927,16 @@ builtinInstanceDictionaries classes =
         rationalMonoType
         (preludeTermName "$fEqRatioInt" (-1508))
         [ratioEqMethod, ratioNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fEqFloat" (-5801))
+        [floatEqMethod, floatNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fEqDouble" (-5802))
+        [doubleEqMethod, doubleNotEqMethod]
     ]
 
   ordInstances info =
@@ -12800,6 +13012,30 @@ builtinInstanceDictionaries classes =
         , ratioMaxMethod
         , ratioMinMethod
         ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fOrdFloat" (-5803))
+        [ floatCompareMethod
+        , floatLtMethod
+        , floatLeMethod
+        , floatGtMethod
+        , floatGeMethod
+        , floatMaxMethod
+        , floatMinMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fOrdDouble" (-5804))
+        [ doubleCompareMethod
+        , doubleLtMethod
+        , doubleLeMethod
+        , doubleGtMethod
+        , doubleGeMethod
+        , doubleMaxMethod
+        , doubleMinMethod
+        ]
     ]
 
   numInstances info =
@@ -12827,6 +13063,30 @@ builtinInstanceDictionaries classes =
         , ratioSignumMethod
         , ratioFromIntegerMethod
         ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fNumFloat" (-5805))
+        [ floatAddMethod
+        , floatSubMethod
+        , floatMulMethod
+        , floatNegateMethod
+        , floatAbsMethod
+        , floatSignumMethod
+        , floatFromIntegerMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fNumDouble" (-5806))
+        [ doubleAddMethod
+        , doubleSubMethod
+        , doubleMulMethod
+        , doubleNegateMethod
+        , doubleAbsMethod
+        , doubleSignumMethod
+        , doubleFromIntegerMethod
+        ]
     ]
 
   realInstances info =
@@ -12840,6 +13100,16 @@ builtinInstanceDictionaries classes =
         rationalMonoType
         (preludeTermName "$fRealRatioInt" (-1572))
         [ratioToRationalMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fRealFloat" (-5807))
+        [floatToRationalMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fRealDouble" (-5808))
+        [doubleToRationalMethod]
     ]
 
   integralInstances info =
@@ -12856,6 +13126,60 @@ builtinInstanceDictionaries classes =
         , intToIntegerMethod
         ]
     ]
+
+  fractionalInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fFractionalFloat" (-5809))
+        [floatDivMethod, floatRecipMethod, floatFromRationalMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fFractionalDouble" (-5810))
+        [doubleDivMethod, doubleRecipMethod, doubleFromRationalMethod]
+    ]
+
+  floatingInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fFloatingFloat" (-5811))
+        (floatingMethods FloatWidth floatTy (-3460))
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fFloatingDouble" (-5812))
+        (floatingMethods DoubleWidth doubleTy (-3490))
+    ]
+
+  realFracInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fRealFracFloat" (-5813))
+        (realFracMethods FloatWidth floatTy (-3520))
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fRealFracDouble" (-5814))
+        (realFracMethods DoubleWidth doubleTy (-3540))
+    ]
+
+  realFloatInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fRealFloatFloat" (-5815))
+        (realFloatMethods FloatWidth floatTy floatInfo (-3560))
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fRealFloatDouble" (-5816))
+        (realFloatMethods DoubleWidth doubleTy doubleInfo (-3590))
+    ]
+  floatInfo = FloatingTypeInfo 24 (-125) 128
+  doubleInfo = FloatingTypeInfo 53 (-1021) 1024
 
   bitsInstances info =
     [ BuiltinInstanceDictionary
@@ -12923,6 +13247,16 @@ builtinInstanceDictionaries classes =
         rationalMonoType
         (preludeTermName "$fShowRatioInt" (-1538))
         [ratioShowsPrecMethod, ratioShowMethod, ratioShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fShowFloat" (-5821))
+        [floatShowsPrecMethod, floatShowMethod, floatShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fShowDouble" (-5822))
+        [doubleShowsPrecMethod, doubleShowMethod, doubleShowListMethod]
     ]
 
   readInstances info =
@@ -13908,6 +14242,336 @@ ratioToRationalMethod :: CoreExpr
 ratioToRationalMethod =
   unaryMethod "$toRational_ratio_int" (-18860) rationalCoreType rationalCoreType id
 
+data FloatingTypeInfo = FloatingTypeInfo
+  { floatingInfoDigits :: Integer
+  , floatingInfoRangeLow :: Integer
+  , floatingInfoRangeHigh :: Integer
+  }
+
+floatEqMethod, floatNotEqMethod, doubleEqMethod, doubleNotEqMethod :: CoreExpr
+floatEqMethod = floatingEqMethod FloatWidth floatTy "$eq_float" (-6001)
+floatNotEqMethod = floatingNotEqMethod FloatWidth floatTy "$neq_float" (-6005)
+doubleEqMethod = floatingEqMethod DoubleWidth doubleTy "$eq_double" (-6011)
+doubleNotEqMethod = floatingNotEqMethod DoubleWidth doubleTy "$neq_double" (-6015)
+
+floatCompareMethod, floatLtMethod, floatLeMethod, floatGtMethod, floatGeMethod, floatMaxMethod, floatMinMethod :: CoreExpr
+floatCompareMethod = floatingCompareMethod FloatWidth floatTy "$compare_float" (-6021)
+floatLtMethod = floatingLtMethod FloatWidth floatTy "$lt_float" (-6031)
+floatLeMethod = floatingLeMethod FloatWidth floatTy "$le_float" (-6035)
+floatGtMethod = floatingGtMethod FloatWidth floatTy "$gt_float" (-6041)
+floatGeMethod = floatingGeMethod FloatWidth floatTy "$ge_float" (-6045)
+floatMaxMethod = floatingMaxMethod FloatWidth floatTy "$max_float" (-6051)
+floatMinMethod = floatingMinMethod FloatWidth floatTy "$min_float" (-6055)
+
+doubleCompareMethod, doubleLtMethod, doubleLeMethod, doubleGtMethod, doubleGeMethod, doubleMaxMethod, doubleMinMethod :: CoreExpr
+doubleCompareMethod = floatingCompareMethod DoubleWidth doubleTy "$compare_double" (-6061)
+doubleLtMethod = floatingLtMethod DoubleWidth doubleTy "$lt_double" (-6071)
+doubleLeMethod = floatingLeMethod DoubleWidth doubleTy "$le_double" (-6075)
+doubleGtMethod = floatingGtMethod DoubleWidth doubleTy "$gt_double" (-6081)
+doubleGeMethod = floatingGeMethod DoubleWidth doubleTy "$ge_double" (-6085)
+doubleMaxMethod = floatingMaxMethod DoubleWidth doubleTy "$max_double" (-6091)
+doubleMinMethod = floatingMinMethod DoubleWidth doubleTy "$min_double" (-6095)
+
+floatAddMethod, floatSubMethod, floatMulMethod, floatNegateMethod, floatAbsMethod, floatSignumMethod, floatFromIntegerMethod :: CoreExpr
+floatAddMethod = floatingBinaryPrimMethod FloatWidth floatTy FloatAdd "$add_float" (-6101)
+floatSubMethod = floatingBinaryPrimMethod FloatWidth floatTy FloatSub "$sub_float" (-6105)
+floatMulMethod = floatingBinaryPrimMethod FloatWidth floatTy FloatMul "$mul_float" (-6111)
+floatNegateMethod = floatingUnaryPrimMethod FloatWidth floatTy FloatNegate "$negate_float" (-6115)
+floatAbsMethod = floatingUnaryPrimMethod FloatWidth floatTy FloatAbs "$abs_float" (-6121)
+floatSignumMethod = floatingUnaryPrimMethod FloatWidth floatTy FloatSignum "$signum_float" (-6125)
+floatFromIntegerMethod = floatingFromIntegerMethod FloatWidth floatTy "$fromInteger_float" (-6131)
+
+doubleAddMethod, doubleSubMethod, doubleMulMethod, doubleNegateMethod, doubleAbsMethod, doubleSignumMethod, doubleFromIntegerMethod :: CoreExpr
+doubleAddMethod = floatingBinaryPrimMethod DoubleWidth doubleTy FloatAdd "$add_double" (-6141)
+doubleSubMethod = floatingBinaryPrimMethod DoubleWidth doubleTy FloatSub "$sub_double" (-6145)
+doubleMulMethod = floatingBinaryPrimMethod DoubleWidth doubleTy FloatMul "$mul_double" (-6151)
+doubleNegateMethod = floatingUnaryPrimMethod DoubleWidth doubleTy FloatNegate "$negate_double" (-6155)
+doubleAbsMethod = floatingUnaryPrimMethod DoubleWidth doubleTy FloatAbs "$abs_double" (-6161)
+doubleSignumMethod = floatingUnaryPrimMethod DoubleWidth doubleTy FloatSignum "$signum_double" (-6165)
+doubleFromIntegerMethod = floatingFromIntegerMethod DoubleWidth doubleTy "$fromInteger_double" (-6171)
+
+floatToRationalMethod, doubleToRationalMethod :: CoreExpr
+floatToRationalMethod = floatingToRationalMethod FloatWidth floatTy "$toRational_float" (-6181)
+doubleToRationalMethod = floatingToRationalMethod DoubleWidth doubleTy "$toRational_double" (-6191)
+
+floatDivMethod, floatRecipMethod, floatFromRationalMethod :: CoreExpr
+floatDivMethod = floatingBinaryPrimMethod FloatWidth floatTy FloatDiv "$div_float" (-6201)
+floatRecipMethod = floatingRecipMethod FloatWidth floatTy "$recip_float" (-6205)
+floatFromRationalMethod = floatingFromRationalMethod FloatWidth floatTy "$fromRational_float" (-6211)
+
+doubleDivMethod, doubleRecipMethod, doubleFromRationalMethod :: CoreExpr
+doubleDivMethod = floatingBinaryPrimMethod DoubleWidth doubleTy FloatDiv "$div_double" (-6221)
+doubleRecipMethod = floatingRecipMethod DoubleWidth doubleTy "$recip_double" (-6225)
+doubleFromRationalMethod = floatingFromRationalMethod DoubleWidth doubleTy "$fromRational_double" (-6231)
+
+floatingMethods :: FloatingWidth -> CoreType -> Int -> [CoreExpr]
+floatingMethods width ty unique =
+  [ floatingConstant ty (floatingLiteral width pi)
+  , floatingUnaryPrimMethod width ty FloatExp "$exp_float" unique
+  , floatingUnaryPrimMethod width ty FloatLog "$log_float" (unique - 1)
+  , floatingUnaryPrimMethod width ty FloatSqrt "$sqrt_float" (unique - 2)
+  , floatingBinaryPrimMethod width ty FloatPow "$pow_float" (unique - 3)
+  , floatingLogBaseMethod width ty "$log_base_float" (unique - 4)
+  , floatingUnaryPrimMethod width ty FloatSin "$sin_float" (unique - 5)
+  , floatingUnaryPrimMethod width ty FloatCos "$cos_float" (unique - 6)
+  , floatingUnaryPrimMethod width ty FloatTan "$tan_float" (unique - 7)
+  , floatingUnaryPrimMethod width ty FloatAsin "$asin_float" (unique - 8)
+  , floatingUnaryPrimMethod width ty FloatAcos "$acos_float" (unique - 9)
+  , floatingUnaryPrimMethod width ty FloatAtan "$atan_float" (unique - 10)
+  , floatingUnaryPrimMethod width ty FloatSinh "$sinh_float" (unique - 11)
+  , floatingUnaryPrimMethod width ty FloatCosh "$cosh_float" (unique - 12)
+  , floatingUnaryPrimMethod width ty FloatTanh "$tanh_float" (unique - 13)
+  , floatingUnaryPrimMethod width ty FloatAsinh "$asinh_float" (unique - 14)
+  , floatingUnaryPrimMethod width ty FloatAcosh "$acosh_float" (unique - 15)
+  , floatingUnaryPrimMethod width ty FloatAtanh "$atanh_float" (unique - 16)
+  ]
+
+realFracMethods :: FloatingWidth -> CoreType -> Int -> [CoreExpr]
+realFracMethods width ty unique =
+  [ floatingProperFractionMethod width ty "$proper_fraction_float" unique
+  , floatingToIntMethod width ty FloatTruncate "$truncate_float" (unique - 1)
+  , floatingToIntMethod width ty FloatRound "$round_float" (unique - 2)
+  , floatingToIntMethod width ty FloatCeiling "$ceiling_float" (unique - 3)
+  , floatingToIntMethod width ty FloatFloor "$floor_float" (unique - 4)
+  ]
+
+realFloatMethods :: FloatingWidth -> CoreType -> FloatingTypeInfo -> Int -> [CoreExpr]
+realFloatMethods width ty info unique =
+  [ unaryMethod "$float_radix" unique ty intTy (const (CLit (LInt 2) intTy))
+  , unaryMethod "$float_digits" (unique - 1) ty intTy (const (CLit (LInt (floatingInfoDigits info)) intTy))
+  , unaryMethod "$float_range" (unique - 2) ty intPairCoreType (const (tuple2IntCore (CLit (LInt (floatingInfoRangeLow info)) intTy) (CLit (LInt (floatingInfoRangeHigh info)) intTy)))
+  , floatingDecodeMethod width ty "$decode_float" (unique - 3)
+  , floatingEncodeMethod width ty "$encode_float" (unique - 4)
+  , floatingExponentMethod width ty "$exponent_float" (unique - 5)
+  , floatingSignificandMethod width ty "$significand_float" (unique - 6)
+  , floatingScaleFloatMethod width ty "$scale_float" (unique - 7)
+  , floatingPredicateMethod width ty FloatIsNaN "$is_nan_float" (unique - 8)
+  , floatingPredicateMethod width ty FloatIsInfinite "$is_infinite_float" (unique - 9)
+  , floatingPredicateMethod width ty FloatIsDenormalized "$is_denormalized_float" (unique - 10)
+  , floatingPredicateMethod width ty FloatIsNegativeZero "$is_negative_zero_float" (unique - 11)
+  , unaryMethod "$is_ieee_float" (unique - 12) ty boolTy (const (CCon trueDataConName boolTy))
+  , floatingBinaryPrimMethod width ty FloatAtan2 "$atan2_float" (unique - 13)
+  ]
+
+floatingEqMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingEqMethod width ty occurrence unique =
+  binaryPrimMethod occurrence unique ty boolTy (PrimFloat width FloatEq)
+
+floatingNotEqMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingNotEqMethod width ty occurrence unique =
+  binaryBoolMethod occurrence unique ty (\lhs rhs -> boolNotCore (occurrence <> "_not") (unique - 1) (CPrimOp (PrimFloat width FloatEq) [lhs, rhs] boolTy))
+
+floatingCompareMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingCompareMethod width ty occurrence unique =
+  binaryMethod occurrence unique ty orderingTy $ \lhs rhs ->
+    boolCaseCore
+      (occurrence <> "_lt")
+      (unique - 1)
+      (floatingLtCore width lhs rhs)
+      orderingTy
+      (CCon orderingLTDataConName orderingTy)
+      ( boolCaseCore
+          (occurrence <> "_gt")
+          (unique - 2)
+          (floatingLtCore width rhs lhs)
+          orderingTy
+          (CCon orderingGTDataConName orderingTy)
+          (CCon orderingEQDataConName orderingTy)
+      )
+
+floatingLtMethod, floatingLeMethod, floatingGtMethod, floatingGeMethod, floatingMaxMethod, floatingMinMethod ::
+  FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingLtMethod width ty occurrence unique =
+  binaryPrimMethod occurrence unique ty boolTy (PrimFloat width FloatLt)
+floatingLeMethod width ty occurrence unique =
+  binaryBoolMethod occurrence unique ty (\lhs rhs -> boolNotCore (occurrence <> "_not") (unique - 1) (floatingLtCore width rhs lhs))
+floatingGtMethod width ty occurrence unique =
+  binaryBoolMethod occurrence unique ty (\lhs rhs -> floatingLtCore width rhs lhs)
+floatingGeMethod width ty occurrence unique =
+  binaryBoolMethod occurrence unique ty (\lhs rhs -> boolNotCore (occurrence <> "_not") (unique - 1) (floatingLtCore width lhs rhs))
+floatingMaxMethod width ty occurrence unique =
+  binaryMethod occurrence unique ty ty $ \lhs rhs ->
+    boolCaseCore (occurrence <> "_case") (unique - 1) (floatingLtCore width lhs rhs) ty rhs lhs
+floatingMinMethod width ty occurrence unique =
+  binaryMethod occurrence unique ty ty $ \lhs rhs ->
+    boolCaseCore (occurrence <> "_case") (unique - 1) (floatingLtCore width lhs rhs) ty lhs rhs
+
+floatingBinaryPrimMethod :: FloatingWidth -> CoreType -> FloatingPrimOp -> Text -> Int -> CoreExpr
+floatingBinaryPrimMethod width ty op occurrence unique =
+  binaryMethod occurrence unique ty ty (\lhs rhs -> CPrimOp (PrimFloat width op) [lhs, rhs] ty)
+
+floatingUnaryPrimMethod :: FloatingWidth -> CoreType -> FloatingPrimOp -> Text -> Int -> CoreExpr
+floatingUnaryPrimMethod width ty op occurrence unique =
+  unaryMethod occurrence unique ty ty (\value -> CPrimOp (PrimFloat width op) [value] ty)
+
+floatingFromIntegerMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingFromIntegerMethod width ty occurrence unique =
+  unaryMethod occurrence unique intTy ty (\value -> CPrimOp (PrimFloat width FloatFromInt) [value] ty)
+
+floatingToRationalMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingToRationalMethod width ty occurrence unique =
+  unaryMethod occurrence unique ty rationalCoreType $ \value ->
+    ratioIntCore (CPrimOp (PrimFloatInt width FloatRound) [value] intTy) oneInt
+
+floatingRecipMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingRecipMethod width ty occurrence unique =
+  unaryMethod occurrence unique ty ty (\value -> CPrimOp (PrimFloat width FloatDiv) [floatingOne width, value] ty)
+
+floatingFromRationalMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingFromRationalMethod width ty occurrence unique =
+  unaryMethod occurrence unique rationalCoreType ty $ \value ->
+    ratioCaseCore (occurrence <> "_case") (unique - 1) value ty (unique - 2) (unique - 3) $ \numerator denominator ->
+      CPrimOp
+        (PrimFloat width FloatDiv)
+        [ CPrimOp (PrimFloat width FloatFromInt) [numerator] ty
+        , CPrimOp (PrimFloat width FloatFromInt) [denominator] ty
+        ]
+        ty
+
+floatingLogBaseMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingLogBaseMethod width ty occurrence unique =
+  binaryMethod occurrence unique ty ty $ \base value ->
+    CPrimOp
+      (PrimFloat width FloatDiv)
+      [CPrimOp (PrimFloat width FloatLog) [value] ty, CPrimOp (PrimFloat width FloatLog) [base] ty]
+      ty
+
+floatingProperFractionMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingProperFractionMethod width ty occurrence unique =
+  unaryMethod occurrence unique ty (CTyTuple [intTy, ty]) $ \value ->
+    letCore wholeName intTy (CPrimOp (PrimFloatInt width FloatTruncate) [value] intTy) $
+      constructorApp
+        (tupleDataConName 2)
+        [intTy, ty]
+        [ CVar wholeName intTy
+        , CPrimOp (PrimFloat width FloatSub) [value, CPrimOp (PrimFloat width FloatFromInt) [CVar wholeName intTy] ty] ty
+        ]
+        (CTyTuple [intTy, ty])
+ where
+  wholeName = builtinLocalTermName (occurrence <> "_whole") (unique - 1)
+
+floatingToIntMethod :: FloatingWidth -> CoreType -> FloatingIntPrimOp -> Text -> Int -> CoreExpr
+floatingToIntMethod width ty op occurrence unique =
+  unaryMethod occurrence unique ty intTy (\value -> CPrimOp (PrimFloatInt width op) [value] intTy)
+
+floatingDecodeMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingDecodeMethod width ty occurrence unique =
+  unaryMethod occurrence unique ty intPairCoreType $ \value ->
+    tuple2IntCore (CPrimOp (PrimFloatInt width FloatTruncate) [value] intTy) zeroInt
+
+floatingEncodeMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingEncodeMethod width ty occurrence unique =
+  coreLam significandName intTy $
+    coreLam exponentName intTy $
+      CPrimOp
+        (PrimFloat width FloatMul)
+        [ CPrimOp (PrimFloat width FloatFromInt) [CVar significandName intTy] ty
+        , floatingPow2 width ty (CVar exponentName intTy)
+        ]
+        ty
+ where
+  significandName = builtinLocalTermName (occurrence <> "_significand") unique
+  exponentName = builtinLocalTermName (occurrence <> "_exponent") (unique - 1)
+
+floatingExponentMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingExponentMethod width ty occurrence unique =
+  unaryMethod occurrence unique ty intTy $ \value ->
+    boolCaseCore
+      (occurrence <> "_zero")
+      (unique - 1)
+      (CPrimOp (PrimFloat width FloatEq) [value, floatingZero width] boolTy)
+      intTy
+      zeroInt
+      ( intAdd
+          ( CPrimOp
+              (PrimFloatInt width FloatFloor)
+              [ CPrimOp
+                  (PrimFloat width FloatDiv)
+                  [ CPrimOp (PrimFloat width FloatLog) [CPrimOp (PrimFloat width FloatAbs) [value] ty] ty
+                  , CPrimOp (PrimFloat width FloatLog) [floatingLiteral width 2] ty
+                  ]
+                  ty
+              ]
+              intTy
+          )
+          oneInt
+      )
+
+floatingSignificandMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingSignificandMethod width ty occurrence unique =
+  unaryMethod occurrence unique ty ty $ \value ->
+    letCore exponentName intTy (floatingExponentCore width ty value) $
+      CPrimOp
+        (PrimFloat width FloatDiv)
+        [value, floatingPow2 width ty (CVar exponentName intTy)]
+        ty
+ where
+  exponentName = builtinLocalTermName (occurrence <> "_exponent") (unique - 1)
+
+floatingScaleFloatMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingScaleFloatMethod width ty occurrence unique =
+  coreLam exponentName intTy $
+    coreLam valueName ty $
+      CPrimOp
+        (PrimFloat width FloatMul)
+        [CVar valueName ty, floatingPow2 width ty (CVar exponentName intTy)]
+        ty
+ where
+  exponentName = builtinLocalTermName (occurrence <> "_exponent") unique
+  valueName = builtinLocalTermName (occurrence <> "_value") (unique - 1)
+
+floatingPredicateMethod :: FloatingWidth -> CoreType -> FloatingIntPrimOp -> Text -> Int -> CoreExpr
+floatingPredicateMethod width ty op occurrence unique =
+  unaryMethod occurrence unique ty boolTy (\value -> CPrimOp (PrimFloatInt width op) [value] boolTy)
+
+floatingExponentCore :: FloatingWidth -> CoreType -> CoreExpr -> CoreExpr
+floatingExponentCore width ty value =
+  boolCaseCore
+    "$floating_exponent_zero"
+    (-6241)
+    (CPrimOp (PrimFloat width FloatEq) [value, floatingZero width] boolTy)
+    intTy
+    zeroInt
+    ( intAdd
+        ( CPrimOp
+            (PrimFloatInt width FloatFloor)
+            [ CPrimOp
+                (PrimFloat width FloatDiv)
+                [ CPrimOp (PrimFloat width FloatLog) [CPrimOp (PrimFloat width FloatAbs) [value] ty] ty
+                , CPrimOp (PrimFloat width FloatLog) [floatingLiteral width 2] ty
+                ]
+                ty
+            ]
+            intTy
+        )
+        oneInt
+    )
+
+floatingPow2 :: FloatingWidth -> CoreType -> CoreExpr -> CoreExpr
+floatingPow2 width ty exponentExpr =
+  CPrimOp
+    (PrimFloat width FloatPow)
+    [floatingLiteral width 2, CPrimOp (PrimFloat width FloatFromInt) [exponentExpr] ty]
+    ty
+
+floatingLtCore :: FloatingWidth -> CoreExpr -> CoreExpr -> CoreExpr
+floatingLtCore width lhs rhs =
+  CPrimOp (PrimFloat width FloatLt) [lhs, rhs] boolTy
+
+floatingConstant :: CoreType -> CoreExpr -> CoreExpr
+floatingConstant _ value =
+  value
+
+floatingZero, floatingOne :: FloatingWidth -> CoreExpr
+floatingZero width = floatingLiteral width 0
+floatingOne width = floatingLiteral width 1
+
+floatingLiteral :: FloatingWidth -> Double -> CoreExpr
+floatingLiteral width value =
+  case width of
+    FloatWidth -> CLit (LFloat (realToFrac value)) floatTy
+    DoubleWidth -> CLit (LDouble value) doubleTy
+
 ratioBinaryBoolMethod :: Text -> Int -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
 ratioBinaryBoolMethod occurrence unique =
   ratioBinaryMethod occurrence unique boolTy
@@ -14316,6 +14980,22 @@ ratioShowBodyCore :: CoreExpr -> CoreExpr
 ratioShowBodyCore value =
   ratioCaseCore "$show_ratio_int_case" (-2865) value stringTy (-2866) (-2867) $ \n d ->
     appendStringCore (CPrimOp PrimShowInt [n] stringTy) (appendStringCore (stringLiteralCore " % ") (CPrimOp PrimShowInt [d] stringTy))
+
+floatShowsPrecMethod, floatShowMethod, floatShowListMethod :: CoreExpr
+floatShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_float" (-2870) floatTy (\value -> CPrimOp (PrimFloat FloatWidth FloatShow) [value] stringTy)
+floatShowMethod =
+  unaryPrimMethod "$show_float" (-2871) floatTy stringTy (PrimFloat FloatWidth FloatShow)
+floatShowListMethod =
+  showListFromShowsMethod floatTy floatShowsPrecMethod
+
+doubleShowsPrecMethod, doubleShowMethod, doubleShowListMethod :: CoreExpr
+doubleShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_double" (-2880) doubleTy (\value -> CPrimOp (PrimFloat DoubleWidth FloatShow) [value] stringTy)
+doubleShowMethod =
+  unaryPrimMethod "$show_double" (-2881) doubleTy stringTy (PrimFloat DoubleWidth FloatShow)
+doubleShowListMethod =
+  showListFromShowsMethod doubleTy doubleShowsPrecMethod
 
 intReadsPrecMethod, boolReadsPrecMethod, charReadsPrecMethod, orderingReadsPrecMethod, unitReadsPrecMethod, ratioReadsPrecMethod :: CoreExpr
 intReadsPrecMethod =
@@ -16673,6 +17353,8 @@ freshTermBinder occurrence ty =
 literalMonoType :: Literal -> MonoType
 literalMonoType = \case
   LInt {} -> intMonoType
+  LFloat {} -> floatMonoType
+  LDouble {} -> doubleMonoType
   LChar {} -> charMonoType
   LString {} -> stringMonoType
 
@@ -16687,6 +17369,14 @@ stringLiteralPattern value =
 intMonoType :: MonoType
 intMonoType =
   coreTypeToMono intTy
+
+floatMonoType :: MonoType
+floatMonoType =
+  coreTypeToMono floatTy
+
+doubleMonoType :: MonoType
+doubleMonoType =
+  coreTypeToMono doubleTy
 
 boolMonoType :: MonoType
 boolMonoType =

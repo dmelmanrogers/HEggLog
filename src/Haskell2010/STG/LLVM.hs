@@ -20,7 +20,7 @@ import Haskell2010.FFI.LinkMetadata (foreignLinkMetadataForImportsExports, rende
 import Haskell2010.Names (RName, nameOcc, nameUnique, renderRName)
 import Haskell2010.STG.Syntax
 import qualified Haskell2010.STG.Validate as STGValidate
-import Haskell2010.Syntax (Literal (..))
+import Haskell2010.Syntax (Literal (LChar, LInt, LString))
 import qualified Haskell2010.Syntax as S
 import Backend.LLVM.IR
 import Backend.LLVM.Validate
@@ -216,8 +216,18 @@ printableMainValue ty value
       charReg <- freshRegister "main_char"
       emit (ICall (Just charReg) LI32 (DirectCall expectCharFunctionName) False [(LPtr, value)])
       pure (OLocal LI32 charReg)
+  | ty == floatTy = do
+      floatReg <- freshRegister "main_float"
+      emit (ICall (Just floatReg) LFloat (DirectCall expectFloatFunctionName) False [(LPtr, value)])
+      doubleReg <- freshRegister "main_float_double"
+      emit (IFPExt doubleReg (OLocal LFloat floatReg) LDouble)
+      pure (OLocal LDouble doubleReg)
+  | ty == doubleTy = do
+      doubleReg <- freshRegister "main_double"
+      emit (ICall (Just doubleReg) LDouble (DirectCall expectDoubleFunctionName) False [(LPtr, value)])
+      pure (OLocal LDouble doubleReg)
   | otherwise =
-      throwSTGLLVM (STGLLVMUnsupported ("native Haskell 2010 main must be Int, Bool, or Char, got " <> renderCoreType ty))
+      throwSTGLLVM (STGLLVMUnsupported ("native Haskell 2010 main must be Int, Bool, Char, Float, or Double, got " <> renderCoreType ty))
 
 formatPointer :: CoreType -> FunctionM LLVMOperand
 formatPointer ty = do
@@ -225,6 +235,7 @@ formatPointer ty = do
   let formatSpec
         | ty == boolTy = ("haskell2010_fmt_i1", boolFormatBytes)
         | ty == charTy = ("haskell2010_fmt_char", charFormatBytes)
+        | ty == floatTy || ty == doubleTy = ("haskell2010_fmt_double", doubleFormatBytes)
         | otherwise = ("haskell2010_fmt_i64", intFormatBytes)
       (globalName, bytes) = formatSpec
       arrayType = LArray (Text.length bytes) LI8
@@ -390,6 +401,10 @@ emitLiteral = \case
     case mkHIntLiteral value of
       Right intValue -> emitMakeInt (hintToInteger intValue)
       Left err -> throwSTGLLVM (STGLLVMUnsupported ("native Int literal is out of range: " <> renderIntError err))
+  S.LFloat value ->
+    doubleToFloating FloatWidth (OConstFloat LDouble (Text.pack (show (realToFrac value :: Double)))) >>= emitMakeFloat
+  S.LDouble value ->
+    emitMakeDouble (OConstFloat LDouble (Text.pack (show value)))
   LChar value ->
     emitMakeChar (fromIntegral (ord value))
   LString value ->
@@ -512,6 +527,10 @@ emitPrim env op arguments =
     (PrimShowBool, [value]) -> do
       valueOperand <- emitExpectAtomBool env value
       emitShowBool valueOperand
+    (PrimFloat width floatingOp, args) ->
+      emitFloatingPrim env width floatingOp args
+    (PrimFloatInt width floatingOp, args) ->
+      emitFloatingIntPrim env width floatingOp args
     (PrimPutStrLn, [value]) -> do
       valueObject <- emitAtomAddress env value
       emit (ICall Nothing LVoid (DirectCall putStrLnFunctionName) False [(LPtr, valueObject)])
@@ -1260,6 +1279,194 @@ emitShowBool value = do
   emit (IPhi resultReg LPtr [(trueObject, truePredecessor), (falseObject, falsePredecessor)])
   pure (OLocal LPtr resultReg)
 
+emitFloatingPrim :: ValueEnv -> FloatingWidth -> FloatingPrimOp -> [STGAtom] -> FunctionM LLVMOperand
+emitFloatingPrim env width op args =
+  case (op, args) of
+    (FloatAdd, [lhs, rhs]) -> binary IFAdd lhs rhs >>= makeFloating width
+    (FloatSub, [lhs, rhs]) -> binary IFSub lhs rhs >>= makeFloating width
+    (FloatMul, [lhs, rhs]) -> binary IFMul lhs rhs >>= makeFloating width
+    (FloatDiv, [lhs, rhs]) -> binary IFDiv lhs rhs >>= makeFloating width
+    (FloatEq, [lhs, rhs]) -> compareFloating FCmpOeq lhs rhs >>= emitMakeBool
+    (FloatLt, [lhs, rhs]) -> compareFloating FCmpOlt lhs rhs >>= emitMakeBool
+    (FloatNegate, [value]) -> unaryNegate value >>= makeFloating width
+    (FloatAbs, [value]) -> unaryCall "fabs" value >>= makeFloating width
+    (FloatSignum, [value]) -> signumFloating value >>= makeFloating width
+    (FloatFromInt, [value]) -> fromInt value >>= makeFloating width
+    (FloatShow, [value]) -> showFloating value
+    (FloatExp, [value]) -> unaryCall "exp" value >>= makeFloating width
+    (FloatLog, [value]) -> unaryCall "log" value >>= makeFloating width
+    (FloatSqrt, [value]) -> unaryCall "sqrt" value >>= makeFloating width
+    (FloatSin, [value]) -> unaryCall "sin" value >>= makeFloating width
+    (FloatCos, [value]) -> unaryCall "cos" value >>= makeFloating width
+    (FloatTan, [value]) -> unaryCall "tan" value >>= makeFloating width
+    (FloatAsin, [value]) -> unaryCall "asin" value >>= makeFloating width
+    (FloatAcos, [value]) -> unaryCall "acos" value >>= makeFloating width
+    (FloatAtan, [value]) -> unaryCall "atan" value >>= makeFloating width
+    (FloatSinh, [value]) -> unaryCall "sinh" value >>= makeFloating width
+    (FloatCosh, [value]) -> unaryCall "cosh" value >>= makeFloating width
+    (FloatTanh, [value]) -> unaryCall "tanh" value >>= makeFloating width
+    (FloatAsinh, [value]) -> unaryCall "asinh" value >>= makeFloating width
+    (FloatAcosh, [value]) -> unaryCall "acosh" value >>= makeFloating width
+    (FloatAtanh, [value]) -> unaryCall "atanh" value >>= makeFloating width
+    (FloatPow, [lhs, rhs]) -> binaryCall "pow" lhs rhs >>= makeFloating width
+    (FloatAtan2, [lhs, rhs]) -> binaryCall "atan2" lhs rhs >>= makeFloating width
+    _ -> throwSTGLLVM (STGLLVMUnsupported ("unsupported floating primitive shape for " <> Text.pack (show op)))
+ where
+  llvmTy = floatingLLVMType width
+  expect = expectFloatingAtom width
+
+  binary instruction lhs rhs = do
+    lhsValue <- expect env lhs
+    rhsValue <- expect env rhs
+    reg <- freshRegister "float_bin"
+    emit (instruction reg llvmTy lhsValue rhsValue)
+    pure (OLocal llvmTy reg)
+
+  compareFloating predicate lhs rhs = do
+    lhsValue <- expect env lhs
+    rhsValue <- expect env rhs
+    reg <- freshRegister "float_cmp"
+    emit (IIcmp reg predicate llvmTy lhsValue rhsValue)
+    pure (OLocal LI1 reg)
+
+  unaryNegate value = do
+    valueOperand <- expect env value
+    reg <- freshRegister "float_neg"
+    emit (IFSub reg llvmTy (OConstFloat llvmTy "0.0") valueOperand)
+    pure (OLocal llvmTy reg)
+
+  fromInt value = do
+    intValue <- emitExpectAtomInt env value
+    reg <- freshRegister "float_from_int"
+    emit (ISIToFP reg intValue llvmTy)
+    pure (OLocal llvmTy reg)
+
+  unaryCall name value = do
+    valueOperand <- floatingToDouble width =<< expect env value
+    reg <- freshRegister ("call_" <> name)
+    emit (ICall (Just reg) LDouble (DirectCall name) False [(LDouble, valueOperand)])
+    doubleToFloating width (OLocal LDouble reg)
+
+  binaryCall name lhs rhs = do
+    lhsValue <- floatingToDouble width =<< expect env lhs
+    rhsValue <- floatingToDouble width =<< expect env rhs
+    reg <- freshRegister ("call_" <> name)
+    emit (ICall (Just reg) LDouble (DirectCall name) False [(LDouble, lhsValue), (LDouble, rhsValue)])
+    doubleToFloating width (OLocal LDouble reg)
+
+  signumFloating value = do
+    valueOperand <- expect env value
+    ltReg <- freshRegister "float_sign_lt"
+    eqReg <- freshRegister "float_sign_eq"
+    emit (IIcmp ltReg FCmpOlt llvmTy valueOperand (OConstFloat llvmTy "0.0"))
+    emit (IIcmp eqReg FCmpOeq llvmTy valueOperand (OConstFloat llvmTy "0.0"))
+    emitValueIf
+      "float_sign"
+      llvmTy
+      (OLocal LI1 ltReg)
+      (pure (OConstFloat llvmTy "-1.0"))
+      ( emitValueIf
+          "float_sign_zero"
+          llvmTy
+          (OLocal LI1 eqReg)
+          (pure (OConstFloat llvmTy "0.0"))
+          (pure (OConstFloat llvmTy "1.0"))
+      )
+
+  showFloating value = do
+    valueOperand <- expect env value
+    doubleValue <- floatingToDouble width valueOperand
+    reg <- freshRegister "show_float"
+    emit (ICall (Just reg) LPtr (DirectCall showDoubleFunctionName) False [(LDouble, doubleValue)])
+    pure (OLocal LPtr reg)
+
+emitFloatingIntPrim :: ValueEnv -> FloatingWidth -> FloatingIntPrimOp -> [STGAtom] -> FunctionM LLVMOperand
+emitFloatingIntPrim env width op args =
+  case (op, args) of
+    (FloatTruncate, [value]) -> toInt value >>= emitMakeIntOperand
+    (FloatRound, [value]) -> rounded value >>= emitMakeIntOperand
+    (FloatCeiling, [value]) -> unaryIntegralCall "ceil" value >>= emitMakeIntOperand
+    (FloatFloor, [value]) -> unaryIntegralCall "floor" value >>= emitMakeIntOperand
+    (FloatIsNaN, [value]) -> isNaNValue value >>= emitMakeBool
+    (FloatIsInfinite, [value]) -> isInfiniteValue value >>= emitMakeBool
+    (FloatIsDenormalized, [_]) -> emitMakeBool (OConstInt LI1 0)
+    (FloatIsNegativeZero, [_]) -> emitMakeBool (OConstInt LI1 0)
+    _ -> throwSTGLLVM (STGLLVMUnsupported ("unsupported floating/int primitive shape for " <> Text.pack (show op)))
+ where
+  expect = expectFloatingAtom width
+
+  toInt value = do
+    valueOperand <- expect env value
+    reg <- freshRegister "float_to_int"
+    emit (IFPToSI reg valueOperand LI64)
+    pure (OLocal LI64 reg)
+
+  rounded value = do
+    valueOperand <- floatingToDouble width =<< expect env value
+    adjusted <- emitRoundDouble valueOperand
+    reg <- freshRegister "round_to_int"
+    emit (IFPToSI reg adjusted LI64)
+    pure (OLocal LI64 reg)
+
+  unaryIntegralCall name value = do
+    valueOperand <- floatingToDouble width =<< expect env value
+    reg <- freshRegister ("call_" <> name)
+    emit (ICall (Just reg) LDouble (DirectCall name) False [(LDouble, valueOperand)])
+    intReg <- freshRegister (name <> "_to_int")
+    emit (IFPToSI intReg (OLocal LDouble reg) LI64)
+    pure (OLocal LI64 intReg)
+
+  isNaNValue value = do
+    valueOperand <- expect env value
+    reg <- freshRegister "float_is_nan"
+    emit (IIcmp reg FCmpUno (floatingLLVMType width) valueOperand valueOperand)
+    pure (OLocal LI1 reg)
+
+  isInfiniteValue value = do
+    valueOperand <- floatingToDouble width =<< expect env value
+    absReg <- freshRegister "float_inf_abs"
+    emit (ICall (Just absReg) LDouble (DirectCall "fabs") False [(LDouble, valueOperand)])
+    reg <- freshRegister "float_is_inf"
+    emit (IIcmp reg FCmpOeq LDouble (OLocal LDouble absReg) (OConstFloat LDouble "0x7FF0000000000000"))
+    pure (OLocal LI1 reg)
+
+emitRoundDouble :: LLVMOperand -> FunctionM LLVMOperand
+emitRoundDouble value = do
+  halfReg <- freshRegister "round_plus_half"
+  emit (IFAdd halfReg LDouble value (OConstFloat LDouble "0.5"))
+  pure (OLocal LDouble halfReg)
+
+floatingLLVMType :: FloatingWidth -> LLVMType
+floatingLLVMType = \case
+  FloatWidth -> LFloat
+  DoubleWidth -> LDouble
+
+expectFloatingAtom :: FloatingWidth -> ValueEnv -> STGAtom -> FunctionM LLVMOperand
+expectFloatingAtom = \case
+  FloatWidth -> emitExpectAtomFloat
+  DoubleWidth -> emitExpectAtomDouble
+
+makeFloating :: FloatingWidth -> LLVMOperand -> FunctionM LLVMOperand
+makeFloating = \case
+  FloatWidth -> emitMakeFloat
+  DoubleWidth -> emitMakeDouble
+
+floatingToDouble :: FloatingWidth -> LLVMOperand -> FunctionM LLVMOperand
+floatingToDouble = \case
+  DoubleWidth -> pure
+  FloatWidth -> \value -> do
+    reg <- freshRegister "float_to_double"
+    emit (IFPExt reg value LDouble)
+    pure (OLocal LDouble reg)
+
+doubleToFloating :: FloatingWidth -> LLVMOperand -> FunctionM LLVMOperand
+doubleToFloating = \case
+  DoubleWidth -> pure
+  FloatWidth -> \value -> do
+    reg <- freshRegister "double_to_float"
+    emit (IFPTrunc reg value LFloat)
+    pure (OLocal LFloat reg)
+
 emitCheckedIntPrim :: Text -> LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
 emitCheckedIntPrim intrinsic lhs rhs = do
   pairReg <- freshRegister "checked"
@@ -1675,6 +1882,10 @@ literalMatchCondition tagValue = \case
     pure (OLocal LI1 reg)
   LString {} ->
     throwSTGLLVM (STGLLVMUnsupported "native String case alternatives are not implemented for Core-0")
+  S.LFloat {} ->
+    throwSTGLLVM (STGLLVMUnsupported "native Float case alternatives are not implemented for Core-0")
+  S.LDouble {} ->
+    throwSTGLLVM (STGLLVMUnsupported "native Double case alternatives are not implemented for Core-0")
 
 resolveName :: ValueEnv -> RName -> FunctionM LLVMOperand
 resolveName env name =
@@ -2652,6 +2863,7 @@ runtimeFunctions =
   , touchForeignPtrFunction
   , makeCharListFromCStringFunction
   , showIntFunction
+  , showDoubleFunction
   , putStrLnFunction
   , getLineFunction
   , printCharListFunction
@@ -3242,6 +3454,42 @@ showIntFunction =
         ]
     }
 
+showDoubleFunction :: LLVMFunction
+showDoubleFunction =
+  LLVMFunction
+    { functionName = showDoubleFunctionName
+    , functionReturnType = LPtr
+    , functionParams = [(LDouble, Register "value")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "buffer")) LPtr (DirectCall processLifetimeAllocFunctionName) False [(LI64, OConstInt LI64 64)]
+            , IGetElementPtr
+                (Register "fmt")
+                (LArray (Text.length doubleRawFormatBytes) LI8)
+                (OGlobal LPtr "haskell2010_fmt_double_raw")
+                [(LI64, OConstInt LI64 0), (LI64, OConstInt LI64 0)]
+            , ICall
+                (Just (Register "written"))
+                LI32
+                (DirectCall "snprintf")
+                True
+                [ (LPtr, OLocal LPtr (Register "buffer"))
+                , (LI64, OConstInt LI64 64)
+                , (LPtr, OLocal LPtr (Register "fmt"))
+                , (LDouble, OLocal LDouble (Register "value"))
+                ]
+            , ICall
+                (Just (Register "string"))
+                LPtr
+                (DirectCall makeCharListFromCStringFunctionName)
+                False
+                [(LPtr, OLocal LPtr (Register "buffer"))]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "string")))
+        ]
+    }
+
 makeCharListFromCStringFunction :: LLVMFunction
 makeCharListFromCStringFunction =
   LLVMFunction
@@ -3663,7 +3911,7 @@ makeFunctionFunctionName = "hegglog_hs_make_function"
 makeThunkFunctionName = "hegglog_hs_make_thunk"
 forceFunctionName = "hegglog_hs_force"
 
-expectIntFunctionName, expectFloatFunctionName, expectDoubleFunctionName, expectBoolFunctionName, expectCharFunctionName, expectPointerFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, putStrLnFunctionName, getLineFunctionName, printCharListFunctionName :: Text
+expectIntFunctionName, expectFloatFunctionName, expectDoubleFunctionName, expectBoolFunctionName, expectCharFunctionName, expectPointerFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, showDoubleFunctionName, putStrLnFunctionName, getLineFunctionName, printCharListFunctionName :: Text
 expectIntFunctionName = "hegglog_hs_expect_int"
 expectFloatFunctionName = "hegglog_hs_expect_float"
 expectDoubleFunctionName = "hegglog_hs_expect_double"
@@ -3674,6 +3922,7 @@ expectStringFunctionName = "hegglog_hs_expect_string"
 expectFunctionName = "hegglog_hs_expect_function"
 makeCharListFromCStringFunctionName = "hegglog_hs_make_char_list_from_cstring"
 showIntFunctionName = "hegglog_hs_show_int"
+showDoubleFunctionName = "hegglog_hs_show_double"
 putStrLnFunctionName = "hegglog_hs_putstrln"
 getLineFunctionName = "hegglog_hs_getline"
 printCharListFunctionName = "hegglog_hs_print_char_list"
@@ -3695,7 +3944,9 @@ formatGlobals =
   [ LLVMStringGlobal "haskell2010_fmt_i64" intFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_i1" boolFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_char" charFormatBytes
+  , LLVMStringGlobal "haskell2010_fmt_double" doubleFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_i64_raw" intRawFormatBytes
+  , LLVMStringGlobal "haskell2010_fmt_double_raw" doubleRawFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_string_line" stringLineFormatBytes
   ]
 
@@ -3707,6 +3958,26 @@ runtimeDeclarations =
   , "declare i32 @snprintf(ptr, i64, ptr, ...)"
   , "declare noalias ptr @malloc(i64)"
   , "declare void @abort()"
+  , "declare double @fabs(double)"
+  , "declare double @ceil(double)"
+  , "declare double @floor(double)"
+  , "declare double @exp(double)"
+  , "declare double @log(double)"
+  , "declare double @sqrt(double)"
+  , "declare double @pow(double, double)"
+  , "declare double @sin(double)"
+  , "declare double @cos(double)"
+  , "declare double @tan(double)"
+  , "declare double @asin(double)"
+  , "declare double @acos(double)"
+  , "declare double @atan(double)"
+  , "declare double @sinh(double)"
+  , "declare double @cosh(double)"
+  , "declare double @tanh(double)"
+  , "declare double @asinh(double)"
+  , "declare double @acosh(double)"
+  , "declare double @atanh(double)"
+  , "declare double @atan2(double, double)"
   , "declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)"
   , "declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)"
   , "declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)"
@@ -3724,9 +3995,17 @@ charFormatBytes :: Text
 charFormatBytes =
   "%c\n\0"
 
+doubleFormatBytes :: Text
+doubleFormatBytes =
+  "%.17g\n\0"
+
 intRawFormatBytes :: Text
 intRawFormatBytes =
   "%lld\0"
+
+doubleRawFormatBytes :: Text
+doubleRawFormatBytes =
+  "%.17g\0"
 
 stringLineFormatBytes :: Text
 stringLineFormatBytes =

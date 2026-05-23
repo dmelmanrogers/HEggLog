@@ -58,6 +58,8 @@ newtype STGHeapAddress = STGHeapAddress Int
 
 data STGValue
   = STGInt HInt
+  | STGFloat Float
+  | STGDouble Double
   | STGBool Bool
   | STGChar Char
   | STGString Text
@@ -229,6 +231,10 @@ evalLiteral = \case
     case mkHIntLiteral value of
       Right intValue -> Right (STGInt intValue)
       Left err -> Left (STGEvalIntError err)
+  LFloat value ->
+    Right (STGFloat value)
+  LDouble value ->
+    Right (STGDouble value)
   LChar value ->
     Right (STGChar value)
   LString value ->
@@ -557,6 +563,10 @@ evalPrimitiveValues op values =
       stringListValue "True"
     (PrimShowBool, [STGBool False]) ->
       stringListValue "False"
+    (PrimFloat width floatingOp, arguments) ->
+      liftEither (evalFloatingPrimitive width floatingOp arguments)
+    (PrimFloatInt width floatingOp, arguments) ->
+      liftEither (evalFloatingIntPrimitive width floatingOp arguments)
     (PrimPutStrLn, [value]) ->
       (\text -> STGIO [text <> "\n"] (STGIOSuccess (STGData unitDataConName []))) <$> stgStringText value
     (PrimGetLine, []) ->
@@ -623,6 +633,81 @@ evalPrimitiveValues op values =
       Right value -> value
       Left err -> error (Text.unpack (renderIntError err))
 
+evalFloatingPrimitive :: FloatingWidth -> FloatingPrimOp -> [STGValue] -> Either STGEvalError STGValue
+evalFloatingPrimitive width op values =
+  case (width, op, values) of
+    (FloatWidth, FloatEq, [STGFloat lhs, STGFloat rhs]) -> Right (STGBool (lhs == rhs))
+    (FloatWidth, FloatLt, [STGFloat lhs, STGFloat rhs]) -> Right (STGBool (lhs < rhs))
+    (FloatWidth, FloatShow, [STGFloat value]) -> Right (STGString (Text.pack (show value)))
+    (FloatWidth, FloatFromInt, [STGInt value]) -> Right (STGFloat (fromInteger (hintToInteger value)))
+    (FloatWidth, _, [STGFloat lhs, STGFloat rhs])
+      | Just f <- binaryFloating op -> Right (STGFloat (realToFrac (f (realToFrac lhs) (realToFrac rhs) :: Double)))
+    (FloatWidth, _, [STGFloat value])
+      | Just f <- unaryFloating op -> Right (STGFloat (realToFrac (f (realToFrac value) :: Double)))
+    (DoubleWidth, FloatEq, [STGDouble lhs, STGDouble rhs]) -> Right (STGBool (lhs == rhs))
+    (DoubleWidth, FloatLt, [STGDouble lhs, STGDouble rhs]) -> Right (STGBool (lhs < rhs))
+    (DoubleWidth, FloatShow, [STGDouble value]) -> Right (STGString (Text.pack (show value)))
+    (DoubleWidth, FloatFromInt, [STGInt value]) -> Right (STGDouble (fromInteger (hintToInteger value)))
+    (DoubleWidth, _, [STGDouble lhs, STGDouble rhs])
+      | Just f <- binaryFloating op -> Right (STGDouble (f lhs rhs))
+    (DoubleWidth, _, [STGDouble value])
+      | Just f <- unaryFloating op -> Right (STGDouble (f value))
+    _ -> Left (STGEvalTypeError ("floating primitive received unsupported values " <> Text.pack (show (map renderSTGValue values))))
+ where
+  unaryFloating = \case
+    FloatNegate -> Just negate
+    FloatAbs -> Just abs
+    FloatSignum -> Just signum
+    FloatExp -> Just exp
+    FloatLog -> Just log
+    FloatSqrt -> Just sqrt
+    FloatSin -> Just sin
+    FloatCos -> Just cos
+    FloatTan -> Just tan
+    FloatAsin -> Just asin
+    FloatAcos -> Just acos
+    FloatAtan -> Just atan
+    FloatSinh -> Just sinh
+    FloatCosh -> Just cosh
+    FloatTanh -> Just tanh
+    FloatAsinh -> Just asinh
+    FloatAcosh -> Just acosh
+    FloatAtanh -> Just atanh
+    _ -> Nothing
+
+  binaryFloating = \case
+    FloatAdd -> Just (+)
+    FloatSub -> Just (-)
+    FloatMul -> Just (*)
+    FloatDiv -> Just (/)
+    FloatPow -> Just (**)
+    FloatAtan2 -> Just atan2
+    _ -> Nothing
+
+evalFloatingIntPrimitive :: FloatingWidth -> FloatingIntPrimOp -> [STGValue] -> Either STGEvalError STGValue
+evalFloatingIntPrimitive width op values =
+  case (width, values) of
+    (FloatWidth, [STGFloat value]) -> evalRealFloatInt op value
+    (DoubleWidth, [STGDouble value]) -> evalRealFloatInt op value
+    _ -> Left (STGEvalTypeError ("floating/int primitive received unsupported values " <> Text.pack (show (map renderSTGValue values))))
+
+evalRealFloatInt :: RealFloat a => FloatingIntPrimOp -> a -> Either STGEvalError STGValue
+evalRealFloatInt op value =
+  case op of
+    FloatTruncate -> checkedSTGIntValue (mkHIntLiteral (toInteger (truncate value :: Integer)))
+    FloatRound -> checkedSTGIntValue (mkHIntLiteral (toInteger (round value :: Integer)))
+    FloatCeiling -> checkedSTGIntValue (mkHIntLiteral (toInteger (ceiling value :: Integer)))
+    FloatFloor -> checkedSTGIntValue (mkHIntLiteral (toInteger (floor value :: Integer)))
+    FloatIsNaN -> Right (STGBool (isNaN value))
+    FloatIsInfinite -> Right (STGBool (isInfinite value))
+    FloatIsDenormalized -> Right (STGBool (isDenormalized value))
+    FloatIsNegativeZero -> Right (STGBool (isNegativeZero value))
+
+checkedSTGIntValue :: Either IntError HInt -> Either STGEvalError STGValue
+checkedSTGIntValue = \case
+  Right value -> Right (STGInt value)
+  Left err -> Left (STGEvalIntError err)
+
 ioBindContinuationName, withForeignPtrContinuationName, ioCatchHandlerName :: RName
 ioBindContinuationName =
   RName TermNamespace "$io_bind_continuation" (-3921) False
@@ -673,6 +758,10 @@ valueEquals lhs rhs =
   case (lhs, rhs) of
     (STGInt lhsInt, STGInt rhsInt) ->
       Right (eqHInt lhsInt rhsInt)
+    (STGFloat lhsFloat, STGFloat rhsFloat) ->
+      Right (lhsFloat == rhsFloat)
+    (STGDouble lhsDouble, STGDouble rhsDouble) ->
+      Right (lhsDouble == rhsDouble)
     (STGBool lhsBool, STGBool rhsBool) ->
       Right (lhsBool == rhsBool)
     (STGChar lhsChar, STGChar rhsChar) ->
@@ -755,6 +844,10 @@ renderSTGValue :: STGValue -> Text
 renderSTGValue = \case
   STGInt value ->
     renderHInt value
+  STGFloat value ->
+    Text.pack (show value)
+  STGDouble value ->
+    Text.pack (show value)
   STGBool True ->
     "True"
   STGBool False ->
@@ -868,3 +961,5 @@ renderCorePrimOpName = \case
   PrimTouchForeignPtr -> "touchForeignPtr#"
   PrimUnsafeForeignPtrToPtr -> "unsafeForeignPtrToPtr#"
   PrimCastForeignPtr -> "castForeignPtr#"
+  PrimFloat width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
+  PrimFloatInt width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"

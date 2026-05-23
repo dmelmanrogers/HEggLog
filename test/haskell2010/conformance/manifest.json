@@ -821,6 +821,19 @@
       "notes": "Executable Real Int and Integral Int dictionaries cover quot/rem/div/mod, pair-returning quotient methods, toInteger, integer-rational conversion, and Integer default declarations."
     },
     {
+      "name": "prelude.floating-numeric",
+      "sourceFile": "test/haskell2010/conformance/prelude/floating-numeric.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "3.75\n3\n3\n0\n1\n3\n3\n3\n2\n2\n24\n1\nTrue\nTrue\nFalse\nFalse\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Executable Float and Double numeric tower coverage for Fractional, Floating, RealFrac, and RealFloat methods, including native floating literals and IEEE predicate primitives."
+    },
+    {
       "name": "prelude.enum-bounded",
       "sourceFile": "test/haskell2010/conformance/prelude/enum-bounded.hs",
       "category": "prelude",
@@ -1159,9 +1172,9 @@
       "sourceFile": "test/haskell2010/conformance/negative/constructor-operator-binding.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "parse",
-      "requiredStage": "parse",
-      "notes": "Colon-prefixed constructor operators are rejected in value-operator binding syntax."
+      "expectedDiagnosticCategory": "unbound",
+      "requiredStage": "rename",
+      "notes": "Colon-prefixed constructor operators are rejected as value-operator bindings and do not create term bindings."
     },
     {
       "name": "negative.invalid-pattern-binding",
@@ -1543,13 +1556,17 @@
       "notes": "Data.Ratio.% rejects zero denominators instead of constructing an invalid Ratio."
     },
     {
-      "name": "unsupported.library-data-complex",
-      "sourceFile": "test/haskell2010/conformance/unsupported/library-data-complex.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
-      "requiredStage": "module-graph",
-      "notes": "Data.Complex remains reserved until the floating numeric tower and Complex API are implemented under LIB-008."
+      "name": "modules.data-complex",
+      "sourceFile": "test/haskell2010/conformance/modules/data-complex.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "3\n4\n3 :+ -4\n5\n1\n0\n0 :+ 2\n0 :+ 0\n3 :+ 4\n[3 :+ 4,3 :+ -4]\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Complex is importable and source-backed, including Complex((:+)), rectangular and polar operations, Eq/Num/Fractional/Floating/Show instances, and native Double-backed execution."
     },
     {
       "name": "unsupported.library-foreign-c-error",

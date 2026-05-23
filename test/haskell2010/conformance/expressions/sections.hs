@@ -12,4 +12,4 @@ over = (> 3)
 short :: Bool -> Bool
 short = (False &&)
 
-main = if short ((1 / 0) == 0) then 0 else if over (right 3) then left (right 4) else 0
+main = if short ((div 1 0) == 0) then 0 else if over (right 3) then left (right 4) else 0

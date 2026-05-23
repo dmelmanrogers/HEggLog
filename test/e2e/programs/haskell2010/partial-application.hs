@@ -5,4 +5,4 @@ const x y = x
 
 one = const 1
 
-main = one (1 / 0)
+main = one (div 1 0)

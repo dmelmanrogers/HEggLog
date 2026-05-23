@@ -20,6 +20,7 @@ import Haskell2010.Lexer
   , charLiteral
   , conid
   , eof
+  , floating
   , integer
   , operator
   , reserved
@@ -131,7 +132,7 @@ exportSpec =
  where
   exportThing = do
     name <- importedName
-    children <- allChildren <|> parensComma importedName
+    children <- try allChildren <|> parensComma importedName
     pure (ExportThing name children)
 
 importDecl :: Parser ImportDecl
@@ -158,7 +159,7 @@ importSpec =
  where
   importThing = do
     name <- importedName
-    children <- allChildren <|> parensComma importedName
+    children <- try allChildren <|> parensComma importedName
     pure (ImportThing name children)
 
 declParser :: Parser Decl
@@ -505,6 +506,7 @@ literalExpr =
     <$> choice
       [ LChar <$> charLiteral
       , LString <$> stringLiteral
+      , LDouble <$> try floating
       , LInt <$> integer
       ]
 
@@ -521,7 +523,7 @@ parenExpr = withSpan setExprSpan $ do
   operatorVariable = do
     op <- qop
     void (symbol ")")
-    pure (Var op)
+    pure (if operatorIsConstructor op then Con op else Var op)
   rightSection = do
     op <- qop
     expr <- exprParser
@@ -635,9 +637,9 @@ patParser = withSpan setPatSpan $ do
   option lhs (consPat lhs)
  where
   consPat lhs = do
-    void (symbol ":")
+    op <- qconop
     rhs <- patParser
-    pure (PCon ":" [lhs, rhs])
+    pure (PCon op [lhs, rhs])
   asPat = do
     name <- varid
     void (symbol "@")
@@ -699,6 +701,7 @@ literalParser =
   choice
     [ LChar <$> charLiteral
     , LString <$> stringLiteral
+    , LDouble <$> try floating
     , LInt <$> integer
     ]
 
@@ -760,11 +763,18 @@ parenType = withSpan setHsTypeSpan $ do
 
 constructorDecl :: Parser ConDecl
 constructorDecl =
-  withSpan setConDeclSpan $ do
+  withSpan setConDeclSpan $
+    try infixConstructorDecl <|> prefixConstructorDecl
+ where
+  infixConstructorDecl = do
+    lhs <- typeAtom
+    constructorName <- qconop
+    rhs <- typeAtom
+    pure (ConDecl constructorName [lhs, rhs])
+  prefixConstructorDecl = do
     constructorName <- qconid
     try (RecordConDecl constructorName <$> bracesComma1 recordFieldDecl)
       <|> (ConDecl constructorName <$> many typeAtom)
- where
   recordFieldDecl = do
     names <- qvarid `sepBy1` comma
     void (symbol "::")
@@ -818,8 +828,8 @@ qop =
   choice
     [ try qualifiedOperator
     , try backtickName
-    , symbol ":" *> pure ":"
     , operator
+    , symbol ":" *> pure ":"
     ]
  where
   qualifiedOperator = do
@@ -828,6 +838,30 @@ qop =
     pure (Text.intercalate "." (prefixes <> [op]))
   backtickName =
     symbol "`" *> (qvarid <|> qconid) <* symbol "`"
+
+qconop :: Parser Text
+qconop =
+  choice
+    [ try qualifiedConstructorOperator
+    , try backtickConstructorName
+    , constructorOperator
+    ]
+ where
+  qualifiedConstructorOperator = do
+    prefixes <- some (try (conid <* symbol "."))
+    op <- constructorOperator
+    pure (Text.intercalate "." (prefixes <> [op]))
+  backtickConstructorName =
+    symbol "`" *> qconid <* symbol "`"
+  constructorOperator =
+    try
+      ( do
+          op <- operator
+          if operatorIsConstructor op
+            then pure op
+            else fail ("variable operator " <> Text.unpack op <> " cannot be used as a constructor operator")
+      )
+      <|> (symbol ":" *> pure ":")
 
 qvarop :: Parser Text
 qvarop =
@@ -861,7 +895,13 @@ bindingName =
 
 importedName :: Parser Text
 importedName =
-  bindingName
+  try (parens qconop) <|> bindingName
+
+operatorIsConstructor :: Text -> Bool
+operatorIsConstructor op =
+  case reverse (Text.splitOn "." op) of
+    local : _ -> ":" `Text.isPrefixOf` local
+    [] -> False
 
 comma :: Parser ()
 comma =

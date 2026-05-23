@@ -357,13 +357,13 @@ groups are dependency-sorted before generalization so helper functions can be
 specialized by later bindings. TYPE-019 fixes the current MR decision:
 unsigned nullary value bindings without signatures can default direct standard
 constraints before generalization; signed bindings and functions with value
-parameters are protected. `/` remains the existing checked `Int` division
-primitive rather than a `Fractional` method.
+parameters are protected. `/` is now the Haskell 2010 `Fractional` method;
+checked integer division is expressed through `quot`/`rem`/`div`/`mod`.
 Remaining Phase 12 work includes instance contexts, method-specific
-constraints/type variables, coherence diagnostics, Fractional/Floating classes,
-arbitrary-precision `Integer`, and generic `Ratio a` behavior beyond the
-current `Ratio Int`/`Rational` representation. Derived `Read` moved to
-complete with TC-030.
+constraints/type variables, coherence diagnostics, arbitrary-precision
+`Integer`, generic `Ratio a` behavior beyond the current `Ratio Int`/`Rational`
+representation, fixed-width numeric completion, and exact floating lexical
+helper polish. Derived `Read` moved to complete with TC-030.
 
 Deliverables:
 

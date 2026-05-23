@@ -612,6 +612,8 @@ setPatSpan sourceRange (SpannedPat _ node) =
 
 data Literal
   = LInt Integer
+  | LFloat Float
+  | LDouble Double
   | LChar Char
   | LString Text
   deriving stock (Show, Eq, Ord)

@@ -1,3 +1,3 @@
 module Main where
 
-main = 20 / 4
+main = div 20 4

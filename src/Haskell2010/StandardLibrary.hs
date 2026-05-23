@@ -39,6 +39,7 @@ standardLibraryModuleInterfaces =
     , (dataArrayModuleName, dataArrayInterface)
     , (dataBitsModuleName, dataBitsInterface)
     , (dataCharModuleName, dataCharInterface)
+    , (dataComplexModuleName, dataComplexInterface)
     , (dataIntModuleName, dataIntInterface)
     , (dataIxModuleName, dataIxInterface)
     , (dataListModuleName, dataListInterface)
@@ -79,6 +80,7 @@ standardPreludeFixities =
     , ("-", S.Fixity S.InfixL 6)
     , ("*", S.Fixity S.InfixL 7)
     , ("/", S.Fixity S.InfixL 7)
+    , ("**", S.Fixity S.InfixR 8)
     , ("==", S.Fixity S.InfixN 4)
     , ("/=", S.Fixity S.InfixN 4)
     , ("<", S.Fixity S.InfixN 4)
@@ -129,7 +131,46 @@ standardPreludeNames =
     , "abs"
     , "signum"
     , "fromInteger"
+    , "recip"
+    , "fromRational"
+    , "pi"
+    , "exp"
+    , "log"
+    , "sqrt"
+    , "**"
+    , "logBase"
+    , "sin"
+    , "cos"
+    , "tan"
+    , "asin"
+    , "acos"
+    , "atan"
+    , "sinh"
+    , "cosh"
+    , "tanh"
+    , "asinh"
+    , "acosh"
+    , "atanh"
     , "toRational"
+    , "properFraction"
+    , "truncate"
+    , "round"
+    , "ceiling"
+    , "floor"
+    , "floatRadix"
+    , "floatDigits"
+    , "floatRange"
+    , "decodeFloat"
+    , "encodeFloat"
+    , "exponent"
+    , "significand"
+    , "scaleFloat"
+    , "isNaN"
+    , "isInfinite"
+    , "isDenormalized"
+    , "isNegativeZero"
+    , "isIEEE"
+    , "atan2"
     , "quot"
     , "rem"
     , "div"
@@ -186,7 +227,7 @@ standardPreludeNames =
     ]
     <> fmap (ConstructorNamespace,) ["True", "False", "Nothing", "Just", "Left", "Right", "LT", "EQ", "GT", ":"]
     <> fmap (TypeNamespace,) ["Int", "Integer", "Float", "Double", "Rational", "Bool", "Char", "String", "FilePath", "ReadS", "ShowS", "[]", "IO", "IOError", "CString", "Maybe", "Either", "Ordering", "()"]
-    <> fmap (ClassNamespace,) ["Eq", "Ord", "Show", "Read", "Num", "Real", "Integral", "Enum", "Bounded", "Functor", "Monad"]
+    <> fmap (ClassNamespace,) ["Eq", "Ord", "Show", "Read", "Num", "Real", "Integral", "Fractional", "Floating", "RealFrac", "RealFloat", "Enum", "Bounded", "Functor", "Monad"]
 
 standardPreludeExportNames :: [RName]
 standardPreludeExportNames =
@@ -207,6 +248,10 @@ standardPreludeExportChildren =
     , classified "Num" ["+", "-", "*", "negate", "abs", "signum", "fromInteger"]
     , classified "Real" ["toRational"]
     , classified "Integral" ["quot", "rem", "div", "mod", "quotRem", "divMod", "toInteger"]
+    , classified "Fractional" ["/", "recip", "fromRational"]
+    , classified "Floating" ["pi", "exp", "log", "sqrt", "**", "logBase", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh"]
+    , classified "RealFrac" ["properFraction", "truncate", "round", "ceiling", "floor"]
+    , classified "RealFloat" ["floatRadix", "floatDigits", "floatRange", "decodeFloat", "encodeFloat", "exponent", "significand", "scaleFloat", "isNaN", "isInfinite", "isDenormalized", "isNegativeZero", "isIEEE", "atan2"]
     , classified "Enum" ["succ", "pred", "toEnum", "fromEnum", "enumFrom", "enumFromThen", "enumFromTo", "enumFromThenTo"]
     , classified "Bounded" ["minBound", "maxBound"]
     , classified "Functor" ["fmap"]
@@ -257,6 +302,10 @@ dataIntModuleName =
 dataCharModuleName :: S.ModuleName
 dataCharModuleName =
   S.ModuleName ["Data", "Char"]
+
+dataComplexModuleName :: S.ModuleName
+dataComplexModuleName =
+  S.ModuleName ["Data", "Complex"]
 
 dataArrayModuleName :: S.ModuleName
 dataArrayModuleName =
@@ -383,6 +432,14 @@ dataBitsInterface =
         , ("rotateR", S.Fixity S.InfixL 8)
         ]
     )
+
+dataComplexInterface :: ModuleInterface
+dataComplexInterface =
+  standardLibraryInterfaceWith
+    dataComplexModuleName
+    dataComplexNames
+    [((TypeNamespace, "Complex"), fmap (ConstructorNamespace,) [":+"])]
+    (Map.fromList [(":+", S.Fixity S.InfixL 6)])
 
 dataIxInterface :: ModuleInterface
 dataIxInterface =
@@ -515,6 +572,7 @@ standardLibraryNames =
     <> controlMonadNames
     <> dataArrayNames
     <> dataCharNames
+    <> dataComplexNames
     <> dataIntNames
     <> dataIxNames
     <> dataListNames
@@ -835,6 +893,12 @@ dataRatioNames =
   fmap (TypeNamespace,) ["Ratio", "Rational"]
     <> fmap (TermNamespace,) ["%", "numerator", "denominator", "approxRational"]
 
+dataComplexNames :: [(Namespace, Text)]
+dataComplexNames =
+  fmap (TypeNamespace,) ["Complex"]
+    <> fmap (ConstructorNamespace,) [":+"]
+    <> fmap (TermNamespace,) ["realPart", "imagPart", "conjugate", "mkPolar", "cis", "polar", "magnitude", "phase"]
+
 dataWordNames :: [(Namespace, Text)]
 dataWordNames =
   fmap (TypeNamespace,) ["Word", "Word8", "Word16", "Word32", "Word64"]
@@ -989,6 +1053,7 @@ standardLibrarySourceModule :: S.ModuleName -> Maybe Text
 standardLibrarySourceModule moduleName
   | moduleName == dataArrayModuleName = Just dataArraySourceModule
   | moduleName == dataCharModuleName = Just dataCharSourceModule
+  | moduleName == dataComplexModuleName = Just dataComplexSourceModule
   | moduleName == dataListModuleName = Just dataListSourceModule
   | moduleName == dataMaybeModuleName = Just dataMaybeSourceModule
   | otherwise = Nothing
@@ -1144,6 +1209,142 @@ dataArraySourceModule =
     , "instance (Ix i, Read i, Read e) => Read (Array i e) where"
     , "  readsPrec p = readParen (p > arrPrec) readArrayBody"
     , "  readList = readArrayList"
+    , ""
+    ]
+
+dataComplexSourceModule :: Text
+dataComplexSourceModule =
+  Text.unlines
+    [ "module Data.Complex (Complex((:+)), realPart, imagPart, conjugate, mkPolar, cis, polar, magnitude, phase) where"
+    , ""
+    , "import Prelude"
+    , ""
+    , "infix 6 :+"
+    , ""
+    , "data Complex a = a :+ a"
+    , ""
+    , "realPart :: RealFloat a => Complex a -> a"
+    , "realPart (x :+ _) = x"
+    , ""
+    , "imagPart :: RealFloat a => Complex a -> a"
+    , "imagPart (_ :+ y) = y"
+    , ""
+    , "conjugate :: RealFloat a => Complex a -> Complex a"
+    , "conjugate (x :+ y) = x :+ negate y"
+    , ""
+    , "mkPolar :: RealFloat a => a -> a -> Complex a"
+    , "mkPolar r theta = (r * Prelude.cos theta) :+ (r * Prelude.sin theta)"
+    , ""
+    , "cis :: RealFloat a => a -> Complex a"
+    , "cis theta = Prelude.cos theta :+ Prelude.sin theta"
+    , ""
+    , "polar :: RealFloat a => Complex a -> (a, a)"
+    , "polar z = (magnitude z, phase z)"
+    , ""
+    , "magnitude :: RealFloat a => Complex a -> a"
+    , "magnitude (x :+ y) = Prelude.sqrt (x * x + y * y)"
+    , ""
+    , "phase :: RealFloat a => Complex a -> a"
+    , "phase (x :+ y) = if x == 0 && y == 0 then 0 else Prelude.atan2 y x"
+    , ""
+    , "instance RealFloat a => Eq (Complex a) where"
+    , "  (x :+ y) == (x' :+ y') = x == x' && y == y'"
+    , "  z /= z' = not (z == z')"
+    , ""
+    , "instance RealFloat a => Num (Complex a) where"
+    , "  (x :+ y) + (x' :+ y') = (x + x') :+ (y + y')"
+    , "  (x :+ y) - (x' :+ y') = (x - x') :+ (y - y')"
+    , "  (x :+ y) * (x' :+ y') = (x * x' - y * y') :+ (x * y' + y * x')"
+    , "  negate (x :+ y) = negate x :+ negate y"
+    , "  abs z = magnitude z :+ 0"
+    , "  signum (x :+ y) = if x == 0 && y == 0 then 0 :+ 0 else (x / Prelude.sqrt (x * x + y * y)) :+ (y / Prelude.sqrt (x * x + y * y))"
+    , "  fromInteger n = fromInteger n :+ 0"
+    , ""
+    , "instance RealFloat a => Fractional (Complex a) where"
+    , "  (x :+ y) / (x' :+ y') = ((x * x' + y * y') / (x' * x' + y' * y')) :+ ((y * x' - x * y') / (x' * x' + y' * y'))"
+    , "  recip z = (1 :+ 0) / z"
+    , "  fromRational a = fromRational a :+ 0"
+    , ""
+    , "complexExp :: RealFloat a => Complex a -> Complex a"
+    , "complexExp (x :+ y) = (Prelude.exp x * Prelude.cos y) :+ (Prelude.exp x * Prelude.sin y)"
+    , ""
+    , "complexLog :: RealFloat a => Complex a -> Complex a"
+    , "complexLog z = Prelude.log (magnitude z) :+ phase z"
+    , ""
+    , "complexSqrtComponent :: RealFloat a => Complex a -> a -> a"
+    , "complexSqrtComponent z x = Prelude.sqrt ((magnitude z + abs x) / 2)"
+    , ""
+    , "complexSqrt :: RealFloat a => Complex a -> Complex a"
+    , "complexSqrt z@(x :+ y) = if x == 0 && y == 0 then (x - x) :+ (y - y) else if x < 0 then (abs y / (2 * complexSqrtComponent z x)) :+ (if y < 0 then negate (complexSqrtComponent z x) else complexSqrtComponent z x) else complexSqrtComponent z x :+ (y / (2 * complexSqrtComponent z x))"
+    , ""
+    , "complexSin :: RealFloat a => Complex a -> Complex a"
+    , "complexSin (x :+ y) = (Prelude.sin x * Prelude.cosh y) :+ (Prelude.cos x * Prelude.sinh y)"
+    , ""
+    , "complexCos :: RealFloat a => Complex a -> Complex a"
+    , "complexCos (x :+ y) = (Prelude.cos x * Prelude.cosh y) :+ negate (Prelude.sin x * Prelude.sinh y)"
+    , ""
+    , "complexSinh :: RealFloat a => Complex a -> Complex a"
+    , "complexSinh (x :+ y) = (Prelude.sinh x * Prelude.cos y) :+ (Prelude.cosh x * Prelude.sin y)"
+    , ""
+    , "complexCosh :: RealFloat a => Complex a -> Complex a"
+    , "complexCosh (x :+ y) = (Prelude.cosh x * Prelude.cos y) :+ (Prelude.sinh x * Prelude.sin y)"
+    , ""
+    , "instance RealFloat a => Floating (Complex a) where"
+    , "  pi = Prelude.pi :+ 0"
+    , "  exp = complexExp"
+    , "  log = complexLog"
+    , "  sqrt = complexSqrt"
+    , "  (**) z w = complexExp (complexLog z * w)"
+    , "  logBase z w = complexLog w / complexLog z"
+    , "  sin = complexSin"
+    , "  cos = complexCos"
+    , "  tan z = complexSin z / complexCos z"
+    , "  asin z = negate (0 :+ 1) * complexLog ((0 :+ 1) * z + complexSqrt (1 - z * z))"
+    , "  acos z = negate (0 :+ 1) * complexLog (z + (0 :+ 1) * complexSqrt (1 - z * z))"
+    , "  atan z = ((0 :+ 1) / 2) * complexLog (((0 :+ 1) + z) / ((0 :+ 1) - z))"
+    , "  sinh = complexSinh"
+    , "  cosh = complexCosh"
+    , "  tanh z = complexSinh z / complexCosh z"
+    , "  asinh z = complexLog (z + complexSqrt (1 + z * z))"
+    , "  acosh z = complexLog (z + complexSqrt (z + 1) * complexSqrt (z - 1))"
+    , "  atanh z = ((1 :+ 0) / (2 :+ 0)) * complexLog ((1 + z) / (1 - z))"
+    , ""
+    , "complexShowBody :: (Show a, RealFloat a) => Complex a -> String"
+    , "complexShowBody (x :+ y) = showsPrec 7 x (\" :+ \" ++ showsPrec 7 y \"\")"
+    , ""
+    , "complexShowParen :: Bool -> String -> String"
+    , "complexShowParen p s = if p then \"(\" ++ s ++ \")\" else s"
+    , ""
+    , "complexShowList :: (Show a, RealFloat a) => [Complex a] -> String"
+    , "complexShowList xs = case xs of"
+    , "  [] -> \"[]\""
+    , "  z:zs -> \"[\" ++ complexShowListTail z zs"
+    , ""
+    , "complexShowListTail :: (Show a, RealFloat a) => Complex a -> [Complex a] -> String"
+    , "complexShowListTail z zs = case zs of"
+    , "  [] -> complexShowBody z ++ \"]\""
+    , "  next:rest -> complexShowBody z ++ \",\" ++ complexShowListTail next rest"
+    , ""
+    , "instance RealFloat a => Show (Complex a) where"
+    , "  showsPrec p z rest = complexShowParen (p > 6) (complexShowBody z) ++ rest"
+    , "  show = complexShowBody"
+    , "  showList xs rest = complexShowList xs ++ rest"
+    , ""
+    , "readComplexBody :: (Read a, RealFloat a) => ReadS (Complex a)"
+    , "readComplexBody r = [(x :+ y, u) | (x, s) <- readsPrec 7 r, (\":+\", t) <- lex s, (y, u) <- readsPrec 7 t]"
+    , ""
+    , "readComplexList :: (Read a, RealFloat a) => ReadS [Complex a]"
+    , "readComplexList r = [(xs, u) | (\"[\", s) <- lex r, (xs, u) <- readComplexListTail s]"
+    , ""
+    , "readComplexListTail :: (Read a, RealFloat a) => ReadS [Complex a]"
+    , "readComplexListTail r = [([], s) | (\"]\", s) <- lex r] ++ [(z:zs, u) | (z, s) <- readsPrec 0 r, (zs, u) <- readComplexListRest s]"
+    , ""
+    , "readComplexListRest :: (Read a, RealFloat a) => ReadS [Complex a]"
+    , "readComplexListRest r = [(zs, u) | (\",\", s) <- lex r, (zs, u) <- readComplexListTail s] ++ [([], s) | (\"]\", s) <- lex r]"
+    , ""
+    , "instance (Read a, RealFloat a) => Read (Complex a) where"
+    , "  readsPrec p = readParen (p > 6) readComplexBody"
+    , "  readList = readComplexList"
     , ""
     ]
 

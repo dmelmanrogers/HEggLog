@@ -338,7 +338,7 @@ Current tests include:
   report-mode `Result: <value>` output, runs Haskell 2010 default Egglog and
   `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
   programs, user-defined type class dictionary programs, derived `Eq`/`Ord`/`Show`/`Enum`/`Bounded`
-  programs, and built-in `Eq`/`Ord`/`Num`/`Show`/`Enum`/`Bounded` dictionary programs, numeric-defaulting and
+  programs, and built-in `Eq`/`Ord`/`Num`/`Fractional`/`Floating`/`RealFrac`/`RealFloat`/`Show`/`Enum`/`Bounded` dictionary programs, `Data.Complex` programs, numeric-defaulting and
   monomorphism/defaulting decision programs, multi-file module programs,
   implicit, explicit, and qualified Prelude import programs,
   known-constructor optimizer programs, plus line-oriented IO

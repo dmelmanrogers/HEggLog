@@ -37,6 +37,7 @@ data LLVMOperand
   = OLocal LLVMType Register
   | OGlobal LLVMType Text
   | OConstInt LLVMType Integer
+  | OConstFloat LLVMType Text
   | OConstNull
   deriving stock (Show, Eq, Ord)
 
@@ -48,6 +49,9 @@ data LLVMCallTarget
 data LLVMPredicate
   = ICmpEq
   | ICmpSlt
+  | FCmpOeq
+  | FCmpOlt
+  | FCmpUno
   deriving stock (Show, Eq, Ord)
 
 data LLVMInstruction
@@ -56,6 +60,10 @@ data LLVMInstruction
   | IMul Register LLVMType LLVMOperand LLVMOperand
   | IDiv Register LLVMType LLVMOperand LLVMOperand
   | IRem Register LLVMType LLVMOperand LLVMOperand
+  | IFAdd Register LLVMType LLVMOperand LLVMOperand
+  | IFSub Register LLVMType LLVMOperand LLVMOperand
+  | IFMul Register LLVMType LLVMOperand LLVMOperand
+  | IFDiv Register LLVMType LLVMOperand LLVMOperand
   | IAnd Register LLVMType LLVMOperand LLVMOperand
   | IOr Register LLVMType LLVMOperand LLVMOperand
   | IXor Register LLVMType LLVMOperand LLVMOperand
@@ -66,6 +74,10 @@ data LLVMInstruction
   | IZext Register LLVMOperand LLVMType
   | ISext Register LLVMOperand LLVMType
   | ITrunc Register LLVMOperand LLVMType
+  | ISIToFP Register LLVMOperand LLVMType
+  | IFPToSI Register LLVMOperand LLVMType
+  | IFPExt Register LLVMOperand LLVMType
+  | IFPTrunc Register LLVMOperand LLVMType
   | IGetElementPtr Register LLVMType LLVMOperand [(LLVMType, LLVMOperand)]
   | ILoad Register LLVMType LLVMOperand
   | IStore LLVMType LLVMOperand LLVMOperand
@@ -116,4 +128,5 @@ operandType = \case
   OLocal ty _ -> ty
   OGlobal ty _ -> ty
   OConstInt ty _ -> ty
+  OConstFloat ty _ -> ty
   OConstNull -> LPtr

@@ -720,6 +720,8 @@ corePrimToANF = \case
   PrimTouchForeignPtr -> Nothing
   PrimUnsafeForeignPtrToPtr -> Nothing
   PrimCastForeignPtr -> Nothing
+  PrimFloat {} -> Nothing
+  PrimFloatInt {} -> Nothing
 
 anfPrimToCore :: BinOp -> CorePrimOp
 anfPrimToCore = \case

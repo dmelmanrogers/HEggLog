@@ -72,9 +72,10 @@ implemented:
   current executable-subset diagnostics
 - remaining source-surface implementation closure
 - instance contexts
-- Fractional/Floating classes, arbitrary-precision `Integer`, generic
-  `Ratio a` behavior beyond the current `Ratio Int`/`Rational` surface, and
-  broader Prelude/library subset
+- arbitrary-precision `Integer`, generic `Ratio a` behavior beyond the
+  current `Ratio Int`/`Rational` surface, fixed-width numeric runtime
+  completion, exact floating lexical helpers, and broader Prelude/library
+  subset
 - remaining standard-library value surfaces beyond the currently generated
   partial module interfaces
 - package/module search paths and persistent interface-file separate
@@ -260,7 +261,8 @@ defaulting and dictionary elaboration. Unsupported class-constraint positions
 now use a structured placeholder diagnostic for method-specific constraints,
 instance contexts, and expression type-signature constraints, so broader class
 features remain planned without silent fallback.
-`/` remains checked concrete `Int` division; derived `Show` is implemented with
+`/` is now the Haskell 2010 `Fractional` method and checked concrete integer
+division lives behind `quot`/`rem`/`div`/`mod`; derived `Show` is implemented with
 Report-shaped `showsPrec`/`show`/`showList` methods for the executable
 data/newtype subset, derived `Enum` is implemented for
 nullary-constructor data declarations with report-shaped constructor ordering

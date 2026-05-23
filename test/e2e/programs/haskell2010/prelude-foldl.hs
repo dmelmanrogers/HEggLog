@@ -13,7 +13,7 @@ count :: Int -> Bool -> Int
 count acc flag = if flag then acc + 1 else acc
 
 explode :: Int -> Bool -> Int
-explode _ _ = 1 / 0
+explode _ _ = div 1 0
 
 ignoreLeft :: Int -> Int -> Int
 ignoreLeft _ x = x
@@ -25,5 +25,5 @@ main = do
   putStrLn (foldl snoc "" ['a', 'b', 'c', 'd'])
   print (foldl count 0 [True, False, True])
   print (foldl explode 7 [])
-  print (foldl ignoreLeft (1 / 0) [5])
+  print (foldl ignoreLeft (div 1 0) [5])
   return ()

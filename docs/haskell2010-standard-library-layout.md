@@ -32,6 +32,7 @@ graph path until that module has an implemented surface.
 | `Data.Bits` | generated class interface plus native `Int` dictionary | `Bits(..)` with Haskell 2010 method exports and fixities, a `Num` superclass edge, `Bits Int`, Core/STG interpreter support, and native LLVM lowering for bitwise operations, shifts, rotates, bit constructors, and bit predicates |
 | `Data.Int` | partial generated interface | `Int8`, `Int16`, `Int32`, `Int64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
 | `Data.Char` | source-backed native module | `Char`, `String`, `GeneralCategory(..)`, classification predicates, ASCII digit predicates, `generalCategory`, case conversion, `digitToInt`, `intToDigit`, `ord`, `chr`, `showLitChar`, `lexLitChar`, and `readLitChar`; compact character-table policy covers the Haskell lexical ASCII surface, Latin-1, common Greek letters, combining marks, Unicode separators needed by `isSpace`, and the Euro sign |
+| `Data.Complex` | source-backed native module | `Complex((:+))`, `realPart`, `imagPart`, `conjugate`, `mkPolar`, `cis`, `polar`, `magnitude`, `phase`, `:+` fixity, and generic `RealFloat a`-constrained `Eq`/`Num`/`Fractional`/`Floating`/`Show`/`Read` instances under `LIB-008` |
 | `Data.Ix` | generated class interface plus native dictionaries | `Ix(range, index, inRange, rangeSize)`, scalar instances for `Int`, `Char`, `Bool`, `Ordering`, and `()`, structural tuple instances, and derived `Ix` for supported enumeration and single-constructor product data types |
 | `Data.List` | source-backed native module | Haskell 2010 Report list API: shared Prelude list functions plus transformations, folds/scans, map accumulators, infinite-list producers, sublists, predicates, searches, indexing, zips/unzips, text helpers, set-like list operations, ordered-list helpers, `By` variants, and generic functions; `(++)`, `(!!)`, and `(\\)` fixities are imported |
 | `Data.Maybe` | source-backed native module | `Maybe(..)`, `maybe`, `isJust`, `isNothing`, `fromJust`, `fromMaybe`, `listToMaybe`, `maybeToList`, `catMaybes`, and `mapMaybe` |
@@ -63,7 +64,6 @@ exported value/type/class surface is not yet real in the compiler.
 
 | Module | Status | Owner task |
 | --- | --- | --- |
-| `Data.Complex` | reserved | `LIB-008` |
 | `Foreign.C.Error` | reserved | `FFI-013` |
 | `Foreign.Marshal.Alloc` | reserved | `FFI-013` |
 | `Foreign.Marshal.Array` | reserved | `FFI-013` |

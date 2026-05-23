@@ -14821,7 +14821,7 @@ Notes:
 ## LIB-008 — Data.Complex and floating numeric tower
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -14863,7 +14863,22 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Created by TEST-CONF-015 to tie the reserved `Data.Complex` module to the numeric tower work.
+- Created by TEST-CONF-015 to tie the then-reserved `Data.Complex` module to the numeric tower work.
+- Complete. `Float` and `Double` are represented through Core/STG/native
+  literals and boxed runtime values, participate in defaulting, and provide
+  executable `Eq`, `Ord`, `Num`, `Real`, `Fractional`, `Floating`,
+  `RealFrac`, `RealFloat`, and `Show` dictionaries. Floating primitives cover
+  arithmetic, comparisons, conversion from integer/rational input in the
+  supported `Ratio Int` representation, elementary and hyperbolic functions,
+  power/atan2, integral conversions, and IEEE predicates used by the Prelude
+  classes. `Data.Complex` is now an importable source-backed standard module
+  exporting `Complex((:+))`, rectangular accessors, conjugation, polar
+  construction/decomposition, magnitude, and phase, with generic
+  `RealFloat a`-constrained `Eq`, `Num`, `Fractional`, `Floating`, `Show`,
+  and `Read` instances. Native default/no-egglog fixtures cover the floating
+  Prelude tower and `Data.Complex`; FFI floating ABI coverage remains under
+  `FFI-010`. Remaining exact lexical `Read`/`Show` helper polish for floating
+  values is tracked by `LIB-010`/`Numeric`.
 
 ## LIB-009 — Data.Int and Data.Word report completion
 

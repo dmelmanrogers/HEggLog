@@ -168,6 +168,55 @@ renderCorePrimOp = \case
   PrimTouchForeignPtr -> "touchForeignPtr#"
   PrimUnsafeForeignPtrToPtr -> "unsafeForeignPtrToPtr#"
   PrimCastForeignPtr -> "castForeignPtr#"
+  PrimFloat width op -> renderFloatingWidth width <> "." <> renderFloatingPrimOp op <> "#"
+  PrimFloatInt width op -> renderFloatingWidth width <> "." <> renderFloatingIntPrimOp op <> "#"
+
+renderFloatingWidth :: FloatingWidth -> Text
+renderFloatingWidth = \case
+  FloatWidth -> "float"
+  DoubleWidth -> "double"
+
+renderFloatingPrimOp :: FloatingPrimOp -> Text
+renderFloatingPrimOp = \case
+  FloatAdd -> "add"
+  FloatSub -> "sub"
+  FloatMul -> "mul"
+  FloatDiv -> "div"
+  FloatEq -> "eq"
+  FloatLt -> "lt"
+  FloatNegate -> "negate"
+  FloatAbs -> "abs"
+  FloatSignum -> "signum"
+  FloatFromInt -> "fromInt"
+  FloatShow -> "show"
+  FloatExp -> "exp"
+  FloatLog -> "log"
+  FloatSqrt -> "sqrt"
+  FloatSin -> "sin"
+  FloatCos -> "cos"
+  FloatTan -> "tan"
+  FloatAsin -> "asin"
+  FloatAcos -> "acos"
+  FloatAtan -> "atan"
+  FloatSinh -> "sinh"
+  FloatCosh -> "cosh"
+  FloatTanh -> "tanh"
+  FloatAsinh -> "asinh"
+  FloatAcosh -> "acosh"
+  FloatAtanh -> "atanh"
+  FloatPow -> "pow"
+  FloatAtan2 -> "atan2"
+
+renderFloatingIntPrimOp :: FloatingIntPrimOp -> Text
+renderFloatingIntPrimOp = \case
+  FloatTruncate -> "truncate"
+  FloatRound -> "round"
+  FloatCeiling -> "ceiling"
+  FloatFloor -> "floor"
+  FloatIsNaN -> "isNaN"
+  FloatIsInfinite -> "isInfinite"
+  FloatIsDenormalized -> "isDenormalized"
+  FloatIsNegativeZero -> "isNegativeZero"
 
 renderForeignImport :: CoreForeignImport -> Text
 renderForeignImport foreignImport =
@@ -267,6 +316,8 @@ withType expression ty =
 renderLiteral :: Literal -> Text
 renderLiteral = \case
   LInt n -> Text.pack (show n)
+  LFloat n -> Text.pack (show n) <> "f"
+  LDouble n -> Text.pack (show n)
   LChar c -> Text.pack (show c)
   LString value -> Text.pack (show (Text.unpack value))
 
