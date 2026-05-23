@@ -52,6 +52,9 @@ module Haskell2010.Core.Syntax
   , orderingTy
   , ptrTy
   , ptrTyConName
+  , ratioDataConName
+  , ratioTy
+  , ratioTyConName
   , stablePtrTy
   , stablePtrTyConName
   , stringTy
@@ -300,6 +303,14 @@ listTyConName :: RName
 listTyConName =
   builtinTypeName "[]" (-8)
 
+ratioTyConName :: RName
+ratioTyConName =
+  builtinTypeName "Ratio" (-9)
+
+ratioTy :: CoreType -> CoreType
+ratioTy =
+  CTyApp (CTyCon ratioTyConName)
+
 ptrTyConName :: RName
 ptrTyConName =
   builtinTypeName "Ptr" (-30)
@@ -415,6 +426,10 @@ ioErrorPermissionTypeDataConName =
 ioErrorUserTypeDataConName :: RName
 ioErrorUserTypeDataConName =
   builtinCon "$UserErrorType" (-48)
+
+ratioDataConName :: RName
+ratioDataConName =
+  builtinCon "$Ratio" (-49)
 
 tupleDataConName :: Int -> RName
 tupleDataConName arity =

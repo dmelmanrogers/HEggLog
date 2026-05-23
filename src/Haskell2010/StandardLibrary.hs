@@ -43,6 +43,7 @@ standardLibraryModuleInterfaces =
     , (dataIxModuleName, dataIxInterface)
     , (dataListModuleName, dataListInterface)
     , (dataMaybeModuleName, dataMaybeInterface)
+    , (dataRatioModuleName, dataRatioInterface)
     , (dataWordModuleName, dataWordInterface)
     , (systemIOModuleName, systemIOInterface)
     , (systemIOErrorModuleName, systemIOErrorInterface)
@@ -277,6 +278,10 @@ dataMaybeModuleName :: S.ModuleName
 dataMaybeModuleName =
   S.ModuleName ["Data", "Maybe"]
 
+dataRatioModuleName :: S.ModuleName
+dataRatioModuleName =
+  S.ModuleName ["Data", "Ratio"]
+
 dataWordModuleName :: S.ModuleName
 dataWordModuleName =
   S.ModuleName ["Data", "Word"]
@@ -403,6 +408,14 @@ dataMaybeInterface =
     [((TypeNamespace, "Maybe"), fmap (ConstructorNamespace,) ["Nothing", "Just"])]
     Map.empty
 
+dataRatioInterface :: ModuleInterface
+dataRatioInterface =
+  standardLibraryInterfaceWith
+    dataRatioModuleName
+    dataRatioNames
+    []
+    (Map.fromList [("%", S.Fixity S.InfixL 7)])
+
 dataWordInterface :: ModuleInterface
 dataWordInterface =
   standardLibraryInterface dataWordModuleName dataWordNames
@@ -510,6 +523,7 @@ standardLibraryNames =
     <> systemIONames
     <> systemIOErrorNames
     <> dataBitsNames
+    <> dataRatioNames
 
 controlMonadNames :: [(Namespace, Text)]
 controlMonadNames =
@@ -815,6 +829,11 @@ dataMaybeNames =
       , "catMaybes"
       , "mapMaybe"
       ]
+
+dataRatioNames :: [(Namespace, Text)]
+dataRatioNames =
+  fmap (TypeNamespace,) ["Ratio", "Rational"]
+    <> fmap (TermNamespace,) ["%", "numerator", "denominator", "approxRational"]
 
 dataWordNames :: [(Namespace, Text)]
 dataWordNames =

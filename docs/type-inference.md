@@ -148,7 +148,8 @@ standard-class compatibility with `Enum`/`Bounded` and with the supported
 claiming complete Haskell 2010 monomorphism-restriction coverage for every
 pattern binding and class-library form. Full MR conformance should be revisited
 when broader pattern bindings, Fractional/Floating classes, arbitrary-precision
-`Integer`, and full `Ratio`/`Rational` behavior are in place.
+`Integer`, and the generic numeric-library surface around `Ratio a` are in
+place.
 
 TYPE-020 preserves source attribution for Haskell 2010 typecheck failures.
 Parsed declarations, expressions, patterns, statements, alternatives,

@@ -72,8 +72,9 @@ implemented:
   current executable-subset diagnostics
 - remaining source-surface implementation closure
 - instance contexts
-- Fractional/Floating classes, arbitrary-precision `Integer`, full
-  `Ratio`/`Rational` behavior, and broader Prelude/library subset
+- Fractional/Floating classes, arbitrary-precision `Integer`, generic
+  `Ratio a` behavior beyond the current `Ratio Int`/`Rational` surface, and
+  broader Prelude/library subset
 - remaining standard-library value surfaces beyond the currently generated
   partial module interfaces
 - package/module search paths and persistent interface-file separate

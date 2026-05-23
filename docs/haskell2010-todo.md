@@ -13410,9 +13410,11 @@ Notes:
   semantics. Defaulting recognizes `Real` and `Integral` constraints in the
   supported standard-class numeric universe, `Integer` defaults continue to
   map to the checked executable `Int` representation, and invalid default
-  declarations remain explicit compile errors. Fractional, floating,
-  arbitrary-precision `Integer`, and full `Ratio`/`Rational` behavior remain
-  tracked as future library/runtime work rather than being silently claimed.
+  declarations remain explicit compile errors. Fractional, floating, and
+  arbitrary-precision `Integer` behavior remain tracked as future
+  library/runtime work rather than being silently claimed; `LIB-007` now
+  supplies the current `Ratio Int`/`Rational` representation used by
+  `toRational`.
 
 ## PRELUDE-001 — Prelude module strategy
 
@@ -14762,7 +14764,7 @@ Notes:
 ## LIB-007 — Data.Ratio and Rational report completion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -14792,9 +14794,9 @@ Acceptance criteria:
 - Zero denominator and sign normalization behavior are tested explicitly.
 
 Required tests:
-- `Data.Ratio` conformance fixtures
-- numeric native wet tests
-- negative/runtime-error tests
+- `test/haskell2010/conformance/modules/data-ratio.hs`
+- `test/haskell2010/conformance/modules/data-ratio-zero-denominator-partial.hs`
+- native wet tests through default, no-egglog, emit-LLVM, and x86 clang paths
 
 Documentation updates:
 - `docs/haskell2010-standard-library-layout.md`
@@ -14803,6 +14805,18 @@ Documentation updates:
 
 Notes:
 - Created by TEST-CONF-015 to make the Rational gap explicit.
+- Complete. `Data.Ratio` is importable and exports `Ratio`, `Rational`, `(%)`,
+  `numerator`, `denominator`, and `approxRational`. The executable runtime now
+  represents `Rational` as `Ratio Int` over the compiler's current
+  `Integer`-as-`Int` representation, normalizes signs and common divisors,
+  rejects zero denominators at runtime, and backs `toRational` with the same
+  constructor instead of the old `(Int, Int)` pair. Built-in `Ratio Int`
+  dictionaries cover `Eq`, `Ord`, `Num`, `Real`, `Show`, and `Read`, including
+  precedence-aware `show`/`read` round trips and list `Read`/`Show`.
+  `approxRational` implements the Report simplest-rational algorithm for the
+  currently supported `Rational` input type. Generic `Ratio a`, arbitrary
+  precision `Integer`, and floating/fractional integration remain owned by
+  `LIB-008` and `LIB-009`.
 
 ## LIB-008 — Data.Complex and floating numeric tower
 

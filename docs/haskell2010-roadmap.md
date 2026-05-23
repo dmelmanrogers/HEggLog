@@ -361,8 +361,9 @@ parameters are protected. `/` remains the existing checked `Int` division
 primitive rather than a `Fractional` method.
 Remaining Phase 12 work includes instance contexts, method-specific
 constraints/type variables, coherence diagnostics, Fractional/Floating classes,
-arbitrary-precision `Integer`, and full `Ratio`/`Rational` behavior. Derived
-`Read` moved to complete with TC-030.
+arbitrary-precision `Integer`, and generic `Ratio a` behavior beyond the
+current `Ratio Int`/`Rational` representation. Derived `Read` moved to
+complete with TC-030.
 
 Deliverables:
 

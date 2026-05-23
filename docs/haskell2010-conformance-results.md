@@ -166,6 +166,14 @@ the Haskell 2010 `Bits` method surface, `Bits Int`, checked shift/rotate
 semantics, and emit-LLVM lowering. `modules.data-bits-negative-shift-partial`
 locks directional negative bit counts as native runtime errors.
 
+LIB-007 is now covered by native conformance and e2e fixtures.
+`modules.data-ratio` checks the generated `Data.Ratio` module, `Ratio` and
+`Rational` imports, normalized `(%)`, `numerator`, `denominator`,
+`approxRational`, Prelude `toRational`, and built-in `Ratio Int`
+`Eq`/`Ord`/`Num`/`Real`/`Show`/`Read` behavior in default, `--no-egglog`, and
+emit-LLVM modes. `modules.data-ratio-zero-denominator-partial` locks zero
+denominator handling as a native runtime-error case.
+
 TEST-CONF-015 is now validator-backed. The conformance matrix contains a
 Library Conformance Closure table covering Chapter 9 Prelude areas and every
 Part II Libraries module group. The conformance validator now checks all 18
@@ -173,7 +181,7 @@ library closure rows, verifies that each row cites manifest-backed fixtures and
 numbered remaining tracker tasks, and requires the library closure fixtures to
 stay represented in the matrix. Reserved Report modules now have explicit
 unsupported-documented fixtures for `Data.Complex`,
-`Data.Ratio`, `Numeric`, `System.Environment`,
+`Numeric`, `System.Environment`,
 `System.Exit`, `Foreign.C.Error`, `Foreign.Marshal.Alloc`/array allocation,
 and `Foreign.Storable`.
 `io.io-error` now positively checks the generated `System.IO.Error` surface for

@@ -1518,6 +1518,31 @@
       "notes": "Directional bit-count operations reject negative indexes rather than relying on undefined native shift behavior."
     },
     {
+      "name": "modules.data-ratio",
+      "sourceFile": "test/haskell2010/conformance/modules/data-ratio.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "3\n2\n-3\n2\n0\n1\n3 % 2\nTrue\nTrue\n7 % 4\n5 % 4\n3 % 8\n-3 % 2\n3 % 2\n1 % 1\n3 % 2\n7\n1\n[3 % 2,-3 % 2]\n0 % 1\n3 % 10\n3 % 2\n3 % 2\n!\n[3 % 2,-3 % 2]\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Ratio exports Ratio/Rational and validates normalization, positive denominators, numerator/denominator accessors, Prelude toRational integration, and supported Ratio Int Eq/Ord/Num/Show behavior."
+    },
+    {
+      "name": "modules.data-ratio-zero-denominator-partial",
+      "sourceFile": "test/haskell2010/conformance/modules/data-ratio-zero-denominator-partial.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Ratio.% rejects zero denominators instead of constructing an invalid Ratio."
+    },
+    {
       "name": "unsupported.library-data-complex",
       "sourceFile": "test/haskell2010/conformance/unsupported/library-data-complex.hs",
       "category": "unsupported",
@@ -1525,15 +1550,6 @@
       "expectedDiagnosticCategory": "could not read",
       "requiredStage": "module-graph",
       "notes": "Data.Complex remains reserved until the floating numeric tower and Complex API are implemented under LIB-008."
-    },
-    {
-      "name": "unsupported.library-data-ratio",
-      "sourceFile": "test/haskell2010/conformance/unsupported/library-data-ratio.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
-      "requiredStage": "module-graph",
-      "notes": "Data.Ratio remains reserved until exact Ratio/Rational representation and operations are implemented under LIB-007."
     },
     {
       "name": "unsupported.library-foreign-c-error",

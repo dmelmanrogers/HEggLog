@@ -35,6 +35,7 @@ graph path until that module has an implemented surface.
 | `Data.Ix` | generated class interface plus native dictionaries | `Ix(range, index, inRange, rangeSize)`, scalar instances for `Int`, `Char`, `Bool`, `Ordering`, and `()`, structural tuple instances, and derived `Ix` for supported enumeration and single-constructor product data types |
 | `Data.List` | source-backed native module | Haskell 2010 Report list API: shared Prelude list functions plus transformations, folds/scans, map accumulators, infinite-list producers, sublists, predicates, searches, indexing, zips/unzips, text helpers, set-like list operations, ordered-list helpers, `By` variants, and generic functions; `(++)`, `(!!)`, and `(\\)` fixities are imported |
 | `Data.Maybe` | source-backed native module | `Maybe(..)`, `maybe`, `isJust`, `isNothing`, `fromJust`, `fromMaybe`, `listToMaybe`, `maybeToList`, `catMaybes`, and `mapMaybe` |
+| `Data.Ratio` | generated interface plus native `Ratio Int` representation | `Ratio`, `Rational`, `(%)`, `numerator`, `denominator`, `approxRational`, `%` fixity, normalized `Rational = Ratio Int` over the current `Integer`-as-`Int` runtime, and built-in `Eq`/`Ord`/`Num`/`Real`/`Show`/`Read` dictionaries for that representation |
 | `Data.Word` | partial generated interface | `Word`, `Word8`, `Word16`, `Word32`, `Word64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
 | `System.IO` | partial generated interface | `IO`, `Handle`, `FilePath`, `putStrLn`, `getLine`, and `print`; `LIB-012` owns handles, files, buffering, seek, and EOF-specific handle behavior |
 | `System.IO.Error` | partial generated interface | `IOError`, `IOErrorType`, error-type constants, `userError`, `mkIOError`, `annotateIOError`, classifiers, accessors, `ioError`, `catch`, and `try`; `LIB-012` owns handle/file-backed error producers beyond the current line-oriented IO subset |
@@ -63,7 +64,6 @@ exported value/type/class surface is not yet real in the compiler.
 | Module | Status | Owner task |
 | --- | --- | --- |
 | `Data.Complex` | reserved | `LIB-008` |
-| `Data.Ratio` | reserved | `LIB-007` |
 | `Foreign.C.Error` | reserved | `FFI-013` |
 | `Foreign.Marshal.Alloc` | reserved | `FFI-013` |
 | `Foreign.Marshal.Array` | reserved | `FFI-013` |
@@ -98,6 +98,12 @@ for scalar, tuple, and derived instances. `Data.Array` is a source-backed
 virtual module compiled through the normal frontend/Core/STG/native path, so
 array construction, lookup, updates, accumulation, `ixmap`, and instances are
 validated as ordinary standard-library code rather than as fake import names.
+
+`LIB-007` moved `Data.Ratio` out of the reserved set. The module is importable
+through a generated interface and its runtime representation is a real
+`Ratio Int` constructor, not the old executable pair encoding. The boundary is
+still explicit: generic `Ratio a`, arbitrary-precision `Integer`, and
+floating/fractional integration remain in later numeric-library tasks.
 
 `TEST-CONF-015` completed the Report-wide reconciliation for this table. Each
 reserved module and each partial generated interface now points to implemented
@@ -139,3 +145,5 @@ References:
   <https://www.haskell.org/onlinereport/haskell2010/haskellch14.html>
 - Haskell 2010 Libraries, `Data.Ix`:
   <https://www.haskell.org/onlinereport/haskell2010/haskellch19.html>
+- Haskell 2010 Libraries, `Data.Ratio`:
+  <https://www.haskell.org/onlinereport/haskell2010/haskellch22.html>

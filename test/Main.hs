@@ -9091,6 +9091,7 @@ haskell2010NumericDefaultingSource =
 haskell2010NumericHierarchySource :: Text
 haskell2010NumericHierarchySource =
   "module Main where\n\
+  \import Data.Ratio (denominator, numerator)\n\
   \default (Integer, Int)\n\
   \main :: IO ()\n\
   \main = do\n\
@@ -9108,10 +9109,9 @@ haskell2010NumericHierarchySource =
   \    (d, m) -> do\n\
   \      print d\n\
   \      print m\n\
-  \  case toRational (7 :: Int) of\n\
-  \    (n, d) -> do\n\
-  \      print n\n\
-  \      print d\n\
+  \  let r = toRational (7 :: Int)\n\
+  \  print (numerator r)\n\
+  \  print (denominator r)\n\
   \  print (toInteger (7 :: Int))\n\
   \  return ()\n"
 

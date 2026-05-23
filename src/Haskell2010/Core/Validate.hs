@@ -90,6 +90,7 @@ builtinConstructorInfos =
   , (orderingLTDataConName, dataConstructor [] [] orderingTy)
   , (orderingEQDataConName, dataConstructor [] [] orderingTy)
   , (orderingGTDataConName, dataConstructor [] [] orderingTy)
+  , (ratioDataConName, dataConstructor [a] [aTy, aTy] (ratioTy aTy))
   ]
  where
   a = builtinTypeVariable "a" (-1001)
