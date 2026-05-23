@@ -37,6 +37,7 @@ graph path until that module has an implemented surface.
 | `Data.List` | source-backed native module | Haskell 2010 Report list API: shared Prelude list functions plus transformations, folds/scans, map accumulators, infinite-list producers, sublists, predicates, searches, indexing, zips/unzips, text helpers, set-like list operations, ordered-list helpers, `By` variants, and generic functions; `(++)`, `(!!)`, and `(\\)` fixities are imported |
 | `Data.Maybe` | source-backed native module | `Maybe(..)`, `maybe`, `isJust`, `isNothing`, `fromJust`, `fromMaybe`, `listToMaybe`, `maybeToList`, `catMaybes`, and `mapMaybe` |
 | `Data.Ratio` | generated interface plus native `Ratio Int` representation | `Ratio`, `Rational`, `(%)`, `numerator`, `denominator`, `approxRational`, `%` fixity, normalized `Rational = Ratio Int` over the current `Integer`-as-`Int` runtime, and built-in `Eq`/`Ord`/`Num`/`Real`/`Show`/`Read` dictionaries for that representation |
+| `Numeric` | source-backed native module | `showSigned`, `showIntAtBase`, `showInt`, `showHex`, `showOct`, `showEFloat`, `showFFloat`, `showGFloat`, `showFloat`, `floatToDigits`, `readSigned`, `readInt`, `readDec`, `readOct`, `readHex`, `readFloat`, `lexDigits`, and `fromRat`; native coverage exercises integral bases, signed parses/renders, finite `Double` float parsing/formatting, `floatToDigits`, and `Rational` conversion over the current executable numeric tower |
 | `Data.Word` | generated native fixed-width module | `Word`, `Word8`, `Word16`, `Word32`, and `Word64` have real unsigned modulo representations, `Eq`/`Ord`/`Num`/`Real`/`Integral`/`Enum`/`Bounded`/`Ix`/`Bits`/`Show`/`Read` dictionaries, unsigned `Word64` rendering, and native scalar FFI marshalling for `Word8`/`Word16`/`Word32`/`Word64`; plain `Word` is deliberately not accepted as a Haskell 2010 basic FFI type, and `Storable` remains owned by `FFI-013` |
 | `System.IO` | partial generated interface | `IO`, `Handle`, `FilePath`, `putStrLn`, `getLine`, and `print`; `LIB-012` owns handles, files, buffering, seek, and EOF-specific handle behavior |
 | `System.IO.Error` | partial generated interface | `IOError`, `IOErrorType`, error-type constants, `userError`, `mkIOError`, `annotateIOError`, classifiers, accessors, `ioError`, `catch`, and `try`; `LIB-012` owns handle/file-backed error producers beyond the current line-oriented IO subset |
@@ -68,7 +69,6 @@ exported value/type/class surface is not yet real in the compiler.
 | `Foreign.Marshal.Alloc` | reserved | `FFI-013` |
 | `Foreign.Marshal.Array` | reserved | `FFI-013` |
 | `Foreign.Storable` | reserved | `FFI-013` |
-| `Numeric` | reserved | `LIB-010` |
 | `System.Environment` | reserved | `LIB-011` |
 | `System.Exit` | reserved | `LIB-011` |
 

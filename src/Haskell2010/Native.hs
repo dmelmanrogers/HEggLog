@@ -25,7 +25,9 @@ import Haskell2010.ModuleGraph
   , LoadedModuleGraph (..)
   , ModuleGraphError
   , loadModuleGraph
+  , loadVirtualStandardModuleClosure
   , renderModuleGraphError
+  , sourceModuleName
   , wholeProgramModule
   )
 import Haskell2010.Names (RName, nameOcc)
@@ -120,9 +122,32 @@ compileHaskell2010ToLLVMWithOptions options path source = do
     mapLeft
       (Haskell2010LLVMParseError . Text.pack . errorBundlePretty)
       (parseSourceModule path source)
-  renamed <- mapLeft Haskell2010LLVMRenameError (renameModule parsed)
-  mainName <- mapLeft Haskell2010LLVMMissingMain (rootMainName renamed)
-  compileHaskell2010RenamedToLLVMWithOptions options parsed renamed mainName
+  virtualModules <-
+    mapLeft
+      Haskell2010LLVMModuleGraphError
+      (loadVirtualStandardModuleClosure parsed)
+  case virtualModules of
+    [] -> do
+      renamed <- mapLeft Haskell2010LLVMRenameError (renameModule parsed)
+      mainName <- mapLeft Haskell2010LLVMMissingMain (rootMainName renamed)
+      compileHaskell2010RenamedToLLVMWithOptions options parsed renamed mainName
+    _ -> do
+      renamedModules <-
+        mapLeft
+          Haskell2010LLVMRenameError
+          (renameModuleGraph (map loadedModuleParsed virtualModules <> [parsed]))
+      let renamed = wholeProgramModule renamedModules
+          rootName = sourceModuleName parsed
+      rootRenamed <-
+        case List.find ((== rootName) . renamedModuleSourceName) renamedModules of
+          Just root -> Right root
+          Nothing ->
+            Left
+              ( Haskell2010LLVMMissingMain
+                  ("renamed Haskell 2010 virtual module graph is missing root module `" <> renderModuleName rootName <> "`")
+              )
+      mainName <- mapLeft Haskell2010LLVMMissingMain (rootMainName rootRenamed)
+      compileHaskell2010RenamedToLLVMWithOptions options parsed renamed mainName
 
 compileHaskell2010LoadedModulesToLLVMWithOptions ::
   Haskell2010NativeOptions ->

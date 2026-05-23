@@ -1625,13 +1625,17 @@
       "notes": "Foreign.Storable remains reserved until Storable dictionaries and memory access primitives are implemented under FFI-013."
     },
     {
-      "name": "unsupported.library-numeric",
-      "sourceFile": "test/haskell2010/conformance/unsupported/library-numeric.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
-      "requiredStage": "module-graph",
-      "notes": "Numeric remains reserved until Report-compatible numeric showing, reading, and miscellaneous helpers are implemented under LIB-010."
+      "name": "modules.numeric",
+      "sourceFile": "test/haskell2010/conformance/modules/numeric.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "255\nff\n100\n(-12)\n110\n123\nx\n63\n!\n-45\n!\n125.0\n!\n1.20\n1.23e2\n123.40\n12.000000\n[1,2]\n2\n1.50\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Numeric is importable and source-backed, including integral bases, signed reads/shows, floating formatting/parsing, floatToDigits, and fromRat over the current supported numeric tower."
     },
     {
       "name": "unsupported.library-system-environment",

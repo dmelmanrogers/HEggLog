@@ -35,14 +35,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 144 |
+| Manifest conformance fixtures | 151 |
 | Haskell source files in corpus | 151 |
-| HUnit test cases executed | 201 |
-| Native-success fixtures | 91 |
-| Native-runtime-error fixtures | 9 |
+| HUnit test cases executed | 222 |
+| Native-success fixtures | 101 |
+| Native-runtime-error fixtures | 13 |
 | Compile-error fixtures | 28 |
-| Unsupported-documented fixtures | 16 |
-| Native subprocess compile/run checks | 157 |
+| Unsupported-documented fixtures | 9 |
+| Native subprocess compile/run checks | 185 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -180,9 +180,10 @@ Part II Libraries module group. The conformance validator now checks all 18
 library closure rows, verifies that each row cites manifest-backed fixtures and
 numbered remaining tracker tasks, and requires the library closure fixtures to
 stay represented in the matrix. Reserved Report modules now have explicit
-unsupported-documented fixtures for `Numeric`, `System.Environment`,
-`System.Exit`, `Foreign.C.Error`, `Foreign.Marshal.Alloc`/array allocation,
-and `Foreign.Storable`.
+unsupported-documented fixtures for `System.Environment`, `System.Exit`,
+`Foreign.C.Error`, `Foreign.Marshal.Alloc`/array allocation, and
+`Foreign.Storable`. `Numeric` has moved from that reserved set to the
+source-backed native fixture `modules.numeric`.
 `modules.data-complex` and `prelude.floating-numeric` now positively check
 the LIB-008 floating numeric tower and importable `Data.Complex` module in
 default and `--no-egglog` native modes.

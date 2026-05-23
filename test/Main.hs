@@ -198,6 +198,7 @@ testGroups =
       , pureTest "typechecks Prelude function completion" testHaskell2010Core0PreludeFunctions
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
       , pureTest "typechecks Real and Integral numeric methods" testHaskell2010Core0NumericHierarchy
+      , pureTest "typechecks Numeric module helpers" testHaskell2010Core0NumericModule
       , pureTest "documents monomorphism restriction defaulting policy" testHaskell2010MonomorphismRestrictionDefaulting
       , pureTest "typechecks multi-module imports" testHaskell2010Core0MultiModuleImports
       , pureTest "typechecks transitive instance imports" testHaskell2010Core0ModuleInstanceImports
@@ -257,6 +258,7 @@ testGroups =
       , pureTest "evaluates standard library module imports" testHaskell2010Core0EvalStandardLibraryModules
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
       , pureTest "evaluates Real and Integral numeric methods" testHaskell2010Core0EvalNumericHierarchy
+      , pureTest "evaluates Numeric module helpers" testHaskell2010Core0EvalNumericModule
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
       , pureTest "evaluates transitive instance imports" testHaskell2010Core0EvalModuleInstanceImports
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
@@ -318,6 +320,7 @@ testGroups =
       , pureTest "preserves standard library module import semantics" testHaskell2010CoreToSTGStandardLibraryModules
       , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
       , pureTest "preserves Real and Integral numeric methods" testHaskell2010CoreToSTGNumericHierarchy
+      , pureTest "preserves Numeric module helper semantics" testHaskell2010CoreToSTGNumericModule
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
       , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
       , pureTest "preserves normal IO example semantics" testHaskell2010CoreToSTGIONormalExamples
@@ -349,6 +352,7 @@ testGroups =
       , pureTest "emits String as Char lists in native LLVM" testHaskell2010NativeStringCharList
       , pureTest "emits arithmetic sequence LLVM" testHaskell2010NativeArithmeticSequences
       , pureTest "emits numeric hierarchy LLVM" testHaskell2010NativeNumericHierarchy
+      , pureTest "emits Numeric module helper LLVM" testHaskell2010NativeNumericModule
       , pureTest "emits Enum Bounded LLVM" testHaskell2010NativeEnumBounded
       , pureTest "emits derived Eq LLVM" testHaskell2010NativeDerivedEq
       , pureTest "emits derived Ord LLVM" testHaskell2010NativeDerivedOrd
@@ -1425,10 +1429,11 @@ testHaskell2010StandardLibraryExpandedInterfaces = do
   assertBool "Foreign.Ptr exports FunPtr" (interfaceExportsName H2010Names.TypeNamespace "FunPtr" foreignPtr)
   assertBool "Foreign.C.String exports CString" (interfaceExportsName H2010Names.TypeNamespace "CString" foreignCString)
 
-  expectEqual
-    "Numeric stays reserved until numeric formatting is implemented"
-    Nothing
-    (Map.lookup (H2010.ModuleName ["Numeric"]) H2010StandardLibrary.standardLibraryModuleInterfaces)
+  numeric <- requireInterface (H2010.ModuleName ["Numeric"])
+  assertBool "Numeric exports showIntAtBase" (interfaceExportsName H2010Names.TermNamespace "showIntAtBase" numeric)
+  assertBool "Numeric exports showFFloat" (interfaceExportsName H2010Names.TermNamespace "showFFloat" numeric)
+  assertBool "Numeric exports readFloat" (interfaceExportsName H2010Names.TermNamespace "readFloat" numeric)
+  assertBool "Numeric exports fromRat" (interfaceExportsName H2010Names.TermNamespace "fromRat" numeric)
   _ <- typecheckHaskell2010 haskell2010StandardLibraryModulesSource
   Right ()
  where
@@ -2340,6 +2345,14 @@ testHaskell2010Core0NumericHierarchy = do
   assertBool "Prelude quot selector is emitted" (containsBindingOccurrence "quot" coreModule)
   assertBool "Prelude divMod selector is emitted" (containsBindingOccurrence "divMod" coreModule)
   expectCoreEvalIO "numeric hierarchy Core oracle" haskell2010NumericHierarchyOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0NumericModule :: Either String ()
+testHaskell2010Core0NumericModule = do
+  coreModule <- typecheckHaskell2010 haskell2010NumericModuleSource
+  assertBool "Numeric showIntAtBase binding is emitted" (containsBindingOccurrence "showIntAtBase" coreModule)
+  assertBool "Numeric readFloat binding is emitted" (containsBindingOccurrence "readFloat" coreModule)
+  assertBool "Numeric floatToDigits binding is emitted" (containsBindingOccurrence "floatToDigits" coreModule)
+  expectCoreEvalIO "Numeric module Core oracle" haskell2010NumericModuleOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
 testHaskell2010MonomorphismRestrictionDefaulting :: Either String ()
 testHaskell2010MonomorphismRestrictionDefaulting = do
@@ -3404,6 +3417,13 @@ testHaskell2010Core0EvalNumericHierarchy =
     haskell2010NumericHierarchyOutput
     =<< evalHaskell2010Binding "main" haskell2010NumericHierarchySource
 
+testHaskell2010Core0EvalNumericModule :: Either String ()
+testHaskell2010Core0EvalNumericModule =
+  expectCoreEvalIO
+    "Core-0 Numeric module evaluation"
+    haskell2010NumericModuleOutput
+    =<< evalHaskell2010Binding "main" haskell2010NumericModuleSource
+
 testHaskell2010Core0EvalMultiModuleImports :: Either String ()
 testHaskell2010Core0EvalMultiModuleImports =
   expectCoreEvalInt
@@ -3832,6 +3852,10 @@ testHaskell2010CoreToSTGNumericHierarchy :: Either String ()
 testHaskell2010CoreToSTGNumericHierarchy =
   checkCoreToSTGIO "Core-to-STG numeric hierarchy" haskell2010NumericHierarchyOutput haskell2010NumericHierarchySource
 
+testHaskell2010CoreToSTGNumericModule :: Either String ()
+testHaskell2010CoreToSTGNumericModule =
+  checkCoreToSTGIO "Core-to-STG Numeric module" haskell2010NumericModuleOutput haskell2010NumericModuleSource
+
 testHaskell2010CoreToSTGMultiModuleImports :: Either String ()
 testHaskell2010CoreToSTGMultiModuleImports = do
   coreModule <- typecheckHaskell2010Modules haskell2010MultiModuleSources
@@ -3997,6 +4021,12 @@ testHaskell2010NativeNumericHierarchy = do
   assertBool "native Integral quot/div emits signed division" ("sdiv i64" `Text.isInfixOf` llvmText)
   assertBool "native Integral rem/mod emits checked remainder arithmetic" ("@llvm.smul.with.overflow.i64" `Text.isInfixOf` llvmText)
   assertBool "native Integral div/mod emits checked adjustment arithmetic" ("@llvm.ssub.with.overflow.i64" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeNumericModule :: Either String ()
+testHaskell2010NativeNumericModule = do
+  llvmText <- compileHaskell2010NativeText haskell2010NumericModuleSource
+  assertBool "native Numeric module emits checked integer arithmetic" ("@llvm.smul.with.overflow.i64" `Text.isInfixOf` llvmText)
+  assertBool "native Numeric module emits floating operations" ("fdiv double" `Text.isInfixOf` llvmText || "fmul double" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeEnumBounded :: Either String ()
 testHaskell2010NativeEnumBounded = do
@@ -7738,7 +7768,16 @@ renameHaskell2010 source =
 renameHaskell2010Raw :: Text -> Either H2010Renamer.RenameError H2010Renamed.RHsModule
 renameHaskell2010Raw source = do
   parsed <- mapLeft (error . errorBundlePretty) (H2010Parser.parseSourceModule "<haskell2010-renamer-test>" source)
-  H2010Renamer.renameModule parsed
+  virtualModules <-
+    mapLeft
+      (error . Text.unpack . H2010ModuleGraph.renderModuleGraphError)
+      (H2010ModuleGraph.loadVirtualStandardModuleClosure parsed)
+  case virtualModules of
+    [] ->
+      H2010Renamer.renameModule parsed
+    _ ->
+      H2010ModuleGraph.wholeProgramModule
+        <$> H2010Renamer.renameModuleGraph (map H2010ModuleGraph.loadedModuleParsed virtualModules <> [parsed])
 
 parseHaskell2010ModuleSources :: [(FilePath, Text)] -> Either String [H2010.HsModule]
 parseHaskell2010ModuleSources =
@@ -7954,6 +7993,7 @@ haskell2010NativeSuccessExamples =
   , ("standard-library-modules", haskell2010StandardLibraryModulesSource, Text.unpack haskell2010StandardLibraryModulesOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("numeric-hierarchy", haskell2010NumericHierarchySource, Text.unpack haskell2010NumericHierarchyOutput)
+  , ("numeric-module", haskell2010NumericModuleSource, Text.unpack haskell2010NumericModuleOutput)
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("io-normal-examples", haskell2010IONormalExamplesSource, Text.unpack haskell2010IONormalExamplesOutput)
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
@@ -8001,6 +8041,7 @@ haskell2010NativeExecutableExamples =
   , ("standard-library-modules", haskell2010StandardLibraryModulesSource, Text.unpack haskell2010StandardLibraryModulesOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("numeric-hierarchy", haskell2010NumericHierarchySource, Text.unpack haskell2010NumericHierarchyOutput)
+  , ("numeric-module", haskell2010NumericModuleSource, Text.unpack haskell2010NumericModuleOutput)
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("io-normal-examples", haskell2010IONormalExamplesSource, Text.unpack haskell2010IONormalExamplesOutput)
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
@@ -9130,6 +9171,74 @@ haskell2010NumericHierarchyOutput =
   \7\n\
   \1\n\
   \7\n"
+
+haskell2010NumericModuleSource :: Text
+haskell2010NumericModuleSource =
+  "module Main where\n\
+  \import Data.Ratio ((%))\n\
+  \import Numeric\n\
+  \showIntS :: Int -> ShowS\n\
+  \showIntS = showInt\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  putStrLn (showInt 255 \"\")\n\
+  \  putStrLn (showHex 255 \"\")\n\
+  \  putStrLn (showOct 64 \"\")\n\
+  \  putStrLn (showSigned showIntS 7 (negate 12) \"\")\n\
+  \  putStrLn (showIntAtBase 2 binaryDigit 6 \"\")\n\
+  \  case (readDec \"123x\" :: [(Int, String)]) of\n\
+  \    (n, rest) : [] -> do\n\
+  \      print n\n\
+  \      putStrLn rest\n\
+  \    _ -> print 0\n\
+  \  case (readHex \"3f!\" :: [(Int, String)]) of\n\
+  \    (n, rest) : [] -> do\n\
+  \      print n\n\
+  \      putStrLn rest\n\
+  \    _ -> print 0\n\
+  \  case (readSigned readDec \"(- 45)!\" :: [(Int, String)]) of\n\
+  \    (n, rest) : [] -> do\n\
+  \      print n\n\
+  \      putStrLn rest\n\
+  \    _ -> print 0\n\
+  \  case (readFloat \"12.5e1!\" :: [(Double, String)]) of\n\
+  \    (x, rest) : [] -> do\n\
+  \      putStrLn (showFFloat (Just 1) x \"\")\n\
+  \      putStrLn rest\n\
+  \    _ -> print 0\n\
+  \  putStrLn (showFFloat (Just 2) (1.2 :: Double) \"\")\n\
+  \  putStrLn (showEFloat (Just 2) (123.4 :: Double) \"\")\n\
+  \  putStrLn (showGFloat (Just 2) (123.4 :: Double) \"\")\n\
+  \  putStrLn (showFloat (12.0 :: Double) \"\")\n\
+  \  print (fst (floatToDigits 10 (12.0 :: Double)))\n\
+  \  print (snd (floatToDigits 10 (12.0 :: Double)))\n\
+  \  putStrLn (showFFloat (Just 2) (fromRat (3 % 2) :: Double) \"\")\n\
+  \  return ()\n\
+  \binaryDigit :: Int -> Char\n\
+  \binaryDigit d = if d == 0 then '0' else '1'\n"
+
+haskell2010NumericModuleOutput :: Text
+haskell2010NumericModuleOutput =
+  "255\n\
+  \ff\n\
+  \100\n\
+  \(-12)\n\
+  \110\n\
+  \123\n\
+  \x\n\
+  \63\n\
+  \!\n\
+  \-45\n\
+  \!\n\
+  \125.0\n\
+  \!\n\
+  \1.20\n\
+  \1.23e2\n\
+  \123.40\n\
+  \12.000000\n\
+  \[1,2]\n\
+  \2\n\
+  \1.50\n"
 
 haskell2010MonomorphismRestrictionSource :: Text
 haskell2010MonomorphismRestrictionSource =

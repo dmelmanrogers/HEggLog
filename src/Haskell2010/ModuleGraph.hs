@@ -9,6 +9,7 @@ module Haskell2010.ModuleGraph
   , currentModuleCompilationBoundary
   , loadModuleGraph
   , loadModuleGraphWithPolicy
+  , loadVirtualStandardModuleClosure
   , renderModuleGraphError
   , resolveModuleImportPath
   , sourceModuleName
@@ -20,6 +21,7 @@ import Control.Exception (IOException, try)
 import Control.Monad (foldM)
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
@@ -114,6 +116,44 @@ emptyLoadState =
     { loadedByName = Map.empty
     , loadedOrder = []
     }
+
+loadVirtualStandardModuleClosure :: HsModule -> Either ModuleGraphError [LoadedModule]
+loadVirtualStandardModuleClosure rootModule =
+  snd <$> collectImports Set.empty (moduleImports rootModule)
+
+collectImports :: Set.Set ModuleName -> [ImportDecl] -> Either ModuleGraphError (Set.Set ModuleName, [LoadedModule])
+collectImports seen imports =
+  foldM collectImport (seen, []) imports
+
+collectImport :: (Set.Set ModuleName, [LoadedModule]) -> ImportDecl -> Either ModuleGraphError (Set.Set ModuleName, [LoadedModule])
+collectImport (seen, loaded) importDecl = do
+  (seen', dependencies) <- collectVirtualStandardModule seen (importModule importDecl)
+  pure (seen', loaded <> dependencies)
+
+collectVirtualStandardModule :: Set.Set ModuleName -> ModuleName -> Either ModuleGraphError (Set.Set ModuleName, [LoadedModule])
+collectVirtualStandardModule seen moduleName
+  | moduleName `Set.member` seen = Right (seen, [])
+  | Just source <- StandardLibrary.standardLibrarySourceModule moduleName = do
+      let virtualPath = standardModuleVirtualPath moduleName
+      parsed <-
+        mapLeft
+          (ModuleParseError virtualPath . Text.pack . errorBundlePretty)
+          (parseSourceModule virtualPath source)
+      let actualName = sourceModuleName parsed
+      if actualName /= moduleName
+        then Left (ModuleNameMismatch virtualPath moduleName actualName)
+        else do
+          (seenWithDependencies, dependencies) <-
+            collectImports (Set.insert moduleName seen) (moduleImports parsed)
+          let loaded =
+                LoadedModule
+                  { loadedModulePath = normalise virtualPath
+                  , loadedModuleName = moduleName
+                  , loadedModuleSource = source
+                  , loadedModuleParsed = parsed
+                  }
+          pure (seenWithDependencies, dependencies <> [loaded])
+  | otherwise = Right (seen, [])
 
 loadModule ::
   ModuleSearchPolicy ->
@@ -240,11 +280,15 @@ loadVirtualStandardModule searchPolicy rootDirectory active state moduleName sou
       pureOrContinue searchPolicy rootDirectory active state virtualPath source parsed (sourceModuleName parsed) (Just moduleName)
  where
   virtualPath =
-    "<standard-library>" </> moduleNamePath moduleName <.> "hs"
+    standardModuleVirtualPath moduleName
   parseResult =
     mapLeft
       (ModuleParseError virtualPath . Text.pack . errorBundlePretty)
       (parseSourceModule virtualPath source)
+
+standardModuleVirtualPath :: ModuleName -> FilePath
+standardModuleVirtualPath moduleName =
+  "<standard-library>" </> moduleNamePath moduleName <.> "hs"
 
 moduleNamePath :: ModuleName -> FilePath
 moduleNamePath (ModuleName parts) =

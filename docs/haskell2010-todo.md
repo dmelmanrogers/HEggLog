@@ -14877,8 +14877,9 @@ Notes:
   `RealFloat a`-constrained `Eq`, `Num`, `Fractional`, `Floating`, `Show`,
   and `Read` instances. Native default/no-egglog fixtures cover the floating
   Prelude tower and `Data.Complex`; FFI floating ABI coverage remains under
-  `FFI-010`. Remaining exact lexical `Read`/`Show` helper polish for floating
-  values is tracked by `LIB-010`/`Numeric`.
+  `FFI-010`. `LIB-010` now provides the importable `Numeric` module and native
+  coverage for finite floating read/show helpers over the current executable
+  `Double` path.
 
 ## LIB-009 — Data.Int and Data.Word report completion
 
@@ -14929,7 +14930,7 @@ Notes:
 ## LIB-010 — Numeric report completion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -14971,7 +14972,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Created by TEST-CONF-015 so the reserved `Numeric` module is not hidden behind TC-029/TC-030 alone.
+- Complete for the current executable Haskell 2010 numeric tower. `Numeric` is now an importable source-backed virtual module with report-named exports for integral bases, signed reads/shows, finite floating renders/parses, `floatToDigits`, `lexDigits`, and `fromRat`. The implementation is covered through Core typechecking/evaluation, Core-to-STG preservation, LLVM emission, a native wet fixture, and the conformance manifest. Floating parser coverage currently targets the supported `Double` execution path and the existing checked-`Int` backed `Integer`/`Rational` representation; true arbitrary-precision `Integer` remains outside this task.
 
 ## LIB-011 — System.Environment and System.Exit report completion
 

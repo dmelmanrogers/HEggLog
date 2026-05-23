@@ -8279,7 +8279,7 @@
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
       ],
-      "notes": "Complete. Float and Double are represented through Core/STG/native literals and boxed runtime values, participate in defaulting, and provide executable Eq, Ord, Num, Real, Fractional, Floating, RealFrac, RealFloat, and Show dictionaries. Floating primitives cover arithmetic, comparisons, conversion from integer/rational input in the supported Ratio Int representation, elementary and hyperbolic functions, power/atan2, integral conversions, and IEEE predicates used by the Prelude classes. Data.Complex is now an importable source-backed standard module exporting Complex((:+)), rectangular accessors, conjugation, polar construction/decomposition, magnitude, and phase, with generic RealFloat a-constrained Eq, Num, Fractional, Floating, Show, and Read instances. Native default/no-egglog fixtures cover the floating Prelude tower and Data.Complex; FFI floating ABI coverage remains under FFI-010. Remaining exact lexical Read/Show helper polish for floating values is tracked by LIB-010/Numeric."
+      "notes": "Complete. Float and Double are represented through Core/STG/native literals and boxed runtime values, participate in defaulting, and provide executable Eq, Ord, Num, Real, Fractional, Floating, RealFrac, RealFloat, and Show dictionaries. Floating primitives cover arithmetic, comparisons, conversion from integer/rational input in the supported Ratio Int representation, elementary and hyperbolic functions, power/atan2, integral conversions, and IEEE predicates used by the Prelude classes. Data.Complex is now an importable source-backed standard module exporting Complex((:+)), rectangular accessors, conjugation, polar construction/decomposition, magnitude, and phase, with generic RealFloat a-constrained Eq, Num, Fractional, Floating, Show, and Read instances. Native default/no-egglog fixtures cover the floating Prelude tower and Data.Complex; FFI floating ABI coverage remains under FFI-010. LIB-010 now provides the importable Numeric module and native coverage for finite floating read/show helpers over the current executable Double path."
     },
     {
       "id": "LIB-009",
@@ -8312,7 +8312,7 @@
     {
       "id": "LIB-010",
       "title": "Numeric report completion",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "TC-029",
@@ -8336,7 +8336,8 @@
         "docs/haskell2010-standard-library-layout.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete for the current executable Haskell 2010 numeric tower. Numeric is now an importable source-backed virtual module with report-named exports for integral bases, signed reads/shows, finite floating renders/parses, floatToDigits, lexDigits, and fromRat. Coverage runs through Core typechecking/evaluation, Core-to-STG preservation, LLVM emission, a native wet fixture, and the conformance manifest. Floating parser coverage targets the supported Double execution path and the existing checked-Int backed Integer/Rational representation; true arbitrary-precision Integer remains outside this task."
     },
     {
       "id": "LIB-011",
