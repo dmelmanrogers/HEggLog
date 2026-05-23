@@ -102,13 +102,14 @@ The following chunk is Prelude, deriving, and typeclass library completion.
 PRELUDE-019 is complete for `($)`, `(.)`, `flip`, `head`, `tail`, `null`,
 `fst`, and `snd`; PRELUDE-020 is complete for generated/importable
 standard-library module interfaces that have real support, including
-`Control.Monad` `Functor(fmap)` for `[]`, `Maybe`, and `IO`; and
+`Control.Monad` `Functor(fmap)`, `Monad(..)`, `MonadPlus(..)`, and Report
+monadic combinators for supported `IO`, `Maybe`, and list dictionaries; and
 TEST-CONF-015 is complete for validator-backed reconciliation of Chapter 9
 Prelude plus the Part II library module inventory. TC-029 is complete for
 report-shaped `Show`, and TC-030 is complete for Report-shaped `Read`,
 including `ReadS`, `readsPrec`, `readList`, `reads`, `read`, `lex`,
 `readParen`, standard supported instances, and derived `Read`. The remaining
-library tasks now continue through the numbered LIB-001 through LIB-012
+library tasks now continue through LIB-002 and the remaining numbered
 standard-library module tasks.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010

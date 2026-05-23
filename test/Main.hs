@@ -1341,10 +1341,22 @@ testHaskell2010StandardLibraryExpandedInterfaces = do
   assertBool
     "Control.Monad exposes Monad bind child"
     (interfaceExportsChild H2010Names.ClassNamespace "Monad" H2010Names.TermNamespace ">>=" controlMonad)
+  assertBool "Control.Monad exports MonadPlus" (interfaceExportsName H2010Names.ClassNamespace "MonadPlus" controlMonad)
+  assertBool "Control.Monad exports mapM" (interfaceExportsName H2010Names.TermNamespace "mapM" controlMonad)
+  assertBool "Control.Monad exports sequence" (interfaceExportsName H2010Names.TermNamespace "sequence" controlMonad)
+  assertBool "Control.Monad exports =<<" (interfaceExportsName H2010Names.TermNamespace "=<<" controlMonad)
+  assertBool "Control.Monad exports guard" (interfaceExportsName H2010Names.TermNamespace "guard" controlMonad)
+  assertBool
+    "Control.Monad exposes MonadPlus mzero child"
+    (interfaceExportsChild H2010Names.ClassNamespace "MonadPlus" H2010Names.TermNamespace "mzero" controlMonad)
   expectEqual
     "Control.Monad bind fixity"
     (Just (H2010.Fixity H2010.InfixL 1))
     (Map.lookup ">>=" (H2010ModuleInterface.interfaceFixities controlMonad))
+  expectEqual
+    "Control.Monad =<< fixity"
+    (Just (H2010.Fixity H2010.InfixR 1))
+    (Map.lookup "=<<" (H2010ModuleInterface.interfaceFixities controlMonad))
 
   systemIO <- requireInterface (H2010.ModuleName ["System", "IO"])
   assertBool "System.IO exports IO" (interfaceExportsName H2010Names.TypeNamespace "IO" systemIO)

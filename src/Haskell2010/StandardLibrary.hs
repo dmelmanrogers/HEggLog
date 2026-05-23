@@ -81,6 +81,9 @@ standardPreludeFixities =
     , ("||", S.Fixity S.InfixR 2)
     , (">>=", S.Fixity S.InfixL 1)
     , (">>", S.Fixity S.InfixL 1)
+    , ("=<<", S.Fixity S.InfixR 1)
+    , (">=>", S.Fixity S.InfixR 1)
+    , ("<=<", S.Fixity S.InfixR 1)
     , ("$", S.Fixity S.InfixR 0)
     , (".", S.Fixity S.InfixR 9)
     ]
@@ -128,6 +131,7 @@ standardPreludeNames =
     , "++"
     , ">>="
     , ">>"
+    , "=<<"
     , "$"
     , "."
     , "flip"
@@ -135,6 +139,10 @@ standardPreludeNames =
     , "return"
     , "fail"
     , "fmap"
+    , "mapM"
+    , "mapM_"
+    , "sequence"
+    , "sequence_"
     , "map"
     , "foldr"
     , "foldl"
@@ -304,6 +312,7 @@ controlMonadInterface =
     controlMonadNames
     [ ((ClassNamespace, "Functor"), fmap (TermNamespace,) ["fmap"])
     , ((ClassNamespace, "Monad"), fmap (TermNamespace,) [">>=", ">>", "return", "fail"])
+    , ((ClassNamespace, "MonadPlus"), fmap (TermNamespace,) ["mzero", "mplus"])
     ]
     (standardLibraryFixitiesFor controlMonadNames)
 
@@ -435,7 +444,47 @@ controlMonadNames :: [(Namespace, Text)]
 controlMonadNames =
   (ClassNamespace, "Functor")
     : (ClassNamespace, "Monad")
-    : fmap (TermNamespace,) ["fmap", ">>=", ">>", "return", "fail"]
+    : (ClassNamespace, "MonadPlus")
+    : fmap
+      (TermNamespace,)
+      [ "fmap"
+      , ">>="
+      , ">>"
+      , "return"
+      , "fail"
+      , "mzero"
+      , "mplus"
+      , "mapM"
+      , "mapM_"
+      , "forM"
+      , "forM_"
+      , "sequence"
+      , "sequence_"
+      , "=<<"
+      , ">=>"
+      , "<=<"
+      , "forever"
+      , "void"
+      , "join"
+      , "msum"
+      , "filterM"
+      , "mapAndUnzipM"
+      , "zipWithM"
+      , "zipWithM_"
+      , "foldM"
+      , "foldM_"
+      , "replicateM"
+      , "replicateM_"
+      , "guard"
+      , "when"
+      , "unless"
+      , "liftM"
+      , "liftM2"
+      , "liftM3"
+      , "liftM4"
+      , "liftM5"
+      , "ap"
+      ]
 
 dataIntNames :: [(Namespace, Text)]
 dataIntNames =

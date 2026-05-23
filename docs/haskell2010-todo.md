@@ -14443,7 +14443,7 @@ Notes:
 ## LIB-001 — Control.Monad report completion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -14466,6 +14466,7 @@ Files likely touched:
 - `src/Haskell2010/StandardLibrary.hs`
 - `src/Haskell2010/Typecheck.hs`
 - `test/haskell2010/conformance/`
+- `test/e2e/programs/haskell2010/control-monad.hs`
 
 Acceptance criteria:
 - `Control.Monad` exports the full Haskell 2010 report surface for Functor, Monad, and standard monadic combinators.
@@ -14483,7 +14484,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Created by TEST-CONF-015 so `Control.Monad` completion is tracked by number instead of roadmap prose.
+- Complete. `Control.Monad` now exports `Functor(fmap)`, `Monad(..)`, `MonadPlus(..)`, and the Haskell 2010 monadic combinator surface for supported `IO`, `Maybe`, and list instances. Prelude also exposes the Report monadic exports `mapM`, `mapM_`, `sequence`, `sequence_`, and `(=<<)`. The implementation has generated Core bindings, built-in `MonadPlus` dictionaries for `Maybe` and lists, interface/fixity coverage, conformance coverage, and a broad native e2e fixture covering every new combinator.
 
 ## LIB-002 — Data.List report completion
 

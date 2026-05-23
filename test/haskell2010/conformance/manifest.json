@@ -245,6 +245,19 @@
       "notes": "Implemented generated standard-library modules import through ModuleInterface with explicit export lists, child exports, fixities, and ordinary Prelude-backed semantics."
     },
     {
+      "name": "modules.control-monad",
+      "sourceFile": "test/haskell2010/conformance/modules/control-monad.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "[2,3,4]\n[4,5]\n12\n15\n9\n99\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Control.Monad imports expose Report combinators and MonadPlus methods through generated interfaces and native Core/STG lowering."
+    },
+    {
       "name": "modules.standard-library-scalar-types",
       "sourceFile": "test/haskell2010/conformance/modules/standard-library-scalar-types.hs",
       "category": "modules",

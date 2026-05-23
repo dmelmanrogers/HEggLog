@@ -8058,7 +8058,7 @@
     {
       "id": "LIB-001",
       "title": "Control.Monad report completion",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "TC-020",
@@ -8080,7 +8080,8 @@
         "docs/haskell2010-standard-library-layout.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. Control.Monad now exports Functor(fmap), Monad(..), MonadPlus(..), and the Haskell 2010 monadic combinator surface for supported IO, Maybe, and list instances. Prelude exposes the Report monadic exports mapM, mapM_, sequence, sequence_, and (=<<). Generated Core bindings, built-in MonadPlus dictionaries, module/fixity interface checks, conformance coverage, and a broad native e2e fixture cover the supported behavior."
     },
     {
       "id": "LIB-002",

@@ -259,15 +259,16 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 138 manifest-tracked fixtures with
-  87 native-success cases, 6 native-runtime-error cases, 28 compile-error cases,
+  `haskell2010-conformance-test`; it contains 139 manifest-tracked fixtures with
+  88 native-success cases, 6 native-runtime-error cases, 28 compile-error cases,
   and 17 unsupported-documented cases
 - Haskell 2010 standard library layout: implemented for the current executable
   subset as generated/importable `Prelude`, `Control.Monad`, `Data.Int`,
   `Data.List`, `Data.Maybe`, `Data.Word`, `System.IO`, `System.IO.Error`, and implemented
   `Foreign.*` module interfaces including `Foreign.Marshal.Error` and
-  `Foreign.Marshal.Utils`; `Control.Monad` includes real `Functor(fmap)`
-  support for `[]`, `Maybe`, and `IO`; broader standard modules remain reserved and documented in
+  `Foreign.Marshal.Utils`; `Control.Monad` includes real `Functor(fmap)`,
+  `Monad(..)`, `MonadPlus(..)`, and Report monadic combinators for supported
+  `[]`, `Maybe`, and `IO` dictionaries; broader standard modules remain reserved and documented in
   [haskell2010-standard-library-layout.md](haskell2010-standard-library-layout.md)
 
 Progress is tracked in

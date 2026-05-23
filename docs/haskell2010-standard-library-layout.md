@@ -25,7 +25,7 @@ graph path until that module has an implemented surface.
 | Module | Status | Generated surface |
 | --- | --- | --- |
 | `Prelude` | implemented for current executable subset | supported built-in data constructors, classes, class methods, list functions, IO functions, tuple/list/unit types, `Thing(..)` children, and Prelude fixities |
-| `Control.Monad` | partial generated interface | `Functor(fmap)` plus `Monad(..)` for `return`, `(>>=)`, `(>>)`, and `fail`, with method fixities where applicable; `LIB-001` owns the remaining Report combinators |
+| `Control.Monad` | implemented for supported monads | `Functor(fmap)`, `Monad(..)`, `MonadPlus(..)`, and the Haskell 2010 monadic combinator surface (`mapM`, `mapM_`, `forM`, `forM_`, `sequence`, `sequence_`, `(=<<)`, `(>=>)`, `(<=<)`, `forever`, `void`, `join`, `msum`, `filterM`, `mapAndUnzipM`, `zipWithM`, `zipWithM_`, `foldM`, `foldM_`, `replicateM`, `replicateM_`, `guard`, `when`, `unless`, `liftM` through `liftM5`, and `ap`) for the supported `IO`, `Maybe`, and list instances |
 | `Data.Int` | partial generated interface | `Int8`, `Int16`, `Int32`, `Int64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
 | `Data.List` | partial generated interface | `(++)`, `head`, `tail`, `null`, `length`, `map`, `reverse`, `foldl`, `foldr`, and `filter`, plus `(++)` fixity; `LIB-002` owns the remaining Report list API |
 | `Data.Maybe` | partial generated interface | `Maybe(..)` with `Nothing` and `Just`; `LIB-003` owns the remaining Report functions |

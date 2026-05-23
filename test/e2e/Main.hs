@@ -393,6 +393,7 @@ e2eCases =
   , nativeOnlySuccessCaseWithInput "haskell2010-io-getline" "test/e2e/programs/haskell2010/io-getline.hs" "hegg\nlog\nunused\n" "first=hegg\nsecond=log\n7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-monad" "test/e2e/programs/haskell2010/monad.hs" "monad\n[11,21,12,22]\n[1,3]\n7\nmaybe fail" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-monad-explicit-fail" "test/e2e/programs/haskell2010/monad-explicit-fail.hs" "[]\nmaybe explicit fail\n7" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-control-monad" "test/e2e/programs/haskell2010/control-monad.hs" "[2,3,4]\n4\n5\n[2,4]\n6\n[1,2]\n7\n8\n7\n9\n9\n10\n11\n[1,2,3]\n[3,4]\n[1,2]\n[11,12]\n[11,22]\n21\n32\n6\n13\n[2,2,2]\n14\n15\n99\n[16,17]\n[]\nwhen\nunless\n16\n33\n6\n10\n15\n34\n35" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-guards-as-patterns" "test/e2e/programs/haskell2010/guards-as-patterns.hs" "15" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-sections" "test/e2e/programs/haskell2010/sections.hs" "6" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-user-defined-operators" "test/e2e/programs/haskell2010/user-defined-operators.hs" "537" [DefaultEgglog, NoEgglog] True

@@ -1081,6 +1081,7 @@ builtinClassInfos =
     , (builtinBoundedClassName, boundedInfo)
     , (builtinFunctorClassName, functorInfo)
     , (builtinMonadClassName, monadInfo)
+    , (builtinMonadPlusClassName, builtinMonadPlusInfo)
     ]
  where
   eqA = preludeTypeVariable "a" (-1301)
@@ -1252,6 +1253,22 @@ builtinClassInfos =
       , BuiltinMethodSpec "fail" (-1464) [monadA] (TyFun stringMonoType monadMA)
       ]
 
+builtinMonadPlusInfo :: ClassInfo
+builtinMonadPlusInfo =
+  builtinClassInfoWithKind
+    builtinMonadPlusClassName
+    monadPlusM
+    (KindArrow StarKind StarKind)
+    [singleClassConstraint builtinMonadClassName monadPlusMTy]
+    [ BuiltinMethodSpec "mzero" (-1495) [monadPlusA] monadPlusMA
+    , BuiltinMethodSpec "mplus" (-1496) [monadPlusA] (TyFun monadPlusMA (TyFun monadPlusMA monadPlusMA))
+    ]
+ where
+  monadPlusM = preludeTypeVariable "m" (-1396)
+  monadPlusA = preludeTypeVariable "a" (-1397)
+  monadPlusMTy = TyVar monadPlusM
+  monadPlusMA = TyApp monadPlusMTy (TyVar monadPlusA)
+
 builtinClassInfo :: RName -> RName -> [ClassConstraint] -> [(Text, Int, MonoType)] -> ClassInfo
 builtinClassInfo className classVariable superclasses methodSpecs =
   builtinClassInfoWithKind
@@ -1329,6 +1346,10 @@ builtinMonadClassName :: RName
 builtinMonadClassName =
   preludeClassName "Monad" (-1360)
 
+builtinMonadPlusClassName :: RName
+builtinMonadPlusClassName =
+  preludeClassName "MonadPlus" (-1395)
+
 preludeClassName :: Text -> Int -> RName
 preludeClassName occurrence unique =
   RName ClassNamespace occurrence unique True
@@ -1348,6 +1369,7 @@ canonicalClassName name
         "Bounded" -> builtinBoundedClassName
         "Functor" -> builtinFunctorClassName
         "Monad" -> builtinMonadClassName
+        "MonadPlus" -> builtinMonadPlusClassName
         _ -> name
   | otherwise = name
 
@@ -1372,6 +1394,7 @@ builtinClassInfoByOccurrence occurrence = do
           "Bounded" -> builtinBoundedClassName
           "Functor" -> builtinFunctorClassName
           "Monad" -> builtinMonadClassName
+          "MonadPlus" -> builtinMonadPlusClassName
           _ -> RName ClassNamespace occurrence 0 True
   case Map.lookup className classes of
     Just info -> pure info
@@ -1785,6 +1808,35 @@ supportedPreludeValueOccurrences =
   , "filter"
   , "reverse"
   , "++"
+  , "mapM"
+  , "mapM_"
+  , "forM"
+  , "forM_"
+  , "sequence"
+  , "sequence_"
+  , "=<<"
+  , ">=>"
+  , "<=<"
+  , "forever"
+  , "join"
+  , "msum"
+  , "filterM"
+  , "mapAndUnzipM"
+  , "zipWithM"
+  , "zipWithM_"
+  , "foldM"
+  , "foldM_"
+  , "replicateM"
+  , "replicateM_"
+  , "guard"
+  , "when"
+  , "unless"
+  , "liftM"
+  , "liftM2"
+  , "liftM3"
+  , "liftM4"
+  , "liftM5"
+  , "ap"
   , "showsPrec"
   , "show"
   , "showList"
@@ -5415,6 +5467,36 @@ preludeValueScheme name
             "$read_bool" -> Just (Scheme [] [] boolReadS)
             "$read_char" -> Just (Scheme [] [] charReadS)
             "$read_string" -> Just (Scheme [] [] stringReadS)
+            "mapM" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (TyFun aTy mB) (TyFun listA (mList bTy))))
+            "mapM_" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (TyFun aTy mB) (TyFun listA mUnit)))
+            "forM" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun listA (TyFun (TyFun aTy mB) (mList bTy))))
+            "forM_" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun listA (TyFun (TyFun aTy mB) mUnit)))
+            "sequence" -> Just (Scheme [m, a] [monadConstraint] (TyFun (TyList mA) (mList aTy)))
+            "sequence_" -> Just (Scheme [m, a] [monadConstraint] (TyFun (TyList mA) mUnit))
+            "=<<" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (TyFun aTy mB) (TyFun mA mB)))
+            ">=>" -> Just (Scheme [m, a, b, c] [monadConstraint] (TyFun (TyFun aTy mB) (TyFun (TyFun bTy mC) (TyFun aTy mC))))
+            "<=<" -> Just (Scheme [m, a, b, c] [monadConstraint] (TyFun (TyFun bTy mC) (TyFun (TyFun aTy mB) (TyFun aTy mC))))
+            "forever" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun mA mB))
+            "void" -> Just (Scheme [f, a] [singleClassConstraint builtinFunctorClassName fTy] (TyFun fA fUnit))
+            "join" -> Just (Scheme [m, a] [monadConstraint] (TyFun (mOf mA) mA))
+            "msum" -> Just (Scheme [m, a] [monadPlusConstraint] (TyFun (TyList mA) mA))
+            "filterM" -> Just (Scheme [m, a] [monadConstraint] (TyFun (TyFun aTy mBool) (TyFun listA (mList aTy))))
+            "mapAndUnzipM" -> Just (Scheme [m, a, b, c] [monadConstraint] (TyFun (TyFun aTy (mOf tupleBC)) (TyFun listA (mOf (TyTuple [listB, listC])))))
+            "zipWithM" -> Just (Scheme [m, a, b, c] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy mC)) (TyFun listA (TyFun listB (mList cTy)))))
+            "zipWithM_" -> Just (Scheme [m, a, b, c] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy mC)) (TyFun listA (TyFun listB mUnit))))
+            "foldM" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy mA)) (TyFun aTy (TyFun listB mA))))
+            "foldM_" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy mA)) (TyFun aTy (TyFun listB mUnit))))
+            "replicateM" -> Just (Scheme [m, a] [monadConstraint] (TyFun intMonoType (TyFun mA (mList aTy))))
+            "replicateM_" -> Just (Scheme [m, a] [monadConstraint] (TyFun intMonoType (TyFun mA mUnit)))
+            "guard" -> Just (Scheme [m] [monadPlusConstraint] (TyFun boolMonoType mUnit))
+            "when" -> Just (Scheme [m] [monadConstraint] (TyFun boolMonoType (TyFun mUnit mUnit)))
+            "unless" -> Just (Scheme [m] [monadConstraint] (TyFun boolMonoType (TyFun mUnit mUnit)))
+            "liftM" -> Just (Scheme [m, a, r] [monadConstraint] (TyFun (TyFun aTy rTy) (TyFun mA mR)))
+            "liftM2" -> Just (Scheme [m, a, b, r] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy rTy)) (TyFun mA (TyFun mB mR))))
+            "liftM3" -> Just (Scheme [m, a, b, c, r] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy (TyFun cTy rTy))) (TyFun mA (TyFun mB (TyFun mC mR)))))
+            "liftM4" -> Just (Scheme [m, a, b, c, d, r] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy (TyFun cTy (TyFun dTy rTy)))) (TyFun mA (TyFun mB (TyFun mC (TyFun mD mR))))))
+            "liftM5" -> Just (Scheme [m, a, b, c, d, e, r] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy (TyFun cTy (TyFun dTy (TyFun eTy rTy))))) (TyFun mA (TyFun mB (TyFun mC (TyFun mD (TyFun mE mR)))))))
+            "ap" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (mOf (TyFun aTy bTy)) (TyFun mA mB)))
             "putStrLn" -> Just (Scheme [] [] (TyFun stringMonoType ioUnit))
             "getLine" -> Just (Scheme [] [] (ioMonoType stringMonoType))
             "print" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun aTy ioUnit))
@@ -5466,7 +5548,6 @@ preludeValueScheme name
             "throwIf" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun (TyFun aTy stringMonoType) (TyFun (ioMonoType aTy) (ioMonoType aTy)))))
             "throwIf_" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun (TyFun aTy stringMonoType) (TyFun (ioMonoType aTy) ioUnit))))
             "throwIfNull" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (ioMonoType ptrA) (ioMonoType ptrA))))
-            "void" -> Just (Scheme [a] [] (TyFun (ioMonoType aTy) ioUnit))
             "maybeNew" -> Just (Scheme [a] [] (TyFun (TyFun aTy (ioMonoType ptrA)) (TyFun maybeA (ioMonoType ptrA))))
             "maybeWith" -> Just (Scheme [a, b, c] [] (TyFun (TyFun aTy (TyFun (TyFun ptrB (ioMonoType cTy)) (ioMonoType cTy))) (TyFun maybeA (TyFun (TyFun ptrB (ioMonoType cTy)) (ioMonoType cTy)))))
             "maybePeek" -> Just (Scheme [a, b] [] (TyFun (TyFun ptrA (ioMonoType bTy)) (TyFun ptrA (ioMonoType maybeB))))
@@ -5475,14 +5556,40 @@ preludeValueScheme name
   a = preludeTypeVariable "a" (-1201)
   b = preludeTypeVariable "b" (-1202)
   c = preludeTypeVariable "c" (-1203)
+  d = preludeTypeVariable "d" (-1204)
+  e = preludeTypeVariable "e" (-1205)
+  r = preludeTypeVariable "r" (-1206)
+  f = preludeTypeVariable "f" (-1207)
+  m = preludeTypeVariable "m" (-1208)
   aTy = TyVar a
   bTy = TyVar b
   cTy = TyVar c
+  dTy = TyVar d
+  eTy = TyVar e
+  rTy = TyVar r
+  fTy = TyVar f
+  mTy = TyVar m
   listA = TyList aTy
   listB = TyList bTy
+  listC = TyList cTy
   tupleAB = TyTuple [aTy, bTy]
+  tupleBC = TyTuple [bTy, cTy]
   maybeA = TyApp (TyCon maybeTyConName) aTy
   maybeB = TyApp (TyCon maybeTyConName) bTy
+  mOf ty = TyApp mTy ty
+  mA = mOf aTy
+  mB = mOf bTy
+  mC = mOf cTy
+  mD = mOf dTy
+  mE = mOf eTy
+  mR = mOf rTy
+  mUnit = mOf unitMonoType
+  mBool = mOf boolMonoType
+  mList ty = mOf (TyList ty)
+  fA = TyApp fTy aTy
+  fUnit = TyApp fTy unitMonoType
+  monadConstraint = singleClassConstraint builtinMonadClassName mTy
+  monadPlusConstraint = singleClassConstraint builtinMonadPlusClassName mTy
   readSA = TyFun stringMonoType (TyList (TyTuple [aTy, stringMonoType]))
   readListSA = TyFun stringMonoType (TyList (TyTuple [listA, stringMonoType]))
   intReadS = TyFun stringMonoType (TyList (TyTuple [intMonoType, stringMonoType]))
@@ -7553,14 +7660,14 @@ preludeCorePair name =
     "throwIfNull" ->
       Just (binderFor name throwIfNullTy, throwIfNullRhs)
     "void" ->
-      Just (binderFor name voidTy, voidRhs)
+      controlMonadCorePair name
     "maybeNew" ->
       Just (binderFor name maybeNewTy, maybeNewRhs)
     "maybeWith" ->
       Just (binderFor name maybeWithTy, maybeWithRhs)
     "maybePeek" ->
       Just (binderFor name maybePeekTy, maybePeekRhs)
-    _ -> readPreludeCorePair name <|> arithmeticSequenceCorePair name
+    _ -> controlMonadCorePair name <|> readPreludeCorePair name <|> arithmeticSequenceCorePair name
  where
   a = preludeTypeVariable "a" (-1201)
   b = preludeTypeVariable "b" (-1202)
@@ -7660,7 +7767,6 @@ preludeCorePair name =
   throwIfTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun (CTyFun aTy stringTy) (CTyFun ioA ioA)))
   throwIfUnitTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun (CTyFun aTy stringTy) (CTyFun ioA ioUnitTy)))
   throwIfNullTy = CTyForall [a] (CTyFun stringTy (CTyFun (ioTy ptrA) (ioTy ptrA)))
-  voidTy = CTyForall [a] (CTyFun ioA ioUnitTy)
   maybeNewTy = CTyForall [a] (CTyFun (CTyFun aTy (ioTy ptrA)) (CTyFun maybeA (ioTy ptrA)))
   maybeWithTy = CTyForall [a, b, c] (CTyFun (CTyFun aTy (CTyFun (CTyFun ptrB (ioTy cTy)) (ioTy cTy))) (CTyFun maybeA (CTyFun (CTyFun ptrB (ioTy cTy)) (ioTy cTy))))
   maybePeekTy = CTyForall [a, b] (CTyFun (CTyFun ptrA (ioTy bTy)) (CTyFun ptrA (ioTy maybeB)))
@@ -7789,7 +7895,6 @@ preludeCorePair name =
   throwIfNullAction = preludeTermName "$throw_if_null_action" (-3521)
   throwIfNullPointer = preludeTermName "$throw_if_null_pointer" (-3522)
   throwIfNullCase = preludeTermName "$throw_if_null_case" (-3523)
-  voidAction = preludeTermName "$void_action" (-3524)
   maybeNewFunction = preludeTermName "$maybe_new_function" (-3530)
   maybeNewValue = preludeTermName "$maybe_new_value" (-3531)
   maybeNewCase = preludeTermName "$maybe_new_case" (-3532)
@@ -8275,9 +8380,6 @@ preludeCorePair name =
         (ioThrowUserError ptrA (var throwIfNullLocation stringTy))
         (ioReturn ptrA pointer)
 
-  voidRhs =
-    CTypeLam [a] (lam voidAction ioA (CPrimOp PrimIOThen [var voidAction ioA, ioReturn unitTy unitValue] ioUnitTy)) voidTy
-
   maybeNewRhs =
     CTypeLam [a] (lam maybeNewFunction (CTyFun aTy (ioTy ptrA)) (lam maybeNewValue maybeA maybeNewBody)) maybeNewTy
    where
@@ -8402,6 +8504,922 @@ preludeCorePair name =
       , CoreAlt (ConstructorAlt maybeJustDataConName) [CoreBinder justName elementTy] newMaybe
       ]
       (CTyApp (CTyCon maybeTyConName) elementTy)
+
+controlMonadCorePair :: RName -> Maybe (CoreBinder, CoreExpr)
+controlMonadCorePair name =
+  case nameOcc name of
+    "mapM" -> Just (CoreBinder name mapMTy, mapMRhs name)
+    "mapM_" -> Just (CoreBinder name mapMUnitTy, mapMUnitRhs name)
+    "forM" -> Just (CoreBinder name forMTy, forMRhs name)
+    "forM_" -> Just (CoreBinder name forMUnitTy, forMUnitRhs name)
+    "sequence" -> Just (CoreBinder name sequenceTy, sequenceRhs name)
+    "sequence_" -> Just (CoreBinder name sequenceUnitTy, sequenceUnitRhs name)
+    "=<<" -> Just (CoreBinder name bindFlippedTy, bindFlippedRhs)
+    ">=>" -> Just (CoreBinder name composeKleisliTy, composeKleisliRhs)
+    "<=<" -> Just (CoreBinder name composeKleisliFlippedTy, composeKleisliFlippedRhs)
+    "forever" -> Just (CoreBinder name foreverTy, foreverRhs name)
+    "void" -> Just (CoreBinder name controlVoidTy, controlVoidRhs)
+    "join" -> Just (CoreBinder name joinTy, joinRhs)
+    "msum" -> Just (CoreBinder name msumTy, msumRhs name)
+    "filterM" -> Just (CoreBinder name filterMTy, filterMRhs name)
+    "mapAndUnzipM" -> Just (CoreBinder name mapAndUnzipMTy, mapAndUnzipMRhs name)
+    "zipWithM" -> Just (CoreBinder name zipWithMTy, zipWithMRhs name)
+    "zipWithM_" -> Just (CoreBinder name zipWithMUnitTy, zipWithMUnitRhs name)
+    "foldM" -> Just (CoreBinder name foldMTy, foldMRhs name)
+    "foldM_" -> Just (CoreBinder name foldMUnitTy, foldMUnitRhs name)
+    "replicateM" -> Just (CoreBinder name replicateMTy, replicateMRhs name)
+    "replicateM_" -> Just (CoreBinder name replicateMUnitTy, replicateMUnitRhs name)
+    "guard" -> Just (CoreBinder name guardTy, guardRhs)
+    "when" -> Just (CoreBinder name whenTy, whenRhs)
+    "unless" -> Just (CoreBinder name unlessTy, unlessRhs)
+    "liftM" -> Just (CoreBinder name liftMTy, liftMRhs)
+    "liftM2" -> Just (CoreBinder name liftM2Ty, liftM2Rhs)
+    "liftM3" -> Just (CoreBinder name liftM3Ty, liftM3Rhs)
+    "liftM4" -> Just (CoreBinder name liftM4Ty, liftM4Rhs)
+    "liftM5" -> Just (CoreBinder name liftM5Ty, liftM5Rhs)
+    "ap" -> Just (CoreBinder name apTy, apRhs)
+    _ -> Nothing
+ where
+  a = preludeTypeVariable "a" (-1201)
+  b = preludeTypeVariable "b" (-1202)
+  c = preludeTypeVariable "c" (-1203)
+  d = preludeTypeVariable "d" (-1204)
+  e = preludeTypeVariable "e" (-1205)
+  r = preludeTypeVariable "r" (-1206)
+  f = preludeTypeVariable "f" (-1207)
+  m = preludeTypeVariable "m" (-1208)
+  mTy = CTyVar m
+  fTy = CTyVar f
+  aTy = CTyVar a
+  bTy = CTyVar b
+  cTy = CTyVar c
+  dTy = CTyVar d
+  eTy = CTyVar e
+  rTy = CTyVar r
+  listA = CTyList aTy
+  listB = CTyList bTy
+  listC = CTyList cTy
+  mA = applyMonadCoreType mTy aTy
+  mB = applyMonadCoreType mTy bTy
+  mC = applyMonadCoreType mTy cTy
+  mD = applyMonadCoreType mTy dTy
+  mE = applyMonadCoreType mTy eTy
+  mR = applyMonadCoreType mTy rTy
+  mUnit = applyMonadCoreType mTy unitTy
+  mBool = applyMonadCoreType mTy boolTy
+  mListA = applyMonadCoreType mTy listA
+  mListB = applyMonadCoreType mTy listB
+  mListC = applyMonadCoreType mTy listC
+  listMA = CTyList mA
+  tupleBC = CTyTuple [bTy, cTy]
+  tupleListBC = CTyTuple [listB, listC]
+  mTupleBC = applyMonadCoreType mTy tupleBC
+  mTupleListBC = applyMonadCoreType mTy tupleListBC
+  mMA = applyMonadCoreType mTy mA
+  funAB = CTyFun aTy bTy
+  funAR = CTyFun aTy rTy
+  funAMB = CTyFun aTy mB
+  funBMC = CTyFun bTy mC
+  monadDictM = monadDictCoreType mTy
+  monadPlusDictM = monadPlusDictCoreType mTy
+  functorDictF = functorDictCoreType fTy
+
+  mapMTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun funAMB (CTyFun listA mListB)))
+  mapMUnitTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun funAMB (CTyFun listA mUnit)))
+  forMTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun listA (CTyFun funAMB mListB)))
+  forMUnitTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun listA (CTyFun funAMB mUnit)))
+  sequenceTy = CTyForall [m, a] (CTyFun monadDictM (CTyFun listMA mListA))
+  sequenceUnitTy = CTyForall [m, a] (CTyFun monadDictM (CTyFun listMA mUnit))
+  bindFlippedTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun funAMB (CTyFun mA mB)))
+  composeKleisliTy = CTyForall [m, a, b, c] (CTyFun monadDictM (CTyFun funAMB (CTyFun funBMC (CTyFun aTy mC))))
+  composeKleisliFlippedTy = CTyForall [m, a, b, c] (CTyFun monadDictM (CTyFun funBMC (CTyFun funAMB (CTyFun aTy mC))))
+  foreverTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun mA mB))
+  controlVoidTy = CTyForall [f, a] (CTyFun functorDictF (CTyFun (applyFunctorCoreType fTy aTy) (applyFunctorCoreType fTy unitTy)))
+  joinTy = CTyForall [m, a] (CTyFun monadDictM (CTyFun mMA mA))
+  msumTy = CTyForall [m, a] (CTyFun monadPlusDictM (CTyFun listMA mA))
+  filterMTy = CTyForall [m, a] (CTyFun monadDictM (CTyFun (CTyFun aTy mBool) (CTyFun listA mListA)))
+  mapAndUnzipMTy = CTyForall [m, a, b, c] (CTyFun monadDictM (CTyFun (CTyFun aTy mTupleBC) (CTyFun listA mTupleListBC)))
+  zipWithMTy = CTyForall [m, a, b, c] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy mC)) (CTyFun listA (CTyFun listB mListC))))
+  zipWithMUnitTy = CTyForall [m, a, b, c] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy mC)) (CTyFun listA (CTyFun listB mUnit))))
+  foldMTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy mA)) (CTyFun aTy (CTyFun listB mA))))
+  foldMUnitTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy mA)) (CTyFun aTy (CTyFun listB mUnit))))
+  replicateMTy = CTyForall [m, a] (CTyFun monadDictM (CTyFun intTy (CTyFun mA mListA)))
+  replicateMUnitTy = CTyForall [m, a] (CTyFun monadDictM (CTyFun intTy (CTyFun mA mUnit)))
+  guardTy = CTyForall [m] (CTyFun monadPlusDictM (CTyFun boolTy mUnit))
+  whenTy = CTyForall [m] (CTyFun monadDictM (CTyFun boolTy (CTyFun mUnit mUnit)))
+  unlessTy = CTyForall [m] (CTyFun monadDictM (CTyFun boolTy (CTyFun mUnit mUnit)))
+  liftMTy = CTyForall [m, a, r] (CTyFun monadDictM (CTyFun funAR (CTyFun mA mR)))
+  liftM2Ty = CTyForall [m, a, b, r] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy rTy)) (CTyFun mA (CTyFun mB mR))))
+  liftM3Ty = CTyForall [m, a, b, c, r] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy (CTyFun cTy rTy))) (CTyFun mA (CTyFun mB (CTyFun mC mR)))))
+  liftM4Ty = CTyForall [m, a, b, c, d, r] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy (CTyFun cTy (CTyFun dTy rTy)))) (CTyFun mA (CTyFun mB (CTyFun mC (CTyFun mD mR))))))
+  liftM5Ty = CTyForall [m, a, b, c, d, e, r] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy (CTyFun cTy (CTyFun dTy (CTyFun eTy rTy))))) (CTyFun mA (CTyFun mB (CTyFun mC (CTyFun mD (CTyFun mE mR)))))))
+  apTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun (applyMonadCoreType mTy funAB) (CTyFun mA mB)))
+
+  mapMRhs functionName =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam function funAMB (lam xs listA (mapMBody functionName mapMTy (var dict monadDictM) (var function funAMB) (var xs listA))))) mapMTy
+   where
+    dict = builtinLocalTermName "$control_mapM_dict" (-7608)
+    function = builtinLocalTermName "$control_mapM_f" (-7609)
+    xs = builtinLocalTermName "$control_mapM_xs" (-7610)
+
+  forMRhs functionName =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam xs listA (lam function funAMB (forMBody functionName forMTy (var dict monadDictM) (var xs listA) (var function funAMB))))) forMTy
+   where
+    dict = builtinLocalTermName "$control_forM_dict" (-7611)
+    xs = builtinLocalTermName "$control_forM_xs" (-7612)
+    function = builtinLocalTermName "$control_forM_f" (-7613)
+
+  mapMUnitRhs functionName =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam function funAMB (lam xs listA (mapMUnitBody functionName mapMUnitTy (var dict monadDictM) (var function funAMB) (var xs listA))))) mapMUnitTy
+   where
+    dict = builtinLocalTermName "$control_mapM__dict" (-7614)
+    function = builtinLocalTermName "$control_mapM__f" (-7615)
+    xs = builtinLocalTermName "$control_mapM__xs" (-7616)
+
+  forMUnitRhs functionName =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam xs listA (lam function funAMB (forMUnitBody functionName forMUnitTy (var dict monadDictM) (var xs listA) (var function funAMB))))) forMUnitTy
+   where
+    dict = builtinLocalTermName "$control_forM__dict" (-7617)
+    xs = builtinLocalTermName "$control_forM__xs" (-7618)
+    function = builtinLocalTermName "$control_forM__f" (-7619)
+
+  sequenceRhs functionName =
+    CTypeLam [m, a] (lam dict monadDictM (lam actions listMA body)) sequenceTy
+   where
+    dict = builtinLocalTermName "$control_sequence_dict" (-7620)
+    actions = builtinLocalTermName "$control_sequence_actions" (-7621)
+    x = builtinLocalTermName "$control_sequence_x" (-7622)
+    xs = builtinLocalTermName "$control_sequence_xs" (-7623)
+    y = builtinLocalTermName "$control_sequence_y" (-7624)
+    ys = builtinLocalTermName "$control_sequence_ys" (-7625)
+    caseName = builtinLocalTermName "$control_sequence_case" (-7626)
+    recursive =
+      callPoly functionName sequenceTy [mTy, aTy] mListA [var dict monadDictM, var xs listMA]
+    consContinuation =
+      lam ys listA (returnCall mTy listA (var dict monadDictM) (consCore aTy (var y aTy) (var ys listA)))
+    firstContinuation =
+      lam y aTy (bindCall mTy listA listA (var dict monadDictM) recursive consContinuation)
+    body =
+      listCaseCore
+        (var actions listMA)
+        caseName
+        mA
+        mListA
+        (returnCall mTy listA (var dict monadDictM) (nilCore aTy))
+        x
+        xs
+        (bindCall mTy aTy listA (var dict monadDictM) (var x mA) firstContinuation)
+
+  sequenceUnitRhs functionName =
+    CTypeLam [m, a] (lam dict monadDictM (lam actions listMA body)) sequenceUnitTy
+   where
+    dict = builtinLocalTermName "$control_sequence__dict" (-7627)
+    actions = builtinLocalTermName "$control_sequence__actions" (-7628)
+    x = builtinLocalTermName "$control_sequence__x" (-7629)
+    xs = builtinLocalTermName "$control_sequence__xs" (-7630)
+    caseName = builtinLocalTermName "$control_sequence__case" (-7631)
+    recursive =
+      callPoly functionName sequenceUnitTy [mTy, aTy] mUnit [var dict monadDictM, var xs listMA]
+    body =
+      listCaseCore
+        (var actions listMA)
+        caseName
+        mA
+        mUnit
+        (returnCall mTy unitTy (var dict monadDictM) unitCore)
+        x
+        xs
+        (thenCall mTy aTy unitTy (var dict monadDictM) (var x mA) recursive)
+
+  bindFlippedRhs =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam function funAMB (lam action mA (bindCall mTy aTy bTy (var dict monadDictM) (var action mA) (var function funAMB))))) bindFlippedTy
+   where
+    dict = builtinLocalTermName "$control_bind_flipped_dict" (-7632)
+    function = builtinLocalTermName "$control_bind_flipped_f" (-7633)
+    action = builtinLocalTermName "$control_bind_flipped_action" (-7634)
+
+  composeKleisliRhs =
+    CTypeLam [m, a, b, c] (lam dict monadDictM (lam fName funAMB (lam gName funBMC (lam xName aTy body)))) composeKleisliTy
+   where
+    dict = builtinLocalTermName "$control_kleisli_dict" (-7635)
+    fName = builtinLocalTermName "$control_kleisli_f" (-7636)
+    gName = builtinLocalTermName "$control_kleisli_g" (-7637)
+    xName = builtinLocalTermName "$control_kleisli_x" (-7638)
+    body =
+      bindCall
+        mTy
+        bTy
+        cTy
+        (var dict monadDictM)
+        (applyCore (var fName funAMB) (var xName aTy) mB)
+        (var gName funBMC)
+
+  composeKleisliFlippedRhs =
+    CTypeLam [m, a, b, c] (lam dict monadDictM (lam gName funBMC (lam fName funAMB (lam xName aTy body)))) composeKleisliFlippedTy
+   where
+    dict = builtinLocalTermName "$control_kleisli_flip_dict" (-7639)
+    gName = builtinLocalTermName "$control_kleisli_flip_g" (-7640)
+    fName = builtinLocalTermName "$control_kleisli_flip_f" (-7641)
+    xName = builtinLocalTermName "$control_kleisli_flip_x" (-7642)
+    body =
+      bindCall
+        mTy
+        bTy
+        cTy
+        (var dict monadDictM)
+        (applyCore (var fName funAMB) (var xName aTy) mB)
+        (var gName funBMC)
+
+  foreverRhs functionName =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam action mA body)) foreverTy
+   where
+    dict = builtinLocalTermName "$control_forever_dict" (-7643)
+    action = builtinLocalTermName "$control_forever_action" (-7644)
+    recursive =
+      callPoly functionName foreverTy [mTy, aTy, bTy] mB [var dict monadDictM, var action mA]
+    body =
+      thenCall mTy aTy bTy (var dict monadDictM) (var action mA) recursive
+
+  controlVoidRhs =
+    CTypeLam [f, a] (lam dict functorDictF (lam value fA body)) controlVoidTy
+   where
+    dict = builtinLocalTermName "$control_void_dict" (-7645)
+    value = builtinLocalTermName "$control_void_value" (-7646)
+    ignored = builtinLocalTermName "$control_void_ignored" (-7647)
+    fA = applyFunctorCoreType fTy aTy
+    toUnit = lam ignored aTy unitCore
+    body = fmapCall fTy aTy unitTy (var dict functorDictF) toUnit (var value fA)
+
+  joinRhs =
+    CTypeLam [m, a] (lam dict monadDictM (lam action mMA body)) joinTy
+   where
+    dict = builtinLocalTermName "$control_join_dict" (-7648)
+    action = builtinLocalTermName "$control_join_action" (-7649)
+    body = bindCall mTy mA aTy (var dict monadDictM) (var action mMA) (idLam mA)
+
+  msumRhs functionName =
+    CTypeLam [m, a] (lam dict monadPlusDictM (lam actions listMA body)) msumTy
+   where
+    dict = builtinLocalTermName "$control_msum_dict" (-7650)
+    actions = builtinLocalTermName "$control_msum_actions" (-7651)
+    x = builtinLocalTermName "$control_msum_x" (-7652)
+    xs = builtinLocalTermName "$control_msum_xs" (-7653)
+    caseName = builtinLocalTermName "$control_msum_case" (-7654)
+    recursive =
+      callPoly functionName msumTy [mTy, aTy] mA [var dict monadPlusDictM, var xs listMA]
+    body =
+      listCaseCore
+        (var actions listMA)
+        caseName
+        mA
+        mA
+        (mzeroCall mTy aTy (var dict monadPlusDictM))
+        x
+        xs
+        (mplusCall mTy aTy (var dict monadPlusDictM) (var x mA) recursive)
+
+  filterMRhs functionName =
+    CTypeLam [m, a] (lam dict monadDictM (lam predicate (CTyFun aTy mBool) (lam xs listA body))) filterMTy
+   where
+    dict = builtinLocalTermName "$control_filterM_dict" (-7655)
+    predicate = builtinLocalTermName "$control_filterM_predicate" (-7656)
+    xs = builtinLocalTermName "$control_filterM_xs" (-7657)
+    x = builtinLocalTermName "$control_filterM_x" (-7658)
+    rest = builtinLocalTermName "$control_filterM_rest" (-7659)
+    keep = builtinLocalTermName "$control_filterM_keep" (-7660)
+    ys = builtinLocalTermName "$control_filterM_ys" (-7661)
+    caseName = builtinLocalTermName "$control_filterM_case" (-7662)
+    recursive =
+      callPoly functionName filterMTy [mTy, aTy] mListA [var dict monadDictM, var predicate (CTyFun aTy mBool), var rest listA]
+    returnFiltered =
+      boolCaseCore
+        "$control_filterM_bool"
+        (-7663)
+        (var keep boolTy)
+        mListA
+        (returnCall mTy listA (var dict monadDictM) (consCore aTy (var x aTy) (var ys listA)))
+        (returnCall mTy listA (var dict monadDictM) (var ys listA))
+    restContinuation =
+      lam ys listA returnFiltered
+    keepContinuation =
+      lam keep boolTy (bindCall mTy listA listA (var dict monadDictM) recursive restContinuation)
+    body =
+      listCaseCore
+        (var xs listA)
+        caseName
+        aTy
+        mListA
+        (returnCall mTy listA (var dict monadDictM) (nilCore aTy))
+        x
+        rest
+        ( bindCall
+            mTy
+            boolTy
+            listA
+            (var dict monadDictM)
+            (applyCore (var predicate (CTyFun aTy mBool)) (var x aTy) mBool)
+            keepContinuation
+        )
+
+  mapAndUnzipMRhs functionName =
+    CTypeLam [m, a, b, c] (lam dict monadDictM (lam function (CTyFun aTy mTupleBC) (lam xs listA body))) mapAndUnzipMTy
+   where
+    dict = builtinLocalTermName "$control_mapAndUnzipM_dict" (-7664)
+    function = builtinLocalTermName "$control_mapAndUnzipM_f" (-7665)
+    xs = builtinLocalTermName "$control_mapAndUnzipM_xs" (-7666)
+    x = builtinLocalTermName "$control_mapAndUnzipM_x" (-7667)
+    rest = builtinLocalTermName "$control_mapAndUnzipM_rest" (-7668)
+    yz = builtinLocalTermName "$control_mapAndUnzipM_yz" (-7669)
+    y = builtinLocalTermName "$control_mapAndUnzipM_y" (-7670)
+    z = builtinLocalTermName "$control_mapAndUnzipM_z" (-7671)
+    lists = builtinLocalTermName "$control_mapAndUnzipM_lists" (-7672)
+    ys = builtinLocalTermName "$control_mapAndUnzipM_ys" (-7673)
+    zs = builtinLocalTermName "$control_mapAndUnzipM_zs" (-7674)
+    caseName = builtinLocalTermName "$control_mapAndUnzipM_case" (-7675)
+    yzCase = builtinLocalTermName "$control_mapAndUnzipM_yz_case" (-7676)
+    listsCase = builtinLocalTermName "$control_mapAndUnzipM_lists_case" (-7677)
+    recursive =
+      callPoly functionName mapAndUnzipMTy [mTy, aTy, bTy, cTy] mTupleListBC [var dict monadDictM, var function (CTyFun aTy mTupleBC), var rest listA]
+    nilPair =
+      tuple2Core listB listC (nilCore bTy) (nilCore cTy)
+    consPair =
+      tuple2Core listB listC (consCore bTy (var y bTy) (var ys listB)) (consCore cTy (var z cTy) (var zs listC))
+    listsContinuation =
+      lam lists tupleListBC $
+        CCase
+          (var lists tupleListBC)
+          (CoreBinder listsCase tupleListBC)
+          [CoreAlt (ConstructorAlt (tupleDataConName 2)) [CoreBinder ys listB, CoreBinder zs listC] (returnCall mTy tupleListBC (var dict monadDictM) consPair)]
+          mTupleListBC
+    yzContinuation =
+      lam yz tupleBC $
+        CCase
+          (var yz tupleBC)
+          (CoreBinder yzCase tupleBC)
+          [CoreAlt (ConstructorAlt (tupleDataConName 2)) [CoreBinder y bTy, CoreBinder z cTy] (bindCall mTy tupleListBC tupleListBC (var dict monadDictM) recursive listsContinuation)]
+          mTupleListBC
+    body =
+      listCaseCore
+        (var xs listA)
+        caseName
+        aTy
+        mTupleListBC
+        (returnCall mTy tupleListBC (var dict monadDictM) nilPair)
+        x
+        rest
+        (bindCall mTy tupleBC tupleListBC (var dict monadDictM) (applyCore (var function (CTyFun aTy mTupleBC)) (var x aTy) mTupleBC) yzContinuation)
+
+  zipWithMRhs functionName =
+    CTypeLam [m, a, b, c] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy mC)) (lam xs listA (lam ys listB body)))) zipWithMTy
+   where
+    dict = builtinLocalTermName "$control_zipWithM_dict" (-7678)
+    function = builtinLocalTermName "$control_zipWithM_f" (-7679)
+    xs = builtinLocalTermName "$control_zipWithM_xs" (-7680)
+    ys = builtinLocalTermName "$control_zipWithM_ys" (-7681)
+    x = builtinLocalTermName "$control_zipWithM_x" (-7682)
+    xt = builtinLocalTermName "$control_zipWithM_xt" (-7683)
+    y = builtinLocalTermName "$control_zipWithM_y" (-7684)
+    yt = builtinLocalTermName "$control_zipWithM_yt" (-7685)
+    z = builtinLocalTermName "$control_zipWithM_z" (-7686)
+    zs = builtinLocalTermName "$control_zipWithM_zs" (-7687)
+    xCase = builtinLocalTermName "$control_zipWithM_x_case" (-7688)
+    yCase = builtinLocalTermName "$control_zipWithM_y_case" (-7689)
+    nilResult = returnCall mTy listC (var dict monadDictM) (nilCore cTy)
+    recursive =
+      callPoly functionName zipWithMTy [mTy, aTy, bTy, cTy] mListC [var dict monadDictM, var function (CTyFun aTy (CTyFun bTy mC)), var xt listA, var yt listB]
+    consContinuation =
+      lam zs listC (returnCall mTy listC (var dict monadDictM) (consCore cTy (var z cTy) (var zs listC)))
+    zContinuation =
+      lam z cTy (bindCall mTy listC listC (var dict monadDictM) recursive consContinuation)
+    pairAction =
+      applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy mC))) (var x aTy) (CTyFun bTy mC)) (var y bTy) mC
+    body =
+      listCaseCore
+        (var xs listA)
+        xCase
+        aTy
+        mListC
+        nilResult
+        x
+        xt
+        ( listCaseCore
+            (var ys listB)
+            yCase
+            bTy
+            mListC
+            nilResult
+            y
+            yt
+            (bindCall mTy cTy listC (var dict monadDictM) pairAction zContinuation)
+        )
+
+  zipWithMUnitRhs functionName =
+    CTypeLam [m, a, b, c] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy mC)) (lam xs listA (lam ys listB body)))) zipWithMUnitTy
+   where
+    dict = builtinLocalTermName "$control_zipWithM__dict" (-7690)
+    function = builtinLocalTermName "$control_zipWithM__f" (-7691)
+    xs = builtinLocalTermName "$control_zipWithM__xs" (-7692)
+    ys = builtinLocalTermName "$control_zipWithM__ys" (-7693)
+    x = builtinLocalTermName "$control_zipWithM__x" (-7694)
+    xt = builtinLocalTermName "$control_zipWithM__xt" (-7695)
+    y = builtinLocalTermName "$control_zipWithM__y" (-7696)
+    yt = builtinLocalTermName "$control_zipWithM__yt" (-7697)
+    xCase = builtinLocalTermName "$control_zipWithM__x_case" (-7698)
+    yCase = builtinLocalTermName "$control_zipWithM__y_case" (-7699)
+    nilResult = returnCall mTy unitTy (var dict monadDictM) unitCore
+    recursive =
+      callPoly functionName zipWithMUnitTy [mTy, aTy, bTy, cTy] mUnit [var dict monadDictM, var function (CTyFun aTy (CTyFun bTy mC)), var xt listA, var yt listB]
+    pairAction =
+      applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy mC))) (var x aTy) (CTyFun bTy mC)) (var y bTy) mC
+    body =
+      listCaseCore
+        (var xs listA)
+        xCase
+        aTy
+        mUnit
+        nilResult
+        x
+        xt
+        ( listCaseCore
+            (var ys listB)
+            yCase
+            bTy
+            mUnit
+            nilResult
+            y
+            yt
+            (thenCall mTy cTy unitTy (var dict monadDictM) pairAction recursive)
+        )
+
+  foldMRhs functionName =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy mA)) (lam initial aTy (lam xs listB body)))) foldMTy
+   where
+    dict = builtinLocalTermName "$control_foldM_dict" (-7700)
+    function = builtinLocalTermName "$control_foldM_f" (-7701)
+    initial = builtinLocalTermName "$control_foldM_initial" (-7702)
+    xs = builtinLocalTermName "$control_foldM_xs" (-7703)
+    x = builtinLocalTermName "$control_foldM_x" (-7704)
+    rest = builtinLocalTermName "$control_foldM_rest" (-7705)
+    next = builtinLocalTermName "$control_foldM_next" (-7706)
+    caseName = builtinLocalTermName "$control_foldM_case" (-7707)
+    recursive =
+      callPoly functionName foldMTy [mTy, aTy, bTy] mA [var dict monadDictM, var function (CTyFun aTy (CTyFun bTy mA)), var next aTy, var rest listB]
+    nextContinuation = lam next aTy recursive
+    step =
+      applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy mA))) (var initial aTy) (CTyFun bTy mA)) (var x bTy) mA
+    body =
+      listCaseCore
+        (var xs listB)
+        caseName
+        bTy
+        mA
+        (returnCall mTy aTy (var dict monadDictM) (var initial aTy))
+        x
+        rest
+        (bindCall mTy aTy aTy (var dict monadDictM) step nextContinuation)
+
+  foldMUnitRhs functionName =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy mA)) (lam initial aTy (lam xs listB body)))) foldMUnitTy
+   where
+    dict = builtinLocalTermName "$control_foldM__dict" (-7708)
+    function = builtinLocalTermName "$control_foldM__f" (-7709)
+    initial = builtinLocalTermName "$control_foldM__initial" (-7710)
+    xs = builtinLocalTermName "$control_foldM__xs" (-7711)
+    x = builtinLocalTermName "$control_foldM__x" (-7712)
+    rest = builtinLocalTermName "$control_foldM__rest" (-7713)
+    next = builtinLocalTermName "$control_foldM__next" (-7714)
+    caseName = builtinLocalTermName "$control_foldM__case" (-7715)
+    recursive =
+      callPoly functionName foldMUnitTy [mTy, aTy, bTy] mUnit [var dict monadDictM, var function (CTyFun aTy (CTyFun bTy mA)), var next aTy, var rest listB]
+    nextContinuation = lam next aTy recursive
+    step =
+      applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy mA))) (var initial aTy) (CTyFun bTy mA)) (var x bTy) mA
+    body =
+      listCaseCore
+        (var xs listB)
+        caseName
+        bTy
+        mUnit
+        (returnCall mTy unitTy (var dict monadDictM) unitCore)
+        x
+        rest
+        (bindCall mTy aTy unitTy (var dict monadDictM) step nextContinuation)
+
+  replicateMRhs functionName =
+    CTypeLam [m, a] (lam dict monadDictM (lam count intTy (lam action mA body))) replicateMTy
+   where
+    dict = builtinLocalTermName "$control_replicateM_dict" (-7716)
+    count = builtinLocalTermName "$control_replicateM_count" (-7717)
+    action = builtinLocalTermName "$control_replicateM_action" (-7718)
+    x = builtinLocalTermName "$control_replicateM_x" (-7719)
+    xs = builtinLocalTermName "$control_replicateM_xs" (-7720)
+    recursive =
+      callPoly functionName replicateMTy [mTy, aTy] mListA [var dict monadDictM, intSub (var count intTy) oneInt, var action mA]
+    consContinuation =
+      lam xs listA (returnCall mTy listA (var dict monadDictM) (consCore aTy (var x aTy) (var xs listA)))
+    xContinuation =
+      lam x aTy (bindCall mTy listA listA (var dict monadDictM) recursive consContinuation)
+    body =
+      boolCaseCore
+        "$control_replicateM_positive"
+        (-7721)
+        (intLt zeroInt (var count intTy))
+        mListA
+        (bindCall mTy aTy listA (var dict monadDictM) (var action mA) xContinuation)
+        (returnCall mTy listA (var dict monadDictM) (nilCore aTy))
+
+  replicateMUnitRhs functionName =
+    CTypeLam [m, a] (lam dict monadDictM (lam count intTy (lam action mA body))) replicateMUnitTy
+   where
+    dict = builtinLocalTermName "$control_replicateM__dict" (-7722)
+    count = builtinLocalTermName "$control_replicateM__count" (-7723)
+    action = builtinLocalTermName "$control_replicateM__action" (-7724)
+    recursive =
+      callPoly functionName replicateMUnitTy [mTy, aTy] mUnit [var dict monadDictM, intSub (var count intTy) oneInt, var action mA]
+    body =
+      boolCaseCore
+        "$control_replicateM__positive"
+        (-7725)
+        (intLt zeroInt (var count intTy))
+        mUnit
+        (thenCall mTy aTy unitTy (var dict monadDictM) (var action mA) recursive)
+        (returnCall mTy unitTy (var dict monadDictM) unitCore)
+
+  guardRhs =
+    CTypeLam [m] (lam dict monadPlusDictM (lam test boolTy body)) guardTy
+   where
+    dict = builtinLocalTermName "$control_guard_dict" (-7726)
+    test = builtinLocalTermName "$control_guard_test" (-7727)
+    monadDict = monadPlusSuperclassDict mTy (var dict monadPlusDictM)
+    body =
+      boolCaseCore
+        "$control_guard_case"
+        (-7728)
+        (var test boolTy)
+        mUnit
+        (returnCall mTy unitTy monadDict unitCore)
+        (mzeroCall mTy unitTy (var dict monadPlusDictM))
+
+  whenRhs =
+    CTypeLam [m] (lam dict monadDictM (lam test boolTy (lam action mUnit body))) whenTy
+   where
+    dict = builtinLocalTermName "$control_when_dict" (-7729)
+    test = builtinLocalTermName "$control_when_test" (-7730)
+    action = builtinLocalTermName "$control_when_action" (-7731)
+    body =
+      boolCaseCore
+        "$control_when_case"
+        (-7732)
+        (var test boolTy)
+        mUnit
+        (var action mUnit)
+        (returnCall mTy unitTy (var dict monadDictM) unitCore)
+
+  unlessRhs =
+    CTypeLam [m] (lam dict monadDictM (lam test boolTy (lam action mUnit body))) unlessTy
+   where
+    dict = builtinLocalTermName "$control_unless_dict" (-7733)
+    test = builtinLocalTermName "$control_unless_test" (-7734)
+    action = builtinLocalTermName "$control_unless_action" (-7735)
+    body =
+      boolCaseCore
+        "$control_unless_case"
+        (-7736)
+        (var test boolTy)
+        mUnit
+        (returnCall mTy unitTy (var dict monadDictM) unitCore)
+        (var action mUnit)
+
+  liftMRhs =
+    CTypeLam [m, a, r] (lam dict monadDictM (lam function funAR (lam action mA body))) liftMTy
+   where
+    dict = builtinLocalTermName "$control_liftM_dict" (-7737)
+    function = builtinLocalTermName "$control_liftM_f" (-7738)
+    action = builtinLocalTermName "$control_liftM_action" (-7739)
+    x = builtinLocalTermName "$control_liftM_x" (-7740)
+    body =
+      bindCall
+        mTy
+        aTy
+        rTy
+        (var dict monadDictM)
+        (var action mA)
+        (lam x aTy (returnCall mTy rTy (var dict monadDictM) (applyCore (var function funAR) (var x aTy) rTy)))
+
+  liftM2Rhs =
+    CTypeLam [m, a, b, r] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy rTy)) (lam actionA mA (lam actionB mB body)))) liftM2Ty
+   where
+    dict = builtinLocalTermName "$control_liftM2_dict" (-7741)
+    function = builtinLocalTermName "$control_liftM2_f" (-7742)
+    actionA = builtinLocalTermName "$control_liftM2_action_a" (-7743)
+    actionB = builtinLocalTermName "$control_liftM2_action_b" (-7744)
+    x = builtinLocalTermName "$control_liftM2_x" (-7745)
+    y = builtinLocalTermName "$control_liftM2_y" (-7746)
+    body =
+      bindCall mTy aTy rTy (var dict monadDictM) (var actionA mA) $
+        lam x aTy $
+          bindCall mTy bTy rTy (var dict monadDictM) (var actionB mB) $
+            lam y bTy $
+              returnCall mTy rTy (var dict monadDictM) (applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy rTy))) (var x aTy) (CTyFun bTy rTy)) (var y bTy) rTy)
+
+  liftM3Rhs =
+    CTypeLam [m, a, b, c, r] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy (CTyFun cTy rTy))) (lam actionA mA (lam actionB mB (lam actionC mC body))))) liftM3Ty
+   where
+    dict = builtinLocalTermName "$control_liftM3_dict" (-7747)
+    function = builtinLocalTermName "$control_liftM3_f" (-7748)
+    actionA = builtinLocalTermName "$control_liftM3_action_a" (-7749)
+    actionB = builtinLocalTermName "$control_liftM3_action_b" (-7750)
+    actionC = builtinLocalTermName "$control_liftM3_action_c" (-7751)
+    x = builtinLocalTermName "$control_liftM3_x" (-7752)
+    y = builtinLocalTermName "$control_liftM3_y" (-7753)
+    z = builtinLocalTermName "$control_liftM3_z" (-7754)
+    applied =
+      applyCore
+        (applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy (CTyFun cTy rTy)))) (var x aTy) (CTyFun bTy (CTyFun cTy rTy))) (var y bTy) (CTyFun cTy rTy))
+        (var z cTy)
+        rTy
+    body =
+      bindCall mTy aTy rTy (var dict monadDictM) (var actionA mA) $
+        lam x aTy $
+          bindCall mTy bTy rTy (var dict monadDictM) (var actionB mB) $
+            lam y bTy $
+              bindCall mTy cTy rTy (var dict monadDictM) (var actionC mC) $
+                lam z cTy $
+                  returnCall mTy rTy (var dict monadDictM) applied
+
+  liftM4Rhs =
+    CTypeLam [m, a, b, c, d, r] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy (CTyFun cTy (CTyFun dTy rTy)))) (lam actionA mA (lam actionB mB (lam actionC mC (lam actionD mD body)))))) liftM4Ty
+   where
+    dict = builtinLocalTermName "$control_liftM4_dict" (-7755)
+    function = builtinLocalTermName "$control_liftM4_f" (-7756)
+    actionA = builtinLocalTermName "$control_liftM4_action_a" (-7757)
+    actionB = builtinLocalTermName "$control_liftM4_action_b" (-7758)
+    actionC = builtinLocalTermName "$control_liftM4_action_c" (-7759)
+    actionD = builtinLocalTermName "$control_liftM4_action_d" (-7760)
+    x = builtinLocalTermName "$control_liftM4_x" (-7761)
+    y = builtinLocalTermName "$control_liftM4_y" (-7762)
+    z = builtinLocalTermName "$control_liftM4_z" (-7763)
+    w = builtinLocalTermName "$control_liftM4_w" (-7764)
+    applied =
+      applyCore
+        ( applyCore
+            (applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy (CTyFun cTy (CTyFun dTy rTy))))) (var x aTy) (CTyFun bTy (CTyFun cTy (CTyFun dTy rTy)))) (var y bTy) (CTyFun cTy (CTyFun dTy rTy)))
+            (var z cTy)
+            (CTyFun dTy rTy)
+        )
+        (var w dTy)
+        rTy
+    body =
+      bindCall mTy aTy rTy (var dict monadDictM) (var actionA mA) $
+        lam x aTy $
+          bindCall mTy bTy rTy (var dict monadDictM) (var actionB mB) $
+            lam y bTy $
+              bindCall mTy cTy rTy (var dict monadDictM) (var actionC mC) $
+                lam z cTy $
+                  bindCall mTy dTy rTy (var dict monadDictM) (var actionD mD) $
+                    lam w dTy $
+                      returnCall mTy rTy (var dict monadDictM) applied
+
+  liftM5Rhs =
+    CTypeLam [m, a, b, c, d, e, r] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy (CTyFun cTy (CTyFun dTy (CTyFun eTy rTy))))) (lam actionA mA (lam actionB mB (lam actionC mC (lam actionD mD (lam actionE mE body))))))) liftM5Ty
+   where
+    dict = builtinLocalTermName "$control_liftM5_dict" (-7765)
+    function = builtinLocalTermName "$control_liftM5_f" (-7766)
+    actionA = builtinLocalTermName "$control_liftM5_action_a" (-7767)
+    actionB = builtinLocalTermName "$control_liftM5_action_b" (-7768)
+    actionC = builtinLocalTermName "$control_liftM5_action_c" (-7769)
+    actionD = builtinLocalTermName "$control_liftM5_action_d" (-7770)
+    actionE = builtinLocalTermName "$control_liftM5_action_e" (-7771)
+    x = builtinLocalTermName "$control_liftM5_x" (-7772)
+    y = builtinLocalTermName "$control_liftM5_y" (-7773)
+    z = builtinLocalTermName "$control_liftM5_z" (-7774)
+    w = builtinLocalTermName "$control_liftM5_w" (-7775)
+    v = builtinLocalTermName "$control_liftM5_v" (-7776)
+    applied =
+      applyCore
+        ( applyCore
+            ( applyCore
+                (applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy (CTyFun cTy (CTyFun dTy (CTyFun eTy rTy)))))) (var x aTy) (CTyFun bTy (CTyFun cTy (CTyFun dTy (CTyFun eTy rTy))))) (var y bTy) (CTyFun cTy (CTyFun dTy (CTyFun eTy rTy))))
+                (var z cTy)
+                (CTyFun dTy (CTyFun eTy rTy))
+            )
+            (var w dTy)
+            (CTyFun eTy rTy)
+        )
+        (var v eTy)
+        rTy
+    body =
+      bindCall mTy aTy rTy (var dict monadDictM) (var actionA mA) $
+        lam x aTy $
+          bindCall mTy bTy rTy (var dict monadDictM) (var actionB mB) $
+            lam y bTy $
+              bindCall mTy cTy rTy (var dict monadDictM) (var actionC mC) $
+                lam z cTy $
+                  bindCall mTy dTy rTy (var dict monadDictM) (var actionD mD) $
+                    lam w dTy $
+                      bindCall mTy eTy rTy (var dict monadDictM) (var actionE mE) $
+                        lam v eTy $
+                          returnCall mTy rTy (var dict monadDictM) applied
+
+  apRhs =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam functionAction (applyMonadCoreType mTy funAB) (lam action mA body))) apTy
+   where
+    dict = builtinLocalTermName "$control_ap_dict" (-7777)
+    functionAction = builtinLocalTermName "$control_ap_function_action" (-7778)
+    action = builtinLocalTermName "$control_ap_action" (-7779)
+    function = builtinLocalTermName "$control_ap_function" (-7780)
+    value = builtinLocalTermName "$control_ap_value" (-7781)
+    body =
+      bindCall mTy funAB bTy (var dict monadDictM) (var functionAction (applyMonadCoreType mTy funAB)) $
+        lam function funAB $
+          bindCall mTy aTy bTy (var dict monadDictM) (var action mA) $
+            lam value aTy $
+              returnCall mTy bTy (var dict monadDictM) (applyCore (var function funAB) (var value aTy) bTy)
+
+  mapMBody functionName functionTy dict function xs =
+    listCaseCore xs caseName aTy mListB (returnCall mTy listB dict (nilCore bTy)) x rest consBranch
+   where
+    x = builtinLocalTermName "$control_mapM_x" (-7782)
+    rest = builtinLocalTermName "$control_mapM_rest" (-7783)
+    y = builtinLocalTermName "$control_mapM_y" (-7784)
+    ys = builtinLocalTermName "$control_mapM_ys" (-7785)
+    caseName = builtinLocalTermName "$control_mapM_case" (-7786)
+    recursive =
+      callPoly functionName functionTy [mTy, aTy, bTy] mListB [dict, function, var rest listA]
+    consContinuation =
+      lam ys listB (returnCall mTy listB dict (consCore bTy (var y bTy) (var ys listB)))
+    yContinuation =
+      lam y bTy (bindCall mTy listB listB dict recursive consContinuation)
+    consBranch =
+      bindCall mTy bTy listB dict (applyCore function (var x aTy) mB) yContinuation
+
+  forMBody functionName functionTy dict xs function =
+    listCaseCore xs caseName aTy mListB (returnCall mTy listB dict (nilCore bTy)) x rest consBranch
+   where
+    x = builtinLocalTermName "$control_forM_x" (-7787)
+    rest = builtinLocalTermName "$control_forM_rest" (-7788)
+    y = builtinLocalTermName "$control_forM_y" (-7789)
+    ys = builtinLocalTermName "$control_forM_ys" (-7790)
+    caseName = builtinLocalTermName "$control_forM_case" (-7791)
+    recursive =
+      callPoly functionName functionTy [mTy, aTy, bTy] mListB [dict, var rest listA, function]
+    consContinuation =
+      lam ys listB (returnCall mTy listB dict (consCore bTy (var y bTy) (var ys listB)))
+    yContinuation =
+      lam y bTy (bindCall mTy listB listB dict recursive consContinuation)
+    consBranch =
+      bindCall mTy bTy listB dict (applyCore function (var x aTy) mB) yContinuation
+
+  mapMUnitBody functionName functionTy dict function xs =
+    listCaseCore xs caseName aTy mUnit (returnCall mTy unitTy dict unitCore) x rest consBranch
+   where
+    x = builtinLocalTermName "$control_mapM__x" (-7792)
+    rest = builtinLocalTermName "$control_mapM__rest" (-7793)
+    caseName = builtinLocalTermName "$control_mapM__case" (-7794)
+    recursive =
+      callPoly functionName functionTy [mTy, aTy, bTy] mUnit [dict, function, var rest listA]
+    consBranch =
+      thenCall mTy bTy unitTy dict (applyCore function (var x aTy) mB) recursive
+
+  forMUnitBody functionName functionTy dict xs function =
+    listCaseCore xs caseName aTy mUnit (returnCall mTy unitTy dict unitCore) x rest consBranch
+   where
+    x = builtinLocalTermName "$control_forM__x" (-7795)
+    rest = builtinLocalTermName "$control_forM__rest" (-7796)
+    caseName = builtinLocalTermName "$control_forM__case" (-7797)
+    recursive =
+      callPoly functionName functionTy [mTy, aTy, bTy] mUnit [dict, var rest listA, function]
+    consBranch =
+      thenCall mTy bTy unitTy dict (applyCore function (var x aTy) mB) recursive
+
+  bindCall monadTy inputTy outputTy dict action continuation =
+    callPoly (preludeTermName ">>=" (-1461)) monadBindSelectorCoreType [monadTy, inputTy, outputTy] (applyMonadCoreType monadTy outputTy) [dict, action, continuation]
+
+  thenCall monadTy inputTy outputTy dict first second =
+    callPoly (preludeTermName ">>" (-1462)) monadThenSelectorCoreType [monadTy, inputTy, outputTy] (applyMonadCoreType monadTy outputTy) [dict, first, second]
+
+  returnCall monadTy valueTy dict value =
+    callPoly (preludeTermName "return" (-1463)) monadReturnSelectorCoreType [monadTy, valueTy] (applyMonadCoreType monadTy valueTy) [dict, value]
+
+  fmapCall functorTy inputTy outputTy dict function value =
+    callPoly (preludeTermName "fmap" (-1491)) functorFmapSelectorCoreType [functorTy, inputTy, outputTy] (applyFunctorCoreType functorTy outputTy) [dict, function, value]
+
+  mzeroCall monadTy valueTy dict =
+    callPoly (preludeTermName "mzero" (-1495)) monadPlusMzeroSelectorCoreType [monadTy, valueTy] (applyMonadCoreType monadTy valueTy) [dict]
+
+  mplusCall monadTy valueTy dict lhs rhs =
+    callPoly (preludeTermName "mplus" (-1496)) monadPlusMplusSelectorCoreType [monadTy, valueTy] (applyMonadCoreType monadTy valueTy) [dict, lhs, rhs]
+
+  monadPlusSuperclassDict monadTy dict =
+    callPoly monadPlusMonadSelectorName monadPlusMonadSelectorCoreType [monadTy] (monadDictCoreType monadTy) [dict]
+
+  callPoly functionName functionTy typeArguments resultTy arguments =
+    foldl applyValue typed arguments
+   where
+    typed = CTypeApp (CVar functionName functionTy) typeArguments (foldr CTyFun resultTy (map exprType arguments))
+    applyValue callee argument =
+      let remainingResult =
+            case exprType callee of
+              CTyFun _ result -> result
+              _ -> resultTy
+       in CApp callee argument remainingResult
+
+  idLam valueTy =
+    lam value valueTy (var value valueTy)
+   where
+    value = builtinLocalTermName "$control_id_x" (-7798)
+
+  tuple2Core leftTy rightTy left right =
+    constructorApp (tupleDataConName 2) [leftTy, rightTy] [left, right] (CTyTuple [leftTy, rightTy])
+
+  lam = coreLam
+  var = CVar
+  unitCore = CCon unitDataConName unitTy
+
+  monadDictCoreType monadTy =
+    CTyApp (CTyCon (classDictionaryTypeName builtinMonadClassName)) monadTy
+
+  monadPlusDictCoreType monadTy =
+    CTyApp (CTyCon (classDictionaryTypeName builtinMonadPlusClassName)) monadTy
+
+  functorDictCoreType functorTy =
+    CTyApp (CTyCon (classDictionaryTypeName builtinFunctorClassName)) functorTy
+
+  selectorFunctorF = preludeTypeVariable "f" (-1391)
+  selectorFunctorA = preludeTypeVariable "a" (-1201)
+  selectorFunctorB = preludeTypeVariable "b" (-1202)
+  selectorFunctorFTy = CTyVar selectorFunctorF
+  selectorFunctorATy = CTyVar selectorFunctorA
+  selectorFunctorBTy = CTyVar selectorFunctorB
+  selectorMonadM = preludeTypeVariable "m" (-1361)
+  selectorMonadA = preludeTypeVariable "a" (-1362)
+  selectorMonadB = preludeTypeVariable "b" (-1363)
+  selectorMonadMTy = CTyVar selectorMonadM
+  selectorMonadATy = CTyVar selectorMonadA
+  selectorMonadBTy = CTyVar selectorMonadB
+  selectorMonadPlusM = preludeTypeVariable "m" (-1396)
+  selectorMonadPlusA = preludeTypeVariable "a" (-1397)
+  selectorMonadPlusMTy = CTyVar selectorMonadPlusM
+  selectorMonadPlusATy = CTyVar selectorMonadPlusA
+
+  functorFmapSelectorCoreType =
+    CTyForall
+      [selectorFunctorF, selectorFunctorA, selectorFunctorB]
+      ( CTyFun
+          (functorDictCoreType selectorFunctorFTy)
+          ( CTyFun
+              (CTyFun selectorFunctorATy selectorFunctorBTy)
+              (CTyFun (applyFunctorCoreType selectorFunctorFTy selectorFunctorATy) (applyFunctorCoreType selectorFunctorFTy selectorFunctorBTy))
+          )
+      )
+
+  monadBindSelectorCoreType =
+    CTyForall
+      [selectorMonadM, selectorMonadA, selectorMonadB]
+      ( CTyFun
+          (monadDictCoreType selectorMonadMTy)
+          ( CTyFun
+              (applyMonadCoreType selectorMonadMTy selectorMonadATy)
+              (CTyFun (CTyFun selectorMonadATy (applyMonadCoreType selectorMonadMTy selectorMonadBTy)) (applyMonadCoreType selectorMonadMTy selectorMonadBTy))
+          )
+      )
+
+  monadThenSelectorCoreType =
+    CTyForall
+      [selectorMonadM, selectorMonadA, selectorMonadB]
+      ( CTyFun
+          (monadDictCoreType selectorMonadMTy)
+          (CTyFun (applyMonadCoreType selectorMonadMTy selectorMonadATy) (CTyFun (applyMonadCoreType selectorMonadMTy selectorMonadBTy) (applyMonadCoreType selectorMonadMTy selectorMonadBTy)))
+      )
+
+  monadReturnSelectorCoreType =
+    CTyForall
+      [selectorMonadM, selectorMonadA]
+      (CTyFun (monadDictCoreType selectorMonadMTy) (CTyFun selectorMonadATy (applyMonadCoreType selectorMonadMTy selectorMonadATy)))
+
+  monadPlusMzeroSelectorCoreType =
+    CTyForall
+      [selectorMonadPlusM, selectorMonadPlusA]
+      (CTyFun (monadPlusDictCoreType selectorMonadPlusMTy) (applyMonadCoreType selectorMonadPlusMTy selectorMonadPlusATy))
+
+  monadPlusMplusSelectorCoreType =
+    CTyForall
+      [selectorMonadPlusM, selectorMonadPlusA]
+      ( CTyFun
+          (monadPlusDictCoreType selectorMonadPlusMTy)
+          ( CTyFun
+              (applyMonadCoreType selectorMonadPlusMTy selectorMonadPlusATy)
+              (CTyFun (applyMonadCoreType selectorMonadPlusMTy selectorMonadPlusATy) (applyMonadCoreType selectorMonadPlusMTy selectorMonadPlusATy))
+          )
+      )
+
+  monadPlusMonadSelectorName =
+    superclassSelectorName builtinMonadPlusInfo 0 (singleClassConstraint builtinMonadClassName (TyVar (classInfoVariable builtinMonadPlusInfo)))
+
+  monadPlusMonadSelectorCoreType =
+    CTyForall
+      [selectorMonadPlusM]
+      (CTyFun (monadPlusDictCoreType selectorMonadPlusMTy) (monadDictCoreType selectorMonadPlusMTy))
 
 readSupportPreludeNames :: [RName]
 readSupportPreludeNames =
@@ -10528,6 +11546,7 @@ builtinInstanceDictionaries classes =
     , maybe [] boundedInstances (Map.lookup builtinBoundedClassName classes)
     , maybe [] functorInstances (Map.lookup builtinFunctorClassName classes)
     , maybe [] monadInstances (Map.lookup builtinMonadClassName classes)
+    , maybe [] monadPlusInstances (Map.lookup builtinMonadPlusClassName classes)
     ]
  where
   eqInstances info =
@@ -10769,6 +11788,19 @@ builtinInstanceDictionaries classes =
         [listMonadBindMethod, listMonadThenMethod, listMonadReturnMethod, listMonadFailMethod]
     ]
 
+  monadPlusInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        (TyCon maybeTyConName)
+        (preludeTermName "$fMonadPlusMaybe" (-1594))
+        [maybeMonadPlusMzeroMethod, maybeMonadPlusMplusMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        (TyCon listTyConName)
+        (preludeTermName "$fMonadPlusList" (-1595))
+        [listMonadPlusMzeroMethod, listMonadPlusMplusMethod]
+    ]
+
 builtinInstanceDictionaryRefs :: [BuiltinInstanceDictionary] -> [InstanceDictionaryRef]
 builtinInstanceDictionaryRefs =
   map
@@ -10806,6 +11838,8 @@ isBuiltinStructuralInstanceConstraint wanted =
       | className == builtinFunctorClassName && typeName == listTyConName -> True
     (className, [TyCon typeName])
       | className == builtinMonadClassName && typeName == listTyConName -> True
+    (className, [TyCon typeName])
+      | className == builtinMonadPlusClassName && typeName == listTyConName -> True
     _ -> False
 
 overlapsBuiltinStructuralInstanceConstraint :: ClassConstraint -> Bool
@@ -10828,6 +11862,9 @@ overlapsBuiltinStructuralInstanceConstraint wanted =
           typesMayUnify argument (TyCon listTyConName)
     (className, [argument])
       | className == builtinMonadClassName ->
+          typesMayUnify argument (TyCon listTyConName)
+    (className, [argument])
+      | className == builtinMonadPlusClassName ->
           typesMayUnify argument (TyCon listTyConName)
     _ -> False
 
@@ -11663,6 +12700,59 @@ listMonadFailMethod =
   message = builtinLocalTermName "$list_monad_fail_message" (-2224)
   lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
 
+maybeMonadPlusMzeroMethod :: CoreExpr
+maybeMonadPlusMzeroMethod =
+  CTypeLam [a] (nothingCore aTy) maybeMonadPlusMzeroCoreType
+ where
+  a = preludeTypeVariable "a" (-1397)
+  aTy = CTyVar a
+
+maybeMonadPlusMplusMethod :: CoreExpr
+maybeMonadPlusMplusMethod =
+  CTypeLam [a] (coreLam lhs maybeA (coreLam rhs maybeA body)) maybeMonadPlusMplusCoreType
+ where
+  a = preludeTypeVariable "a" (-1397)
+  aTy = CTyVar a
+  maybeA = CTyApp (CTyCon maybeTyConName) aTy
+  lhs = builtinLocalTermName "$maybe_monadplus_mplus_lhs" (-2242)
+  rhs = builtinLocalTermName "$maybe_monadplus_mplus_rhs" (-2243)
+  justValue = builtinLocalTermName "$maybe_monadplus_mplus_just" (-2244)
+  caseName = builtinLocalTermName "$maybe_monadplus_mplus_case" (-2245)
+  body =
+    CCase
+      (CVar lhs maybeA)
+      (CoreBinder caseName maybeA)
+      [ CoreAlt (ConstructorAlt maybeNothingDataConName) [] (CVar rhs maybeA)
+      , CoreAlt (ConstructorAlt maybeJustDataConName) [CoreBinder justValue aTy] (justCore aTy (CVar justValue aTy))
+      ]
+      maybeA
+
+listMonadPlusMzeroMethod :: CoreExpr
+listMonadPlusMzeroMethod =
+  CTypeLam [a] (nilCore aTy) listMonadPlusMzeroCoreType
+ where
+  a = preludeTypeVariable "a" (-1397)
+  aTy = CTyVar a
+
+listMonadPlusMplusMethod :: CoreExpr
+listMonadPlusMplusMethod =
+  CTypeLam [a] (coreLam lhs listA (coreLam rhs listA body)) listMonadPlusMplusCoreType
+ where
+  a = preludeTypeVariable "a" (-1397)
+  aTy = CTyVar a
+  listA = CTyList aTy
+  lhs = builtinLocalTermName "$list_monadplus_mplus_lhs" (-2246)
+  rhs = builtinLocalTermName "$list_monadplus_mplus_rhs" (-2247)
+  body =
+    applyCore
+      ( applyCore
+          (CTypeApp (CVar monadListAppendName monadListAppendCoreType) [aTy] (CTyFun listA (CTyFun listA listA)))
+          (CVar lhs listA)
+          (CTyFun listA listA)
+      )
+      (CVar rhs listA)
+      listA
+
 ioMonadBindCoreType, ioMonadThenCoreType, ioMonadReturnCoreType, ioMonadFailCoreType :: CoreType
 ioMonadBindCoreType = monadBindFieldCoreType (CTyCon ioTyConName)
 ioMonadThenCoreType = monadThenFieldCoreType (CTyCon ioTyConName)
@@ -11701,6 +12791,14 @@ listMonadThenCoreType = monadThenFieldCoreType listTyConCore
 listMonadReturnCoreType = monadReturnFieldCoreType listTyConCore
 listMonadFailCoreType = monadFailFieldCoreType listTyConCore
 
+maybeMonadPlusMzeroCoreType, maybeMonadPlusMplusCoreType :: CoreType
+maybeMonadPlusMzeroCoreType = monadPlusMzeroFieldCoreType (CTyCon maybeTyConName)
+maybeMonadPlusMplusCoreType = monadPlusMplusFieldCoreType (CTyCon maybeTyConName)
+
+listMonadPlusMzeroCoreType, listMonadPlusMplusCoreType :: CoreType
+listMonadPlusMzeroCoreType = monadPlusMzeroFieldCoreType listTyConCore
+listMonadPlusMplusCoreType = monadPlusMplusFieldCoreType listTyConCore
+
 monadBindFieldCoreType :: CoreType -> CoreType
 monadBindFieldCoreType monadTy =
   CTyForall [a, b] (CTyFun monadA (CTyFun (CTyFun aTy monadB) monadB))
@@ -11736,6 +12834,21 @@ monadFailFieldCoreType monadTy =
  where
   a = preludeTypeVariable "a" (-1362)
   aTy = CTyVar a
+
+monadPlusMzeroFieldCoreType :: CoreType -> CoreType
+monadPlusMzeroFieldCoreType monadTy =
+  CTyForall [a] (applyMonadCoreType monadTy aTy)
+ where
+  a = preludeTypeVariable "a" (-1397)
+  aTy = CTyVar a
+
+monadPlusMplusFieldCoreType :: CoreType -> CoreType
+monadPlusMplusFieldCoreType monadTy =
+  CTyForall [a] (CTyFun monadA (CTyFun monadA monadA))
+ where
+  a = preludeTypeVariable "a" (-1397)
+  aTy = CTyVar a
+  monadA = applyMonadCoreType monadTy aTy
 
 applyMonadCoreType :: CoreType -> CoreType -> CoreType
 applyMonadCoreType monadTy argumentTy
