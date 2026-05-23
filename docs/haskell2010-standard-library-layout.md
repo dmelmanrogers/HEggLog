@@ -30,7 +30,7 @@ graph path until that module has an implemented surface.
 | `Control.Monad` | implemented for supported monads | `Functor(fmap)`, `Monad(..)`, `MonadPlus(..)`, and the Haskell 2010 monadic combinator surface (`mapM`, `mapM_`, `forM`, `forM_`, `sequence`, `sequence_`, `(=<<)`, `(>=>)`, `(<=<)`, `forever`, `void`, `join`, `msum`, `filterM`, `mapAndUnzipM`, `zipWithM`, `zipWithM_`, `foldM`, `foldM_`, `replicateM`, `replicateM_`, `guard`, `when`, `unless`, `liftM` through `liftM5`, and `ap`) for the supported `IO`, `Maybe`, and list instances |
 | `Data.Int` | partial generated interface | `Int8`, `Int16`, `Int32`, `Int64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
 | `Data.List` | source-backed native module | Haskell 2010 Report list API: shared Prelude list functions plus transformations, folds/scans, map accumulators, infinite-list producers, sublists, predicates, searches, indexing, zips/unzips, text helpers, set-like list operations, ordered-list helpers, `By` variants, and generic functions; `(++)`, `(!!)`, and `(\\)` fixities are imported |
-| `Data.Maybe` | partial generated interface | `Maybe(..)` with `Nothing` and `Just`; `LIB-003` owns the remaining Report functions |
+| `Data.Maybe` | source-backed native module | `Maybe(..)`, `maybe`, `isJust`, `isNothing`, `fromJust`, `fromMaybe`, `listToMaybe`, `maybeToList`, `catMaybes`, and `mapMaybe` |
 | `Data.Word` | partial generated interface | `Word`, `Word8`, `Word16`, `Word32`, `Word64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
 | `System.IO` | partial generated interface | `IO`, `Handle`, `FilePath`, `putStrLn`, `getLine`, and `print`; `LIB-012` owns handles, files, buffering, seek, and EOF-specific handle behavior |
 | `System.IO.Error` | partial generated interface | `IOError`, `IOErrorType`, error-type constants, `userError`, `mkIOError`, `annotateIOError`, classifiers, accessors, `ioError`, `catch`, and `try`; `LIB-012` owns handle/file-backed error producers beyond the current line-oriented IO subset |
@@ -78,6 +78,12 @@ lowered, and compiled by the same frontend/Core/STG/native path as user source,
 which keeps the broad list API out of ad hoc compiler-internal Core builders
 while preserving explicit import/export and fixity behavior.
 
+`LIB-003` moved `Data.Maybe` from a constructor-only generated interface to a
+source-backed virtual standard-library module. The virtual module re-exports
+the built-in `Maybe` type and constructors and implements the Haskell 2010
+helper functions in ordinary source so the same parser, renamer, typechecker,
+Core/STG, and native paths validate the module.
+
 `TEST-CONF-015` completed the Report-wide reconciliation for this table. Each
 reserved module and each partial generated interface now points to implemented
 support with fixtures or to a narrower numbered tracker item before the
@@ -110,3 +116,5 @@ References:
   <https://www.haskell.org/onlinereport/haskell2010/haskellli1.html>
 - Haskell 2010 Libraries, `Data.List`:
   <https://www.haskell.org/onlinereport/haskell2010/haskellch20.html>
+- Haskell 2010 Libraries, `Data.Maybe`:
+  <https://www.haskell.org/onlinereport/haskell2010/haskellch21.html>

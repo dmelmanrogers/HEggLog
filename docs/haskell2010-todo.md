@@ -14546,7 +14546,7 @@ Notes:
 ## LIB-003 — Data.Maybe report completion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -14586,7 +14586,16 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Created by TEST-CONF-015 to track the currently partial generated `Data.Maybe` interface.
+- Complete. `Data.Maybe` is now a source-backed virtual standard-library
+  module loaded through the module graph before generated-only builtin module
+  handling. It re-exports the built-in `Maybe(..)` constructors and implements
+  the Haskell 2010 Report helper surface: `maybe`, `isJust`, `isNothing`,
+  `fromJust`, `fromMaybe`, `listToMaybe`, `maybeToList`, `catMaybes`, and
+  `mapMaybe`. The virtual module is parsed, renamed, typechecked, lowered
+  through Core/STG, and compiled natively like ordinary source. Native e2e and
+  conformance fixtures cover the positive helper surface, default and
+  `--no-egglog` modes, emit-LLVM output, and `fromJust Nothing` runtime
+  failure.
 
 ## LIB-004 — Data.Char report completion
 

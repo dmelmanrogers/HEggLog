@@ -615,6 +615,18 @@ dataMaybeNames :: [(Namespace, Text)]
 dataMaybeNames =
   (TypeNamespace, "Maybe")
     : fmap (ConstructorNamespace,) ["Nothing", "Just"]
+    <> fmap
+      (TermNamespace,)
+      [ "maybe"
+      , "isJust"
+      , "isNothing"
+      , "fromJust"
+      , "fromMaybe"
+      , "listToMaybe"
+      , "maybeToList"
+      , "catMaybes"
+      , "mapMaybe"
+      ]
 
 dataWordNames :: [(Namespace, Text)]
 dataWordNames =
@@ -769,7 +781,65 @@ foreignCTypeOccurrences =
 standardLibrarySourceModule :: S.ModuleName -> Maybe Text
 standardLibrarySourceModule moduleName
   | moduleName == dataListModuleName = Just dataListSourceModule
+  | moduleName == dataMaybeModuleName = Just dataMaybeSourceModule
   | otherwise = Nothing
+
+dataMaybeSourceModule :: Text
+dataMaybeSourceModule =
+  Text.unlines
+    [ "module Data.Maybe (Maybe(..), maybe, isJust, isNothing, fromJust, fromMaybe, listToMaybe, maybeToList, catMaybes, mapMaybe) where"
+    , ""
+    , "import Prelude"
+    , ""
+    , "maybe :: b -> (a -> b) -> Maybe a -> b"
+    , "maybe defaultValue f value = case value of"
+    , "  Nothing -> defaultValue"
+    , "  Just x -> f x"
+    , ""
+    , "isJust :: Maybe a -> Bool"
+    , "isJust value = case value of"
+    , "  Nothing -> False"
+    , "  Just _ -> True"
+    , ""
+    , "isNothing :: Maybe a -> Bool"
+    , "isNothing value = case value of"
+    , "  Nothing -> True"
+    , "  Just _ -> False"
+    , ""
+    , "fromJust :: Maybe a -> a"
+    , "fromJust value = case value of"
+    , "  Nothing -> head []"
+    , "  Just x -> x"
+    , ""
+    , "fromMaybe :: a -> Maybe a -> a"
+    , "fromMaybe defaultValue value = case value of"
+    , "  Nothing -> defaultValue"
+    , "  Just x -> x"
+    , ""
+    , "listToMaybe :: [a] -> Maybe a"
+    , "listToMaybe xs = case xs of"
+    , "  [] -> Nothing"
+    , "  x:_ -> Just x"
+    , ""
+    , "maybeToList :: Maybe a -> [a]"
+    , "maybeToList value = case value of"
+    , "  Nothing -> []"
+    , "  Just x -> [x]"
+    , ""
+    , "catMaybes :: [Maybe a] -> [a]"
+    , "catMaybes values = case values of"
+    , "  [] -> []"
+    , "  value:rest -> case value of"
+    , "    Nothing -> catMaybes rest"
+    , "    Just x -> x : catMaybes rest"
+    , ""
+    , "mapMaybe :: (a -> Maybe b) -> [a] -> [b]"
+    , "mapMaybe f xs = case xs of"
+    , "  [] -> []"
+    , "  x:rest -> case f x of"
+    , "    Nothing -> mapMaybe f rest"
+    , "    Just y -> y : mapMaybe f rest"
+    ]
 
 dataListSourceModule :: Text
 dataListSourceModule =

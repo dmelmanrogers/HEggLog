@@ -1337,6 +1337,11 @@ testHaskell2010StandardLibraryExpandedInterfaces = do
   dataMaybe <- requireInterface (H2010.ModuleName ["Data", "Maybe"])
   assertBool "Data.Maybe exports Maybe" (interfaceExportsName H2010Names.TypeNamespace "Maybe" dataMaybe)
   assertBool "Data.Maybe exports Just" (interfaceExportsName H2010Names.ConstructorNamespace "Just" dataMaybe)
+  assertBool "Data.Maybe exports maybe" (interfaceExportsName H2010Names.TermNamespace "maybe" dataMaybe)
+  assertBool "Data.Maybe exports isJust" (interfaceExportsName H2010Names.TermNamespace "isJust" dataMaybe)
+  assertBool "Data.Maybe exports fromJust" (interfaceExportsName H2010Names.TermNamespace "fromJust" dataMaybe)
+  assertBool "Data.Maybe exports catMaybes" (interfaceExportsName H2010Names.TermNamespace "catMaybes" dataMaybe)
+  assertBool "Data.Maybe exports mapMaybe" (interfaceExportsName H2010Names.TermNamespace "mapMaybe" dataMaybe)
   assertBool
     "Data.Maybe exposes Maybe constructors"
     (interfaceExportsChild H2010Names.TypeNamespace "Maybe" H2010Names.ConstructorNamespace "Nothing" dataMaybe)

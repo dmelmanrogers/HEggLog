@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-23 04:10:02 UTC
+Date/time: 2026-05-23 04:38:52 UTC
 
-Code hash tested: working tree for the LIB-002 update, based on `9fd9e70`.
+Code hash tested: working tree for the LIB-003 update, based on `030bf89`.
 
 Primary conformance command run:
 
@@ -35,14 +35,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 141 |
-| Haskell source files in corpus | 148 |
-| HUnit test cases executed | 194 |
-| Native-success fixtures | 89 |
-| Native-runtime-error fixtures | 7 |
+| Manifest conformance fixtures | 143 |
+| Haskell source files in corpus | 150 |
+| HUnit test cases executed | 198 |
+| Native-success fixtures | 90 |
+| Native-runtime-error fixtures | 8 |
 | Compile-error fixtures | 28 |
 | Unsupported-documented fixtures | 17 |
-| Native subprocess compile/run checks | 149 |
+| Native subprocess compile/run checks | 153 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -143,6 +143,15 @@ operations, `By` variants, ordered-list helpers, and generic functions in
 default, `--no-egglog`, and emit-LLVM modes. `modules.data-list-partial` locks
 empty-list partial selector behavior with a native runtime-error case.
 
+LIB-003 is now covered by native conformance and e2e fixtures.
+`modules.data-maybe` compiles a source-backed virtual `Data.Maybe` module
+through the ordinary module graph, parser, renamer, typechecker, Core/STG
+lowering, and native backend. The fixture exercises `Maybe(..)`, `maybe`,
+`isJust`, `isNothing`, `fromJust`, `fromMaybe`, `maybeToList`, `listToMaybe`,
+`catMaybes`, and `mapMaybe` in default, `--no-egglog`, and emit-LLVM modes.
+`modules.data-maybe-partial` locks `fromJust Nothing` as a native runtime-error
+case.
+
 TEST-CONF-015 is now validator-backed. The conformance matrix contains a
 Library Conformance Closure table covering Chapter 9 Prelude areas and every
 Part II Libraries module group. The conformance validator now checks all 18
@@ -176,7 +185,7 @@ dynamic calls, wrapper callbacks, and foreign export entrypoints.
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
-| `modules` | 11 | single-module, same-directory import, implicit/explicit/qualified Prelude import, source-instance import/export, generated standard-library module imports, source-backed `Data.List`, scalar standard-library type-name imports, and Data.List partial runtime-error coverage exist |
+| `modules` | 13 | single-module, same-directory import, implicit/explicit/qualified Prelude import, source-instance import/export, generated standard-library module imports, source-backed `Data.List`/`Data.Maybe`, scalar standard-library type-name imports, and Data.List/Data.Maybe partial runtime-error coverage exist |
 | `negative` | 28 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid default declarations, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
 | `prelude` | 18 | list functions, append, foldl, function/selector completion, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Report-shaped Read, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, and list comprehensions covered |

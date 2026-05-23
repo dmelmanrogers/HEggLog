@@ -270,6 +270,31 @@
       "notes": "Data.List partial selectors preserve bottom behavior by compiling empty-list last to a native no-match runtime failure."
     },
     {
+      "name": "modules.data-maybe",
+      "sourceFile": "test/haskell2010/conformance/modules/data-maybe.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "7\n5\nTrue\nFalse\nTrue\nok\n11\n3\n[8]\n[]\n1\nTrue\n[1,3]\n[30,40]\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Maybe imports expose the Haskell 2010 Maybe helper API through a source-backed standard-library module compiled by the normal parser, renamer, typechecker, Core/STG, and native paths."
+    },
+    {
+      "name": "modules.data-maybe-partial",
+      "sourceFile": "test/haskell2010/conformance/modules/data-maybe-partial.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Maybe fromJust preserves partial behavior by compiling Nothing to a native runtime failure."
+    },
+    {
       "name": "modules.control-monad",
       "sourceFile": "test/haskell2010/conformance/modules/control-monad.hs",
       "category": "modules",
