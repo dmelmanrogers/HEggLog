@@ -203,9 +203,17 @@ loadImport searchPolicy rootDirectory active stateResult importDecl =
     Left err ->
       pure (Left err)
     Right state
-      | isBuiltinModule (importModule importDecl) ->
-          pure (Right state)
       | Map.member (importModule importDecl) (loadedByName state) ->
+          pure (Right state)
+      | Just source <- StandardLibrary.standardLibrarySourceModule (importModule importDecl) ->
+          loadVirtualStandardModule
+            searchPolicy
+            rootDirectory
+            active
+            state
+            (importModule importDecl)
+            source
+      | isBuiltinModule (importModule importDecl) ->
           pure (Right state)
       | otherwise ->
           loadModule
@@ -215,6 +223,32 @@ loadImport searchPolicy rootDirectory active stateResult importDecl =
             state
             (resolveModuleImportPath searchPolicy rootDirectory (importModule importDecl))
             (Just (importModule importDecl))
+
+loadVirtualStandardModule ::
+  ModuleSearchPolicy ->
+  FilePath ->
+  [ModuleName] ->
+  LoadState ->
+  ModuleName ->
+  Text ->
+  IO (Either ModuleGraphError LoadState)
+loadVirtualStandardModule searchPolicy rootDirectory active state moduleName source =
+  case parseResult of
+    Left err ->
+      pure (Left err)
+    Right parsed ->
+      pureOrContinue searchPolicy rootDirectory active state virtualPath source parsed (sourceModuleName parsed) (Just moduleName)
+ where
+  virtualPath =
+    "<standard-library>" </> moduleNamePath moduleName <.> "hs"
+  parseResult =
+    mapLeft
+      (ModuleParseError virtualPath . Text.pack . errorBundlePretty)
+      (parseSourceModule virtualPath source)
+
+moduleNamePath :: ModuleName -> FilePath
+moduleNamePath (ModuleName parts) =
+  joinPath (map Text.unpack parts)
 
 readModuleSource :: FilePath -> IO (Either ModuleGraphError Text)
 readModuleSource path = do

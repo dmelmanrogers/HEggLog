@@ -343,6 +343,122 @@ compileErrorCase name path categories =
     , expectedCompileWarnings = []
     }
 
+dataListExpectedStdout :: Text
+dataListExpectedStdout =
+  Text.intercalate
+    "\n"
+    [ "3"
+    , "[1,2]"
+    , "a-b-c"
+    , "ab,cd,ef"
+    , "[[1,4,7],[2,5,8],[3,6]]"
+    , "[\"\",\"a\",\"b\",\"ab\"]"
+    , "[\"abc\",\"bac\",\"cba\",\"bca\",\"cab\",\"acb\"]"
+    , "6"
+    , "True"
+    , "15"
+    , "5"
+    , "haskell"
+    , "[1,2,3]"
+    , "[1,11,2,12]"
+    , "False"
+    , "True"
+    , "True"
+    , "True"
+    , "6"
+    , "24"
+    , "4"
+    , "1"
+    , "[0,1,3,6]"
+    , "[1,3,6]"
+    , "[[1,2,3],[2,3],[3],[]]"
+    , "[6,5,3]"
+    , "6"
+    , "[1,3,6]"
+    , "6"
+    , "[6,5,3]"
+    , "[1,3,5,7,9]"
+    , "[7,7,7,7]"
+    , "[1,2,1,2,1]"
+    , "[4,3,2,1]"
+    , "[1,2]"
+    , "[3,4]"
+    , "[1,2]"
+    , "[3,4]"
+    , "[1,2]"
+    , "[3,1]"
+    , "[1,2]"
+    , "[3,1]"
+    , "[1,2]"
+    , "[3,1]"
+    , "fix"
+    , "[\"m\",\"i\",\"ss\"]"
+    , "[\"\",\"a\",\"ab\",\"abc\"]"
+    , "[\"abc\",\"bc\",\"c\",\"\"]"
+    , "True"
+    , "True"
+    , "True"
+    , "True"
+    , "2"
+    , "3"
+    , "[1,3]"
+    , "[2,4]"
+    , "8"
+    , "1"
+    , "[1,3,5]"
+    , "2"
+    , "[0,2]"
+    , "[11,22]"
+    , "[6]"
+    , "[10]"
+    , "[15]"
+    , "[21]"
+    , "[28]"
+    , "2"
+    , "1"
+    , "1"
+    , "1"
+    , "1"
+    , "1"
+    , "[1,2]"
+    , "ab"
+    , "3"
+    , "4"
+    , "5"
+    , "6"
+    , "7"
+    , "[\"a\",\"b\"]"
+    , "[\"a\",\"b\",\"c\"]"
+    , "a"
+    , "b"
+    , ""
+    , "a b c"
+    , "ban"
+    , "bnana"
+    , "bana"
+    , "dogcw"
+    , "ississippi"
+    , "[1,2,3]"
+    , "[1,2,3,4]"
+    , "ab"
+    , "bnana"
+    , "bana"
+    , "dogcw"
+    , "ississippi"
+    , "[\"aa\",\"bb\"]"
+    , "[3,2,1]"
+    , "[1,2,3,4]"
+    , "4"
+    , "1"
+    , "3"
+    , "[1,2]"
+    , "[2,3]"
+    , "[1,2]"
+    , "[3]"
+    , "6"
+    , "[8,8,8]"
+    ]
+
 e2eCases :: [E2ECase]
 e2eCases =
   [ successCase "arithmetic" "test/e2e/programs/arithmetic.hg" "14" [DefaultEgglog, NoEgglog] True
@@ -387,6 +503,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-prelude-foldl" "test/e2e/programs/haskell2010/prelude-foldl.hs" "1234\n-6\nabcd\n2\n7\n5" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-prelude-functions" "test/e2e/programs/haskell2010/prelude-functions.hs" "5\n21\n7\n1\n[2,3]\nTrue\nFalse\n42\nok" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-standard-library-modules" "test/e2e/programs/haskell2010/standard-library-modules.hs" "9\n9\n5\nTrue\nstdlib" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-data-list" "test/haskell2010/conformance/modules/data-list.hs" dataListExpectedStdout [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-modules" "test/e2e/programs/haskell2010/modules/Main.hs" "20" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-printing" "test/e2e/programs/haskell2010/io-printing.hs" "ok\nanswer\n42\nTrue" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-normal-examples" "test/e2e/programs/haskell2010/io-normal-examples.hs" "hello\nbound\n\"quoted\"\n'X'\n\"plain\"\n[1,2,3]\n[True,False]" [DefaultEgglog, NoEgglog] True
@@ -416,6 +533,7 @@ e2eCases =
   , runtimeErrorCase "haskell2010-guard-fallthrough" "test/e2e/programs/haskell2010/guard-fallthrough.hs" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "haskell2010-derived-enum-runtime-error" "test/e2e/programs/haskell2010/derived-enum-runtime-error.hs" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "haskell2010-prelude-head-empty" "test/e2e/programs/haskell2010/prelude-head-empty.hs" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-data-list-partial" "test/haskell2010/conformance/modules/data-list-partial.hs" [DefaultEgglog, NoEgglog]
   , compileErrorCase "open-free-variable" "test/e2e/programs/compile-errors/open-free-variable.hg" ["free", "unbound", "unknown", "backend"]
   , compileErrorCase "type-error" "test/e2e/programs/compile-errors/type-error.hg" ["type"]
   , compileErrorCase "unsupported-recursion" "test/e2e/programs/unsupported/unsupported-recursion.hg" ["recursive", "recursion", "unbound", "unknown"]

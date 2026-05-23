@@ -1317,11 +1317,22 @@ testHaskell2010StandardLibraryExpandedInterfaces = do
   dataList <- requireInterface (H2010.ModuleName ["Data", "List"])
   assertBool "Data.List exports map" (interfaceExportsName H2010Names.TermNamespace "map" dataList)
   assertBool "Data.List exports head" (interfaceExportsName H2010Names.TermNamespace "head" dataList)
+  assertBool "Data.List exports last" (interfaceExportsName H2010Names.TermNamespace "last" dataList)
+  assertBool "Data.List exports genericReplicate" (interfaceExportsName H2010Names.TermNamespace "genericReplicate" dataList)
   assertBool "Data.List exports ++" (interfaceExportsName H2010Names.TermNamespace "++" dataList)
+  assertBool "Data.List exports \\\\" (interfaceExportsName H2010Names.TermNamespace "\\\\" dataList)
   expectEqual
     "Data.List ++ fixity"
     (Just (H2010.Fixity H2010.InfixR 5))
     (Map.lookup "++" (H2010ModuleInterface.interfaceFixities dataList))
+  expectEqual
+    "Data.List !! fixity"
+    (Just (H2010.Fixity H2010.InfixL 9))
+    (Map.lookup "!!" (H2010ModuleInterface.interfaceFixities dataList))
+  expectEqual
+    "Data.List \\\\ fixity"
+    (Just (H2010.Fixity H2010.InfixL 5))
+    (Map.lookup "\\\\" (H2010ModuleInterface.interfaceFixities dataList))
 
   dataMaybe <- requireInterface (H2010.ModuleName ["Data", "Maybe"])
   assertBool "Data.Maybe exports Maybe" (interfaceExportsName H2010Names.TypeNamespace "Maybe" dataMaybe)

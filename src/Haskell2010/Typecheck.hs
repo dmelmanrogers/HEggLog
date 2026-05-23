@@ -34,7 +34,7 @@ import Haskell2010.Names
 import Haskell2010.Renamed
 import Haskell2010.Syntax (Literal (..))
 import qualified Haskell2010.Syntax as S
-import Syntax.Span (SourceSpan, renderSourceDiagnostic)
+import Syntax.Span (SourceSpan (..), renderSourceDiagnostic)
 
 data Kind
   = StarKind
@@ -14803,13 +14803,17 @@ throwTypecheck err = do
 emitTypecheckWarning :: TypecheckWarning -> InferM ()
 emitTypecheckWarning warning = do
   spans <- typecheckSpanStack <$> get
-  let spanned =
-        case warning of
-          TypecheckWarningAt {} ->
-            warning
-          _ ->
-            maybe warning (`TypecheckWarningAt` warning) (listToMaybe spans)
-  modify (\state -> state {typecheckWarnings = typecheckWarnings state <> [spanned]})
+  unless (any isStandardLibrarySpan spans) $ do
+    let spanned =
+          case warning of
+            TypecheckWarningAt {} ->
+              warning
+            _ ->
+              maybe warning (`TypecheckWarningAt` warning) (listToMaybe spans)
+    modify (\state -> state {typecheckWarnings = typecheckWarnings state <> [spanned]})
+ where
+  isStandardLibrarySpan sourceRange =
+    "<standard-library>" `List.isPrefixOf` spanFile sourceRange
 
 withTypecheckSpan :: Maybe SourceSpan -> InferM a -> InferM a
 withTypecheckSpan Nothing action =

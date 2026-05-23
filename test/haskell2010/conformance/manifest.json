@@ -245,6 +245,31 @@
       "notes": "Implemented generated standard-library modules import through ModuleInterface with explicit export lists, child exports, fixities, and ordinary Prelude-backed semantics."
     },
     {
+      "name": "modules.data-list",
+      "sourceFile": "test/haskell2010/conformance/modules/data-list.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "3\n[1,2]\na-b-c\nab,cd,ef\n[[1,4,7],[2,5,8],[3,6]]\n[\"\",\"a\",\"b\",\"ab\"]\n[\"abc\",\"bac\",\"cba\",\"bca\",\"cab\",\"acb\"]\n6\nTrue\n15\n5\nhaskell\n[1,2,3]\n[1,11,2,12]\nFalse\nTrue\nTrue\nTrue\n6\n24\n4\n1\n[0,1,3,6]\n[1,3,6]\n[[1,2,3],[2,3],[3],[]]\n[6,5,3]\n6\n[1,3,6]\n6\n[6,5,3]\n[1,3,5,7,9]\n[7,7,7,7]\n[1,2,1,2,1]\n[4,3,2,1]\n[1,2]\n[3,4]\n[1,2]\n[3,4]\n[1,2]\n[3,1]\n[1,2]\n[3,1]\n[1,2]\n[3,1]\nfix\n[\"m\",\"i\",\"ss\"]\n[\"\",\"a\",\"ab\",\"abc\"]\n[\"abc\",\"bc\",\"c\",\"\"]\nTrue\nTrue\nTrue\nTrue\n2\n3\n[1,3]\n[2,4]\n8\n1\n[1,3,5]\n2\n[0,2]\n[11,22]\n[6]\n[10]\n[15]\n[21]\n[28]\n2\n1\n1\n1\n1\n1\n[1,2]\nab\n3\n4\n5\n6\n7\n[\"a\",\"b\"]\n[\"a\",\"b\",\"c\"]\na\nb\n\na b c\nban\nbnana\nbana\ndogcw\nississippi\n[1,2,3]\n[1,2,3,4]\nab\nbnana\nbana\ndogcw\nississippi\n[\"aa\",\"bb\"]\n[3,2,1]\n[1,2,3,4]\n4\n1\n3\n[1,2]\n[2,3]\n[1,2]\n[3]\n6\n[8,8,8]\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.List imports expose the Haskell 2010 list API through a source-backed standard-library module compiled by the normal parser, renamer, typechecker, Core/STG, and native paths."
+    },
+    {
+      "name": "modules.data-list-partial",
+      "sourceFile": "test/haskell2010/conformance/modules/data-list-partial.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.List partial selectors preserve bottom behavior by compiling empty-list last to a native no-match runtime failure."
+    },
+    {
       "name": "modules.control-monad",
       "sourceFile": "test/haskell2010/conformance/modules/control-monad.hs",
       "category": "modules",

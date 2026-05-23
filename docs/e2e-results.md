@@ -1,7 +1,7 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after the PRELUDE-020 audit tightened
-generated standard-library module interface coverage. The suite covers
+Recorded for the mandatory wet-test suite after LIB-002 moved `Data.List` from
+a generated subset to a source-backed Haskell 2010 module. The suite covers
 the existing `.hg` native compiler baseline and Haskell 2010 executable-subset
 `.hs` programs that compile to native executables, compare lazy runtime
 behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
@@ -9,7 +9,7 @@ optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-21 08:14:15 UTC`
+- Date/time: `2026-05-23 04:10:02 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -18,23 +18,23 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 187
-- Source files: 70
-- Successful source cases: 58
-- Runtime-error source cases: 9
+- HUnit checks: 195
+- Source files: 75
+- Successful source cases: 62
+- Runtime-error source cases: 10
 - Compile-error source cases: 3
-- Native compile/run checks: 134
-- Default Egglog native checks: 73
-- `--no-egglog` native checks: 61
-- Emit-LLVM checks: 41
-- Report/interpreter comparisons: 11
+- Native compile/run checks: 140
+- Default Egglog native checks: 76
+- `--no-egglog` native checks: 64
+- Emit-LLVM checks: 43
+- Report/interpreter comparisons: 12
 - Failures: 0
 
-This update adds a dedicated Haskell 2010 native case for PRELUDE-020:
-`haskell2010-standard-library-modules` imports generated `Data.List`,
-`Data.Maybe`, `Control.Monad`, and `System.IO` interfaces with explicit import
-lists, including `Functor(fmap)` execution for `[]`, `Maybe`, and `IO`, and
-emits LLVM compiled through clang.
+This update adds dedicated Haskell 2010 native cases for LIB-002:
+`haskell2010-data-list` imports source-backed `Data.List` and exercises the
+Report list API through default, `--no-egglog`, and emit-LLVM execution.
+`haskell2010-data-list-partial` verifies empty-list partial selector behavior
+as a native runtime error.
 
 ## Case Table
 
@@ -131,6 +131,9 @@ emits LLVM compiled through clang.
 | haskell2010-standard-library-modules | `test/e2e/programs/haskell2010/standard-library-modules.hs` | success | native/default | `9\n9\n5\nTrue\nstdlib` | stdout `9\n9\n5\nTrue\nstdlib`, stderr empty, exit 0 | pass |
 | haskell2010-standard-library-modules | `test/e2e/programs/haskell2010/standard-library-modules.hs` | success | native/no-egglog | `9\n9\n5\nTrue\nstdlib` | stdout `9\n9\n5\nTrue\nstdlib`, stderr empty, exit 0 | pass |
 | haskell2010-standard-library-modules | `test/e2e/programs/haskell2010/standard-library-modules.hs` | success | emit-llvm/default | `9\n9\n5\nTrue\nstdlib` | LLVM compiled through clang, stdout `9\n9\n5\nTrue\nstdlib`, stderr empty, exit 0 | pass |
+| haskell2010-data-list | `test/haskell2010/conformance/modules/data-list.hs` | success | native/default | broad Data.List output | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-data-list | `test/haskell2010/conformance/modules/data-list.hs` | success | native/no-egglog | broad Data.List output | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-data-list | `test/haskell2010/conformance/modules/data-list.hs` | success | emit-llvm/default | broad Data.List output | LLVM compiled through clang, stdout matched, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/default | `20` | stdout `20`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/no-egglog | `20` | stdout `20`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | emit-llvm/default | `20` | LLVM compiled through clang, stdout `20`, stderr empty, exit 0 | pass |
@@ -194,6 +197,8 @@ emits LLVM compiled through clang.
 | haskell2010-guard-fallthrough | `test/e2e/programs/haskell2010/guard-fallthrough.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | haskell2010-prelude-head-empty | `test/e2e/programs/haskell2010/prelude-head-empty.hs` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | haskell2010-prelude-head-empty | `test/e2e/programs/haskell2010/prelude-head-empty.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
+| haskell2010-data-list-partial | `test/haskell2010/conformance/modules/data-list-partial.hs` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
+| haskell2010-data-list-partial | `test/haskell2010/conformance/modules/data-list-partial.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | open-free-variable | `test/e2e/programs/compile-errors/open-free-variable.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |
 | type-error | `test/e2e/programs/compile-errors/type-error.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |
 | unsupported-recursion | `test/e2e/programs/unsupported/unsupported-recursion.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |

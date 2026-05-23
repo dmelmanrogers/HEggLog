@@ -14489,7 +14489,7 @@ Notes:
 ## LIB-002 — Data.List report completion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -14529,7 +14529,19 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Created by TEST-CONF-015 to make remaining list-library breadth explicit.
+- Complete. `Data.List` is now a source-backed virtual standard-library module
+  loaded through the module graph before generated-only builtin module handling.
+  It exports the Haskell 2010 Report list API beyond the previous generated
+  subset, including transformations, folds and scans, map accumulators,
+  infinite-list producers, sublist operations, predicates, searches, indexing,
+  zips and unzips, text helpers, set-like list operations, ordered-list helpers,
+  `By` variants, and generic functions. The virtual module is parsed, renamed,
+  typechecked, lowered through Core/STG, and compiled natively like ordinary
+  source, while internal standard-library pattern diagnostics are suppressed so
+  user diagnostics stay focused on user code. Native e2e and conformance
+  fixtures cover the broad success surface, imported fixities, default and
+  `--no-egglog` modes, emit-LLVM output, and empty-list partial selector
+  runtime failure.
 
 ## LIB-003 — Data.Maybe report completion
 

@@ -9,9 +9,11 @@ names have real parser, renamer, typechecker, Core/STG, and native support.
 
 ## Implemented Boundary
 
-`Haskell2010.StandardLibrary` owns every generated standard-library module
-interface. The renamer consumes those interfaces through `ModuleInterface`,
-the same data model used by source modules:
+`Haskell2010.StandardLibrary` owns every implemented standard-library module
+boundary. Generated interfaces and source-backed virtual modules both flow
+through the normal module graph and renamer; the renamer consumes their
+interfaces through `ModuleInterface`, the same data model used by source
+modules:
 
 - exported names
 - parent-to-child exports for `Thing(..)` data constructors and class methods
@@ -27,7 +29,7 @@ graph path until that module has an implemented surface.
 | `Prelude` | implemented for current executable subset | supported built-in data constructors, classes, class methods, list functions, IO functions, tuple/list/unit types, `Thing(..)` children, and Prelude fixities |
 | `Control.Monad` | implemented for supported monads | `Functor(fmap)`, `Monad(..)`, `MonadPlus(..)`, and the Haskell 2010 monadic combinator surface (`mapM`, `mapM_`, `forM`, `forM_`, `sequence`, `sequence_`, `(=<<)`, `(>=>)`, `(<=<)`, `forever`, `void`, `join`, `msum`, `filterM`, `mapAndUnzipM`, `zipWithM`, `zipWithM_`, `foldM`, `foldM_`, `replicateM`, `replicateM_`, `guard`, `when`, `unless`, `liftM` through `liftM5`, and `ap`) for the supported `IO`, `Maybe`, and list instances |
 | `Data.Int` | partial generated interface | `Int8`, `Int16`, `Int32`, `Int64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
-| `Data.List` | partial generated interface | `(++)`, `head`, `tail`, `null`, `length`, `map`, `reverse`, `foldl`, `foldr`, and `filter`, plus `(++)` fixity; `LIB-002` owns the remaining Report list API |
+| `Data.List` | source-backed native module | Haskell 2010 Report list API: shared Prelude list functions plus transformations, folds/scans, map accumulators, infinite-list producers, sublists, predicates, searches, indexing, zips/unzips, text helpers, set-like list operations, ordered-list helpers, `By` variants, and generic functions; `(++)`, `(!!)`, and `(\\)` fixities are imported |
 | `Data.Maybe` | partial generated interface | `Maybe(..)` with `Nothing` and `Just`; `LIB-003` owns the remaining Report functions |
 | `Data.Word` | partial generated interface | `Word`, `Word8`, `Word16`, `Word32`, `Word64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
 | `System.IO` | partial generated interface | `IO`, `Handle`, `FilePath`, `putStrLn`, `getLine`, and `print`; `LIB-012` owns handles, files, buffering, seek, and EOF-specific handle behavior |
@@ -70,6 +72,12 @@ exported value/type/class surface is not yet real in the compiler.
 | `System.Environment` | reserved | `LIB-011` |
 | `System.Exit` | reserved | `LIB-011` |
 
+`LIB-002` moved `Data.List` from a generated subset to a source-backed virtual
+standard-library module. The virtual module is parsed, renamed, typechecked,
+lowered, and compiled by the same frontend/Core/STG/native path as user source,
+which keeps the broad list API out of ad hoc compiler-internal Core builders
+while preserving explicit import/export and fixity behavior.
+
 `TEST-CONF-015` completed the Report-wide reconciliation for this table. Each
 reserved module and each partial generated interface now points to implemented
 support with fixtures or to a narrower numbered tracker item before the
@@ -100,3 +108,5 @@ References:
   <https://www.haskell.org/onlinereport/haskell2010/haskellch9.html>
 - Haskell 2010 Libraries contents:
   <https://www.haskell.org/onlinereport/haskell2010/haskellli1.html>
+- Haskell 2010 Libraries, `Data.List`:
+  <https://www.haskell.org/onlinereport/haskell2010/haskellch20.html>

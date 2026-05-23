@@ -8086,7 +8086,7 @@
     {
       "id": "LIB-002",
       "title": "Data.List report completion",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "PRELUDE-019",
@@ -8108,7 +8108,8 @@
         "docs/haskell2010-standard-library-layout.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. Data.List is now a source-backed virtual standard-library module loaded through the module graph before generated-only builtin module handling. It exports the Haskell 2010 Report list API beyond the previous generated subset, including transformations, folds/scans, map accumulators, infinite-list producers, sublists, predicates, searches, indexing, zips/unzips, text helpers, set-like list operations, ordered-list helpers, By variants, and generic functions. The virtual module is parsed, renamed, typechecked, lowered through Core/STG, and compiled natively like ordinary source. Native e2e and conformance fixtures cover the broad success surface, imported fixities, default and no-egglog modes, emit-LLVM output, and empty-list partial selector runtime failure."
     },
     {
       "id": "LIB-003",
