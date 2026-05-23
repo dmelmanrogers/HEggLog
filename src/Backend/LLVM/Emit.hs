@@ -78,6 +78,20 @@ emitInstruction = \case
     assign reg ("mul " <> emitTypedOperands ty lhs rhs)
   IDiv reg ty lhs rhs ->
     assign reg ("sdiv " <> emitTypedOperands ty lhs rhs)
+  IRem reg ty lhs rhs ->
+    assign reg ("srem " <> emitTypedOperands ty lhs rhs)
+  IAnd reg ty lhs rhs ->
+    assign reg ("and " <> emitTypedOperands ty lhs rhs)
+  IOr reg ty lhs rhs ->
+    assign reg ("or " <> emitTypedOperands ty lhs rhs)
+  IXor reg ty lhs rhs ->
+    assign reg ("xor " <> emitTypedOperands ty lhs rhs)
+  IShl reg ty lhs rhs ->
+    assign reg ("shl " <> emitTypedOperands ty lhs rhs)
+  IAshr reg ty lhs rhs ->
+    assign reg ("ashr " <> emitTypedOperands ty lhs rhs)
+  ILshr reg ty lhs rhs ->
+    assign reg ("lshr " <> emitTypedOperands ty lhs rhs)
   IIcmp reg predicate ty lhs rhs ->
     assign reg ("icmp " <> emitPredicate predicate <> " " <> emitTypedOperands ty lhs rhs)
   IZext reg value targetType ->

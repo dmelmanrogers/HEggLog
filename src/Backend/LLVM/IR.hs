@@ -55,6 +55,13 @@ data LLVMInstruction
   | ISub Register LLVMType LLVMOperand LLVMOperand
   | IMul Register LLVMType LLVMOperand LLVMOperand
   | IDiv Register LLVMType LLVMOperand LLVMOperand
+  | IRem Register LLVMType LLVMOperand LLVMOperand
+  | IAnd Register LLVMType LLVMOperand LLVMOperand
+  | IOr Register LLVMType LLVMOperand LLVMOperand
+  | IXor Register LLVMType LLVMOperand LLVMOperand
+  | IShl Register LLVMType LLVMOperand LLVMOperand
+  | IAshr Register LLVMType LLVMOperand LLVMOperand
+  | ILshr Register LLVMType LLVMOperand LLVMOperand
   | IIcmp Register LLVMPredicate LLVMType LLVMOperand LLVMOperand
   | IZext Register LLVMOperand LLVMType
   | ISext Register LLVMOperand LLVMType

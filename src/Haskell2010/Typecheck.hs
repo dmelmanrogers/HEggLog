@@ -1111,6 +1111,7 @@ builtinClassInfos =
     , (builtinNumClassName, numInfo)
     , (builtinRealClassName, realInfo)
     , (builtinIntegralClassName, integralInfo)
+    , (builtinBitsClassName, bitsInfo)
     , (builtinShowClassName, showInfo)
     , (builtinReadClassName, readInfo)
     , (builtinEnumClassName, enumInfo)
@@ -1194,6 +1195,32 @@ builtinClassInfos =
       , ("quotRem", -1485, TyFun integralATy (TyFun integralATy integralPairTy))
       , ("divMod", -1486, TyFun integralATy (TyFun integralATy integralPairTy))
       , ("toInteger", -1487, TyFun integralATy intMonoType)
+      ]
+
+  bitsA = preludeTypeVariable "a" (-1393)
+  bitsATy = TyVar bitsA
+  bitsInfo =
+    builtinClassInfo
+      builtinBitsClassName
+      bitsA
+      [singleClassConstraint builtinNumClassName bitsATy]
+      [ (".&.", -3901, TyFun bitsATy (TyFun bitsATy bitsATy))
+      , (".|.", -3902, TyFun bitsATy (TyFun bitsATy bitsATy))
+      , ("xor", -3903, TyFun bitsATy (TyFun bitsATy bitsATy))
+      , ("complement", -3904, TyFun bitsATy bitsATy)
+      , ("shift", -3905, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("rotate", -3906, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("bit", -3907, TyFun intMonoType bitsATy)
+      , ("setBit", -3908, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("clearBit", -3909, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("complementBit", -3910, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("testBit", -3911, TyFun bitsATy (TyFun intMonoType boolMonoType))
+      , ("bitSize", -3912, TyFun bitsATy intMonoType)
+      , ("isSigned", -3913, TyFun bitsATy boolMonoType)
+      , ("shiftL", -3914, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("shiftR", -3915, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("rotateL", -3916, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("rotateR", -3917, TyFun bitsATy (TyFun intMonoType bitsATy))
       ]
 
   showA = preludeTypeVariable "a" (-1331)
@@ -1373,6 +1400,10 @@ builtinIntegralClassName :: RName
 builtinIntegralClassName =
   preludeClassName "Integral" (-1380)
 
+builtinBitsClassName :: RName
+builtinBitsClassName =
+  preludeClassName "Bits" (-1394)
+
 builtinShowClassName :: RName
 builtinShowClassName =
   preludeClassName "Show" (-1330)
@@ -1418,6 +1449,7 @@ canonicalClassName name
         "Num" -> builtinNumClassName
         "Real" -> builtinRealClassName
         "Integral" -> builtinIntegralClassName
+        "Bits" -> builtinBitsClassName
         "Show" -> builtinShowClassName
         "Read" -> builtinReadClassName
         "Enum" -> builtinEnumClassName
@@ -1444,6 +1476,7 @@ builtinClassInfoByOccurrence occurrence = do
           "Num" -> builtinNumClassName
           "Real" -> builtinRealClassName
           "Integral" -> builtinIntegralClassName
+          "Bits" -> builtinBitsClassName
           "Show" -> builtinShowClassName
           "Read" -> builtinReadClassName
           "Enum" -> builtinEnumClassName
@@ -12287,6 +12320,7 @@ builtinInstanceDictionaries classes =
     , maybe [] numInstances (Map.lookup builtinNumClassName classes)
     , maybe [] realInstances (Map.lookup builtinRealClassName classes)
     , maybe [] integralInstances (Map.lookup builtinIntegralClassName classes)
+    , maybe [] bitsInstances (Map.lookup builtinBitsClassName classes)
     , maybe [] showInstances (Map.lookup builtinShowClassName classes)
     , maybe [] readInstances (Map.lookup builtinReadClassName classes)
     , maybe [] enumInstances (Map.lookup builtinEnumClassName classes)
@@ -12428,6 +12462,31 @@ builtinInstanceDictionaries classes =
         , intQuotRemMethod
         , intDivModMethod
         , intToIntegerMethod
+        ]
+    ]
+
+  bitsInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fBitsInt" (-3921))
+        [ intBitAndMethod
+        , intBitOrMethod
+        , intBitXorMethod
+        , intBitComplementMethod
+        , intShiftMethod
+        , intRotateMethod
+        , intBitMethod
+        , intSetBitMethod
+        , intClearBitMethod
+        , intComplementBitMethod
+        , intTestBitMethod
+        , intBitSizeMethod
+        , intIsSignedMethod
+        , intShiftLMethod
+        , intShiftRMethod
+        , intRotateLMethod
+        , intRotateRMethod
         ]
     ]
 
@@ -13355,6 +13414,77 @@ intDivModMethod =
 intToIntegerMethod :: CoreExpr
 intToIntegerMethod =
   unaryMethod "$toInteger_int" (-1869) intTy intTy id
+
+intBitAndMethod :: CoreExpr
+intBitAndMethod =
+  binaryPrimMethod "$bit_and_int" (-3931) intTy intTy PrimBitAnd
+
+intBitOrMethod :: CoreExpr
+intBitOrMethod =
+  binaryPrimMethod "$bit_or_int" (-3932) intTy intTy PrimBitOr
+
+intBitXorMethod :: CoreExpr
+intBitXorMethod =
+  binaryPrimMethod "$bit_xor_int" (-3933) intTy intTy PrimBitXor
+
+intBitComplementMethod :: CoreExpr
+intBitComplementMethod =
+  unaryPrimMethod "$bit_complement_int" (-3934) intTy intTy PrimBitComplement
+
+intShiftMethod :: CoreExpr
+intShiftMethod =
+  binaryPrimMethod "$shift_int" (-3935) intTy intTy PrimShift
+
+intRotateMethod :: CoreExpr
+intRotateMethod =
+  binaryPrimMethod "$rotate_int" (-3936) intTy intTy PrimRotate
+
+intBitMethod :: CoreExpr
+intBitMethod =
+  unaryPrimMethod "$bit_int" (-3937) intTy intTy PrimBit
+
+intSetBitMethod :: CoreExpr
+intSetBitMethod =
+  binaryMethod "$set_bit_int" (-3938) intTy intTy $ \value amount ->
+    CPrimOp PrimBitOr [value, CPrimOp PrimBit [amount] intTy] intTy
+
+intClearBitMethod :: CoreExpr
+intClearBitMethod =
+  binaryMethod "$clear_bit_int" (-3939) intTy intTy $ \value amount ->
+    CPrimOp PrimBitAnd [value, CPrimOp PrimBitComplement [CPrimOp PrimBit [amount] intTy] intTy] intTy
+
+intComplementBitMethod :: CoreExpr
+intComplementBitMethod =
+  binaryMethod "$complement_bit_int" (-3940) intTy intTy $ \value amount ->
+    CPrimOp PrimBitXor [value, CPrimOp PrimBit [amount] intTy] intTy
+
+intTestBitMethod :: CoreExpr
+intTestBitMethod =
+  binaryPrimMethod "$test_bit_int" (-3941) intTy boolTy PrimTestBit
+
+intBitSizeMethod :: CoreExpr
+intBitSizeMethod =
+  unaryMethod "$bit_size_int" (-3942) intTy intTy (const (CLit (LInt 64) intTy))
+
+intIsSignedMethod :: CoreExpr
+intIsSignedMethod =
+  unaryMethod "$is_signed_int" (-3943) intTy boolTy (const (CCon trueDataConName boolTy))
+
+intShiftLMethod :: CoreExpr
+intShiftLMethod =
+  binaryPrimMethod "$shift_l_int" (-3944) intTy intTy PrimShiftL
+
+intShiftRMethod :: CoreExpr
+intShiftRMethod =
+  binaryPrimMethod "$shift_r_int" (-3945) intTy intTy PrimShiftR
+
+intRotateLMethod :: CoreExpr
+intRotateLMethod =
+  binaryPrimMethod "$rotate_l_int" (-3946) intTy intTy PrimRotateL
+
+intRotateRMethod :: CoreExpr
+intRotateRMethod =
+  binaryPrimMethod "$rotate_r_int" (-3947) intTy intTy PrimRotateR
 
 intDivCoreWith :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
 intDivCoreWith occurrence unique lhs rhs =

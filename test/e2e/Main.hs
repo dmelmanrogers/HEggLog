@@ -459,6 +459,34 @@ dataListExpectedStdout =
     , "[8,8,8]"
     ]
 
+dataBitsExpectedStdout :: Text
+dataBitsExpectedStdout =
+  Text.intercalate
+    "\n"
+    [ "2"
+    , "7"
+    , "5"
+    , "-1"
+    , "4"
+    , "12"
+    , "-9223372036854775808"
+    , "0"
+    , "-1"
+    , "-9223372036854775808"
+    , "2"
+    , "1"
+    , "32"
+    , "0"
+    , "8"
+    , "-2"
+    , "2"
+    , "True"
+    , "False"
+    , "64"
+    , "True"
+    , "8"
+    ]
+
 e2eCases :: [E2ECase]
 e2eCases =
   [ successCase "arithmetic" "test/e2e/programs/arithmetic.hg" "14" [DefaultEgglog, NoEgglog] True
@@ -508,6 +536,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-data-char" "test/haskell2010/conformance/modules/data-char.hs" "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nFalse\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nUppercaseLetter\nNonSpacingMark\nAzQ\n15\nf\n65\nA\n\\n!\n\\SO\\&H\n\\n\nHello\n'A'\n7\n!" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-data-ix" "test/haskell2010/conformance/modules/data-ix.hs" "[1,2,3,4]\n2\nTrue\nxyz\n[False,True]\n[LT,EQ,GT]\n1\n[Red,Green,Blue]\n1\nTrue\n2\n4" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-data-array" "test/haskell2010/conformance/modules/data-array.hs" "abc\nbc\n1\n3\n[1,2,3]\naZc\n2\n3\n1\n0\n10\nbc\nAbc\nTrue\nGT\narray (1,3) [(1,'a'),(2,'b'),(3,'c')]\n(array (1,3) [(1,'a'),(2,'b'),(3,'c')])!\nabc\nxy" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-data-bits" "test/haskell2010/conformance/modules/data-bits.hs" dataBitsExpectedStdout [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-modules" "test/e2e/programs/haskell2010/modules/Main.hs" "20" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-printing" "test/e2e/programs/haskell2010/io-printing.hs" "ok\nanswer\n42\nTrue" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-normal-examples" "test/e2e/programs/haskell2010/io-normal-examples.hs" "hello\nbound\n\"quoted\"\n'X'\n\"plain\"\n[1,2,3]\n[True,False]" [DefaultEgglog, NoEgglog] True
@@ -542,6 +571,7 @@ e2eCases =
   , runtimeErrorCase "haskell2010-data-char-partial" "test/haskell2010/conformance/modules/data-char-partial.hs" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "haskell2010-data-array-partial" "test/haskell2010/conformance/modules/data-array-partial.hs" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "haskell2010-data-array-duplicate-partial" "test/haskell2010/conformance/modules/data-array-duplicate-partial.hs" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-data-bits-negative-shift-partial" "test/haskell2010/conformance/modules/data-bits-negative-shift-partial.hs" [DefaultEgglog, NoEgglog]
   , compileErrorCase "open-free-variable" "test/e2e/programs/compile-errors/open-free-variable.hg" ["free", "unbound", "unknown", "backend"]
   , compileErrorCase "type-error" "test/e2e/programs/compile-errors/type-error.hg" ["type"]
   , compileErrorCase "unsupported-recursion" "test/e2e/programs/unsupported/unsupported-recursion.hg" ["recursive", "recursion", "unbound", "unknown"]

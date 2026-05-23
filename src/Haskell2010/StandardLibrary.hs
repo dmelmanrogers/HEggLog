@@ -37,6 +37,7 @@ standardLibraryModuleInterfaces =
     [ (standardPreludeModuleName, standardPreludeInterface)
     , (controlMonadModuleName, controlMonadInterface)
     , (dataArrayModuleName, dataArrayInterface)
+    , (dataBitsModuleName, dataBitsInterface)
     , (dataCharModuleName, dataCharInterface)
     , (dataIntModuleName, dataIntInterface)
     , (dataIxModuleName, dataIxInterface)
@@ -260,6 +261,10 @@ dataArrayModuleName :: S.ModuleName
 dataArrayModuleName =
   S.ModuleName ["Data", "Array"]
 
+dataBitsModuleName :: S.ModuleName
+dataBitsModuleName =
+  S.ModuleName ["Data", "Bits"]
+
 dataIxModuleName :: S.ModuleName
 dataIxModuleName =
   S.ModuleName ["Data", "Ix"]
@@ -354,6 +359,25 @@ dataArrayInterface =
     (dataIxNames <> dataArrayNames)
     [((ClassNamespace, "Ix"), fmap (TermNamespace,) ["range", "index", "inRange", "rangeSize"])]
     (Map.fromList [("!", S.Fixity S.InfixL 9), ("//", S.Fixity S.InfixL 9)])
+
+dataBitsInterface :: ModuleInterface
+dataBitsInterface =
+  standardLibraryInterfaceWith
+    dataBitsModuleName
+    dataBitsNames
+    [((ClassNamespace, "Bits"), fmap (TermNamespace,) dataBitsMethodNames)]
+    ( Map.fromList
+        [ (".&.", S.Fixity S.InfixL 7)
+        , ("xor", S.Fixity S.InfixL 6)
+        , (".|.", S.Fixity S.InfixL 5)
+        , ("shift", S.Fixity S.InfixL 8)
+        , ("rotate", S.Fixity S.InfixL 8)
+        , ("shiftL", S.Fixity S.InfixL 8)
+        , ("shiftR", S.Fixity S.InfixL 8)
+        , ("rotateL", S.Fixity S.InfixL 8)
+        , ("rotateR", S.Fixity S.InfixL 8)
+        ]
+    )
 
 dataIxInterface :: ModuleInterface
 dataIxInterface =
@@ -485,6 +509,7 @@ standardLibraryNames =
     <> dataWordNames
     <> systemIONames
     <> systemIOErrorNames
+    <> dataBitsNames
 
 controlMonadNames :: [(Namespace, Text)]
 controlMonadNames =
@@ -631,6 +656,31 @@ dataArrayNames =
       , "accum"
       , "ixmap"
       ]
+
+dataBitsNames :: [(Namespace, Text)]
+dataBitsNames =
+  (ClassNamespace, "Bits") : fmap (TermNamespace,) dataBitsMethodNames
+
+dataBitsMethodNames :: [Text]
+dataBitsMethodNames =
+  [ ".&."
+  , ".|."
+  , "xor"
+  , "complement"
+  , "shift"
+  , "rotate"
+  , "bit"
+  , "setBit"
+  , "clearBit"
+  , "complementBit"
+  , "testBit"
+  , "bitSize"
+  , "isSigned"
+  , "shiftL"
+  , "shiftR"
+  , "rotateL"
+  , "rotateR"
+  ]
 
 dataListNames :: [(Namespace, Text)]
 dataListNames =

@@ -1,5 +1,5 @@
 module Main where
 
-import Data.Bits (Bits)
+import Data.Complex (Complex)
 
 main = 0

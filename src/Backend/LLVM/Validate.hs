@@ -82,6 +82,13 @@ validateInstruction function labels registers = \case
   ISub _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IMul _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IDiv _ ty lhs rhs -> validateBinary function registers ty lhs rhs
+  IRem _ ty lhs rhs -> validateBinary function registers ty lhs rhs
+  IAnd _ ty lhs rhs -> validateBinary function registers ty lhs rhs
+  IOr _ ty lhs rhs -> validateBinary function registers ty lhs rhs
+  IXor _ ty lhs rhs -> validateBinary function registers ty lhs rhs
+  IShl _ ty lhs rhs -> validateBinary function registers ty lhs rhs
+  IAshr _ ty lhs rhs -> validateBinary function registers ty lhs rhs
+  ILshr _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IIcmp _ _ ty lhs rhs -> validateBinary function registers ty lhs rhs
   IZext _ value _ -> validateOperand function registers value
   ISext _ value _ -> validateOperand function registers value
@@ -198,6 +205,13 @@ instructionResult = \case
   ISub reg _ _ _ -> Just reg
   IMul reg _ _ _ -> Just reg
   IDiv reg _ _ _ -> Just reg
+  IRem reg _ _ _ -> Just reg
+  IAnd reg _ _ _ -> Just reg
+  IOr reg _ _ _ -> Just reg
+  IXor reg _ _ _ -> Just reg
+  IShl reg _ _ _ -> Just reg
+  IAshr reg _ _ _ -> Just reg
+  ILshr reg _ _ _ -> Just reg
   IIcmp reg _ _ _ _ -> Just reg
   IZext reg _ _ -> Just reg
   ISext reg _ _ -> Just reg
@@ -215,6 +229,13 @@ instructionResultType = \case
   ISub _ ty _ _ -> ty
   IMul _ ty _ _ -> ty
   IDiv _ ty _ _ -> ty
+  IRem _ ty _ _ -> ty
+  IAnd _ ty _ _ -> ty
+  IOr _ ty _ _ -> ty
+  IXor _ ty _ _ -> ty
+  IShl _ ty _ _ -> ty
+  IAshr _ ty _ _ -> ty
+  ILshr _ ty _ _ -> ty
   IIcmp {} -> LI1
   IZext _ _ ty -> ty
   ISext _ _ ty -> ty

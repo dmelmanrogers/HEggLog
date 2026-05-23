@@ -678,6 +678,18 @@ corePrimToANF = \case
   PrimEq -> Just Eq
   PrimLt -> Just Lt
   PrimNegate -> Nothing
+  PrimBitAnd -> Nothing
+  PrimBitOr -> Nothing
+  PrimBitXor -> Nothing
+  PrimBitComplement -> Nothing
+  PrimShift -> Nothing
+  PrimShiftL -> Nothing
+  PrimShiftR -> Nothing
+  PrimRotate -> Nothing
+  PrimRotateL -> Nothing
+  PrimRotateR -> Nothing
+  PrimBit -> Nothing
+  PrimTestBit -> Nothing
   PrimCharToInt -> Nothing
   PrimIntToChar -> Nothing
   PrimShowInt -> Nothing

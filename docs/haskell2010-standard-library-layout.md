@@ -29,6 +29,7 @@ graph path until that module has an implemented surface.
 | `Prelude` | implemented for current executable subset | supported built-in data constructors, classes, class methods, list functions, IO functions, tuple/list/unit types, `Thing(..)` children, and Prelude fixities |
 | `Control.Monad` | implemented for supported monads | `Functor(fmap)`, `Monad(..)`, `MonadPlus(..)`, and the Haskell 2010 monadic combinator surface (`mapM`, `mapM_`, `forM`, `forM_`, `sequence`, `sequence_`, `(=<<)`, `(>=>)`, `(<=<)`, `forever`, `void`, `join`, `msum`, `filterM`, `mapAndUnzipM`, `zipWithM`, `zipWithM_`, `foldM`, `foldM_`, `replicateM`, `replicateM_`, `guard`, `when`, `unless`, `liftM` through `liftM5`, and `ap`) for the supported `IO`, `Maybe`, and list instances |
 | `Data.Array` | source-backed native module | `Array`, immutable non-strict array construction/access/update functions (`array`, `listArray`, `accumArray`, `(!)`, `bounds`, `indices`, `elems`, `assocs`, `(//)`, `accum`, and `ixmap`), `Data.Ix` re-export, `!`/`//` fixities, and `Functor`/`Eq`/`Ord`/`Show`/`Read` instances for supported element types |
+| `Data.Bits` | generated class interface plus native `Int` dictionary | `Bits(..)` with Haskell 2010 method exports and fixities, a `Num` superclass edge, `Bits Int`, Core/STG interpreter support, and native LLVM lowering for bitwise operations, shifts, rotates, bit constructors, and bit predicates |
 | `Data.Int` | partial generated interface | `Int8`, `Int16`, `Int32`, `Int64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
 | `Data.Char` | source-backed native module | `Char`, `String`, `GeneralCategory(..)`, classification predicates, ASCII digit predicates, `generalCategory`, case conversion, `digitToInt`, `intToDigit`, `ord`, `chr`, `showLitChar`, `lexLitChar`, and `readLitChar`; compact character-table policy covers the Haskell lexical ASCII surface, Latin-1, common Greek letters, combining marks, Unicode separators needed by `isSpace`, and the Euro sign |
 | `Data.Ix` | generated class interface plus native dictionaries | `Ix(range, index, inRange, rangeSize)`, scalar instances for `Int`, `Char`, `Bool`, `Ordering`, and `()`, structural tuple instances, and derived `Ix` for supported enumeration and single-constructor product data types |
@@ -61,7 +62,6 @@ exported value/type/class surface is not yet real in the compiler.
 
 | Module | Status | Owner task |
 | --- | --- | --- |
-| `Data.Bits` | reserved | `LIB-006` |
 | `Data.Complex` | reserved | `LIB-008` |
 | `Data.Ratio` | reserved | `LIB-007` |
 | `Foreign.C.Error` | reserved | `FFI-013` |

@@ -324,6 +324,18 @@ validatePrimitive op arguments resultTy =
       , validatePrimitiveEq op arguments
       , checkPrimitiveResult op boolTy resultTy
       ]
+    PrimBitAnd -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
+    PrimBitOr -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
+    PrimBitXor -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
+    PrimBitComplement -> validateFixedPrimitive op [intTy] intTy arguments resultTy
+    PrimShift -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
+    PrimShiftL -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
+    PrimShiftR -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
+    PrimRotate -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
+    PrimRotateL -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
+    PrimRotateR -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
+    PrimBit -> validateFixedPrimitive op [intTy] intTy arguments resultTy
+    PrimTestBit -> validateFixedPrimitive op [intTy, intTy] boolTy arguments resultTy
 
 validateFixedPrimitive ::
   CorePrimOp ->

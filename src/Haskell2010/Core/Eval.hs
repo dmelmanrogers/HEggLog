@@ -21,16 +21,28 @@ import Runtime.Int
   ( HInt
   , IntError
   , addHInt
+  , andHInt
+  , bitHInt
+  , complementHInt
   , divHInt
   , eqHInt
   , hintToInteger
   , ltHInt
   , mkHIntLiteral
   , mulHInt
+  , orHInt
+  , rotateHInt
+  , rotateLHInt
+  , rotateRHInt
   , remHInt
   , renderHInt
   , renderIntError
+  , shiftHInt
+  , shiftLHInt
+  , shiftRHInt
   , subHInt
+  , testBitHInt
+  , xorHInt
   )
 
 data CoreValue
@@ -380,6 +392,30 @@ evalPrimitive coreEnv op values =
       Right (CoreBool (ltHInt lhs rhs))
     (PrimNegate, [CoreInt value]) ->
       checkedIntValue (subHInt zero value)
+    (PrimBitAnd, [CoreInt lhs, CoreInt rhs]) ->
+      checkedIntValue (andHInt lhs rhs)
+    (PrimBitOr, [CoreInt lhs, CoreInt rhs]) ->
+      checkedIntValue (orHInt lhs rhs)
+    (PrimBitXor, [CoreInt lhs, CoreInt rhs]) ->
+      checkedIntValue (xorHInt lhs rhs)
+    (PrimBitComplement, [CoreInt value]) ->
+      checkedIntValue (complementHInt value)
+    (PrimShift, [CoreInt value, CoreInt amount]) ->
+      checkedIntValue (shiftHInt value amount)
+    (PrimShiftL, [CoreInt value, CoreInt amount]) ->
+      checkedIntValue (shiftLHInt value amount)
+    (PrimShiftR, [CoreInt value, CoreInt amount]) ->
+      checkedIntValue (shiftRHInt value amount)
+    (PrimRotate, [CoreInt value, CoreInt amount]) ->
+      checkedIntValue (rotateHInt value amount)
+    (PrimRotateL, [CoreInt value, CoreInt amount]) ->
+      checkedIntValue (rotateLHInt value amount)
+    (PrimRotateR, [CoreInt value, CoreInt amount]) ->
+      checkedIntValue (rotateRHInt value amount)
+    (PrimBit, [CoreInt amount]) ->
+      checkedIntValue (bitHInt amount)
+    (PrimTestBit, [CoreInt value, CoreInt amount]) ->
+      either (Left . CoreEvalIntError) (Right . CoreBool) (testBitHInt value amount)
     (PrimCharToInt, [CoreChar value]) ->
       checkedIntValue (mkHIntLiteral (fromIntegral (ord value)))
     (PrimIntToChar, [CoreInt value]) ->
@@ -580,6 +616,18 @@ renderCorePrimOpName = \case
   PrimEq -> "=="
   PrimLt -> "<"
   PrimNegate -> "negate#"
+  PrimBitAnd -> "and#"
+  PrimBitOr -> "or#"
+  PrimBitXor -> "xor#"
+  PrimBitComplement -> "complement#"
+  PrimShift -> "shift#"
+  PrimShiftL -> "shiftL#"
+  PrimShiftR -> "shiftR#"
+  PrimRotate -> "rotate#"
+  PrimRotateL -> "rotateL#"
+  PrimRotateR -> "rotateR#"
+  PrimBit -> "bit#"
+  PrimTestBit -> "testBit#"
   PrimCharToInt -> "charToInt#"
   PrimIntToChar -> "intToChar#"
   PrimShowInt -> "showInt#"

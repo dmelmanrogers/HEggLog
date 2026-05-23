@@ -163,6 +163,18 @@ data CorePrimOp
   | PrimEq
   | PrimLt
   | PrimNegate
+  | PrimBitAnd
+  | PrimBitOr
+  | PrimBitXor
+  | PrimBitComplement
+  | PrimShift
+  | PrimShiftL
+  | PrimShiftR
+  | PrimRotate
+  | PrimRotateL
+  | PrimRotateR
+  | PrimBit
+  | PrimTestBit
   | PrimCharToInt
   | PrimIntToChar
   | PrimShowInt

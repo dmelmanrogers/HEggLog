@@ -29,16 +29,28 @@ import Runtime.Int
   ( HInt
   , IntError
   , addHInt
+  , andHInt
+  , bitHInt
+  , complementHInt
   , divHInt
   , eqHInt
   , hintToInteger
   , ltHInt
   , mkHIntLiteral
   , mulHInt
+  , orHInt
+  , rotateHInt
+  , rotateLHInt
+  , rotateRHInt
   , remHInt
   , renderHInt
   , renderIntError
+  , shiftHInt
+  , shiftLHInt
+  , shiftRHInt
   , subHInt
+  , testBitHInt
+  , xorHInt
   )
 
 newtype STGHeapAddress = STGHeapAddress Int
@@ -508,6 +520,30 @@ evalPrimitiveValues op values =
       pure (STGBool (ltHInt lhs rhs))
     (PrimNegate, [STGInt value]) ->
       liftEither (checkedIntValue (subHInt zero value))
+    (PrimBitAnd, [STGInt lhs, STGInt rhs]) ->
+      liftEither (checkedIntValue (andHInt lhs rhs))
+    (PrimBitOr, [STGInt lhs, STGInt rhs]) ->
+      liftEither (checkedIntValue (orHInt lhs rhs))
+    (PrimBitXor, [STGInt lhs, STGInt rhs]) ->
+      liftEither (checkedIntValue (xorHInt lhs rhs))
+    (PrimBitComplement, [STGInt value]) ->
+      liftEither (checkedIntValue (complementHInt value))
+    (PrimShift, [STGInt value, STGInt amount]) ->
+      liftEither (checkedIntValue (shiftHInt value amount))
+    (PrimShiftL, [STGInt value, STGInt amount]) ->
+      liftEither (checkedIntValue (shiftLHInt value amount))
+    (PrimShiftR, [STGInt value, STGInt amount]) ->
+      liftEither (checkedIntValue (shiftRHInt value amount))
+    (PrimRotate, [STGInt value, STGInt amount]) ->
+      liftEither (checkedIntValue (rotateHInt value amount))
+    (PrimRotateL, [STGInt value, STGInt amount]) ->
+      liftEither (checkedIntValue (rotateLHInt value amount))
+    (PrimRotateR, [STGInt value, STGInt amount]) ->
+      liftEither (checkedIntValue (rotateRHInt value amount))
+    (PrimBit, [STGInt amount]) ->
+      liftEither (checkedIntValue (bitHInt amount))
+    (PrimTestBit, [STGInt value, STGInt amount]) ->
+      liftEither (either (Left . STGEvalIntError) (Right . STGBool) (testBitHInt value amount))
     (PrimCharToInt, [STGChar value]) ->
       liftEither (checkedIntValue (mkHIntLiteral (fromIntegral (ord value))))
     (PrimIntToChar, [STGInt value]) ->
@@ -790,6 +826,18 @@ renderCorePrimOpName = \case
   PrimEq -> "=="
   PrimLt -> "<"
   PrimNegate -> "negate#"
+  PrimBitAnd -> "and#"
+  PrimBitOr -> "or#"
+  PrimBitXor -> "xor#"
+  PrimBitComplement -> "complement#"
+  PrimShift -> "shift#"
+  PrimShiftL -> "shiftL#"
+  PrimShiftR -> "shiftR#"
+  PrimRotate -> "rotate#"
+  PrimRotateL -> "rotateL#"
+  PrimRotateR -> "rotateR#"
+  PrimBit -> "bit#"
+  PrimTestBit -> "testBit#"
   PrimCharToInt -> "charToInt#"
   PrimIntToChar -> "intToChar#"
   PrimShowInt -> "showInt#"

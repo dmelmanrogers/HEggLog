@@ -14714,7 +14714,7 @@ Notes:
 ## LIB-006 — Data.Bits report completion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -14740,14 +14740,15 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- `Data.Bits` exports the Haskell 2010 bit class and operations for supported integral types.
-- Bit shifts, rotates, complements, bit tests, and pop-count style helpers have checked behavior for fixed-width and Int-backed representations.
-- Unsupported type combinations fail explicitly until broader numeric representations are implemented.
+- `Data.Bits` exports the Haskell 2010 `Bits(..)` class and all report methods through the generated standard-library interface.
+- `Bits Int` is implemented with the required `Num` superclass, Core/STG interpreter behavior, and native LLVM lowering for bitwise operators, shifts, rotates, `bit`, setters/clearers/toggles, predicates, `bitSize`, and `isSigned`.
+- Directional operations reject negative bit counts explicitly, and native lowering guards large shift counts so LLVM never receives undefined shift amounts.
+- Unsupported fixed-width and `Word` combinations remain explicit `LIB-009` work until those runtime representations and instances are real.
 
 Required tests:
-- `Data.Bits` conformance fixtures
-- native wet tests
-- negative type tests
+- `test/haskell2010/conformance/modules/data-bits.hs`
+- `test/haskell2010/conformance/modules/data-bits-negative-shift-partial.hs`
+- native wet tests through default, no-egglog, and emit-LLVM modes
 
 Documentation updates:
 - `docs/haskell2010-standard-library-layout.md`
@@ -14756,6 +14757,7 @@ Documentation updates:
 
 Notes:
 - Created by TEST-CONF-015 so the reserved `Data.Bits` module has a numbered owner.
+- Completed by implementing the report-shaped `Data.Bits` boundary for the compiler's current supported integral representation, `Int`.
 
 ## LIB-007 — Data.Ratio and Rational report completion
 

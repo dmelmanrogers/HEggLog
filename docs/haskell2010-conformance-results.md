@@ -161,6 +161,10 @@ predicates, case conversion, digit conversion, `ord`, `chr`, `showLitChar`,
 `modules.data-char-partial` locks invalid `digitToInt` input as a native
 runtime-error case. The implementation documents its compact character-table
 policy instead of claiming an untested full Unicode database.
+`modules.data-bits` now positively checks the generated `Data.Bits` module,
+the Haskell 2010 `Bits` method surface, `Bits Int`, checked shift/rotate
+semantics, and emit-LLVM lowering. `modules.data-bits-negative-shift-partial`
+locks directional negative bit counts as native runtime errors.
 
 TEST-CONF-015 is now validator-backed. The conformance matrix contains a
 Library Conformance Closure table covering Chapter 9 Prelude areas and every
@@ -168,8 +172,8 @@ Part II Libraries module group. The conformance validator now checks all 18
 library closure rows, verifies that each row cites manifest-backed fixtures and
 numbered remaining tracker tasks, and requires the library closure fixtures to
 stay represented in the matrix. Reserved Report modules now have explicit
-unsupported-documented fixtures for `Data.Array`, `Data.Bits`, `Data.Complex`,
-`Data.Ix`, `Data.Ratio`, `Numeric`, `System.Environment`,
+unsupported-documented fixtures for `Data.Complex`,
+`Data.Ratio`, `Numeric`, `System.Environment`,
 `System.Exit`, `Foreign.C.Error`, `Foreign.Marshal.Alloc`/array allocation,
 and `Foreign.Storable`.
 `io.io-error` now positively checks the generated `System.IO.Error` surface for

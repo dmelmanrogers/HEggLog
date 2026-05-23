@@ -443,6 +443,58 @@ emitPrim env op arguments =
     (PrimNegate, [value]) -> do
       valueOperand <- emitExpectAtomInt env value
       emitCheckedSub (OConstInt LI64 0) valueOperand >>= emitMakeIntOperand
+    (PrimBitAnd, [lhs, rhs]) ->
+      emitIntBitBinary env "bit_and" IAnd lhs rhs >>= emitMakeIntOperand
+    (PrimBitOr, [lhs, rhs]) ->
+      emitIntBitBinary env "bit_or" IOr lhs rhs >>= emitMakeIntOperand
+    (PrimBitXor, [lhs, rhs]) ->
+      emitIntBitBinary env "bit_xor" IXor lhs rhs >>= emitMakeIntOperand
+    (PrimBitComplement, [value]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      reg <- freshRegister "bit_complement"
+      emit (IXor reg LI64 valueOperand (OConstInt LI64 (-1)))
+      emitMakeIntOperand (OLocal LI64 reg)
+    (PrimShift, [value, amount]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      amountOperand <- emitExpectAtomInt env amount
+      emitSafeShift valueOperand amountOperand >>= emitMakeIntOperand
+    (PrimShiftL, [value, amount]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      amountOperand <- emitExpectAtomInt env amount
+      emitAbortIfNegativeBitCount "shift_l" amountOperand
+      emitSafeShiftLeftNonNegative valueOperand amountOperand >>= emitMakeIntOperand
+    (PrimShiftR, [value, amount]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      amountOperand <- emitExpectAtomInt env amount
+      emitAbortIfNegativeBitCount "shift_r" amountOperand
+      emitSafeShiftRightNonNegative valueOperand amountOperand >>= emitMakeIntOperand
+    (PrimRotate, [value, amount]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      amountOperand <- emitExpectAtomInt env amount
+      rotateAmount <- emitModulo64 "rotate" amountOperand
+      emitRotateLeftNormalized valueOperand rotateAmount >>= emitMakeIntOperand
+    (PrimRotateL, [value, amount]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      amountOperand <- emitExpectAtomInt env amount
+      emitAbortIfNegativeBitCount "rotate_l" amountOperand
+      rotateAmount <- emitModulo64 "rotate_l" amountOperand
+      emitRotateLeftNormalized valueOperand rotateAmount >>= emitMakeIntOperand
+    (PrimRotateR, [value, amount]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      amountOperand <- emitExpectAtomInt env amount
+      emitAbortIfNegativeBitCount "rotate_r" amountOperand
+      rotateAmount <- emitModulo64 "rotate_r" amountOperand
+      emitRotateRightNormalized valueOperand rotateAmount >>= emitMakeIntOperand
+    (PrimBit, [amount]) -> do
+      amountOperand <- emitExpectAtomInt env amount
+      emitAbortIfNegativeBitCount "bit" amountOperand
+      emitBitValue amountOperand >>= emitMakeIntOperand
+    (PrimTestBit, [value, amount]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      amountOperand <- emitExpectAtomInt env amount
+      emitAbortIfNegativeBitCount "test_bit" amountOperand
+      bitSet <- emitTestBitValue valueOperand amountOperand
+      emitMakeBool bitSet
     (PrimCharToInt, [value]) -> do
       valueOperand <- emitExpectAtomChar env value
       extendedReg <- freshRegister "char_i64"
@@ -1106,6 +1158,20 @@ emitIntBinary env intrinsic lhs rhs = do
   rhsValue <- emitExpectAtomInt env rhs
   emitCheckedIntPrim intrinsic lhsValue rhsValue
 
+emitIntBitBinary ::
+  ValueEnv ->
+  Text ->
+  (Register -> LLVMType -> LLVMOperand -> LLVMOperand -> LLVMInstruction) ->
+  STGAtom ->
+  STGAtom ->
+  FunctionM LLVMOperand
+emitIntBitBinary env prefix instruction lhs rhs = do
+  lhsValue <- emitExpectAtomInt env lhs
+  rhsValue <- emitExpectAtomInt env rhs
+  reg <- freshRegister prefix
+  emit (instruction reg LI64 lhsValue rhsValue)
+  pure (OLocal LI64 reg)
+
 emitExpectAtomInt :: ValueEnv -> STGAtom -> FunctionM LLVMOperand
 emitExpectAtomInt env atom = do
   object <- emitAtomAddress env atom
@@ -1217,6 +1283,202 @@ emitCheckedIntPrim intrinsic lhs rhs = do
 emitCheckedSub :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
 emitCheckedSub =
   emitCheckedIntPrim "llvm.ssub.with.overflow.i64"
+
+emitAbortIfNegativeBitCount :: Text -> LLVMOperand -> FunctionM ()
+emitAbortIfNegativeBitCount prefix amount = do
+  negativeReg <- freshRegister (prefix <> "_negative")
+  emit (IIcmp negativeReg ICmpSlt LI64 amount (OConstInt LI64 0))
+  abortLabel <- freshBlockLabel (prefix <> "_negative_abort")
+  okLabel <- freshBlockLabel (prefix <> "_nonnegative")
+  terminateCurrent (TCondBr (OLocal LI1 negativeReg) abortLabel okLabel)
+
+  startBlock abortLabel
+  emitAbort
+
+  startBlock okLabel
+
+emitSafeShift :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitSafeShift value amount = do
+  negativeReg <- freshRegister "shift_negative"
+  emit (IIcmp negativeReg ICmpSlt LI64 amount (OConstInt LI64 0))
+  emitValueIf
+    "shift"
+    LI64
+    (OLocal LI1 negativeReg)
+    (emitSafeNegativeShift value amount)
+    (emitSafeShiftLeftNonNegative value amount)
+
+emitSafeNegativeShift :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitSafeNegativeShift value amount = do
+  largeNegativeReg <- freshRegister "shift_negative_large"
+  emit (IIcmp largeNegativeReg ICmpSlt LI64 amount (OConstInt LI64 (-63)))
+  emitValueIf
+    "shift_negative"
+    LI64
+    (OLocal LI1 largeNegativeReg)
+    (emitLargeRightShiftResult value)
+    ( do
+        positiveAmountReg <- freshRegister "shift_negative_amount"
+        emit (ISub positiveAmountReg LI64 (OConstInt LI64 0) amount)
+        emitSafeShiftRightNonNegative value (OLocal LI64 positiveAmountReg)
+    )
+
+emitSafeShiftLeftNonNegative :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitSafeShiftLeftNonNegative value amount = do
+  inRangeReg <- freshRegister "shift_l_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amount (OConstInt LI64 intBitSize))
+  emitValueIf
+    "shift_l"
+    LI64
+    (OLocal LI1 inRangeReg)
+    ( do
+        resultReg <- freshRegister "shift_l"
+        emit (IShl resultReg LI64 value amount)
+        pure (OLocal LI64 resultReg)
+    )
+    (pure (OConstInt LI64 0))
+
+emitSafeShiftRightNonNegative :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitSafeShiftRightNonNegative value amount = do
+  inRangeReg <- freshRegister "shift_r_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amount (OConstInt LI64 intBitSize))
+  emitValueIf
+    "shift_r"
+    LI64
+    (OLocal LI1 inRangeReg)
+    ( do
+        resultReg <- freshRegister "shift_r"
+        emit (IAshr resultReg LI64 value amount)
+        pure (OLocal LI64 resultReg)
+    )
+    (emitLargeRightShiftResult value)
+
+emitLargeRightShiftResult :: LLVMOperand -> FunctionM LLVMOperand
+emitLargeRightShiftResult value = do
+  negativeReg <- freshRegister "shift_r_value_negative"
+  emit (IIcmp negativeReg ICmpSlt LI64 value (OConstInt LI64 0))
+  emitValueIf
+    "shift_r_large"
+    LI64
+    (OLocal LI1 negativeReg)
+    (pure (OConstInt LI64 (-1)))
+    (pure (OConstInt LI64 0))
+
+emitModulo64 :: Text -> LLVMOperand -> FunctionM LLVMOperand
+emitModulo64 prefix amount = do
+  remainderReg <- freshRegister (prefix <> "_mod")
+  emit (IRem remainderReg LI64 amount (OConstInt LI64 intBitSize))
+  let remainder = OLocal LI64 remainderReg
+  negativeReg <- freshRegister (prefix <> "_mod_negative")
+  emit (IIcmp negativeReg ICmpSlt LI64 remainder (OConstInt LI64 0))
+  emitValueIf
+    (prefix <> "_mod")
+    LI64
+    (OLocal LI1 negativeReg)
+    ( do
+        adjustedReg <- freshRegister (prefix <> "_mod_adjusted")
+        emit (IAdd adjustedReg LI64 remainder (OConstInt LI64 intBitSize))
+        pure (OLocal LI64 adjustedReg)
+    )
+    (pure remainder)
+
+emitRotateLeftNormalized :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitRotateLeftNormalized value amount = do
+  zeroReg <- freshRegister "rotate_l_zero"
+  emit (IIcmp zeroReg ICmpEq LI64 amount (OConstInt LI64 0))
+  emitValueIf
+    "rotate_l"
+    LI64
+    (OLocal LI1 zeroReg)
+    (pure value)
+    ( do
+        leftReg <- freshRegister "rotate_l_left"
+        rightAmountReg <- freshRegister "rotate_l_right_amount"
+        rightReg <- freshRegister "rotate_l_right"
+        resultReg <- freshRegister "rotate_l_result"
+        emit (IShl leftReg LI64 value amount)
+        emit (ISub rightAmountReg LI64 (OConstInt LI64 intBitSize) amount)
+        emit (ILshr rightReg LI64 value (OLocal LI64 rightAmountReg))
+        emit (IOr resultReg LI64 (OLocal LI64 leftReg) (OLocal LI64 rightReg))
+        pure (OLocal LI64 resultReg)
+    )
+
+emitRotateRightNormalized :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitRotateRightNormalized value amount = do
+  zeroReg <- freshRegister "rotate_r_zero"
+  emit (IIcmp zeroReg ICmpEq LI64 amount (OConstInt LI64 0))
+  emitValueIf
+    "rotate_r"
+    LI64
+    (OLocal LI1 zeroReg)
+    (pure value)
+    ( do
+        rightReg <- freshRegister "rotate_r_right"
+        leftAmountReg <- freshRegister "rotate_r_left_amount"
+        leftReg <- freshRegister "rotate_r_left"
+        resultReg <- freshRegister "rotate_r_result"
+        emit (ILshr rightReg LI64 value amount)
+        emit (ISub leftAmountReg LI64 (OConstInt LI64 intBitSize) amount)
+        emit (IShl leftReg LI64 value (OLocal LI64 leftAmountReg))
+        emit (IOr resultReg LI64 (OLocal LI64 leftReg) (OLocal LI64 rightReg))
+        pure (OLocal LI64 resultReg)
+    )
+
+emitBitValue :: LLVMOperand -> FunctionM LLVMOperand
+emitBitValue amount = do
+  inRangeReg <- freshRegister "bit_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amount (OConstInt LI64 intBitSize))
+  emitValueIf
+    "bit"
+    LI64
+    (OLocal LI1 inRangeReg)
+    ( do
+        resultReg <- freshRegister "bit"
+        emit (IShl resultReg LI64 (OConstInt LI64 1) amount)
+        pure (OLocal LI64 resultReg)
+    )
+    (pure (OConstInt LI64 0))
+
+emitTestBitValue :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitTestBitValue value amount = do
+  inRangeReg <- freshRegister "test_bit_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amount (OConstInt LI64 intBitSize))
+  emitValueIf
+    "test_bit"
+    LI1
+    (OLocal LI1 inRangeReg)
+    ( do
+        shiftedReg <- freshRegister "test_bit_shifted"
+        lowBitReg <- freshRegister "test_bit_low"
+        resultReg <- freshRegister "test_bit_result"
+        emit (ILshr shiftedReg LI64 value amount)
+        emit (IAnd lowBitReg LI64 (OLocal LI64 shiftedReg) (OConstInt LI64 1))
+        emit (IIcmp resultReg ICmpEq LI64 (OLocal LI64 lowBitReg) (OConstInt LI64 1))
+        pure (OLocal LI1 resultReg)
+    )
+    (pure (OConstInt LI1 0))
+
+emitValueIf :: Text -> LLVMType -> LLVMOperand -> FunctionM LLVMOperand -> FunctionM LLVMOperand -> FunctionM LLVMOperand
+emitValueIf prefix ty condition onTrue onFalse = do
+  trueLabel <- freshBlockLabel (prefix <> "_true")
+  falseLabel <- freshBlockLabel (prefix <> "_false")
+  joinLabel <- freshBlockLabel (prefix <> "_join")
+  terminateCurrent (TCondBr condition trueLabel falseLabel)
+
+  startBlock trueLabel
+  trueValue <- onTrue
+  truePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock falseLabel
+  falseValue <- onFalse
+  falsePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  resultReg <- freshRegister prefix
+  emit (IPhi resultReg ty [(trueValue, truePredecessor), (falseValue, falsePredecessor)])
+  pure (OLocal ty resultReg)
 
 emitCheckCharCode :: LLVMOperand -> FunctionM ()
 emitCheckCharCode value = do
@@ -3477,6 +3739,10 @@ minInt64Value =
 maxInt64Value :: Integer
 maxInt64Value =
   9223372036854775807
+
+intBitSize :: Integer
+intBitSize =
+  64
 
 sanitizeName :: Text -> Text
 sanitizeName =

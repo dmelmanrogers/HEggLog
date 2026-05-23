@@ -1493,13 +1493,29 @@
       "notes": "Unit and wildcard function patterns compile natively without forcing an unused argument."
     },
     {
-      "name": "unsupported.library-data-bits",
-      "sourceFile": "test/haskell2010/conformance/unsupported/library-data-bits.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
-      "requiredStage": "module-graph",
-      "notes": "Data.Bits remains reserved until bit classes and operations are implemented under LIB-006."
+      "name": "modules.data-bits",
+      "sourceFile": "test/haskell2010/conformance/modules/data-bits.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "2\n7\n5\n-1\n4\n12\n-9223372036854775808\n0\n-1\n-9223372036854775808\n2\n1\n32\n0\n8\n-2\n2\nTrue\nFalse\n64\nTrue\n8\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Bits exports the report-shaped Bits class and validates the supported Int instance across bitwise operators, shifts, rotates, bit constructors, predicates, and directional helpers."
+    },
+    {
+      "name": "modules.data-bits-negative-shift-partial",
+      "sourceFile": "test/haskell2010/conformance/modules/data-bits-negative-shift-partial.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Directional bit-count operations reject negative indexes rather than relying on undefined native shift behavior."
     },
     {
       "name": "unsupported.library-data-complex",
