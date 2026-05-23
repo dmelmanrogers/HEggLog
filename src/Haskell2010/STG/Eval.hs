@@ -16,11 +16,13 @@ where
 
 import Control.Monad (foldM, zipWithM_)
 import Control.Monad.State.Strict (StateT, get, lift, modify, runStateT)
+import qualified Data.Bits as Bits
 import Data.Char (chr, ord)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Core.Syntax
+import Haskell2010.FixedWidth
 import Haskell2010.Names (Namespace (..), RName (..), nameOcc, renderRName)
 import Haskell2010.STG.Syntax
 import qualified Haskell2010.STG.Validate as STGValidate
@@ -567,6 +569,8 @@ evalPrimitiveValues op values =
       liftEither (evalFloatingPrimitive width floatingOp arguments)
     (PrimFloatInt width floatingOp, arguments) ->
       liftEither (evalFloatingIntPrimitive width floatingOp arguments)
+    (PrimFixedIntegral fixed fixedOp, arguments) ->
+      liftEither (evalFixedIntegralPrimitive fixed fixedOp arguments)
     (PrimPutStrLn, [value]) ->
       (\text -> STGIO [text <> "\n"] (STGIOSuccess (STGData unitDataConName []))) <$> stgStringText value
     (PrimGetLine, []) ->
@@ -623,15 +627,90 @@ evalPrimitiveValues op values =
       pure (STGForeignPtr pointer)
     _ ->
       throwEval (STGEvalTypeError ("invalid STG primitive operands for " <> renderCorePrimOpName op))
+  where
+    checkedIntValue =
+      \case
+        Right value -> Right (STGInt value)
+        Left err -> Left (STGEvalIntError err)
+    zero =
+      case mkHIntLiteral 0 of
+        Right value -> value
+        Left err -> error (Text.unpack (renderIntError err))
+
+evalFixedIntegralPrimitive :: FixedIntegral -> FixedIntegralOp -> [STGValue] -> Either STGEvalError STGValue
+evalFixedIntegralPrimitive fixed op values =
+  case (op, values) of
+    (FixedAdd, [STGInt lhs, STGInt rhs]) -> fixedValue (fixedInput lhs + fixedInput rhs)
+    (FixedSub, [STGInt lhs, STGInt rhs]) -> fixedValue (fixedInput lhs - fixedInput rhs)
+    (FixedMul, [STGInt lhs, STGInt rhs]) -> fixedValue (fixedInput lhs * fixedInput rhs)
+    (FixedQuot, [STGInt _, STGInt rhs])
+      | fixedInput rhs == 0 -> Left STGEvalDivisionByZero
+    (FixedQuot, [STGInt lhs, STGInt rhs]) -> fixedValue (fixedInput lhs `quot` fixedInput rhs)
+    (FixedRem, [STGInt _, STGInt rhs])
+      | fixedInput rhs == 0 -> Left STGEvalDivisionByZero
+    (FixedRem, [STGInt lhs, STGInt rhs]) -> fixedValue (fixedInput lhs `rem` fixedInput rhs)
+    (FixedEq, [STGInt lhs, STGInt rhs]) -> Right (STGBool (fixedInput lhs == fixedInput rhs))
+    (FixedLt, [STGInt lhs, STGInt rhs]) -> Right (STGBool (fixedInput lhs < fixedInput rhs))
+    (FixedNegate, [STGInt value]) -> fixedValue (negate (fixedInput value))
+    (FixedAbs, [STGInt value]) -> fixedValue (abs (fixedInput value))
+    (FixedSignum, [STGInt value]) -> fixedValue (signum (fixedInput value))
+    (FixedFromInteger, [STGInt value]) -> fixedValue (hintToInteger value)
+    (FixedToInteger, [STGInt value]) -> checkedSTGIntValue (mkHIntLiteral (fixedInput value))
+    (FixedShow, [STGInt value]) -> Right (STGString (fixedIntegralRender fixed (fixedInput value)))
+    (FixedBitAnd, [STGInt lhs, STGInt rhs]) -> fixedBitsValue ((Bits..&.) (fixedInputBits lhs) (fixedInputBits rhs))
+    (FixedBitOr, [STGInt lhs, STGInt rhs]) -> fixedBitsValue ((Bits..|.) (fixedInputBits lhs) (fixedInputBits rhs))
+    (FixedBitXor, [STGInt lhs, STGInt rhs]) -> fixedBitsValue (Bits.xor (fixedInputBits lhs) (fixedInputBits rhs))
+    (FixedBitComplement, [STGInt value]) -> fixedBitsValue (Bits.complement (fixedInputBits value))
+    (shiftOp@FixedShift, [STGInt value, STGInt amount]) -> shifted shiftOp value amount
+    (shiftOp@FixedShiftL, [STGInt value, STGInt amount]) -> shifted shiftOp value amount
+    (shiftOp@FixedShiftR, [STGInt value, STGInt amount]) -> shifted shiftOp value amount
+    (shiftOp@FixedRotate, [STGInt value, STGInt amount]) -> shifted shiftOp value amount
+    (shiftOp@FixedRotateL, [STGInt value, STGInt amount]) -> shifted shiftOp value amount
+    (shiftOp@FixedRotateR, [STGInt value, STGInt amount]) -> shifted shiftOp value amount
+    (FixedBit, [STGInt amount])
+      | hintToInteger amount < 0 ->
+          Left (STGEvalTypeError "negative fixed-width bit index")
+      | hintToInteger amount >= fixedIntegralBitSize fixed ->
+          fixedValue 0
+      | otherwise ->
+          fixedValue (2 ^ hintToInteger amount)
+    (FixedTestBit, [STGInt value, STGInt amount])
+      | hintToInteger amount < 0 ->
+          Left (STGEvalTypeError "negative fixed-width bit index")
+      | hintToInteger amount >= fixedIntegralBitSize fixed ->
+          Right (STGBool False)
+      | otherwise ->
+          Right (STGBool (Bits.testBit (fixedInputBits value) (fromInteger (hintToInteger amount))))
+    (FixedMinBound, []) -> fixedValue (fixedIntegralMinValue fixed)
+    (FixedMaxBound, []) -> fixedValue (fixedIntegralMaxValue fixed)
+    _ ->
+      Left (STGEvalTypeError ("fixed-width primitive received unsupported values " <> Text.pack (show (map renderSTGValue values))))
  where
-  checkedIntValue =
-    \case
-      Right value -> Right (STGInt value)
-      Left err -> Left (STGEvalIntError err)
-  zero =
-    case mkHIntLiteral 0 of
-      Right value -> value
-      Left err -> error (Text.unpack (renderIntError err))
+  fixedInput value
+    | fixedIntegralIsSigned fixed = fixedIntegralNormalize fixed (hintToInteger value)
+    | otherwise = fixedIntegralToBits fixed (hintToInteger value)
+  fixedInputBits =
+    fixedIntegralToBits fixed . hintToInteger
+  fixedValue value =
+    checkedSTGIntValue (mkHIntLiteral (fixedRuntimePayload fixed value))
+  fixedBitsValue bits =
+    checkedSTGIntValue (mkHIntLiteral (fixedRuntimePayloadFromBits fixed bits))
+  shifted shiftOp value amount =
+    case fixedIntegralShift fixed shiftOp (fixedInput value) (hintToInteger amount) of
+      Left message -> Left (STGEvalTypeError message)
+      Right shiftedValue -> fixedValue shiftedValue
+
+fixedRuntimePayload :: FixedIntegral -> Integer -> Integer
+fixedRuntimePayload fixed =
+  fixedRuntimePayloadFromBits fixed . fixedIntegralToBits fixed
+
+fixedRuntimePayloadFromBits :: FixedIntegral -> Integer -> Integer
+fixedRuntimePayloadFromBits fixed bits
+  | normalizedBits >= 2 ^ (runtimeWordSize - 1) = normalizedBits - 2 ^ runtimeWordSize
+  | otherwise = normalizedBits
+ where
+  runtimeWordSize = 64 :: Integer
+  normalizedBits = fixedIntegralToBits fixed bits
 
 evalFloatingPrimitive :: FloatingWidth -> FloatingPrimOp -> [STGValue] -> Either STGEvalError STGValue
 evalFloatingPrimitive width op values =
@@ -961,5 +1040,6 @@ renderCorePrimOpName = \case
   PrimTouchForeignPtr -> "touchForeignPtr#"
   PrimUnsafeForeignPtrToPtr -> "unsafeForeignPtrToPtr#"
   PrimCastForeignPtr -> "castForeignPtr#"
+  PrimFixedIntegral fixed op -> fixedIntegralOccurrence fixed <> "." <> Text.pack (show op) <> "#"
   PrimFloat width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
   PrimFloatInt width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"

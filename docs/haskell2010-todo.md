@@ -14745,7 +14745,7 @@ Acceptance criteria:
 - `Data.Bits` exports the Haskell 2010 `Bits(..)` class and all report methods through the generated standard-library interface.
 - `Bits Int` is implemented with the required `Num` superclass, Core/STG interpreter behavior, and native LLVM lowering for bitwise operators, shifts, rotates, `bit`, setters/clearers/toggles, predicates, `bitSize`, and `isSigned`.
 - Directional operations reject negative bit counts explicitly, and native lowering guards large shift counts so LLVM never receives undefined shift amounts.
-- Unsupported fixed-width and `Word` combinations remain explicit `LIB-009` work until those runtime representations and instances are real.
+- Fixed-width `Int*`/`Word*` instances are implemented by `LIB-009`; plain `Word` remains intentionally outside the Haskell 2010 basic FFI type set.
 
 Required tests:
 - `test/haskell2010/conformance/modules/data-bits.hs`
@@ -14759,7 +14759,7 @@ Documentation updates:
 
 Notes:
 - Created by TEST-CONF-015 so the reserved `Data.Bits` module has a numbered owner.
-- Completed by implementing the report-shaped `Data.Bits` boundary for the compiler's current supported integral representation, `Int`.
+- Completed by implementing the report-shaped `Data.Bits` boundary for `Int`; `LIB-009` extends that same boundary to fixed-width `Int*`/`Word*` representations.
 
 ## LIB-007 — Data.Ratio and Rational report completion
 
@@ -14814,9 +14814,9 @@ Notes:
   dictionaries cover `Eq`, `Ord`, `Num`, `Real`, `Show`, and `Read`, including
   precedence-aware `show`/`read` round trips and list `Read`/`Show`.
   `approxRational` implements the Report simplest-rational algorithm for the
-  currently supported `Rational` input type. Generic `Ratio a`, arbitrary
-  precision `Integer`, and floating/fractional integration remain owned by
-  `LIB-008` and `LIB-009`.
+  currently supported `Rational` input type. Generic `Ratio a` and arbitrary
+  precision `Integer` remain separate broader numeric gaps; floating/fractional
+  integration is covered by `LIB-008`.
 
 ## LIB-008 — Data.Complex and floating numeric tower
 
@@ -14883,7 +14883,7 @@ Notes:
 ## LIB-009 — Data.Int and Data.Word report completion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -14924,7 +14924,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- TEST-CONF-015 added a positive import fixture for the current type-name-only boundary and this task owns the real implementation.
+- Complete for the non-`Storable` `Data.Int`/`Data.Word` surface owned by this task. `Data.Int` and `Data.Word` now use shared fixed-width runtime representations for `Int8`, `Int16`, `Int32`, `Int64`, `Word`, `Word8`, `Word16`, `Word32`, and `Word64`, with Core/STG/native primitives for modulo arithmetic, signed and unsigned comparisons, quotient/remainder, bounds, `Show`, `Read` through the current integer lexer, `Enum`, `Ix`, and `Bits`. Native conformance covers overflow, bounds, unsigned `Word64` rendering, signed shift edge cases, fixed-width list/range behavior, and static FFI scalar marshalling for `Int8`, `Word8`, and `Word64`. Plain `Word` remains intentionally rejected as a Haskell 2010 basic FFI type; the Report basic FFI word types are `Word8`/`Word16`/`Word32`/`Word64`. `Storable` instances remain under `FFI-013` with the broader reserved `Foreign.Storable` surface. Arbitrary-precision `Integer` is still represented by the existing checked-`Int` runtime subset, so `Integral` conversions are complete for values representable by that project-wide `Integer` representation; true arbitrary-precision `Integer` remains a separate conformance gap.
 
 ## LIB-010 — Numeric report completion
 

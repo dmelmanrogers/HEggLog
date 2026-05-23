@@ -33,6 +33,18 @@ int32_t hegglog_ffi_next_char(int32_t codepoint) {
   return codepoint + 1;
 }
 
+uint8_t hegglog_ffi_inc_u8(uint8_t value) {
+  return (uint8_t)(value + 1);
+}
+
+int8_t hegglog_ffi_neg_i8(int8_t value) {
+  return (int8_t)(-value);
+}
+
+uint64_t hegglog_ffi_id_u64(uint64_t value) {
+  return value;
+}
+
 int64_t hegglog_ffi_read_i64_ptr(int64_t *ptr) {
   return *ptr;
 }

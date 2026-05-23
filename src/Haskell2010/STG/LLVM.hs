@@ -17,6 +17,7 @@ import qualified Data.Text as Text
 import Haskell2010.Core.Pretty (renderCorePrimOp, renderCoreType)
 import Haskell2010.Core.Syntax
 import Haskell2010.FFI.LinkMetadata (foreignLinkMetadataForImportsExports, renderForeignLinkMetadataComments)
+import Haskell2010.FixedWidth
 import Haskell2010.Names (RName, nameOcc, nameUnique, renderRName)
 import Haskell2010.STG.Syntax
 import qualified Haskell2010.STG.Validate as STGValidate
@@ -226,8 +227,10 @@ printableMainValue ty value
       doubleReg <- freshRegister "main_double"
       emit (ICall (Just doubleReg) LDouble (DirectCall expectDoubleFunctionName) False [(LPtr, value)])
       pure (OLocal LDouble doubleReg)
+  | Just fixed <- fixedIntegralTypeByCoreType ty =
+      emitExpectObjectInt value >>= emitNormalizeFixed fixed
   | otherwise =
-      throwSTGLLVM (STGLLVMUnsupported ("native Haskell 2010 main must be Int, Bool, Char, Float, or Double, got " <> renderCoreType ty))
+      throwSTGLLVM (STGLLVMUnsupported ("native Haskell 2010 main must be Int, fixed-width integral, Bool, Char, Float, or Double, got " <> renderCoreType ty))
 
 formatPointer :: CoreType -> FunctionM LLVMOperand
 formatPointer ty = do
@@ -236,6 +239,7 @@ formatPointer ty = do
         | ty == boolTy = ("haskell2010_fmt_i1", boolFormatBytes)
         | ty == charTy = ("haskell2010_fmt_char", charFormatBytes)
         | ty == floatTy || ty == doubleTy = ("haskell2010_fmt_double", doubleFormatBytes)
+        | Just fixed <- fixedIntegralTypeByCoreType ty, not (fixedIntegralIsSigned fixed) = ("haskell2010_fmt_u64", wordFormatBytes)
         | otherwise = ("haskell2010_fmt_i64", intFormatBytes)
       (globalName, bytes) = formatSpec
       arrayType = LArray (Text.length bytes) LI8
@@ -527,6 +531,8 @@ emitPrim env op arguments =
     (PrimShowBool, [value]) -> do
       valueOperand <- emitExpectAtomBool env value
       emitShowBool valueOperand
+    (PrimFixedIntegral fixed fixedOp, args) ->
+      emitFixedIntegralPrim env fixed fixedOp args
     (PrimFloat width floatingOp, args) ->
       emitFloatingPrim env width floatingOp args
     (PrimFloatInt width floatingOp, args) ->
@@ -678,6 +684,419 @@ emitPrim env op arguments =
                 <> Text.pack (show (length arguments))
             )
         )
+
+emitFixedIntegralPrim :: ValueEnv -> FixedIntegral -> FixedIntegralOp -> [STGAtom] -> FunctionM LLVMOperand
+emitFixedIntegralPrim env fixed op arguments =
+  case (op, arguments) of
+    (FixedAdd, [lhs, rhs]) -> emitFixedBinary env fixed "fixed_add" IAdd lhs rhs
+    (FixedSub, [lhs, rhs]) -> emitFixedBinary env fixed "fixed_sub" ISub lhs rhs
+    (FixedMul, [lhs, rhs]) -> emitFixedBinary env fixed "fixed_mul" IMul lhs rhs
+    (FixedQuot, [lhs, rhs]) -> emitFixedQuotRem env fixed True lhs rhs
+    (FixedRem, [lhs, rhs]) -> emitFixedQuotRem env fixed False lhs rhs
+    (FixedEq, [lhs, rhs]) -> emitFixedEq env fixed lhs rhs
+    (FixedLt, [lhs, rhs]) -> emitFixedLt env fixed lhs rhs
+    (FixedNegate, [value]) -> do
+      valueOperand <- emitExpectFixedAtom env fixed value
+      resultReg <- freshRegister "fixed_negate"
+      emit (ISub resultReg LI64 (OConstInt LI64 0) valueOperand)
+      emitMakeFixedOperand fixed (OLocal LI64 resultReg)
+    (FixedAbs, [value]) -> do
+      valueOperand <- emitExpectFixedAtom env fixed value
+      if fixedIntegralIsSigned fixed
+        then do
+          negativeReg <- freshRegister "fixed_abs_negative"
+          emit (IIcmp negativeReg ICmpSlt LI64 valueOperand (OConstInt LI64 0))
+          result <- emitValueIf "fixed_abs" LI64 (OLocal LI1 negativeReg) (emitFixedNegatedOperand fixed valueOperand) (pure valueOperand)
+          emitMakeFixedOperand fixed result
+        else emitMakeFixedOperand fixed valueOperand
+    (FixedSignum, [value]) -> do
+      valueOperand <- emitExpectFixedAtom env fixed value
+      zeroReg <- freshRegister "fixed_signum_zero"
+      emit (IIcmp zeroReg ICmpEq LI64 valueOperand (OConstInt LI64 0))
+      nonZero <-
+        if fixedIntegralIsSigned fixed
+          then do
+            negativeReg <- freshRegister "fixed_signum_negative"
+            emit (IIcmp negativeReg ICmpSlt LI64 valueOperand (OConstInt LI64 0))
+            emitValueIf "fixed_signum_nonzero" LI64 (OLocal LI1 negativeReg) (pure (OConstInt LI64 (-1))) (pure (OConstInt LI64 1))
+          else pure (OConstInt LI64 1)
+      emitValueIf "fixed_signum" LI64 (OLocal LI1 zeroReg) (pure (OConstInt LI64 0)) (pure nonZero) >>= emitMakeFixedOperand fixed
+    (FixedFromInteger, [value]) ->
+      emitExpectAtomInt env value >>= emitMakeFixedOperand fixed
+    (FixedToInteger, [value]) ->
+      (if fixedIntegralIsSigned fixed then emitExpectFixedAtom env fixed value else emitExpectFixedBitsAtom env fixed value) >>= emitMakeIntOperand
+    (FixedShow, [value]) -> do
+      valueOperand <-
+        if fixedIntegralIsSigned fixed
+          then emitExpectFixedAtom env fixed value
+          else emitExpectFixedBitsAtom env fixed value
+      resultReg <- freshRegister "show_fixed"
+      emit
+        ( ICall
+            (Just resultReg)
+            LPtr
+            (DirectCall (if fixedIntegralIsSigned fixed then showIntFunctionName else showWordFunctionName))
+            False
+            [(LI64, valueOperand)]
+        )
+      pure (OLocal LPtr resultReg)
+    (FixedBitAnd, [lhs, rhs]) -> emitFixedBinary env fixed "fixed_and" IAnd lhs rhs
+    (FixedBitOr, [lhs, rhs]) -> emitFixedBinary env fixed "fixed_or" IOr lhs rhs
+    (FixedBitXor, [lhs, rhs]) -> emitFixedBinary env fixed "fixed_xor" IXor lhs rhs
+    (FixedBitComplement, [value]) -> do
+      valueOperand <- emitExpectFixedAtom env fixed value
+      resultReg <- freshRegister "fixed_complement"
+      emit (IXor resultReg LI64 valueOperand (OConstInt LI64 (-1)))
+      emitMakeFixedOperand fixed (OLocal LI64 resultReg)
+    (FixedShift, [value, amount]) -> emitFixedShift env fixed value amount
+    (FixedShiftL, [value, amount]) -> emitFixedShiftDirected env fixed True value amount
+    (FixedShiftR, [value, amount]) -> emitFixedShiftDirected env fixed False value amount
+    (FixedRotate, [value, amount]) -> emitFixedRotate env fixed True False value amount
+    (FixedRotateL, [value, amount]) -> emitFixedRotate env fixed True True value amount
+    (FixedRotateR, [value, amount]) -> emitFixedRotate env fixed False True value amount
+    (FixedBit, [amount]) -> emitFixedBit env fixed amount
+    (FixedTestBit, [value, amount]) -> emitFixedTestBit env fixed value amount
+    (FixedMinBound, []) -> emitMakeInt (fixedPayloadLiteral fixed (fixedIntegralMinValue fixed))
+    (FixedMaxBound, []) -> emitMakeInt (fixedPayloadLiteral fixed (fixedIntegralMaxValue fixed))
+    _ ->
+      throwSTGLLVM
+        ( STGLLVMUnsupported
+            ( "native fixed-width primitive lowering received unsupported arity for "
+                <> fixedIntegralOccurrence fixed
+                <> "."
+                <> Text.pack (show op)
+                <> ": "
+                <> Text.pack (show (length arguments))
+            )
+        )
+
+emitFixedBinary :: ValueEnv -> FixedIntegral -> Text -> (Register -> LLVMType -> LLVMOperand -> LLVMOperand -> LLVMInstruction) -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedBinary env fixed prefix instruction lhs rhs = do
+  lhsValue <- emitExpectFixedAtom env fixed lhs
+  rhsValue <- emitExpectFixedAtom env fixed rhs
+  resultReg <- freshRegister prefix
+  emit (instruction resultReg LI64 lhsValue rhsValue)
+  emitMakeFixedOperand fixed (OLocal LI64 resultReg)
+
+emitFixedQuotRem :: ValueEnv -> FixedIntegral -> Bool -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedQuotRem env fixed quotient lhs rhs = do
+  lhsValue <- emitExpectFixedAtom env fixed lhs
+  rhsValue <- emitExpectFixedAtom env fixed rhs
+  emitAbortIfZero64 prefix rhsValue
+  result <-
+    if fixedIntegralIsSigned fixed
+      then emitSigned lhsValue rhsValue
+      else emitUnsigned lhsValue rhsValue
+  emitMakeFixedOperand fixed result
+ where
+  prefix = if quotient then "fixed_quot" else "fixed_rem"
+  emitSigned lhsValue rhsValue =
+    if fixedIntegralBitSize fixed == 64
+      then do
+        minReg <- freshRegister (prefix <> "_min")
+        negOneReg <- freshRegister (prefix <> "_neg_one")
+        overflowReg <- freshRegister (prefix <> "_overflow")
+        emit (IIcmp minReg ICmpEq LI64 lhsValue (OConstInt LI64 (fixedPayloadLiteral fixed (fixedIntegralMinValue fixed))))
+        emit (IIcmp negOneReg ICmpEq LI64 rhsValue (OConstInt LI64 (-1)))
+        emit (IAnd overflowReg LI1 (OLocal LI1 minReg) (OLocal LI1 negOneReg))
+        emitValueIf
+          prefix
+          LI64
+          (OLocal LI1 overflowReg)
+          (pure (if quotient then OConstInt LI64 (fixedPayloadLiteral fixed (fixedIntegralMinValue fixed)) else OConstInt LI64 0))
+          (emitPlainSigned lhsValue rhsValue)
+      else emitPlainSigned lhsValue rhsValue
+  emitPlainSigned lhsValue rhsValue = do
+    resultReg <- freshRegister prefix
+    emit ((if quotient then IDiv else IRem) resultReg LI64 lhsValue rhsValue)
+    pure (OLocal LI64 resultReg)
+  emitUnsigned lhsValue rhsValue = do
+    lhsBits <- emitFixedBitsOperand fixed lhsValue
+    rhsBits <- emitFixedBitsOperand fixed rhsValue
+    resultReg <- freshRegister prefix
+    emit ((if quotient then IUDiv else IURem) resultReg LI64 lhsBits rhsBits)
+    pure (OLocal LI64 resultReg)
+
+emitFixedEq :: ValueEnv -> FixedIntegral -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedEq env fixed lhs rhs = do
+  lhsValue <- emitExpectFixedAtom env fixed lhs
+  rhsValue <- emitExpectFixedAtom env fixed rhs
+  resultReg <- freshRegister "fixed_eq"
+  emit (IIcmp resultReg ICmpEq LI64 lhsValue rhsValue)
+  emitMakeBool (OLocal LI1 resultReg)
+
+emitFixedLt :: ValueEnv -> FixedIntegral -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedLt env fixed lhs rhs = do
+  lhsValue <- if fixedIntegralIsSigned fixed then emitExpectFixedAtom env fixed lhs else emitExpectFixedBitsAtom env fixed lhs
+  rhsValue <- if fixedIntegralIsSigned fixed then emitExpectFixedAtom env fixed rhs else emitExpectFixedBitsAtom env fixed rhs
+  resultReg <- freshRegister "fixed_lt"
+  emit (IIcmp resultReg (if fixedIntegralIsSigned fixed then ICmpSlt else ICmpUlt) LI64 lhsValue rhsValue)
+  emitMakeBool (OLocal LI1 resultReg)
+
+emitFixedNegatedOperand :: FixedIntegral -> LLVMOperand -> FunctionM LLVMOperand
+emitFixedNegatedOperand fixed value = do
+  resultReg <- freshRegister "fixed_negated"
+  emit (ISub resultReg LI64 (OConstInt LI64 0) value)
+  emitNormalizeFixed fixed (OLocal LI64 resultReg)
+
+emitFixedShift :: ValueEnv -> FixedIntegral -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedShift env fixed value amount = do
+  valueOperand <- emitExpectFixedAtom env fixed value
+  amountOperand <- emitExpectAtomInt env amount
+  negativeReg <- freshRegister "fixed_shift_negative"
+  emit (IIcmp negativeReg ICmpSlt LI64 amountOperand (OConstInt LI64 0))
+  shifted <-
+    emitValueIf
+      "fixed_shift"
+      LI64
+      (OLocal LI1 negativeReg)
+      ( do
+          positiveReg <- freshRegister "fixed_shift_positive_amount"
+          emit (ISub positiveReg LI64 (OConstInt LI64 0) amountOperand)
+          emitFixedShiftRightNonNegative fixed valueOperand (OLocal LI64 positiveReg)
+      )
+      (emitFixedShiftLeftNonNegative fixed valueOperand amountOperand)
+  emitMakeFixedOperand fixed shifted
+
+emitFixedShiftDirected :: ValueEnv -> FixedIntegral -> Bool -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedShiftDirected env fixed left value amount = do
+  valueOperand <- emitExpectFixedAtom env fixed value
+  amountOperand <- emitExpectAtomInt env amount
+  emitAbortIfNegativeBitCount (if left then "fixed_shift_l" else "fixed_shift_r") amountOperand
+  shifted <-
+    if left
+      then emitFixedShiftLeftNonNegative fixed valueOperand amountOperand
+      else emitFixedShiftRightNonNegative fixed valueOperand amountOperand
+  emitMakeFixedOperand fixed shifted
+
+emitFixedShiftLeftNonNegative :: FixedIntegral -> LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitFixedShiftLeftNonNegative fixed value amount = do
+  inRangeReg <- freshRegister "fixed_shift_l_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amount (OConstInt LI64 (fixedIntegralBitSize fixed)))
+  emitValueIf
+    "fixed_shift_l"
+    LI64
+    (OLocal LI1 inRangeReg)
+    ( do
+        resultReg <- freshRegister "fixed_shift_l"
+        emit (IShl resultReg LI64 value amount)
+        pure (OLocal LI64 resultReg)
+    )
+    (emitFixedLargeShiftResult fixed value)
+
+emitFixedShiftRightNonNegative :: FixedIntegral -> LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitFixedShiftRightNonNegative fixed value amount = do
+  inRangeReg <- freshRegister "fixed_shift_r_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amount (OConstInt LI64 (fixedIntegralBitSize fixed)))
+  emitValueIf
+    "fixed_shift_r"
+    LI64
+    (OLocal LI1 inRangeReg)
+    ( do
+        resultReg <- freshRegister "fixed_shift_r"
+        shiftValue <- if fixedIntegralIsSigned fixed then pure value else emitFixedBitsOperand fixed value
+        emit ((if fixedIntegralIsSigned fixed then IAshr else ILshr) resultReg LI64 shiftValue amount)
+        pure (OLocal LI64 resultReg)
+    )
+    (emitFixedLargeShiftResult fixed value)
+
+emitFixedLargeShiftResult :: FixedIntegral -> LLVMOperand -> FunctionM LLVMOperand
+emitFixedLargeShiftResult fixed value
+  | not (fixedIntegralIsSigned fixed) =
+      pure (OConstInt LI64 0)
+  | otherwise = do
+      negativeReg <- freshRegister "fixed_shift_value_negative"
+      emit (IIcmp negativeReg ICmpSlt LI64 value (OConstInt LI64 0))
+      emitValueIf "fixed_shift_large" LI64 (OLocal LI1 negativeReg) (pure (OConstInt LI64 (-1))) (pure (OConstInt LI64 0))
+
+emitFixedRotate :: ValueEnv -> FixedIntegral -> Bool -> Bool -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedRotate env fixed left rejectNegative value amount = do
+  valueOperand <- emitExpectFixedAtom env fixed value
+  amountOperand <- emitExpectAtomInt env amount
+  if rejectNegative then emitAbortIfNegativeBitCount (if left then "fixed_rotate_l" else "fixed_rotate_r") amountOperand else pure ()
+  normalizedAmount <- emitModuloFixedWidth (if left then "fixed_rotate_l" else "fixed_rotate_r") fixed amountOperand
+  bits <- emitFixedBitsOperand fixed valueOperand
+  rotated <-
+    if left
+      then emitFixedRotateLeftBits fixed bits normalizedAmount
+      else emitFixedRotateRightBits fixed bits normalizedAmount
+  emitMakeFixedOperand fixed rotated
+
+emitFixedRotateLeftBits :: FixedIntegral -> LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitFixedRotateLeftBits fixed value amount = do
+  zeroReg <- freshRegister "fixed_rotate_l_zero"
+  emit (IIcmp zeroReg ICmpEq LI64 amount (OConstInt LI64 0))
+  emitValueIf
+    "fixed_rotate_l"
+    LI64
+    (OLocal LI1 zeroReg)
+    (pure value)
+    ( do
+        leftReg <- freshRegister "fixed_rotate_l_left"
+        rightAmountReg <- freshRegister "fixed_rotate_l_right_amount"
+        rightReg <- freshRegister "fixed_rotate_l_right"
+        resultReg <- freshRegister "fixed_rotate_l_result"
+        emit (IShl leftReg LI64 value amount)
+        emit (ISub rightAmountReg LI64 (OConstInt LI64 (fixedIntegralBitSize fixed)) amount)
+        emit (ILshr rightReg LI64 value (OLocal LI64 rightAmountReg))
+        emit (IOr resultReg LI64 (OLocal LI64 leftReg) (OLocal LI64 rightReg))
+        pure (OLocal LI64 resultReg)
+    )
+
+emitFixedRotateRightBits :: FixedIntegral -> LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitFixedRotateRightBits fixed value amount = do
+  zeroReg <- freshRegister "fixed_rotate_r_zero"
+  emit (IIcmp zeroReg ICmpEq LI64 amount (OConstInt LI64 0))
+  emitValueIf
+    "fixed_rotate_r"
+    LI64
+    (OLocal LI1 zeroReg)
+    (pure value)
+    ( do
+        rightReg <- freshRegister "fixed_rotate_r_right"
+        leftAmountReg <- freshRegister "fixed_rotate_r_left_amount"
+        leftReg <- freshRegister "fixed_rotate_r_left"
+        resultReg <- freshRegister "fixed_rotate_r_result"
+        emit (ILshr rightReg LI64 value amount)
+        emit (ISub leftAmountReg LI64 (OConstInt LI64 (fixedIntegralBitSize fixed)) amount)
+        emit (IShl leftReg LI64 value (OLocal LI64 leftAmountReg))
+        emit (IOr resultReg LI64 (OLocal LI64 rightReg) (OLocal LI64 leftReg))
+        pure (OLocal LI64 resultReg)
+    )
+
+emitFixedBit :: ValueEnv -> FixedIntegral -> STGAtom -> FunctionM LLVMOperand
+emitFixedBit env fixed amount = do
+  amountOperand <- emitExpectAtomInt env amount
+  emitAbortIfNegativeBitCount "fixed_bit" amountOperand
+  inRangeReg <- freshRegister "fixed_bit_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amountOperand (OConstInt LI64 (fixedIntegralBitSize fixed)))
+  bitValue <-
+    emitValueIf
+      "fixed_bit"
+      LI64
+      (OLocal LI1 inRangeReg)
+      ( do
+          resultReg <- freshRegister "fixed_bit"
+          emit (IShl resultReg LI64 (OConstInt LI64 1) amountOperand)
+          pure (OLocal LI64 resultReg)
+      )
+      (pure (OConstInt LI64 0))
+  emitMakeFixedOperand fixed bitValue
+
+emitFixedTestBit :: ValueEnv -> FixedIntegral -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedTestBit env fixed value amount = do
+  valueOperand <- emitExpectFixedBitsAtom env fixed value
+  amountOperand <- emitExpectAtomInt env amount
+  emitAbortIfNegativeBitCount "fixed_test_bit" amountOperand
+  inRangeReg <- freshRegister "fixed_test_bit_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amountOperand (OConstInt LI64 (fixedIntegralBitSize fixed)))
+  result <-
+    emitValueIf
+      "fixed_test_bit"
+      LI1
+      (OLocal LI1 inRangeReg)
+      ( do
+          shiftedReg <- freshRegister "fixed_test_bit_shifted"
+          lowBitReg <- freshRegister "fixed_test_bit_low"
+          resultReg <- freshRegister "fixed_test_bit_result"
+          emit (ILshr shiftedReg LI64 valueOperand amountOperand)
+          emit (IAnd lowBitReg LI64 (OLocal LI64 shiftedReg) (OConstInt LI64 1))
+          emit (IIcmp resultReg ICmpEq LI64 (OLocal LI64 lowBitReg) (OConstInt LI64 1))
+          pure (OLocal LI1 resultReg)
+      )
+      (pure (OConstInt LI1 0))
+  emitMakeBool result
+
+emitExpectFixedAtom :: ValueEnv -> FixedIntegral -> STGAtom -> FunctionM LLVMOperand
+emitExpectFixedAtom env fixed atom =
+  emitExpectAtomInt env atom >>= emitNormalizeFixed fixed
+
+emitExpectFixedBitsAtom :: ValueEnv -> FixedIntegral -> STGAtom -> FunctionM LLVMOperand
+emitExpectFixedBitsAtom env fixed atom =
+  emitExpectAtomInt env atom >>= emitFixedBitsOperand fixed
+
+emitMakeFixedOperand :: FixedIntegral -> LLVMOperand -> FunctionM LLVMOperand
+emitMakeFixedOperand fixed value =
+  emitNormalizeFixed fixed value >>= emitMakeIntOperand
+
+emitNormalizeFixed :: FixedIntegral -> LLVMOperand -> FunctionM LLVMOperand
+emitNormalizeFixed fixed value
+  | fixedIntegralBitSize fixed == 64 =
+      pure value
+  | otherwise = do
+      narrowed <- emitTruncateToFixed fixed value
+      extendedRegister <- freshRegister "fixed_normalized"
+      emit ((if fixedIntegralIsSigned fixed then ISext else IZext) extendedRegister narrowed LI64)
+      pure (OLocal LI64 extendedRegister)
+
+emitFixedBitsOperand :: FixedIntegral -> LLVMOperand -> FunctionM LLVMOperand
+emitFixedBitsOperand fixed value
+  | fixedIntegralBitSize fixed == 64 =
+      pure value
+  | otherwise = do
+      narrowed <- emitTruncateToFixed fixed value
+      extendedRegister <- freshRegister "fixed_bits"
+      emit (IZext extendedRegister narrowed LI64)
+      pure (OLocal LI64 extendedRegister)
+
+emitTruncateToFixed :: FixedIntegral -> LLVMOperand -> FunctionM LLVMOperand
+emitTruncateToFixed fixed value = do
+  narrowedRegister <- freshRegister "fixed_narrowed"
+  emit (ITrunc narrowedRegister value (fixedLLVMType fixed))
+  pure (OLocal (fixedLLVMType fixed) narrowedRegister)
+
+emitModuloFixedWidth :: Text -> FixedIntegral -> LLVMOperand -> FunctionM LLVMOperand
+emitModuloFixedWidth prefix fixed amount = do
+  remainderReg <- freshRegister (prefix <> "_mod")
+  emit (IRem remainderReg LI64 amount (OConstInt LI64 (fixedIntegralBitSize fixed)))
+  let remainder = OLocal LI64 remainderReg
+  negativeReg <- freshRegister (prefix <> "_mod_negative")
+  emit (IIcmp negativeReg ICmpSlt LI64 remainder (OConstInt LI64 0))
+  emitValueIf
+    (prefix <> "_mod")
+    LI64
+    (OLocal LI1 negativeReg)
+    ( do
+        adjustedReg <- freshRegister (prefix <> "_mod_adjusted")
+        emit (IAdd adjustedReg LI64 remainder (OConstInt LI64 (fixedIntegralBitSize fixed)))
+        pure (OLocal LI64 adjustedReg)
+    )
+    (pure remainder)
+
+emitAbortIfZero64 :: Text -> LLVMOperand -> FunctionM ()
+emitAbortIfZero64 prefix value = do
+  zeroReg <- freshRegister (prefix <> "_zero")
+  emit (IIcmp zeroReg ICmpEq LI64 value (OConstInt LI64 0))
+  abortLabel <- freshBlockLabel (prefix <> "_zero_abort")
+  okLabel <- freshBlockLabel (prefix <> "_nonzero")
+  terminateCurrent (TCondBr (OLocal LI1 zeroReg) abortLabel okLabel)
+
+  startBlock abortLabel
+  emitAbort
+
+  startBlock okLabel
+
+fixedLLVMType :: FixedIntegral -> LLVMType
+fixedLLVMType fixed =
+  case fixedIntegralBitSize fixed of
+    8 -> LI8
+    16 -> LI16
+    32 -> LI32
+    64 -> LI64
+    width -> error ("unsupported fixed-width integer size " <> show width)
+
+fixedPayloadLiteral :: FixedIntegral -> Integer -> Integer
+fixedPayloadLiteral fixed value
+  | bits >= 2 ^ (runtimeWordSize - 1) = bits - 2 ^ runtimeWordSize
+  | otherwise = bits
+ where
+  bits = fixedIntegralToBits fixed value
+  runtimeWordSize = 64 :: Integer
+
+fixedIntegralTypeByCoreType :: CoreType -> Maybe FixedIntegral
+fixedIntegralTypeByCoreType = \case
+  CTyCon name -> fixedIntegralTypeByOccurrence (nameOcc name)
+  _ -> Nothing
 
 emitForeignCall :: ValueEnv -> CoreForeignImport -> [STGAtom] -> FunctionM LLVMOperand
 emitForeignCall env foreignImport arguments =
@@ -1040,10 +1459,8 @@ emitNarrowForeignInteger :: LLVMType -> ForeignIntegerSignedness -> LLVMOperand 
 emitNarrowForeignInteger targetTy signedness value
   | targetTy == LI64 = do
       case signedness of
-        ForeignSigned ->
-          pure ()
-        ForeignUnsigned ->
-          emitCheckIntegerRange value (0, maxInt64Value)
+        ForeignSigned -> pure ()
+        ForeignUnsigned -> pure ()
       pure value
   | targetTy `elem` [LI32, LI16, LI8] = do
       range <- liftEitherSTGLLVM (foreignIntegerRange signedness targetTy)
@@ -1102,10 +1519,8 @@ emitWidenForeignInteger :: LLVMType -> ForeignIntegerSignedness -> LLVMOperand -
 emitWidenForeignInteger sourceTy signedness value
   | sourceTy == LI64 = do
       case signedness of
-        ForeignSigned ->
-          pure ()
-        ForeignUnsigned ->
-          emitCheckIntegerRange value (0, maxInt64Value)
+        ForeignSigned -> pure ()
+        ForeignUnsigned -> pure ()
       pure value
   | sourceTy `elem` [LI32, LI16, LI8] =
       case signedness of
@@ -2863,6 +3278,7 @@ runtimeFunctions =
   , touchForeignPtrFunction
   , makeCharListFromCStringFunction
   , showIntFunction
+  , showWordFunction
   , showDoubleFunction
   , putStrLnFunction
   , getLineFunction
@@ -3454,6 +3870,42 @@ showIntFunction =
         ]
     }
 
+showWordFunction :: LLVMFunction
+showWordFunction =
+  LLVMFunction
+    { functionName = showWordFunctionName
+    , functionReturnType = LPtr
+    , functionParams = [(LI64, Register "value")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "buffer")) LPtr (DirectCall processLifetimeAllocFunctionName) False [(LI64, OConstInt LI64 32)]
+            , IGetElementPtr
+                (Register "fmt")
+                (LArray (Text.length wordRawFormatBytes) LI8)
+                (OGlobal LPtr "haskell2010_fmt_u64_raw")
+                [(LI64, OConstInt LI64 0), (LI64, OConstInt LI64 0)]
+            , ICall
+                (Just (Register "written"))
+                LI32
+                (DirectCall "snprintf")
+                True
+                [ (LPtr, OLocal LPtr (Register "buffer"))
+                , (LI64, OConstInt LI64 32)
+                , (LPtr, OLocal LPtr (Register "fmt"))
+                , (LI64, OLocal LI64 (Register "value"))
+                ]
+            , ICall
+                (Just (Register "string"))
+                LPtr
+                (DirectCall makeCharListFromCStringFunctionName)
+                False
+                [(LPtr, OLocal LPtr (Register "buffer"))]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "string")))
+        ]
+    }
+
 showDoubleFunction :: LLVMFunction
 showDoubleFunction =
   LLVMFunction
@@ -3911,7 +4363,7 @@ makeFunctionFunctionName = "hegglog_hs_make_function"
 makeThunkFunctionName = "hegglog_hs_make_thunk"
 forceFunctionName = "hegglog_hs_force"
 
-expectIntFunctionName, expectFloatFunctionName, expectDoubleFunctionName, expectBoolFunctionName, expectCharFunctionName, expectPointerFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, showDoubleFunctionName, putStrLnFunctionName, getLineFunctionName, printCharListFunctionName :: Text
+expectIntFunctionName, expectFloatFunctionName, expectDoubleFunctionName, expectBoolFunctionName, expectCharFunctionName, expectPointerFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, showWordFunctionName, showDoubleFunctionName, putStrLnFunctionName, getLineFunctionName, printCharListFunctionName :: Text
 expectIntFunctionName = "hegglog_hs_expect_int"
 expectFloatFunctionName = "hegglog_hs_expect_float"
 expectDoubleFunctionName = "hegglog_hs_expect_double"
@@ -3922,6 +4374,7 @@ expectStringFunctionName = "hegglog_hs_expect_string"
 expectFunctionName = "hegglog_hs_expect_function"
 makeCharListFromCStringFunctionName = "hegglog_hs_make_char_list_from_cstring"
 showIntFunctionName = "hegglog_hs_show_int"
+showWordFunctionName = "hegglog_hs_show_word"
 showDoubleFunctionName = "hegglog_hs_show_double"
 putStrLnFunctionName = "hegglog_hs_putstrln"
 getLineFunctionName = "hegglog_hs_getline"
@@ -3942,10 +4395,12 @@ touchForeignPtrFunctionName = "hegglog_hs_touch_foreign_ptr"
 formatGlobals :: [LLVMGlobal]
 formatGlobals =
   [ LLVMStringGlobal "haskell2010_fmt_i64" intFormatBytes
+  , LLVMStringGlobal "haskell2010_fmt_u64" wordFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_i1" boolFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_char" charFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_double" doubleFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_i64_raw" intRawFormatBytes
+  , LLVMStringGlobal "haskell2010_fmt_u64_raw" wordRawFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_double_raw" doubleRawFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_string_line" stringLineFormatBytes
   ]
@@ -3987,6 +4442,10 @@ intFormatBytes :: Text
 intFormatBytes =
   "%lld\n\0"
 
+wordFormatBytes :: Text
+wordFormatBytes =
+  "%llu\n\0"
+
 boolFormatBytes :: Text
 boolFormatBytes =
   "%d\n\0"
@@ -4002,6 +4461,10 @@ doubleFormatBytes =
 intRawFormatBytes :: Text
 intRawFormatBytes =
   "%lld\0"
+
+wordRawFormatBytes :: Text
+wordRawFormatBytes =
+  "%llu\0"
 
 doubleRawFormatBytes :: Text
 doubleRawFormatBytes =

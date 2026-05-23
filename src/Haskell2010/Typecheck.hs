@@ -31,6 +31,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Core.Syntax
 import qualified Haskell2010.Core.Validate as CoreValidate
+import Haskell2010.FixedWidth
 import Haskell2010.Names
 import Haskell2010.Renamed
 import Haskell2010.Syntax (Literal (..))
@@ -7532,7 +7533,8 @@ builtinTypeConstructorMonoType name =
         "Double" -> pure doubleMonoType
         "Bool" -> pure boolMonoType
         "Char" -> pure charMonoType
-        "Word" -> pure wordMonoType
+        other
+          | Just fixed <- fixedIntegralTypeByOccurrence other -> pure (fixedIntegralMonoType fixed)
         "Ratio" -> pure (TyCon ratioTyConName)
         "Rational" -> pure rationalMonoType
         "String" -> pure stringMonoType
@@ -7573,7 +7575,8 @@ builtinTypeConstructorInfo name
           "Double" -> Just 0
           "Bool" -> Just 0
           "Char" -> Just 0
-          "Word" -> Just 0
+          other
+            | Just _ <- fixedIntegralTypeByOccurrence other -> Just 0
           "Ratio" -> Just 1
           "Rational" -> Just 0
           "String" -> Just 0
@@ -7756,7 +7759,7 @@ builtinForeignTypeMonoType occurrence =
 
 builtinForeignTypeName :: Text -> RName
 builtinForeignTypeName occurrence =
-  RName TypeNamespace occurrence (builtinForeignTypeUnique occurrence) True
+  maybe (RName TypeNamespace occurrence (builtinForeignTypeUnique occurrence) True) fixedIntegralTypeName (fixedIntegralTypeByOccurrence occurrence)
 
 builtinForeignTypeUnique :: Text -> Int
 builtinForeignTypeUnique occurrence =
@@ -7764,9 +7767,9 @@ builtinForeignTypeUnique occurrence =
     Just index -> -121000 - index
     Nothing -> -121999
 
-wordMonoType :: MonoType
-wordMonoType =
-  TyCon (RName TypeNamespace "Word" (-121500) True)
+fixedIntegralMonoType :: FixedIntegral -> MonoType
+fixedIntegralMonoType =
+  coreTypeToMono . fixedIntegralTy
 
 instantiate :: Scheme -> InferM (MonoType, [MonoType])
 instantiate (Scheme variables _ body) = do
@@ -12938,6 +12941,7 @@ builtinInstanceDictionaries classes =
         (preludeTermName "$fEqDouble" (-5802))
         [doubleEqMethod, doubleNotEqMethod]
     ]
+      <> fixedIntegralBuiltinInstances info "Eq" (-6400) fixedEqMethods
 
   ordInstances info =
     [ BuiltinInstanceDictionary
@@ -13037,6 +13041,7 @@ builtinInstanceDictionaries classes =
         , doubleMinMethod
         ]
     ]
+      <> fixedIntegralBuiltinInstances info "Ord" (-6420) fixedOrdMethods
 
   numInstances info =
     [ BuiltinInstanceDictionary
@@ -13088,6 +13093,7 @@ builtinInstanceDictionaries classes =
         , doubleFromIntegerMethod
         ]
     ]
+      <> fixedIntegralBuiltinInstances info "Num" (-6440) fixedNumMethods
 
   realInstances info =
     [ BuiltinInstanceDictionary
@@ -13111,6 +13117,7 @@ builtinInstanceDictionaries classes =
         (preludeTermName "$fRealDouble" (-5808))
         [doubleToRationalMethod]
     ]
+      <> fixedIntegralBuiltinInstances info "Real" (-6460) fixedRealMethods
 
   integralInstances info =
     [ BuiltinInstanceDictionary
@@ -13126,6 +13133,7 @@ builtinInstanceDictionaries classes =
         , intToIntegerMethod
         ]
     ]
+      <> fixedIntegralBuiltinInstances info "Integral" (-6480) fixedIntegralMethods
 
   fractionalInstances info =
     [ BuiltinInstanceDictionary
@@ -13205,6 +13213,7 @@ builtinInstanceDictionaries classes =
         , intRotateRMethod
         ]
     ]
+      <> fixedIntegralBuiltinInstances info "Bits" (-6500) fixedBitsMethods
 
   showInstances info =
     [ BuiltinInstanceDictionary
@@ -13258,6 +13267,7 @@ builtinInstanceDictionaries classes =
         (preludeTermName "$fShowDouble" (-5822))
         [doubleShowsPrecMethod, doubleShowMethod, doubleShowListMethod]
     ]
+      <> fixedIntegralBuiltinInstances info "Show" (-6520) fixedShowMethods
 
   readInstances info =
     [ BuiltinInstanceDictionary
@@ -13291,6 +13301,7 @@ builtinInstanceDictionaries classes =
         (preludeTermName "$fReadRatioInt" (-1706))
         [ratioReadsPrecMethod, ratioReadListMethod]
     ]
+      <> fixedIntegralBuiltinInstances info "Read" (-6540) fixedReadMethods
 
   enumInstances info =
     [ BuiltinInstanceDictionary
@@ -13320,6 +13331,7 @@ builtinInstanceDictionaries classes =
         , charEnumFromThenToMethod
         ]
     ]
+      <> fixedIntegralBuiltinInstances info "Enum" (-6560) fixedEnumMethods
 
   boundedInstances info =
     [ BuiltinInstanceDictionary
@@ -13338,6 +13350,7 @@ builtinInstanceDictionaries classes =
         (preludeTermName "$fBoundedBool" (-1553))
         [boolMinBoundMethod, boolMaxBoundMethod]
     ]
+      <> fixedIntegralBuiltinInstances info "Bounded" (-6580) fixedBoundedMethods
 
   ixInstances info =
     [ BuiltinInstanceDictionary
@@ -13366,6 +13379,7 @@ builtinInstanceDictionaries classes =
         (preludeTermName "$fIxUnit" (-3615))
         [ixRangeUnitMethod, ixIndexUnitMethod, ixInRangeUnitMethod, ixRangeSizeUnitMethod]
     ]
+      <> fixedIntegralBuiltinInstances info "Ix" (-6600) fixedIxMethods
 
   functorInstances info =
     [ BuiltinInstanceDictionary
@@ -13414,6 +13428,15 @@ builtinInstanceDictionaries classes =
         (TyCon listTyConName)
         (preludeTermName "$fMonadPlusList" (-1595))
         [listMonadPlusMzeroMethod, listMonadPlusMplusMethod]
+    ]
+
+  fixedIntegralBuiltinInstances info classTag uniqueBase methods =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        (fixedIntegralMonoType fixed)
+        (preludeTermName ("$f" <> classTag <> fixedIntegralOccurrence fixed) (uniqueBase - fromEnum fixed))
+        (methods fixed)
+    | fixed <- fixedIntegralAll
     ]
 
 builtinInstanceDictionaryRefs :: [BuiltinInstanceDictionary] -> [InstanceDictionaryRef]
@@ -14702,6 +14725,351 @@ intRotateLMethod =
 intRotateRMethod :: CoreExpr
 intRotateRMethod =
   binaryPrimMethod "$rotate_r_int" (-3947) intTy intTy PrimRotateR
+
+fixedEqMethods :: FixedIntegral -> [CoreExpr]
+fixedEqMethods fixed =
+  [ fixedBinaryPrimMethod fixed FixedEq "eq" (-8001) boolTy
+  , fixedBinaryBoolMethod fixed "neq" (-8002) (\lhs rhs -> boolNotCore "$neq_fixed_not" (-8003) (fixedPrim fixed FixedEq [lhs, rhs] boolTy))
+  ]
+
+fixedOrdMethods :: FixedIntegral -> [CoreExpr]
+fixedOrdMethods fixed =
+  [ fixedCompareMethod fixed
+  , fixedBinaryPrimMethod fixed FixedLt "lt" (-8011) boolTy
+  , fixedBinaryBoolMethod fixed "le" (-8012) (\lhs rhs -> boolNotCore "$le_fixed_not" (-8013) (fixedPrim fixed FixedLt [rhs, lhs] boolTy))
+  , fixedBinaryBoolMethod fixed "gt" (-8014) (\lhs rhs -> fixedPrim fixed FixedLt [rhs, lhs] boolTy)
+  , fixedBinaryBoolMethod fixed "ge" (-8015) (\lhs rhs -> boolNotCore "$ge_fixed_not" (-8016) (fixedPrim fixed FixedLt [lhs, rhs] boolTy))
+  , fixedBinaryMethod fixed "max" (-8017) fixedTy $ \lhs rhs ->
+      boolCaseCore "$max_fixed_case" (-8018) (fixedPrim fixed FixedLt [lhs, rhs] boolTy) fixedTy rhs lhs
+  , fixedBinaryMethod fixed "min" (-8019) fixedTy $ \lhs rhs ->
+      boolCaseCore "$min_fixed_case" (-8020) (fixedPrim fixed FixedLt [lhs, rhs] boolTy) fixedTy lhs rhs
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+
+fixedCompareMethod :: FixedIntegral -> CoreExpr
+fixedCompareMethod fixed =
+  fixedBinaryMethod fixed "compare" (-8021) orderingTy $ \lhs rhs ->
+    boolCaseCore
+      "$compare_fixed_lt"
+      (-8022)
+      (fixedPrim fixed FixedLt [lhs, rhs] boolTy)
+      orderingTy
+      (CCon orderingLTDataConName orderingTy)
+      ( boolCaseCore
+          "$compare_fixed_gt"
+          (-8023)
+          (fixedPrim fixed FixedLt [rhs, lhs] boolTy)
+          orderingTy
+          (CCon orderingGTDataConName orderingTy)
+          (CCon orderingEQDataConName orderingTy)
+      )
+
+fixedNumMethods :: FixedIntegral -> [CoreExpr]
+fixedNumMethods fixed =
+  [ fixedBinaryPrimMethod fixed FixedAdd "add" (-8031) fixedTy
+  , fixedBinaryPrimMethod fixed FixedSub "sub" (-8032) fixedTy
+  , fixedBinaryPrimMethod fixed FixedMul "mul" (-8033) fixedTy
+  , fixedUnaryPrimMethod fixed FixedNegate "negate" (-8034) fixedTy
+  , fixedUnaryPrimMethod fixed FixedAbs "abs" (-8035) fixedTy
+  , fixedUnaryPrimMethod fixed FixedSignum "signum" (-8036) fixedTy
+  , unaryMethod ("$fromInteger_" <> fixedOccurrence) (-8037) intTy fixedTy (\value -> fixedPrim fixed FixedFromInteger [value] fixedTy)
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+  fixedOccurrence = fixedIntegralOccurrence fixed
+
+fixedRealMethods :: FixedIntegral -> [CoreExpr]
+fixedRealMethods fixed =
+  [ unaryMethod ("$toRational_" <> fixedIntegralOccurrence fixed) (-8041) fixedTy rationalCoreType $ \value ->
+      ratioIntCore (fixedPrim fixed FixedToInteger [value] intTy) oneInt
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+
+fixedIntegralMethods :: FixedIntegral -> [CoreExpr]
+fixedIntegralMethods fixed =
+  [ fixedBinaryPrimMethod fixed FixedQuot "quot" (-8051) fixedTy
+  , fixedBinaryPrimMethod fixed FixedRem "rem" (-8052) fixedTy
+  , fixedBinaryMethod fixed "div" (-8053) fixedTy (fixedDivCore fixed)
+  , fixedBinaryMethod fixed "mod" (-8054) fixedTy (\lhs rhs -> fixedSub fixed lhs (fixedMul fixed (fixedDivCore fixed lhs rhs) rhs))
+  , fixedBinaryMethod fixed "quotRem" (-8055) fixedPairTy $ \lhs rhs -> fixedTuple2 fixed (fixedQuot fixed lhs rhs) (fixedRem fixed lhs rhs)
+  , fixedBinaryMethod fixed "divMod" (-8056) fixedPairTy $ \lhs rhs ->
+      letCore dName fixedTy (fixedDivCore fixed lhs rhs) $
+        fixedTuple2 fixed dVar (fixedSub fixed lhs (fixedMul fixed dVar rhs))
+  , fixedUnaryPrimMethod fixed FixedToInteger "toInteger" (-8057) intTy
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+  fixedPairTy = CTyTuple [fixedTy, fixedTy]
+  dName = builtinLocalTermName ("$divMod_" <> fixedIntegralOccurrence fixed <> "_d") (-8058 - fromEnum fixed)
+  dVar = CVar dName fixedTy
+
+fixedBitsMethods :: FixedIntegral -> [CoreExpr]
+fixedBitsMethods fixed =
+  [ fixedBinaryPrimMethod fixed FixedBitAnd "bit_and" (-8061) fixedTy
+  , fixedBinaryPrimMethod fixed FixedBitOr "bit_or" (-8062) fixedTy
+  , fixedBinaryPrimMethod fixed FixedBitXor "bit_xor" (-8063) fixedTy
+  , fixedUnaryPrimMethod fixed FixedBitComplement "bit_complement" (-8064) fixedTy
+  , fixedIntBinaryPrimMethod fixed FixedShift "shift" (-8065)
+  , fixedIntBinaryPrimMethod fixed FixedRotate "rotate" (-8066)
+  , unaryMethod ("$bit_" <> fixedIntegralOccurrence fixed) (-8067) intTy fixedTy (\amount -> fixedPrim fixed FixedBit [amount] fixedTy)
+  , fixedIntBinaryMethod fixed "set_bit" (-8068) (\value amount -> fixedOr fixed value (fixedPrim fixed FixedBit [amount] fixedTy))
+  , fixedIntBinaryMethod fixed "clear_bit" (-8069) (\value amount -> fixedAnd fixed value (fixedComplement fixed (fixedPrim fixed FixedBit [amount] fixedTy)))
+  , fixedIntBinaryMethod fixed "complement_bit" (-8070) (\value amount -> fixedXor fixed value (fixedPrim fixed FixedBit [amount] fixedTy))
+  , fixedIntBinaryPrimMethodResult fixed FixedTestBit "test_bit" (-8071) boolTy
+  , unaryMethod ("$bit_size_" <> fixedIntegralOccurrence fixed) (-8072) fixedTy intTy (const (CLit (LInt (fixedIntegralBitSize fixed)) intTy))
+  , unaryMethod ("$is_signed_" <> fixedIntegralOccurrence fixed) (-8073) fixedTy boolTy (const (if fixedIntegralIsSigned fixed then CCon trueDataConName boolTy else CCon falseDataConName boolTy))
+  , fixedIntBinaryPrimMethod fixed FixedShiftL "shift_l" (-8074)
+  , fixedIntBinaryPrimMethod fixed FixedShiftR "shift_r" (-8075)
+  , fixedIntBinaryPrimMethod fixed FixedRotateL "rotate_l" (-8076)
+  , fixedIntBinaryPrimMethod fixed FixedRotateR "rotate_r" (-8077)
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+
+fixedShowMethods :: FixedIntegral -> [CoreExpr]
+fixedShowMethods fixed =
+  [ showsPrecFromRenderedMethod ("$shows_prec_" <> fixedIntegralOccurrence fixed) (-8081) fixedTy (\value -> fixedPrim fixed FixedShow [value] stringTy)
+  , fixedUnaryPrimMethod fixed FixedShow "show" (-8082) stringTy
+  , showListFromShowsMethod fixedTy (showsPrecFromRenderedMethod ("$show_list_shows_" <> fixedIntegralOccurrence fixed) (-8083) fixedTy (\value -> fixedPrim fixed FixedShow [value] stringTy))
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+
+fixedReadMethods :: FixedIntegral -> [CoreExpr]
+fixedReadMethods fixed =
+  [ readsPrecFromParserMethod ("$reads_prec_" <> fixedIntegralOccurrence fixed) (-8091) fixedTy (fixedReadParserCore fixed)
+  , readListFromParserMethod fixedTy (fixedReadParserCore fixed)
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+
+fixedReadParserCore :: FixedIntegral -> CoreExpr
+fixedReadParserCore fixed =
+  coreLam inputName stringTy $
+    readBindCallCore
+      intTy
+      fixedTy
+      (applyCore (CVar readIntName readIntCoreType) (CVar inputName stringTy) (readResultsCoreType intTy))
+      ( coreLam valueName intTy $
+          coreLam restName stringTy $
+            readSingleResultCore fixedTy (fixedPrim fixed FixedFromInteger [CVar valueName intTy] fixedTy) (CVar restName stringTy)
+      )
+ where
+  fixedTy = fixedIntegralTy fixed
+  inputName = builtinLocalTermName ("$read_" <> fixedIntegralOccurrence fixed <> "_input") (-8092 - fromEnum fixed)
+  valueName = builtinLocalTermName ("$read_" <> fixedIntegralOccurrence fixed <> "_value") (-8110 - fromEnum fixed)
+  restName = builtinLocalTermName ("$read_" <> fixedIntegralOccurrence fixed <> "_rest") (-8120 - fromEnum fixed)
+
+fixedEnumMethods :: FixedIntegral -> [CoreExpr]
+fixedEnumMethods fixed =
+  [ fixedUnaryMethod fixed "succ" (-8131) fixedTy (\value -> fixedAdd fixed value fixedOne)
+  , fixedUnaryMethod fixed "pred" (-8132) fixedTy (\value -> fixedSub fixed value fixedOne)
+  , unaryMethod ("$toEnum_" <> fixedIntegralOccurrence fixed) (-8133) intTy fixedTy (\value -> fixedPrim fixed FixedFromInteger [value] fixedTy)
+  , fixedUnaryPrimMethod fixed FixedToInteger "fromEnum" (-8134) intTy
+  , fixedUnaryMethod fixed "enum_from" (-8135) listTy (\current -> fixedEnumFromToList fixed current (fixedMaxBound fixed))
+  , fixedBinaryMethod fixed "enum_from_then" (-8136) listTy $ \current next ->
+      boolCaseCore "$enum_fixed_from_then_desc" (-8137) (fixedLt fixed next current) listTy (fixedEnumFromThenToList fixed current next (fixedMinBound fixed)) (fixedEnumFromThenToList fixed current next (fixedMaxBound fixed))
+  , fixedBinaryMethod fixed "enum_from_to" (-8138) listTy (fixedEnumFromToList fixed)
+  , fixedTernaryMethod fixed "enum_from_then_to" (-8139) listTy (fixedEnumFromThenToList fixed)
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+  listTy = CTyList fixedTy
+  fixedOne = fixedPrim fixed FixedFromInteger [oneInt] fixedTy
+
+fixedBoundedMethods :: FixedIntegral -> [CoreExpr]
+fixedBoundedMethods fixed =
+  [fixedMinBound fixed, fixedMaxBound fixed]
+
+fixedIxMethods :: FixedIntegral -> [CoreExpr]
+fixedIxMethods fixed =
+  [ fixedLam boundsName boundsTy (fixedBoundsCase "range" (-8142) (CTyList fixedTy) (fixedEnumFromToList fixed low high))
+  , fixedLam boundsName boundsTy (fixedLam valueName fixedTy (fixedBoundsCase "index" (-8143) intTy (fixedSubInt (fixedToInt value) (fixedToInt low))))
+  , fixedLam boundsName boundsTy (fixedLam valueName fixedTy (fixedBoundsCase "in_range" (-8144) boolTy (boolAndCore "$ix_fixed_in_range" (-8151) (boolNotCore "$ix_fixed_low" (-8152) (fixedLt fixed value low)) (boolNotCore "$ix_fixed_high" (-8153) (fixedLt fixed high value)))))
+  , fixedLam boundsName boundsTy (fixedBoundsCase "range_size" (-8145) intTy (intAdd (fixedSubInt (fixedToInt high) (fixedToInt low)) oneInt))
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+  boundsTy = CTyTuple [fixedTy, fixedTy]
+  boundsName = builtinLocalTermName ("$ix_" <> fixedIntegralOccurrence fixed <> "_bounds") (-8141 - fromEnum fixed)
+  valueName = builtinLocalTermName ("$ix_" <> fixedIntegralOccurrence fixed <> "_value") (-8150 - fromEnum fixed)
+  lowName = builtinLocalTermName ("$ix_" <> fixedIntegralOccurrence fixed <> "_low") (-8160 - fromEnum fixed)
+  highName = builtinLocalTermName ("$ix_" <> fixedIntegralOccurrence fixed <> "_high") (-8170 - fromEnum fixed)
+  bounds = CVar boundsName boundsTy
+  value = CVar valueName fixedTy
+  low = CVar lowName fixedTy
+  high = CVar highName fixedTy
+  fixedLam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
+  fixedBoundsCase occurrence unique resultTy body =
+    CCase
+      bounds
+      (CoreBinder caseName boundsTy)
+      [CoreAlt (ConstructorAlt (tupleDataConName 2)) [CoreBinder lowName fixedTy, CoreBinder highName fixedTy] body]
+      resultTy
+   where
+    caseName = builtinLocalTermName ("$ix_" <> fixedIntegralOccurrence fixed <> "_" <> occurrence <> "_case") (unique - fromEnum fixed)
+
+fixedBinaryPrimMethod :: FixedIntegral -> FixedIntegralOp -> Text -> Int -> CoreType -> CoreExpr
+fixedBinaryPrimMethod fixed op occurrence unique resultTy =
+  fixedBinaryMethod fixed occurrence unique resultTy (\lhs rhs -> fixedPrim fixed op [lhs, rhs] resultTy)
+
+fixedBinaryBoolMethod :: FixedIntegral -> Text -> Int -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+fixedBinaryBoolMethod fixed occurrence unique =
+  fixedBinaryMethod fixed occurrence unique boolTy
+
+fixedBinaryMethod :: FixedIntegral -> Text -> Int -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+fixedBinaryMethod fixed occurrence unique resultTy =
+  binaryMethod ("$" <> occurrence <> "_" <> fixedIntegralOccurrence fixed) (unique - fromEnum fixed) (fixedIntegralTy fixed) resultTy
+
+fixedUnaryPrimMethod :: FixedIntegral -> FixedIntegralOp -> Text -> Int -> CoreType -> CoreExpr
+fixedUnaryPrimMethod fixed op occurrence unique resultTy =
+  fixedUnaryMethod fixed occurrence unique resultTy (\value -> fixedPrim fixed op [value] resultTy)
+
+fixedUnaryMethod :: FixedIntegral -> Text -> Int -> CoreType -> (CoreExpr -> CoreExpr) -> CoreExpr
+fixedUnaryMethod fixed occurrence unique resultTy =
+  unaryMethod ("$" <> occurrence <> "_" <> fixedIntegralOccurrence fixed) (unique - fromEnum fixed) (fixedIntegralTy fixed) resultTy
+
+fixedIntBinaryPrimMethod :: FixedIntegral -> FixedIntegralOp -> Text -> Int -> CoreExpr
+fixedIntBinaryPrimMethod fixed op occurrence unique =
+  fixedIntBinaryPrimMethodResult fixed op occurrence unique (fixedIntegralTy fixed)
+
+fixedIntBinaryPrimMethodResult :: FixedIntegral -> FixedIntegralOp -> Text -> Int -> CoreType -> CoreExpr
+fixedIntBinaryPrimMethodResult fixed op occurrence unique resultTy =
+  fixedIntBinaryMethod fixed occurrence unique (\value amount -> fixedPrim fixed op [value, amount] resultTy)
+
+fixedIntBinaryMethod :: FixedIntegral -> Text -> Int -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+fixedIntBinaryMethod fixed occurrence unique body =
+  CLam valueBinder (CLam amountBinder methodBody (CTyFun intTy (exprType methodBody))) (CTyFun fixedTy (CTyFun intTy (exprType methodBody)))
+ where
+  fixedTy = fixedIntegralTy fixed
+  valueName = builtinLocalTermName ("$" <> occurrence <> "_" <> fixedIntegralOccurrence fixed <> "_value") (unique - fromEnum fixed)
+  amountName = builtinLocalTermName ("$" <> occurrence <> "_" <> fixedIntegralOccurrence fixed <> "_amount") (unique - 20 - fromEnum fixed)
+  valueBinder = CoreBinder valueName fixedTy
+  amountBinder = CoreBinder amountName intTy
+  methodBody = body (CVar valueName fixedTy) (CVar amountName intTy)
+
+fixedTernaryMethod :: FixedIntegral -> Text -> Int -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+fixedTernaryMethod fixed occurrence unique resultTy body =
+  CLam firstBinder (CLam secondBinder (CLam thirdBinder methodBody (CTyFun fixedTy resultTy)) (CTyFun fixedTy (CTyFun fixedTy resultTy))) (CTyFun fixedTy (CTyFun fixedTy (CTyFun fixedTy resultTy)))
+ where
+  fixedTy = fixedIntegralTy fixed
+  firstName = builtinLocalTermName ("$" <> occurrence <> "_" <> fixedIntegralOccurrence fixed <> "_first") (unique - fromEnum fixed)
+  secondName = builtinLocalTermName ("$" <> occurrence <> "_" <> fixedIntegralOccurrence fixed <> "_second") (unique - 20 - fromEnum fixed)
+  thirdName = builtinLocalTermName ("$" <> occurrence <> "_" <> fixedIntegralOccurrence fixed <> "_third") (unique - 40 - fromEnum fixed)
+  firstBinder = CoreBinder firstName fixedTy
+  secondBinder = CoreBinder secondName fixedTy
+  thirdBinder = CoreBinder thirdName fixedTy
+  methodBody = body (CVar firstName fixedTy) (CVar secondName fixedTy) (CVar thirdName fixedTy)
+
+fixedPrim :: FixedIntegral -> FixedIntegralOp -> [CoreExpr] -> CoreType -> CoreExpr
+fixedPrim fixed op arguments resultTy =
+  CPrimOp (PrimFixedIntegral fixed op) arguments resultTy
+
+fixedAdd, fixedSub, fixedMul, fixedQuot, fixedRem, fixedLt, fixedAnd, fixedOr, fixedXor :: FixedIntegral -> CoreExpr -> CoreExpr -> CoreExpr
+fixedAdd fixed lhs rhs = fixedPrim fixed FixedAdd [lhs, rhs] (fixedIntegralTy fixed)
+fixedSub fixed lhs rhs = fixedPrim fixed FixedSub [lhs, rhs] (fixedIntegralTy fixed)
+fixedMul fixed lhs rhs = fixedPrim fixed FixedMul [lhs, rhs] (fixedIntegralTy fixed)
+fixedQuot fixed lhs rhs = fixedPrim fixed FixedQuot [lhs, rhs] (fixedIntegralTy fixed)
+fixedRem fixed lhs rhs = fixedPrim fixed FixedRem [lhs, rhs] (fixedIntegralTy fixed)
+fixedLt fixed lhs rhs = fixedPrim fixed FixedLt [lhs, rhs] boolTy
+fixedAnd fixed lhs rhs = fixedPrim fixed FixedBitAnd [lhs, rhs] (fixedIntegralTy fixed)
+fixedOr fixed lhs rhs = fixedPrim fixed FixedBitOr [lhs, rhs] (fixedIntegralTy fixed)
+fixedXor fixed lhs rhs = fixedPrim fixed FixedBitXor [lhs, rhs] (fixedIntegralTy fixed)
+
+fixedComplement :: FixedIntegral -> CoreExpr -> CoreExpr
+fixedComplement fixed value =
+  fixedPrim fixed FixedBitComplement [value] (fixedIntegralTy fixed)
+
+fixedMinBound, fixedMaxBound :: FixedIntegral -> CoreExpr
+fixedMinBound fixed =
+  fixedPrim fixed FixedMinBound [] (fixedIntegralTy fixed)
+fixedMaxBound fixed =
+  fixedPrim fixed FixedMaxBound [] (fixedIntegralTy fixed)
+
+fixedToInt :: CoreExpr -> CoreExpr
+fixedToInt value =
+  case exprType value of
+    ty
+      | Just fixed <- fixedIntegralTypeByCoreType ty ->
+          fixedPrim fixed FixedToInteger [value] intTy
+    _ ->
+      value
+
+fixedSubInt :: CoreExpr -> CoreExpr -> CoreExpr
+fixedSubInt =
+  intSub
+
+fixedTuple2 :: FixedIntegral -> CoreExpr -> CoreExpr -> CoreExpr
+fixedTuple2 fixed lhs rhs =
+  constructorApp (tupleDataConName 2) [fixedTy, fixedTy] [lhs, rhs] (CTyTuple [fixedTy, fixedTy])
+ where
+  fixedTy = fixedIntegralTy fixed
+
+fixedDivCore :: FixedIntegral -> CoreExpr -> CoreExpr -> CoreExpr
+fixedDivCore fixed lhs rhs =
+  letCore qName fixedTy (fixedQuot fixed lhs rhs) $
+    letCore rName fixedTy (fixedRem fixed lhs rhs) $
+      boolCaseCore (fixedIntegralOccurrence fixed <> "_div_adjust") (unique - 3) needsAdjust fixedTy (fixedSub fixed qVar fixedOne) qVar
+ where
+  fixedTy = fixedIntegralTy fixed
+  unique = -8180 - fromEnum fixed
+  qName = builtinLocalTermName ("$div_" <> fixedIntegralOccurrence fixed <> "_q") (unique - 1)
+  rName = builtinLocalTermName ("$div_" <> fixedIntegralOccurrence fixed <> "_r") (unique - 2)
+  qVar = CVar qName fixedTy
+  rVar = CVar rName fixedTy
+  fixedZero = fixedPrim fixed FixedFromInteger [zeroInt] fixedTy
+  fixedOne = fixedPrim fixed FixedFromInteger [oneInt] fixedTy
+  remainderNonZero = boolNotCore "$fixed_div_rem_nonzero" (unique - 4) (fixedPrim fixed FixedEq [rVar, fixedZero] boolTy)
+  signsDiffer = boolXorCore "$fixed_div_signs_differ" (unique - 5) (fixedLt fixed lhs fixedZero) (fixedLt fixed rhs fixedZero)
+  needsAdjust = boolAndCore "$fixed_div_needs_adjust" (unique - 6) remainderNonZero signsDiffer
+
+fixedEnumFromToList :: FixedIntegral -> CoreExpr -> CoreExpr -> CoreExpr
+fixedEnumFromToList fixed current end =
+  fixedMapIntList fixed $
+    applyCore
+      (applyCore (CVar enumFromToIntName enumFromToIntCoreType) (fixedToInt current) (CTyFun intTy intListCoreType))
+      (fixedToInt end)
+      intListCoreType
+
+fixedEnumFromThenToList :: FixedIntegral -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+fixedEnumFromThenToList fixed current next end =
+  fixedMapIntList fixed $
+    applyCore
+      ( applyCore
+          (applyCore (CVar enumFromThenToIntName enumFromThenToIntCoreType) (fixedToInt current) (CTyFun intTy (CTyFun intTy intListCoreType)))
+          (fixedToInt next)
+          (CTyFun intTy intListCoreType)
+      )
+      (fixedToInt end)
+      intListCoreType
+
+fixedMapIntList :: FixedIntegral -> CoreExpr -> CoreExpr
+fixedMapIntList fixed intList =
+  applyCore
+    (applyCore mapFunction fromIntFunction (CTyFun intListCoreType resultListTy))
+    intList
+    resultListTy
+ where
+  fixedTy = fixedIntegralTy fixed
+  resultListTy = CTyList fixedTy
+  argumentName = builtinLocalTermName ("$map_" <> fixedIntegralOccurrence fixed <> "_int") (-8190 - fromEnum fixed)
+  fromIntFunction =
+    CLam
+      (CoreBinder argumentName intTy)
+      (fixedPrim fixed FixedFromInteger [CVar argumentName intTy] fixedTy)
+      (CTyFun intTy fixedTy)
+  mapFunction =
+    CTypeApp
+      (CVar derivedMapName mapPreludeCoreType)
+      [intTy, fixedTy]
+      (CTyFun (CTyFun intTy fixedTy) (CTyFun intListCoreType resultListTy))
+
+fixedIntegralTypeByCoreType :: CoreType -> Maybe FixedIntegral
+fixedIntegralTypeByCoreType = \case
+  CTyCon name -> fixedIntegralTypeByOccurrence (nameOcc name)
+  _ -> Nothing
 
 intDivCoreWith :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
 intDivCoreWith occurrence unique lhs rhs =

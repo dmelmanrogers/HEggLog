@@ -188,9 +188,19 @@ the LIB-008 floating numeric tower and importable `Data.Complex` module in
 default and `--no-egglog` native modes.
 `io.io-error` now positively checks the generated `System.IO.Error` surface for
 recoverable `IOError` behavior, and `modules.standard-library-scalar-types`
-positively checks the current generated `Data.Int`, `Data.Word`, and
-`Foreign.C.Types` type-name surface. `ffi.foreign-library-surface` positively
-checks the implemented `Foreign.Ptr`, `Foreign.ForeignPtr`,
+positively checks the generated `Data.Int`, `Data.Word`, and `Foreign.C.Types`
+scalar type-name surface.
+
+LIB-009 is now covered by native conformance fixtures. `modules.data-int-word`
+checks real fixed-width `Data.Int`/`Data.Word` runtime behavior across modulo
+overflow, signed and unsigned bounds, unsigned `Word64` rendering, quotient and
+remainder, `Bits`, oversized signed/unsigned shifts, rotates, `Enum`, `Ix`,
+`Read`, and `Show` in default and `--no-egglog` modes.
+`ffi.fixed-width-scalars` checks static C marshalling for `Int8`, `Word8`, and
+`Word64`, while `negative.ffi-word-not-basic` keeps plain `Word` rejected as a
+non-basic Haskell 2010 FFI type.
+
+`ffi.foreign-library-surface` positively checks the implemented `Foreign.Ptr`, `Foreign.ForeignPtr`,
 `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils` surface in native default
 and `--no-egglog` modes. `ffi.floating-ccall` positively checks
 `Float`/`Double`/`CFloat`/`CDouble` FFI marshalling across static calls,
@@ -204,16 +214,16 @@ dynamic calls, wrapper callbacks, and foreign export entrypoints.
 | `declarations` | 6 | representative native tests exist |
 | `egglog` | 1 | optimized/unoptimized native agreement covered |
 | `expressions` | 13 | representative native tests exist, including user-defined infix operators and line-broken `where` layout |
-| `ffi` | 9 | static ccall, floating ccall, pointer/address, dynamic/wrapper, wrapper reclamation/after-free, foreign export, StablePtr/ForeignPtr ownership, and broader Foreign library surface native fixtures link C helpers and run in default and `--no-egglog` modes |
+| `ffi` | 10 | static ccall, fixed-width scalar ccall, floating ccall, pointer/address, dynamic/wrapper, wrapper reclamation/after-free, foreign export, StablePtr/ForeignPtr ownership, and broader Foreign library surface native fixtures link C helpers and run in default and `--no-egglog` modes |
 | `io` | 5 | current line-oriented stdin/stdout IO slice and recoverable IO-error behavior covered, including do-bind, explicit `(>>=)`, `getLine`, explicit `fail`, `ioError`, `catch`, `try`, and System.IO.Error examples |
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
-| `modules` | 15 | single-module, same-directory import, implicit/explicit/qualified Prelude import, source-instance import/export, generated standard-library module imports, source-backed `Data.List`/`Data.Maybe`/`Data.Char`, scalar standard-library type-name imports, and Data.List/Data.Maybe/Data.Char partial runtime-error coverage exist |
+| `modules` | 25 | single-module, same-directory import, implicit/explicit/qualified Prelude import, source-instance import/export, generated standard-library module imports, source-backed `Data.List`/`Data.Maybe`/`Data.Char`/`Data.Complex`, `Data.Array`, `Data.Ix`, `Data.Bits`, `Data.Ratio`, scalar standard-library imports, fixed-width `Data.Int`/`Data.Word`, and partial runtime-error coverage exist |
 | `negative` | 28 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid default declarations, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
-| `prelude` | 18 | list functions, append, foldl, function/selector completion, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Report-shaped Read, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
+| `prelude` | 19 | list functions, append, foldl, function/selector completion, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Report-shaped Read, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, list comprehensions, and floating numeric Prelude coverage covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
-| `typeclasses` | 12 | user dictionary, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, derived Read, derived Enum, and derived Bounded tests exist |
+| `typeclasses` | 13 | user dictionary, instance context, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, derived Read, derived Enum, and derived Bounded tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |
-| `unsupported` | 16 | unsupported features documented by failing cases, including constrained expression signatures, handle IO, package/module search paths, and reserved Report library modules |
+| `unsupported` | 10 | unsupported features documented by failing cases, including constrained expression signatures, handle IO, package/module search paths, kind/method-specific constraints, and reserved Report library modules |

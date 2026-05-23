@@ -10,11 +10,13 @@ module Haskell2010.Core.Eval
 where
 
 import Data.Char (chr, ord)
+import qualified Data.Bits as Bits
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Core.Syntax
 import qualified Haskell2010.Core.Validate as CoreValidate
+import Haskell2010.FixedWidth
 import Haskell2010.Names (RName, nameOcc, renderRName)
 import Haskell2010.Syntax (Literal (..))
 import Runtime.Int
@@ -439,6 +441,8 @@ evalPrimitive coreEnv op values =
       evalFloatingPrimitive width floatingOp arguments
     (PrimFloatInt width floatingOp, arguments) ->
       evalFloatingIntPrimitive width floatingOp arguments
+    (PrimFixedIntegral fixed fixedOp, arguments) ->
+      evalFixedIntegralPrimitive fixed fixedOp arguments
     (PrimPutStrLn, [value]) ->
       (\text -> CoreIO [text <> "\n"] (CoreIOSuccess (CoreData unitDataConName []))) <$> coreStringText coreEnv value
     (PrimGetLine, []) ->
@@ -501,6 +505,81 @@ evalPrimitive coreEnv op values =
     case mkHIntLiteral 0 of
       Right value -> value
       Left err -> error (Text.unpack (renderIntError err))
+
+evalFixedIntegralPrimitive :: FixedIntegral -> FixedIntegralOp -> [CoreValue] -> Either CoreEvalError CoreValue
+evalFixedIntegralPrimitive fixed op values =
+  case (op, values) of
+    (FixedAdd, [CoreInt lhs, CoreInt rhs]) -> fixedValue (fixedInput lhs + fixedInput rhs)
+    (FixedSub, [CoreInt lhs, CoreInt rhs]) -> fixedValue (fixedInput lhs - fixedInput rhs)
+    (FixedMul, [CoreInt lhs, CoreInt rhs]) -> fixedValue (fixedInput lhs * fixedInput rhs)
+    (FixedQuot, [CoreInt _, CoreInt rhs])
+      | fixedInput rhs == 0 -> Left CoreEvalDivisionByZero
+    (FixedQuot, [CoreInt lhs, CoreInt rhs]) -> fixedValue (fixedInput lhs `quot` fixedInput rhs)
+    (FixedRem, [CoreInt _, CoreInt rhs])
+      | fixedInput rhs == 0 -> Left CoreEvalDivisionByZero
+    (FixedRem, [CoreInt lhs, CoreInt rhs]) -> fixedValue (fixedInput lhs `rem` fixedInput rhs)
+    (FixedEq, [CoreInt lhs, CoreInt rhs]) -> Right (CoreBool (fixedInput lhs == fixedInput rhs))
+    (FixedLt, [CoreInt lhs, CoreInt rhs]) -> Right (CoreBool (fixedInput lhs < fixedInput rhs))
+    (FixedNegate, [CoreInt value]) -> fixedValue (negate (fixedInput value))
+    (FixedAbs, [CoreInt value]) -> fixedValue (abs (fixedInput value))
+    (FixedSignum, [CoreInt value]) -> fixedValue (signum (fixedInput value))
+    (FixedFromInteger, [CoreInt value]) -> fixedValue (hintToInteger value)
+    (FixedToInteger, [CoreInt value]) -> checkedCoreIntValue (mkHIntLiteral (fixedInput value))
+    (FixedShow, [CoreInt value]) -> Right (coreStringList (fixedIntegralRender fixed (fixedInput value)))
+    (FixedBitAnd, [CoreInt lhs, CoreInt rhs]) -> fixedBitsValue ((Bits..&.) (fixedInputBits lhs) (fixedInputBits rhs))
+    (FixedBitOr, [CoreInt lhs, CoreInt rhs]) -> fixedBitsValue ((Bits..|.) (fixedInputBits lhs) (fixedInputBits rhs))
+    (FixedBitXor, [CoreInt lhs, CoreInt rhs]) -> fixedBitsValue (Bits.xor (fixedInputBits lhs) (fixedInputBits rhs))
+    (FixedBitComplement, [CoreInt value]) -> fixedBitsValue (Bits.complement (fixedInputBits value))
+    (shiftOp@FixedShift, [CoreInt value, CoreInt amount]) -> shifted shiftOp value amount
+    (shiftOp@FixedShiftL, [CoreInt value, CoreInt amount]) -> shifted shiftOp value amount
+    (shiftOp@FixedShiftR, [CoreInt value, CoreInt amount]) -> shifted shiftOp value amount
+    (shiftOp@FixedRotate, [CoreInt value, CoreInt amount]) -> shifted shiftOp value amount
+    (shiftOp@FixedRotateL, [CoreInt value, CoreInt amount]) -> shifted shiftOp value amount
+    (shiftOp@FixedRotateR, [CoreInt value, CoreInt amount]) -> shifted shiftOp value amount
+    (FixedBit, [CoreInt amount])
+      | hintToInteger amount < 0 ->
+          Left (CoreEvalTypeError "negative fixed-width bit index")
+      | hintToInteger amount >= fixedIntegralBitSize fixed ->
+          fixedValue 0
+      | otherwise ->
+          fixedValue (2 ^ hintToInteger amount)
+    (FixedTestBit, [CoreInt value, CoreInt amount])
+      | hintToInteger amount < 0 ->
+          Left (CoreEvalTypeError "negative fixed-width bit index")
+      | hintToInteger amount >= fixedIntegralBitSize fixed ->
+          Right (CoreBool False)
+      | otherwise ->
+          Right (CoreBool (Bits.testBit (fixedInputBits value) (fromInteger (hintToInteger amount))))
+    (FixedMinBound, []) -> fixedValue (fixedIntegralMinValue fixed)
+    (FixedMaxBound, []) -> fixedValue (fixedIntegralMaxValue fixed)
+    _ ->
+      Left (CoreEvalTypeError ("fixed-width primitive received unsupported values " <> Text.pack (show (map renderCoreValue values))))
+ where
+  fixedInput value
+    | fixedIntegralIsSigned fixed = fixedIntegralNormalize fixed (hintToInteger value)
+    | otherwise = fixedIntegralToBits fixed (hintToInteger value)
+  fixedInputBits =
+    fixedIntegralToBits fixed . hintToInteger
+  fixedValue value =
+    checkedCoreIntValue (mkHIntLiteral (fixedRuntimePayload fixed value))
+  fixedBitsValue bits =
+    checkedCoreIntValue (mkHIntLiteral (fixedRuntimePayloadFromBits fixed bits))
+  shifted shiftOp value amount =
+    case fixedIntegralShift fixed shiftOp (fixedInput value) (hintToInteger amount) of
+      Left message -> Left (CoreEvalTypeError message)
+      Right shiftedValue -> fixedValue shiftedValue
+
+fixedRuntimePayload :: FixedIntegral -> Integer -> Integer
+fixedRuntimePayload fixed =
+  fixedRuntimePayloadFromBits fixed . fixedIntegralToBits fixed
+
+fixedRuntimePayloadFromBits :: FixedIntegral -> Integer -> Integer
+fixedRuntimePayloadFromBits fixed bits
+  | normalizedBits >= 2 ^ (runtimeWordSize - 1) = normalizedBits - 2 ^ runtimeWordSize
+  | otherwise = normalizedBits
+ where
+  runtimeWordSize = 64 :: Integer
+  normalizedBits = fixedIntegralToBits fixed bits
 
 evalFloatingPrimitive :: FloatingWidth -> FloatingPrimOp -> [CoreValue] -> Either CoreEvalError CoreValue
 evalFloatingPrimitive width op values =
@@ -751,5 +830,6 @@ renderCorePrimOpName = \case
   PrimTouchForeignPtr -> "touchForeignPtr#"
   PrimUnsafeForeignPtrToPtr -> "unsafeForeignPtrToPtr#"
   PrimCastForeignPtr -> "castForeignPtr#"
+  PrimFixedIntegral fixed op -> fixedIntegralOccurrence fixed <> "." <> Text.pack (show op) <> "#"
   PrimFloat width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
   PrimFloatInt width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"

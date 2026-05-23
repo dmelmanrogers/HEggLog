@@ -13,6 +13,8 @@ module Haskell2010.Core.Syntax
   , FloatingIntPrimOp (..)
   , FloatingPrimOp (..)
   , FloatingWidth (..)
+  , FixedIntegral (..)
+  , FixedIntegralOp (..)
   , CoreType (..)
   , boolTy
   , charTy
@@ -22,6 +24,7 @@ module Haskell2010.Core.Syntax
   , eitherTyConName
   , falseDataConName
   , floatTy
+  , fixedIntegralTy
   , foreignPtrTy
   , foreignPtrTyConName
   , funTy
@@ -75,6 +78,7 @@ where
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Haskell2010.FixedWidth (FixedIntegral (..), FixedIntegralOp (..), fixedIntegralTypeName)
 import Haskell2010.Names (Namespace (..), RName (..))
 import Haskell2010.Syntax (ForeignCallConv, ForeignExportEntity, ForeignImportEntity, ForeignSafety, Literal, ModuleName)
 
@@ -215,6 +219,7 @@ data CorePrimOp
   | PrimCastForeignPtr
   | PrimFloat FloatingWidth FloatingPrimOp
   | PrimFloatInt FloatingWidth FloatingIntPrimOp
+  | PrimFixedIntegral FixedIntegral FixedIntegralOp
   deriving stock (Show, Eq, Ord)
 
 data FloatingWidth
@@ -308,6 +313,10 @@ floatTy =
 doubleTy :: CoreType
 doubleTy =
   builtinType "Double" (-11)
+
+fixedIntegralTy :: FixedIntegral -> CoreType
+fixedIntegralTy =
+  CTyCon . fixedIntegralTypeName
 
 unitTy :: CoreType
 unitTy =

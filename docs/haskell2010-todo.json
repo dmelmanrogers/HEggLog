@@ -8210,7 +8210,7 @@
         "Data.Bits exports the Haskell 2010 Bits(..) class and all report methods through the generated standard-library interface.",
         "Bits Int is implemented with the required Num superclass, Core/STG interpreter behavior, and native LLVM lowering for bitwise operators, shifts, rotates, bit, setters/clearers/toggles, predicates, bitSize, and isSigned.",
         "Directional operations reject negative bit counts explicitly, and native lowering guards large shift counts so LLVM never receives undefined shift amounts.",
-        "Unsupported fixed-width and Word combinations remain explicit LIB-009 work until those runtime representations and instances are real."
+        "Fixed-width Int*/Word* instances are implemented by LIB-009; plain Word remains intentionally outside the Haskell 2010 basic FFI type set."
       ],
       "required_tests": [
         "test/haskell2010/conformance/modules/data-bits.hs",
@@ -8222,7 +8222,7 @@
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
       ],
-      "notes": "Complete. Data.Bits is importable and exports the report-shaped Bits class for the current supported integral representation, Int. The implementation includes Bits Int, Num superclass dictionary resolution, Core/STG interpreter semantics, native LLVM lowering for all report methods, explicit negative directional bit-count failures, and conformance fixtures for positive and partial behavior. Fixed-width Int*/Word* bit instances remain owned by LIB-009."
+      "notes": "Complete. Data.Bits is importable and exports the report-shaped Bits class for Int and, through LIB-009, fixed-width Int*/Word* representations. The implementation includes Num superclass dictionary resolution, Core/STG interpreter semantics, native LLVM lowering for all report methods, explicit negative directional bit-count failures, guarded oversized shifts, and conformance fixtures for positive and partial behavior."
     },
     {
       "id": "LIB-007",
@@ -8250,7 +8250,7 @@
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
       ],
-      "notes": "Complete. Data.Ratio is importable and exports Ratio, Rational, (%), numerator, denominator, and approxRational. The executable runtime represents Rational as Ratio Int over the compiler's current Integer-as-Int representation, normalizes signs and common divisors, rejects zero denominators at runtime, and backs toRational with the same constructor instead of the old (Int, Int) pair. Built-in Ratio Int dictionaries cover Eq, Ord, Num, Real, Show, and Read, including precedence-aware show/read round trips and list Read/Show. approxRational implements the Report simplest-rational algorithm for the currently supported Rational input type. Generic Ratio a, arbitrary precision Integer, and floating/fractional integration remain owned by LIB-008 and LIB-009."
+      "notes": "Complete. Data.Ratio is importable and exports Ratio, Rational, (%), numerator, denominator, and approxRational. The executable runtime represents Rational as Ratio Int over the compiler's current Integer-as-Int representation, normalizes signs and common divisors, rejects zero denominators at runtime, and backs toRational with the same constructor instead of the old (Int, Int) pair. Built-in Ratio Int dictionaries cover Eq, Ord, Num, Real, Show, and Read, including precedence-aware show/read round trips and list Read/Show. approxRational implements the Report simplest-rational algorithm for the currently supported Rational input type. Generic Ratio a and arbitrary precision Integer remain separate broader numeric gaps; floating/fractional integration is covered by LIB-008."
     },
     {
       "id": "LIB-008",
@@ -8284,7 +8284,7 @@
     {
       "id": "LIB-009",
       "title": "Data.Int and Data.Word report completion",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "TC-033",
@@ -8306,7 +8306,8 @@
         "docs/haskell2010-standard-library-layout.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete for the non-Storable Data.Int/Data.Word surface owned by this task. Data.Int and Data.Word now use shared fixed-width runtime representations for Int8, Int16, Int32, Int64, Word, Word8, Word16, Word32, and Word64, with Core/STG/native primitives for modulo arithmetic, signed and unsigned comparisons, quotient/remainder, bounds, Show, Read through the current integer lexer, Enum, Ix, and Bits. Native conformance covers overflow, bounds, unsigned Word64 rendering, signed shift edge cases, fixed-width list/range behavior, and static FFI scalar marshalling for Int8, Word8, and Word64. Plain Word remains intentionally rejected as a Haskell 2010 basic FFI type; the Report basic FFI word types are Word8/Word16/Word32/Word64. Storable instances remain under FFI-013 with the broader reserved Foreign.Storable surface. Arbitrary-precision Integer is still represented by the existing checked-Int runtime subset, so Integral conversions are complete for values representable by that project-wide Integer representation; true arbitrary-precision Integer remains a separate conformance gap."
     },
     {
       "id": "LIB-010",

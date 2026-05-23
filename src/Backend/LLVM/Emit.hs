@@ -78,8 +78,12 @@ emitInstruction = \case
     assign reg ("mul " <> emitTypedOperands ty lhs rhs)
   IDiv reg ty lhs rhs ->
     assign reg ("sdiv " <> emitTypedOperands ty lhs rhs)
+  IUDiv reg ty lhs rhs ->
+    assign reg ("udiv " <> emitTypedOperands ty lhs rhs)
   IRem reg ty lhs rhs ->
     assign reg ("srem " <> emitTypedOperands ty lhs rhs)
+  IURem reg ty lhs rhs ->
+    assign reg ("urem " <> emitTypedOperands ty lhs rhs)
   IFAdd reg ty lhs rhs ->
     assign reg ("fadd " <> emitTypedOperands ty lhs rhs)
   IFSub reg ty lhs rhs ->
@@ -243,6 +247,7 @@ emitCompareKind :: LLVMPredicate -> Text
 emitCompareKind = \case
   ICmpEq -> "icmp"
   ICmpSlt -> "icmp"
+  ICmpUlt -> "icmp"
   FCmpOeq -> "fcmp"
   FCmpOlt -> "fcmp"
   FCmpUno -> "fcmp"
@@ -251,6 +256,7 @@ emitPredicate :: LLVMPredicate -> Text
 emitPredicate = \case
   ICmpEq -> "eq"
   ICmpSlt -> "slt"
+  ICmpUlt -> "ult"
   FCmpOeq -> "oeq"
   FCmpOlt -> "olt"
   FCmpUno -> "uno"

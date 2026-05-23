@@ -396,6 +396,19 @@
       "notes": "Generated Data.Int, Data.Word, and Foreign.C.Types interfaces expose the currently supported scalar type-name surface."
     },
     {
+      "name": "modules.data-int-word",
+      "sourceFile": "test/haskell2010/conformance/modules/data-int-word.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "-128\n127\n-128\n127\n255\n0\n18446744073709551615\n127\n1\n-4\n2\n255\n0\n-1\n-1\n-1\n2\n1\nTrue\nFalse\n16\nTrue\nFalse\n[126,127]\n[254,255]\n[250,251,252]\n1\nTrue\n255\n-128\n255\n255\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Int and Data.Word expose real fixed-width runtime representations with modulo arithmetic, bounds, Show/Read, Enum, Ix, Bits, signed shifts, unsigned Word64 rendering, and native execution."
+    },
+    {
       "name": "declarations.top-level-function",
       "sourceFile": "test/haskell2010/conformance/declarations/top-level-function.hs",
       "category": "declarations",
@@ -974,6 +987,22 @@
         "test/native/haskell2010/ffi_helpers.c"
       ],
       "notes": "Static foreign import ccall declarations lower through LLVM, preserve header-qualified link metadata, link against C helpers through CLI link-object flags, marshal Int/Bool/Char values, and sequence IO effects."
+    },
+    {
+      "name": "ffi.fixed-width-scalars",
+      "sourceFile": "test/haskell2010/conformance/ffi/fixed-width-scalars.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "0\n-120\n18446744073709551615\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c"
+      ],
+      "notes": "Static ccall scalar marshalling preserves fixed-width Int8, Word8, and Word64 representations across C helper calls."
     },
     {
       "name": "ffi.pointer-address",

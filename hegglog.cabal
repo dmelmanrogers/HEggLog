@@ -84,6 +84,7 @@ executable hegglog
       Haskell2010.Core.Syntax
       Haskell2010.Core.Validate
       Haskell2010.FFI.LinkMetadata
+      Haskell2010.FixedWidth
       Haskell2010.Layout
       Haskell2010.Lexer
       Haskell2010.ModuleGraph
@@ -185,6 +186,7 @@ test-suite hegglog-test
       Haskell2010.Core.Syntax
       Haskell2010.Core.Validate
       Haskell2010.FFI.LinkMetadata
+      Haskell2010.FixedWidth
       Haskell2010.Layout
       Haskell2010.Lexer
       Haskell2010.ModuleGraph

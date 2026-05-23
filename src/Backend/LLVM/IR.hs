@@ -49,6 +49,7 @@ data LLVMCallTarget
 data LLVMPredicate
   = ICmpEq
   | ICmpSlt
+  | ICmpUlt
   | FCmpOeq
   | FCmpOlt
   | FCmpUno
@@ -59,7 +60,9 @@ data LLVMInstruction
   | ISub Register LLVMType LLVMOperand LLVMOperand
   | IMul Register LLVMType LLVMOperand LLVMOperand
   | IDiv Register LLVMType LLVMOperand LLVMOperand
+  | IUDiv Register LLVMType LLVMOperand LLVMOperand
   | IRem Register LLVMType LLVMOperand LLVMOperand
+  | IURem Register LLVMType LLVMOperand LLVMOperand
   | IFAdd Register LLVMType LLVMOperand LLVMOperand
   | IFSub Register LLVMType LLVMOperand LLVMOperand
   | IFMul Register LLVMType LLVMOperand LLVMOperand

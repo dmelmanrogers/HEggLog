@@ -722,6 +722,7 @@ corePrimToANF = \case
   PrimCastForeignPtr -> Nothing
   PrimFloat {} -> Nothing
   PrimFloatInt {} -> Nothing
+  PrimFixedIntegral {} -> Nothing
 
 anfPrimToCore :: BinOp -> CorePrimOp
 anfPrimToCore = \case

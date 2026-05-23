@@ -351,6 +351,7 @@ validatePrimitive op arguments resultTy =
     PrimCastForeignPtr -> validateCastForeignPtrPrimitive op arguments resultTy
     PrimFloat width floatingOp -> validateFloatingPrimitive op width floatingOp arguments resultTy
     PrimFloatInt width floatingOp -> validateFloatingIntPrimitive op width floatingOp arguments resultTy
+    PrimFixedIntegral fixed fixedOp -> validateFixedIntegralPrimitive op fixed fixedOp arguments resultTy
     PrimEq ->
       [ checkPrimitiveArity op 2 arguments
       , validatePrimitiveEq op arguments
@@ -368,6 +369,49 @@ validatePrimitive op arguments resultTy =
     PrimRotateR -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
     PrimBit -> validateFixedPrimitive op [intTy] intTy arguments resultTy
     PrimTestBit -> validateFixedPrimitive op [intTy, intTy] boolTy arguments resultTy
+
+validateFixedIntegralPrimitive ::
+  CorePrimOp ->
+  FixedIntegral ->
+  FixedIntegralOp ->
+  [CoreExpr] ->
+  CoreType ->
+  [Either [CoreValidationError] ()]
+validateFixedIntegralPrimitive op fixed fixedOp arguments resultTy =
+  case fixedOp of
+    FixedAdd -> binaryValue
+    FixedSub -> binaryValue
+    FixedMul -> binaryValue
+    FixedQuot -> binaryValue
+    FixedRem -> binaryValue
+    FixedEq -> binaryBool
+    FixedLt -> binaryBool
+    FixedNegate -> unaryValue
+    FixedAbs -> unaryValue
+    FixedSignum -> unaryValue
+    FixedFromInteger -> validateFixedPrimitive op [intTy] valueTy arguments resultTy
+    FixedToInteger -> validateFixedPrimitive op [valueTy] intTy arguments resultTy
+    FixedShow -> validateFixedPrimitive op [valueTy] stringTy arguments resultTy
+    FixedBitAnd -> binaryValue
+    FixedBitOr -> binaryValue
+    FixedBitXor -> binaryValue
+    FixedBitComplement -> unaryValue
+    FixedShift -> fixedByInt
+    FixedShiftL -> fixedByInt
+    FixedShiftR -> fixedByInt
+    FixedRotate -> fixedByInt
+    FixedRotateL -> fixedByInt
+    FixedRotateR -> fixedByInt
+    FixedBit -> validateFixedPrimitive op [intTy] valueTy arguments resultTy
+    FixedTestBit -> validateFixedPrimitive op [valueTy, intTy] boolTy arguments resultTy
+    FixedMinBound -> validateFixedPrimitive op [] valueTy arguments resultTy
+    FixedMaxBound -> validateFixedPrimitive op [] valueTy arguments resultTy
+ where
+  valueTy = fixedIntegralTy fixed
+  unaryValue = validateFixedPrimitive op [valueTy] valueTy arguments resultTy
+  binaryValue = validateFixedPrimitive op [valueTy, valueTy] valueTy arguments resultTy
+  binaryBool = validateFixedPrimitive op [valueTy, valueTy] boolTy arguments resultTy
+  fixedByInt = validateFixedPrimitive op [valueTy, intTy] valueTy arguments resultTy
 
 validateFixedPrimitive ::
   CorePrimOp ->

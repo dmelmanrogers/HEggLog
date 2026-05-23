@@ -12,6 +12,7 @@ where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Core.Syntax
+import Haskell2010.FixedWidth (fixedIntegralOccurrence)
 import Haskell2010.Names (renderRName)
 import qualified Haskell2010.Syntax as S
 import Haskell2010.Syntax (Literal (..), ModuleName (..))
@@ -170,6 +171,7 @@ renderCorePrimOp = \case
   PrimCastForeignPtr -> "castForeignPtr#"
   PrimFloat width op -> renderFloatingWidth width <> "." <> renderFloatingPrimOp op <> "#"
   PrimFloatInt width op -> renderFloatingWidth width <> "." <> renderFloatingIntPrimOp op <> "#"
+  PrimFixedIntegral fixed op -> fixedIntegralOccurrence fixed <> "." <> Text.pack (show op) <> "#"
 
 renderFloatingWidth :: FloatingWidth -> Text
 renderFloatingWidth = \case

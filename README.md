@@ -47,7 +47,7 @@ Implemented today for the Haskell 2010 target:
   user-defined dictionary-passed classes, built-in `Eq`/`Ord`/`Num`/`Show`
   dictionary calls, overloaded integer literals/defaulting, `main :: IO ()`,
   `putStrLn`, `print`, and same-directory multi-file modules
-- a mandatory Haskell 2010 conformance baseline with a JSON manifest, 46
+- a mandatory Haskell 2010 conformance baseline with a JSON manifest, 151
   fixtures, exact native stdout checks, runtime-error checks, compile-error
   checks, and explicit unsupported-feature cases
 
