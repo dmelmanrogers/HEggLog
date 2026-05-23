@@ -1,5 +1,5 @@
 module Main where
 
-import Data.Char (isSpace)
+import Data.Array (Array)
 
 main = 0

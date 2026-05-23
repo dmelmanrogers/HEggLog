@@ -295,6 +295,31 @@
       "notes": "Data.Maybe fromJust preserves partial behavior by compiling Nothing to a native runtime failure."
     },
     {
+      "name": "modules.data-char",
+      "sourceFile": "test/haskell2010/conformance/modules/data-char.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nFalse\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nUppercaseLetter\nNonSpacingMark\nAzQ\n15\nf\n65\nA\n\\n!\n\\SO\\&H\n\\n\nHello\n'A'\n7\n!\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Char imports expose character classification, case conversion, digit conversion, ordinal conversion, GeneralCategory, and literal show/read helpers through a source-backed standard-library module compiled by the normal parser, renamer, typechecker, Core/STG, and native paths."
+    },
+    {
+      "name": "modules.data-char-partial",
+      "sourceFile": "test/haskell2010/conformance/modules/data-char-partial.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Char digitToInt preserves partial behavior by compiling invalid hexadecimal input to a native runtime failure."
+    },
+    {
       "name": "modules.control-monad",
       "sourceFile": "test/haskell2010/conformance/modules/control-monad.hs",
       "category": "modules",
@@ -1430,15 +1455,6 @@
       "expectedDiagnosticCategory": "could not read",
       "requiredStage": "module-graph",
       "notes": "Data.Bits remains reserved until bit classes and operations are implemented under LIB-006."
-    },
-    {
-      "name": "unsupported.library-data-char",
-      "sourceFile": "test/haskell2010/conformance/unsupported/library-data-char.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
-      "requiredStage": "module-graph",
-      "notes": "Data.Char remains reserved until character classification, conversion, numeric, and string representation functions are implemented under LIB-004."
     },
     {
       "name": "unsupported.library-data-complex",

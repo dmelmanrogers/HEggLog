@@ -14600,7 +14600,7 @@ Notes:
 ## LIB-004 — Data.Char report completion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -14640,7 +14640,20 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Created by TEST-CONF-015; the unsupported fixture keeps this reserved module explicit.
+- Complete. `Data.Char` is now a source-backed virtual standard-library
+  module loaded through the module graph before generated-only builtin module
+  handling. It re-exports `Char` and `String`, defines
+  `GeneralCategory(..)`, and implements classification predicates, ASCII
+  digit predicates, `ord`, `chr`, `digitToInt`, `intToDigit`, simple Unicode
+  case conversion, `showLitChar`, `lexLitChar`, and `readLitChar` in ordinary
+  source. The character table policy is explicit: the compact table covers the
+  Haskell lexical ASCII surface, Latin-1, common Greek letter ranges, combining
+  mark ranges, Unicode separator code points required by `isSpace`, and the
+  Euro sign; unlisted code points classify as `NotAssigned` until a generated
+  Unicode database table is introduced. Native e2e and conformance fixtures
+  cover positive classification/conversion/literal behavior, default and
+  `--no-egglog` modes, emit-LLVM output, and invalid `digitToInt` runtime
+  failure.
 
 ## LIB-005 — Data.Array and Data.Ix report completion
 

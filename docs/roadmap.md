@@ -83,10 +83,10 @@ Completed Haskell 2010 roadmap work:
   used by MOD-009.
 - PRELUDE-020 standard library module expansion: implemented with generated
   importable interfaces for `Control.Monad`, `Data.Int`, `Data.List`,
-  `Data.Maybe`, `Data.Word`, `System.IO`, and implemented `Foreign.*` module
+  `Data.Maybe`, `Data.Char`, `Data.Word`, `System.IO`, and implemented `Foreign.*` module
   slices, including real `Functor(fmap)` support for `[]`, `Maybe`, and `IO`,
-  while keeping reserved Report modules unimportable until they have real
-  support.
+  plus source-backed Report APIs for `Data.List`, `Data.Maybe`, and `Data.Char`,
+  while keeping reserved Report modules unimportable until they have real support.
 - FFI-013 Foreign library surface completion: implemented for the current
   runtime-supported `Foreign.Ptr`, `Foreign.ForeignPtr`, `Foreign.Marshal`,
   `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils` slices with native

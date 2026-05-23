@@ -8053,7 +8053,7 @@
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
       ],
-      "notes": "Complete. `Haskell2010.StandardLibrary` now exposes generated/importable interfaces for `Prelude`, `Control.Monad`, `Data.Int`, `Data.List`, `Data.Maybe`, `Data.Word`, `System.IO`, and the implemented `Foreign`, `Foreign.C`, `Foreign.C.String`, `Foreign.C.Types`, `Foreign.ForeignPtr`, `Foreign.Ptr`, and `Foreign.StablePtr` slices. The generated modules use the shared `ModuleInterface` export, child-export, fixity, and instance slots; no reserved module is importable as an empty placeholder. Native e2e and conformance fixtures cover explicit imports from `Data.List`, `Data.Maybe`, `Control.Monad`, and `System.IO`, including `Functor(fmap)` execution for lists, `Maybe`, and `IO`; the unsupported package/search-path fixture now targets reserved `Data.Char` so unsupported standard-library modules still fail explicitly. The standard-library layout doc identifies every Haskell 2010 Libraries module as implemented, partial, reserved, or owned by a follow-up task."
+      "notes": "Complete. `Haskell2010.StandardLibrary` now exposes generated/importable interfaces for `Prelude`, `Control.Monad`, `Data.Int`, `Data.List`, `Data.Maybe`, `Data.Char`, `Data.Word`, `System.IO`, and the implemented `Foreign`, `Foreign.C`, `Foreign.C.String`, `Foreign.C.Types`, `Foreign.ForeignPtr`, `Foreign.Ptr`, and `Foreign.StablePtr` slices. The generated and source-backed modules use the shared `ModuleInterface` export, child-export, fixity, and instance slots; no reserved module is importable as an empty placeholder. Native e2e and conformance fixtures cover explicit imports from `Data.List`, `Data.Maybe`, `Data.Char`, `Control.Monad`, and `System.IO`, including `Functor(fmap)` execution for lists, `Maybe`, `IO`, and the Data.Char classification/literal-helper surface; the unsupported package/search-path fixture now targets reserved `Data.Array` so unsupported standard-library modules still fail explicitly. The standard-library layout doc identifies every Haskell 2010 Libraries module as implemented, partial, reserved, or owned by a follow-up task."
     },
     {
       "id": "LIB-001",
@@ -8142,7 +8142,7 @@
     {
       "id": "LIB-004",
       "title": "Data.Char report completion",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "PRELUDE-DATA-007",
@@ -8164,7 +8164,8 @@
         "docs/haskell2010-standard-library-layout.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. Data.Char is now a source-backed virtual standard-library module loaded through the module graph before generated-only builtin module handling. It re-exports Char and String, defines GeneralCategory(..), and implements classification predicates, ASCII digit predicates, ord, chr, digitToInt, intToDigit, simple Unicode case conversion, showLitChar, lexLitChar, and readLitChar in ordinary source. The character table policy is explicit: the compact table covers the Haskell lexical ASCII surface, Latin-1, common Greek letter ranges, combining mark ranges, Unicode separator code points required by isSpace, and the Euro sign; unlisted code points classify as NotAssigned until a generated Unicode database table is introduced. Native e2e and conformance fixtures cover positive classification/conversion/literal behavior, default and no-egglog modes, emit-LLVM output, and invalid digitToInt runtime failure."
     },
     {
       "id": "LIB-005",

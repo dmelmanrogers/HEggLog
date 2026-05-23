@@ -682,10 +682,12 @@ Completed immediate tasks:
   interface, shared `ModuleInterface` data model, and instance-export boundary
   used by MOD-009.
 - PRELUDE-020 standard library module expansion, including generated/importable
-  interfaces for `Control.Monad`, `Data.Int`, `Data.List`, `Data.Maybe`,
+  interfaces for `Control.Monad`, `Data.Int`, `Data.List`, `Data.Maybe`, `Data.Char`,
   `Data.Word`, `System.IO`, and implemented `Foreign.*` module slices, with
   `Control.Monad` exposing real `Functor(fmap)` support for `[]`, `Maybe`, and
-  `IO`, and reserved Report modules kept unimportable until real support exists.
+  `IO`, source-backed Report APIs for `Data.List`, `Data.Maybe`, and
+  `Data.Char`, and reserved Report modules kept unimportable until real support
+  exists.
 - PRELUDE-002/MOD-010 implicit Prelude import behavior, including synthetic
   `import Prelude` insertion only when no explicit `Prelude` import exists,
   explicit Prelude import-list/hiding/qualified filtering, and native

@@ -29,6 +29,7 @@ graph path until that module has an implemented surface.
 | `Prelude` | implemented for current executable subset | supported built-in data constructors, classes, class methods, list functions, IO functions, tuple/list/unit types, `Thing(..)` children, and Prelude fixities |
 | `Control.Monad` | implemented for supported monads | `Functor(fmap)`, `Monad(..)`, `MonadPlus(..)`, and the Haskell 2010 monadic combinator surface (`mapM`, `mapM_`, `forM`, `forM_`, `sequence`, `sequence_`, `(=<<)`, `(>=>)`, `(<=<)`, `forever`, `void`, `join`, `msum`, `filterM`, `mapAndUnzipM`, `zipWithM`, `zipWithM_`, `foldM`, `foldM_`, `replicateM`, `replicateM_`, `guard`, `when`, `unless`, `liftM` through `liftM5`, and `ap`) for the supported `IO`, `Maybe`, and list instances |
 | `Data.Int` | partial generated interface | `Int8`, `Int16`, `Int32`, `Int64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
+| `Data.Char` | source-backed native module | `Char`, `String`, `GeneralCategory(..)`, classification predicates, ASCII digit predicates, `generalCategory`, case conversion, `digitToInt`, `intToDigit`, `ord`, `chr`, `showLitChar`, `lexLitChar`, and `readLitChar`; compact character-table policy covers the Haskell lexical ASCII surface, Latin-1, common Greek letters, combining marks, Unicode separators needed by `isSpace`, and the Euro sign |
 | `Data.List` | source-backed native module | Haskell 2010 Report list API: shared Prelude list functions plus transformations, folds/scans, map accumulators, infinite-list producers, sublists, predicates, searches, indexing, zips/unzips, text helpers, set-like list operations, ordered-list helpers, `By` variants, and generic functions; `(++)`, `(!!)`, and `(\\)` fixities are imported |
 | `Data.Maybe` | source-backed native module | `Maybe(..)`, `maybe`, `isJust`, `isNothing`, `fromJust`, `fromMaybe`, `listToMaybe`, `maybeToList`, `catMaybes`, and `mapMaybe` |
 | `Data.Word` | partial generated interface | `Word`, `Word8`, `Word16`, `Word32`, `Word64` type names for the supported scalar foreign-type surface; `LIB-009` owns real fixed-width representations and instances |
@@ -60,7 +61,6 @@ exported value/type/class surface is not yet real in the compiler.
 | --- | --- | --- |
 | `Data.Array` | reserved | `LIB-005` |
 | `Data.Bits` | reserved | `LIB-006` |
-| `Data.Char` | reserved | `LIB-004` |
 | `Data.Complex` | reserved | `LIB-008` |
 | `Data.Ix` | reserved | `LIB-005` |
 | `Data.Ratio` | reserved | `LIB-007` |
@@ -83,6 +83,14 @@ source-backed virtual standard-library module. The virtual module re-exports
 the built-in `Maybe` type and constructors and implements the Haskell 2010
 helper functions in ordinary source so the same parser, renamer, typechecker,
 Core/STG, and native paths validate the module.
+
+`LIB-004` moved `Data.Char` from a reserved module to a source-backed virtual
+standard-library module. The module owns `GeneralCategory(..)` and the
+Report-shaped character classification, conversion, digit, ordinal, and
+literal read/show helper surface. The compact table is intentionally explicit:
+it covers the executable Haskell lexical ASCII/Latin-1 surface plus selected
+validated Unicode ranges, and unlisted code points classify as `NotAssigned`
+until a generated Unicode database table is introduced.
 
 `TEST-CONF-015` completed the Report-wide reconciliation for this table. Each
 reserved module and each partial generated interface now points to implemented
@@ -118,3 +126,5 @@ References:
   <https://www.haskell.org/onlinereport/haskell2010/haskellch20.html>
 - Haskell 2010 Libraries, `Data.Maybe`:
   <https://www.haskell.org/onlinereport/haskell2010/haskellch21.html>
+- Haskell 2010 Libraries, `Data.Char`:
+  <https://www.haskell.org/onlinereport/haskell2010/haskellch16.html>

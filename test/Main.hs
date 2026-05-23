@@ -1346,6 +1346,16 @@ testHaskell2010StandardLibraryExpandedInterfaces = do
     "Data.Maybe exposes Maybe constructors"
     (interfaceExportsChild H2010Names.TypeNamespace "Maybe" H2010Names.ConstructorNamespace "Nothing" dataMaybe)
 
+  dataChar <- requireInterface (H2010.ModuleName ["Data", "Char"])
+  assertBool "Data.Char exports Char" (interfaceExportsName H2010Names.TypeNamespace "Char" dataChar)
+  assertBool "Data.Char exports GeneralCategory" (interfaceExportsName H2010Names.TypeNamespace "GeneralCategory" dataChar)
+  assertBool "Data.Char exports isAlpha" (interfaceExportsName H2010Names.TermNamespace "isAlpha" dataChar)
+  assertBool "Data.Char exports generalCategory" (interfaceExportsName H2010Names.TermNamespace "generalCategory" dataChar)
+  assertBool "Data.Char exports showLitChar" (interfaceExportsName H2010Names.TermNamespace "showLitChar" dataChar)
+  assertBool
+    "Data.Char exposes GeneralCategory constructors"
+    (interfaceExportsChild H2010Names.TypeNamespace "GeneralCategory" H2010Names.ConstructorNamespace "UppercaseLetter" dataChar)
+
   controlMonad <- requireInterface (H2010.ModuleName ["Control", "Monad"])
   assertBool "Control.Monad exports Functor" (interfaceExportsName H2010Names.ClassNamespace "Functor" controlMonad)
   assertBool "Control.Monad exports fmap" (interfaceExportsName H2010Names.TermNamespace "fmap" controlMonad)
@@ -1391,10 +1401,6 @@ testHaskell2010StandardLibraryExpandedInterfaces = do
   assertBool "Foreign.Ptr exports FunPtr" (interfaceExportsName H2010Names.TypeNamespace "FunPtr" foreignPtr)
   assertBool "Foreign.C.String exports CString" (interfaceExportsName H2010Names.TypeNamespace "CString" foreignCString)
 
-  expectEqual
-    "Data.Char stays reserved until functions are implemented"
-    Nothing
-    (Map.lookup (H2010.ModuleName ["Data", "Char"]) H2010StandardLibrary.standardLibraryModuleInterfaces)
   expectEqual
     "Numeric stays reserved until numeric formatting is implemented"
     Nothing

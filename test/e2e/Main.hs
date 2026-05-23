@@ -505,6 +505,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-standard-library-modules" "test/e2e/programs/haskell2010/standard-library-modules.hs" "9\n9\n5\nTrue\nstdlib" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-data-list" "test/haskell2010/conformance/modules/data-list.hs" dataListExpectedStdout [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-data-maybe" "test/haskell2010/conformance/modules/data-maybe.hs" "7\n5\nTrue\nFalse\nTrue\nok\n11\n3\n[8]\n[]\n1\nTrue\n[1,3]\n[30,40]" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-data-char" "test/haskell2010/conformance/modules/data-char.hs" "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nFalse\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nUppercaseLetter\nNonSpacingMark\nAzQ\n15\nf\n65\nA\n\\n!\n\\SO\\&H\n\\n\nHello\n'A'\n7\n!" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-modules" "test/e2e/programs/haskell2010/modules/Main.hs" "20" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-printing" "test/e2e/programs/haskell2010/io-printing.hs" "ok\nanswer\n42\nTrue" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-normal-examples" "test/e2e/programs/haskell2010/io-normal-examples.hs" "hello\nbound\n\"quoted\"\n'X'\n\"plain\"\n[1,2,3]\n[True,False]" [DefaultEgglog, NoEgglog] True
@@ -536,6 +537,7 @@ e2eCases =
   , runtimeErrorCase "haskell2010-prelude-head-empty" "test/e2e/programs/haskell2010/prelude-head-empty.hs" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "haskell2010-data-list-partial" "test/haskell2010/conformance/modules/data-list-partial.hs" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "haskell2010-data-maybe-partial" "test/haskell2010/conformance/modules/data-maybe-partial.hs" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-data-char-partial" "test/haskell2010/conformance/modules/data-char-partial.hs" [DefaultEgglog, NoEgglog]
   , compileErrorCase "open-free-variable" "test/e2e/programs/compile-errors/open-free-variable.hg" ["free", "unbound", "unknown", "backend"]
   , compileErrorCase "type-error" "test/e2e/programs/compile-errors/type-error.hg" ["type"]
   , compileErrorCase "unsupported-recursion" "test/e2e/programs/unsupported/unsupported-recursion.hg" ["recursive", "recursion", "unbound", "unknown"]

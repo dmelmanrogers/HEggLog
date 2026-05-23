@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-23 04:38:52 UTC
+Date/time: 2026-05-23 05:14:49 UTC
 
-Code hash tested: working tree for the LIB-003 update, based on `030bf89`.
+Code hash tested: working tree for the LIB-004 update, based on `3abd3d8`.
 
 Primary conformance command run:
 
@@ -35,14 +35,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 143 |
-| Haskell source files in corpus | 150 |
-| HUnit test cases executed | 198 |
-| Native-success fixtures | 90 |
-| Native-runtime-error fixtures | 8 |
+| Manifest conformance fixtures | 144 |
+| Haskell source files in corpus | 151 |
+| HUnit test cases executed | 201 |
+| Native-success fixtures | 91 |
+| Native-runtime-error fixtures | 9 |
 | Compile-error fixtures | 28 |
-| Unsupported-documented fixtures | 17 |
-| Native subprocess compile/run checks | 153 |
+| Unsupported-documented fixtures | 16 |
+| Native subprocess compile/run checks | 157 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -128,10 +128,10 @@ default and `--no-egglog` modes.
 
 PRELUDE-020 is now covered by native conformance and e2e fixtures.
 `modules.standard-library-modules` checks generated/importable interfaces for
-`Data.List`, `Data.Maybe`, `Control.Monad`, and `System.IO` with explicit
+`Data.List`, `Data.Maybe`, `Data.Char`, `Control.Monad`, and `System.IO` with explicit
 import lists, `Functor(fmap)` and `Maybe(..)` child exports, imported fixities,
 ordinary Prelude-backed semantics, and default plus `--no-egglog` native execution. The
-unsupported package/search-path fixture now imports reserved `Data.Char` so
+unsupported package/search-path fixture now imports reserved `Data.Array` so
 unimplemented standard-library modules continue to fail explicitly.
 
 LIB-002 is now covered by native conformance and e2e fixtures.
@@ -152,14 +152,24 @@ lowering, and native backend. The fixture exercises `Maybe(..)`, `maybe`,
 `modules.data-maybe-partial` locks `fromJust Nothing` as a native runtime-error
 case.
 
+LIB-004 is now covered by native conformance and e2e fixtures.
+`modules.data-char` compiles a source-backed virtual `Data.Char` module through
+the ordinary module graph, parser, renamer, typechecker, Core/STG lowering, and
+native backend. The fixture exercises `GeneralCategory(..)`, classification
+predicates, case conversion, digit conversion, `ord`, `chr`, `showLitChar`,
+`lexLitChar`, and `readLitChar` in default, `--no-egglog`, and emit-LLVM modes.
+`modules.data-char-partial` locks invalid `digitToInt` input as a native
+runtime-error case. The implementation documents its compact character-table
+policy instead of claiming an untested full Unicode database.
+
 TEST-CONF-015 is now validator-backed. The conformance matrix contains a
 Library Conformance Closure table covering Chapter 9 Prelude areas and every
 Part II Libraries module group. The conformance validator now checks all 18
 library closure rows, verifies that each row cites manifest-backed fixtures and
 numbered remaining tracker tasks, and requires the library closure fixtures to
 stay represented in the matrix. Reserved Report modules now have explicit
-unsupported-documented fixtures for `Data.Array`, `Data.Bits`, `Data.Char`,
-`Data.Complex`, `Data.Ix`, `Data.Ratio`, `Numeric`, `System.Environment`,
+unsupported-documented fixtures for `Data.Array`, `Data.Bits`, `Data.Complex`,
+`Data.Ix`, `Data.Ratio`, `Numeric`, `System.Environment`,
 `System.Exit`, `Foreign.C.Error`, `Foreign.Marshal.Alloc`/array allocation,
 and `Foreign.Storable`.
 `io.io-error` now positively checks the generated `System.IO.Error` surface for
@@ -185,11 +195,11 @@ dynamic calls, wrapper callbacks, and foreign export entrypoints.
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
-| `modules` | 13 | single-module, same-directory import, implicit/explicit/qualified Prelude import, source-instance import/export, generated standard-library module imports, source-backed `Data.List`/`Data.Maybe`, scalar standard-library type-name imports, and Data.List/Data.Maybe partial runtime-error coverage exist |
+| `modules` | 15 | single-module, same-directory import, implicit/explicit/qualified Prelude import, source-instance import/export, generated standard-library module imports, source-backed `Data.List`/`Data.Maybe`/`Data.Char`, scalar standard-library type-name imports, and Data.List/Data.Maybe/Data.Char partial runtime-error coverage exist |
 | `negative` | 28 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid default declarations, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
 | `prelude` | 18 | list functions, append, foldl, function/selector completion, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Report-shaped Read, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, and list comprehensions covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
 | `typeclasses` | 12 | user dictionary, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, derived Read, derived Enum, and derived Bounded tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |
-| `unsupported` | 17 | unsupported features documented by failing cases, including constrained expression signatures, handle IO, package/module search paths, and reserved Report library modules |
+| `unsupported` | 16 | unsupported features documented by failing cases, including constrained expression signatures, handle IO, package/module search paths, and reserved Report library modules |
