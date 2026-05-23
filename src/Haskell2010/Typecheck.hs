@@ -18,7 +18,7 @@ module Haskell2010.Typecheck
 where
 
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, unless, when)
+import Control.Monad ((>=>), foldM, unless, when)
 import Control.Monad.State.Strict (State, StateT, get, lift, modify, runState, runStateT)
 import Data.Foldable (traverse_)
 import qualified Data.Graph as Graph
@@ -753,7 +753,7 @@ collectDataConstructors =
     let constructorName = conDeclName constructor
         sourceFields = conDeclFieldTypes constructor
         fieldLabels = conDeclFieldLabels constructor
-    fieldTypes <- traverse sourceMonoType sourceFields
+    fieldTypes <- constructorFieldMonoTypes params sourceFields
     let resultTy = foldl TyApp (TyCon typeName) (map TyVar params)
         scheme = Scheme params [] (foldr TyFun resultTy fieldTypes)
         info =
@@ -786,6 +786,42 @@ conDeclFieldLabels = \case
     replicate (length fields) Nothing
   RRecordConDecl _ fields ->
     concatMap (\(RConField labels _) -> map Just labels) fields
+
+constructorFieldMonoTypes :: [RName] -> [RHsType] -> InferM [MonoType]
+constructorFieldMonoTypes params fields =
+  traverse (sourceMonoType >=> canonicalizeDataFieldTypeVars params) fields
+
+canonicalizeDataFieldTypeVars :: [RName] -> MonoType -> InferM MonoType
+canonicalizeDataFieldTypeVars params =
+  go
+ where
+  paramsByOccurrence = Map.fromList [(nameOcc param, param) | param <- params]
+
+  go = \case
+    TyMeta meta ->
+      pure (TyMeta meta)
+    TyVar name ->
+      case Map.lookup (nameOcc name) paramsByOccurrence of
+        Just param ->
+          pure (TyVar param)
+        Nothing ->
+          throwTypecheck
+            ( UnsupportedCore0
+                ( "constructor field type variable `"
+                    <> nameOcc name
+                    <> "` is not bound by the data type parameters"
+                )
+            )
+    TyCon name ->
+      pure (TyCon name)
+    TyApp fn arg ->
+      TyApp <$> go fn <*> go arg
+    TyFun arg result ->
+      TyFun <$> go arg <*> go result
+    TyTuple fields ->
+      TyTuple <$> traverse go fields
+    TyList element ->
+      TyList <$> go element
 
 collectRecordSelectors :: Map.Map RName DataConstructorInfo -> InferM (Map.Map RName RecordSelectorInfo)
 collectRecordSelectors constructors =
@@ -1079,6 +1115,7 @@ builtinClassInfos =
     , (builtinReadClassName, readInfo)
     , (builtinEnumClassName, enumInfo)
     , (builtinBoundedClassName, boundedInfo)
+    , (builtinIxClassName, ixInfo)
     , (builtinFunctorClassName, functorInfo)
     , (builtinMonadClassName, monadInfo)
     , (builtinMonadPlusClassName, builtinMonadPlusInfo)
@@ -1214,6 +1251,20 @@ builtinClassInfos =
       , ("maxBound", -1452, boundedATy)
       ]
 
+  ixA = preludeTypeVariable "a" (-1398)
+  ixATy = TyVar ixA
+  ixBoundsTy = TyTuple [ixATy, ixATy]
+  ixInfo =
+    builtinClassInfo
+      builtinIxClassName
+      ixA
+      [singleClassConstraint builtinOrdClassName ixATy]
+      [ ("range", -3601, TyFun ixBoundsTy (TyList ixATy))
+      , ("index", -3602, TyFun ixBoundsTy (TyFun ixATy intMonoType))
+      , ("inRange", -3603, TyFun ixBoundsTy (TyFun ixATy boolMonoType))
+      , ("rangeSize", -3604, TyFun ixBoundsTy intMonoType)
+      ]
+
   functorF = preludeTypeVariable "f" (-1391)
   functorA = preludeTypeVariable "a" (-1201)
   functorB = preludeTypeVariable "b" (-1202)
@@ -1338,6 +1389,10 @@ builtinBoundedClassName :: RName
 builtinBoundedClassName =
   preludeClassName "Bounded" (-1350)
 
+builtinIxClassName :: RName
+builtinIxClassName =
+  preludeClassName "Ix" (-1398)
+
 builtinFunctorClassName :: RName
 builtinFunctorClassName =
   preludeClassName "Functor" (-1390)
@@ -1367,6 +1422,7 @@ canonicalClassName name
         "Read" -> builtinReadClassName
         "Enum" -> builtinEnumClassName
         "Bounded" -> builtinBoundedClassName
+        "Ix" -> builtinIxClassName
         "Functor" -> builtinFunctorClassName
         "Monad" -> builtinMonadClassName
         "MonadPlus" -> builtinMonadPlusClassName
@@ -1392,6 +1448,7 @@ builtinClassInfoByOccurrence occurrence = do
           "Read" -> builtinReadClassName
           "Enum" -> builtinEnumClassName
           "Bounded" -> builtinBoundedClassName
+          "Ix" -> builtinIxClassName
           "Functor" -> builtinFunctorClassName
           "Monad" -> builtinMonadClassName
           "MonadPlus" -> builtinMonadPlusClassName
@@ -2895,12 +2952,10 @@ inferInstanceDictionaries env =
   foldM collect []
  where
   collect acc = \case
-    RInstanceDecl [] instanceHead decls -> do
-      dictionary <- inferInstanceDictionary env instanceHead decls
+    RInstanceDecl constraints instanceHead decls -> do
+      dictionary <- inferInstanceDictionary env constraints instanceHead decls
       validateInstanceDictionary acc dictionary
       pure (acc <> [dictionary])
-    RInstanceDecl constraints instanceHead _ ->
-      unsupportedSourceClassConstraintContext (InstanceConstraintContext instanceHead) constraints
     _ ->
       pure acc
 
@@ -2947,6 +3002,10 @@ inferDerivedInstanceDictionaries env decls existing =
         dictionary <- inferDerivedBoundedInstanceDictionary env typeName params constructors
         validateInstanceDictionary known dictionary
         pure (known <> [dictionary], derived <> [dictionary])
+    | className == builtinIxClassName = do
+        dictionary <- inferDerivedIxInstanceDictionary env typeName params constructors
+        validateInstanceDictionary known dictionary
+        pure (known <> [dictionary], derived <> [dictionary])
     | otherwise =
         throwTypecheck (UnsupportedCore0 ("derived class `" <> renderRName className <> "`"))
 
@@ -2973,6 +3032,7 @@ validateDerivedClasses derivingNames = do
     , builtinReadClassName
     , builtinEnumClassName
     , builtinBoundedClassName
+    , builtinIxClassName
     ]
 
 validateInstanceDictionary :: [TypedInstanceDictionary] -> TypedInstanceDictionary -> InferM ()
@@ -2998,7 +3058,7 @@ inferDerivedEqInstanceDictionary env typeName params constructors = do
     case Map.lookup builtinEqClassName classes of
       Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Eq class")
       Just classInfo -> pure classInfo
-  fieldTypes <- concat <$> traverse (traverse sourceMonoType . conDeclFieldTypes) constructors
+  fieldTypes <- concat <$> traverse (constructorFieldMonoTypes params . conDeclFieldTypes) constructors
   context <- List.nub . concat <$> traverse (derivedFieldConstraints "Eq" builtinEqClassName typeName) fieldTypes
   methodMap <- derivedEqMethodBindings constructors info
   let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
@@ -3024,7 +3084,7 @@ inferDerivedOrdInstanceDictionary env typeName params constructors = do
     case Map.lookup builtinOrdClassName classes of
       Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Ord class")
       Just classInfo -> pure classInfo
-  fieldTypes <- concat <$> traverse (traverse sourceMonoType . conDeclFieldTypes) constructors
+  fieldTypes <- concat <$> traverse (constructorFieldMonoTypes params . conDeclFieldTypes) constructors
   context <- List.nub . concat <$> traverse (derivedFieldConstraints "Ord" builtinOrdClassName typeName) fieldTypes
   methodMap <- derivedOrdMethodBindings constructors info
   let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
@@ -3050,7 +3110,7 @@ inferDerivedShowInstanceDictionary env typeName params constructors = do
     case Map.lookup builtinShowClassName classes of
       Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Show class")
       Just classInfo -> pure classInfo
-  fieldTypes <- concat <$> traverse (traverse sourceMonoType . conDeclFieldTypes) constructors
+  fieldTypes <- concat <$> traverse (constructorFieldMonoTypes params . conDeclFieldTypes) constructors
   context <- List.nub . concat <$> traverse (derivedFieldConstraints "Show" builtinShowClassName typeName) fieldTypes
   methodMap <- derivedShowMethodBindings constructors info
   let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
@@ -3076,7 +3136,7 @@ inferDerivedReadInstanceDictionary env typeName params constructors = do
     case Map.lookup builtinReadClassName classes of
       Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Read class")
       Just classInfo -> pure classInfo
-  fieldTypes <- concat <$> traverse (traverse sourceMonoType . conDeclFieldTypes) constructors
+  fieldTypes <- concat <$> traverse (constructorFieldMonoTypes params . conDeclFieldTypes) constructors
   context <- List.nub . concat <$> traverse (derivedFieldConstraints "Read" builtinReadClassName typeName) fieldTypes
   methodMap <- derivedReadMethodBindings constructors info
   let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
@@ -3128,7 +3188,7 @@ inferDerivedBoundedInstanceDictionary env typeName params constructors = do
       Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Bounded class")
       Just classInfo -> pure classInfo
   validateDerivedBoundedConstructors typeName constructors
-  fieldTypes <- concat <$> traverse (traverse sourceMonoType . conDeclFieldTypes) constructors
+  fieldTypes <- concat <$> traverse (constructorFieldMonoTypes params . conDeclFieldTypes) constructors
   context <- List.nub . concat <$> traverse (derivedFieldConstraints "Bounded" builtinBoundedClassName typeName) fieldTypes
   methodMap <- derivedBoundedMethodBindings constructors info
   let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
@@ -4237,6 +4297,196 @@ derivedMaxBoundName :: RName
 derivedMaxBoundName =
   preludeTermName "maxBound" (-1452)
 
+inferDerivedIxInstanceDictionary :: TypeEnv -> RName -> [RName] -> [RConDecl] -> InferM TypedInstanceDictionary
+inferDerivedIxInstanceDictionary env typeName params constructors = do
+  classes <- classInfos <$> get
+  info <-
+    case Map.lookup builtinIxClassName classes of
+      Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Ix class")
+      Just classInfo -> pure classInfo
+  methodMap <- derivedIxMethodBindings constructors info
+  context <-
+    case constructors of
+      []
+        -> throwTypecheck (UnsupportedCore0 "derived Ix requires at least one constructor")
+      _
+        | all null (map conDeclFieldTypes constructors) ->
+            pure [singleClassConstraint builtinEnumClassName (foldl TyApp (TyCon typeName) (map TyVar params))]
+      [constructor] ->
+        do
+          fieldTypes <- constructorFieldMonoTypes params (conDeclFieldTypes constructor)
+          List.nub . concat <$> traverse (derivedFieldConstraints "Ix" builtinIxClassName typeName) fieldTypes
+      _ ->
+        throwTypecheck (UnsupportedCore0 "derived Ix requires an enumeration or a single constructor")
+  let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
+  typedMethods <- traverse (inferInstanceMethod env info instanceType methodMap) (classInfoMethods info)
+  dictName <- instanceDictionaryName builtinIxClassName instanceType
+  pure
+    TypedInstanceDictionary
+      { typedInstanceClass = builtinIxClassName
+      , typedInstanceType = instanceType
+      , typedInstanceVariables = typeVars instanceType
+      , typedInstanceContext = context
+      , typedInstanceDictName = dictName
+      , typedInstanceSuperclasses = [singleClassConstraint builtinOrdClassName instanceType]
+      , typedInstanceMethods = typedMethods
+      }
+
+derivedIxMethodBindings :: [RConDecl] -> ClassInfo -> InferM (Map.Map RName SourceBinding)
+derivedIxMethodBindings constructors info = do
+  rangeMethod <- requireIxMethod "range"
+  indexMethod <- requireIxMethod "index"
+  inRangeMethod <- requireIxMethod "inRange"
+  rangeSizeMethod <- requireIxMethod "rangeSize"
+  bindings <-
+    if all null (map conDeclFieldTypes constructors)
+      then derivedIxEnumBindings constructors rangeMethod indexMethod inRangeMethod rangeSizeMethod
+      else case constructors of
+        [constructor] -> derivedIxProductBindings constructor rangeMethod indexMethod inRangeMethod rangeSizeMethod
+        [] -> throwTypecheck (UnsupportedCore0 "derived Ix requires at least one constructor")
+        _ -> throwTypecheck (UnsupportedCore0 "derived Ix requires an enumeration or a single constructor")
+  pure (Map.fromList bindings)
+ where
+  requireIxMethod occurrence =
+    case List.find ((== occurrence) . nameOcc . classMethodName) (classInfoMethods info) of
+      Just method -> pure method
+      Nothing -> throwTypecheck (UnsupportedCore0 ("missing Ix method `" <> occurrence <> "`"))
+
+derivedIxEnumBindings ::
+  [RConDecl] ->
+  ClassMethodInfo ->
+  ClassMethodInfo ->
+  ClassMethodInfo ->
+  ClassMethodInfo ->
+  InferM [(RName, SourceBinding)]
+derivedIxEnumBindings _constructors rangeMethod indexMethod inRangeMethod rangeSizeMethod = do
+  boundsName <- freshGeneratedName TermNamespace "$derived_ix_bounds"
+  lowerName <- freshGeneratedName TermNamespace "$derived_ix_lower"
+  upperName <- freshGeneratedName TermNamespace "$derived_ix_upper"
+  valueName <- freshGeneratedName TermNamespace "$derived_ix_value"
+  let lowerExpr = RVar lowerName
+      upperExpr = RVar upperName
+      valueExpr = RVar valueName
+      intBounds = RTuple [RApp (RVar derivedFromEnumName) lowerExpr, RApp (RVar derivedFromEnumName) upperExpr]
+      rangeExpr =
+        RCase
+          (RVar boundsName)
+          [ RAlt
+              (RPTuple [RPVar lowerName, RPVar upperName])
+              (RUnguarded (RApp (RApp (RVar derivedMapName) (RVar derivedToEnumName)) (RApp (RVar (classMethodName rangeMethod)) intBounds)))
+              []
+          ]
+      indexExpr =
+        RCase
+          (RVar boundsName)
+          [ RAlt
+              (RPTuple [RPVar lowerName, RPVar upperName])
+              (RUnguarded (RApp (RApp (RVar (classMethodName indexMethod)) intBounds) (RApp (RVar derivedFromEnumName) valueExpr)))
+              []
+          ]
+      inRangeExpr =
+        RCase
+          (RVar boundsName)
+          [ RAlt
+              (RPTuple [RPVar lowerName, RPVar upperName])
+              (RUnguarded (RApp (RApp (RVar (classMethodName inRangeMethod)) intBounds) (RApp (RVar derivedFromEnumName) valueExpr)))
+              []
+          ]
+      rangeSizeExpr =
+        RCase
+          (RVar boundsName)
+          [ RAlt
+              (RPTuple [RPVar lowerName, RPVar upperName])
+              (RUnguarded (RApp (RVar (classMethodName rangeSizeMethod)) intBounds))
+              []
+          ]
+  pure
+    [ (classMethodName rangeMethod, derivedMethodBinding (classMethodName rangeMethod) [RPVar boundsName] rangeExpr)
+    , (classMethodName indexMethod, derivedMethodBinding (classMethodName indexMethod) [RPVar boundsName, RPVar valueName] indexExpr)
+    , (classMethodName inRangeMethod, derivedMethodBinding (classMethodName inRangeMethod) [RPVar boundsName, RPVar valueName] inRangeExpr)
+    , (classMethodName rangeSizeMethod, derivedMethodBinding (classMethodName rangeSizeMethod) [RPVar boundsName] rangeSizeExpr)
+    ]
+
+derivedIxProductBindings ::
+  RConDecl ->
+  ClassMethodInfo ->
+  ClassMethodInfo ->
+  ClassMethodInfo ->
+  ClassMethodInfo ->
+  InferM [(RName, SourceBinding)]
+derivedIxProductBindings constructor rangeMethod indexMethod inRangeMethod rangeSizeMethod = do
+  boundsName <- freshGeneratedName TermNamespace "$derived_ix_product_bounds"
+  valueName <- freshGeneratedName TermNamespace "$derived_ix_product_value"
+  lowerNames <- traverse (\index -> freshGeneratedName TermNamespace ("$derived_ix_product_lower_" <> renderInt index)) [0 .. fieldCount - 1]
+  upperNames <- traverse (\index -> freshGeneratedName TermNamespace ("$derived_ix_product_upper_" <> renderInt index)) [0 .. fieldCount - 1]
+  valueNames <- traverse (\index -> freshGeneratedName TermNamespace ("$derived_ix_product_value_" <> renderInt index)) [0 .. fieldCount - 1]
+  rangeNames <- traverse (\index -> freshGeneratedName TermNamespace ("$derived_ix_product_range_" <> renderInt index)) [0 .. fieldCount - 1]
+  let lowerPat = RPCon (conDeclName constructor) (map RPVar lowerNames)
+      upperPat = RPCon (conDeclName constructor) (map RPVar upperNames)
+      valuePat = RPCon (conDeclName constructor) (map RPVar valueNames)
+      rangePat = derivedIxRepresentationPat rangeNames
+      lowerRep = derivedIxRepresentationExpr (map RVar lowerNames)
+      upperRep = derivedIxRepresentationExpr (map RVar upperNames)
+      valueRep = derivedIxRepresentationExpr (map RVar valueNames)
+      repBounds = RTuple [lowerRep, upperRep]
+      construct fields = foldl RApp (RCon (conDeclName constructor)) fields
+      boundsAlt rhs =
+        RAlt
+          (RPTuple [lowerPat, upperPat])
+          (RUnguarded rhs)
+          []
+      rangeExpr =
+        RCase
+          (RVar boundsName)
+          [ boundsAlt
+              (RApp (RApp (RVar derivedMapName) (RLambda [rangePat] (construct (map RVar rangeNames)))) (RApp (RVar (classMethodName rangeMethod)) repBounds))
+          ]
+      indexExpr =
+        RCase
+          (RVar boundsName)
+          [ boundsAlt
+              (RCase (RVar valueName) [RAlt valuePat (RUnguarded (RApp (RApp (RVar (classMethodName indexMethod)) repBounds) valueRep)) []])
+          ]
+      inRangeExpr =
+        RCase
+          (RVar boundsName)
+          [ boundsAlt
+              (RCase (RVar valueName) [RAlt valuePat (RUnguarded (RApp (RApp (RVar (classMethodName inRangeMethod)) repBounds) valueRep)) []])
+          ]
+      rangeSizeExpr =
+        RCase
+          (RVar boundsName)
+          [boundsAlt (RApp (RVar (classMethodName rangeSizeMethod)) repBounds)]
+  pure
+    [ (classMethodName rangeMethod, derivedMethodBinding (classMethodName rangeMethod) [RPVar boundsName] rangeExpr)
+    , (classMethodName indexMethod, derivedMethodBinding (classMethodName indexMethod) [RPVar boundsName, RPVar valueName] indexExpr)
+    , (classMethodName inRangeMethod, derivedMethodBinding (classMethodName inRangeMethod) [RPVar boundsName, RPVar valueName] inRangeExpr)
+    , (classMethodName rangeSizeMethod, derivedMethodBinding (classMethodName rangeSizeMethod) [RPVar boundsName] rangeSizeExpr)
+    ]
+ where
+  fieldCount = length (conDeclFieldTypes constructor)
+
+derivedMethodBinding :: RName -> [RPat] -> RExpr -> SourceBinding
+derivedMethodBinding methodName patterns expr =
+  SourceBinding
+    { sourceBindingSpan = Nothing
+    , sourceBindingName = methodName
+    , sourceBindingPatterns = patterns
+    , sourceBindingPatternBinding = Nothing
+    , sourceBindingRhs = RUnguarded expr
+    , sourceBindingWhereDecls = []
+    }
+
+derivedIxRepresentationExpr :: [RExpr] -> RExpr
+derivedIxRepresentationExpr = \case
+  [expr] -> expr
+  exprs -> RTuple exprs
+
+derivedIxRepresentationPat :: [RName] -> RPat
+derivedIxRepresentationPat = \case
+  [name] -> RPVar name
+  names -> RPTuple (map RPVar names)
+
 constraintsOverlap :: ClassConstraint -> ClassConstraint -> Bool
 constraintsOverlap lhs rhs =
   classConstraintClass lhs == classConstraintClass rhs
@@ -4266,9 +4516,11 @@ typesMayUnify lhs rhs =
       typesMayUnify lhsElement rhsElement
     _ -> False
 
-inferInstanceDictionary :: TypeEnv -> RHsType -> [RDecl] -> InferM TypedInstanceDictionary
-inferInstanceDictionary env instanceHead decls = do
+inferInstanceDictionary :: TypeEnv -> [RHsType] -> RHsType -> [RDecl] -> InferM TypedInstanceDictionary
+inferInstanceDictionary env sourceContext instanceHead decls = do
   (className, instanceType) <- splitInstanceHead instanceHead
+  rawContext <- traverse sourceClassConstraint sourceContext
+  context <- traverse (canonicalizeInstanceContextConstraint instanceType) rawContext
   classes <- classInfos <$> get
   info <-
     case Map.lookup className classes of
@@ -4290,7 +4542,7 @@ inferInstanceDictionary env instanceHead decls = do
       { typedInstanceClass = className
       , typedInstanceType = instanceType
       , typedInstanceVariables = typeVars instanceType
-      , typedInstanceContext = []
+      , typedInstanceContext = context
       , typedInstanceDictName = dictName
       , typedInstanceSuperclasses = superclassConstraints
       , typedInstanceMethods = typedMethods
@@ -4304,6 +4556,39 @@ splitInstanceHead = \case
     (canonicalName,) <$> sourceMonoTypeAtKind expectedKind argument
   other ->
     throwTypecheck (UnsupportedCore0 ("instance head " <> Text.pack (show other)))
+
+canonicalizeInstanceContextConstraint :: MonoType -> ClassConstraint -> InferM ClassConstraint
+canonicalizeInstanceContextConstraint instanceType constraint = do
+  arguments <- traverse canonicalize (classConstraintArguments constraint)
+  pure constraint {classConstraintArguments = arguments}
+ where
+  variablesByOccurrence = Map.fromList [(nameOcc variable, variable) | variable <- typeVars instanceType]
+
+  canonicalize = \case
+    TyMeta meta ->
+      pure (TyMeta meta)
+    TyVar name ->
+      case Map.lookup (nameOcc name) variablesByOccurrence of
+        Just variable ->
+          pure (TyVar variable)
+        Nothing ->
+          throwTypecheck
+            ( UnsupportedCore0
+                ( "instance context type variable `"
+                    <> nameOcc name
+                    <> "` is not bound by the instance head"
+                )
+            )
+    TyCon name ->
+      pure (TyCon name)
+    TyApp fn arg ->
+      TyApp <$> canonicalize fn <*> canonicalize arg
+    TyFun arg result ->
+      TyFun <$> canonicalize arg <*> canonicalize result
+    TyTuple fields ->
+      TyTuple <$> traverse canonicalize fields
+    TyList element ->
+      TyList <$> canonicalize element
 
 collectInstanceMethods :: [RDecl] -> InferM (Map.Map RName SourceBinding)
 collectInstanceMethods =
@@ -6729,11 +7014,6 @@ requireSingleConstraintArgument className = \case
   arguments ->
     throwTypecheck (InvalidClassConstraintArity className (length arguments))
 
-unsupportedSourceClassConstraintContext :: ClassConstraintContext -> [RHsType] -> InferM a
-unsupportedSourceClassConstraintContext context sourceConstraints = do
-  constraints <- traverse sourceClassConstraint sourceConstraints
-  throwUnsupportedClassConstraintContext context constraints
-
 throwUnsupportedClassConstraintContext :: ClassConstraintContext -> [ClassConstraint] -> InferM a
 throwUnsupportedClassConstraintContext context constraints =
   throwTypecheck (UnsupportedClassConstraintContext context constraints)
@@ -7441,10 +7721,13 @@ preludeCoreDependencies name =
 
 classPreludeSupportNames :: Map.Map RName ClassInfo -> [RName]
 classPreludeSupportNames classes =
-  enumSupport <> readSupport
+  enumSupport <> ixSupport <> readSupport
  where
   enumSupport
     | builtinEnumClassName `Map.member` classes = derivedMapName : arithmeticSequencePreludeNames
+    | otherwise = []
+  ixSupport
+    | builtinIxClassName `Map.member` classes = derivedMapName : arithmeticSequencePreludeNames
     | otherwise = []
   readSupport
     | builtinReadClassName `Map.member` classes = readSupportPreludeNames
@@ -11416,6 +11699,15 @@ builtinStructuralDictionary env wanted =
     (className, [TyList elementTy])
       | className == builtinReadClassName ->
           Just (readListDictionaryValue env elementTy)
+    (className, [TyTuple fields])
+      | className == builtinEqClassName && structuralTupleArity fields ->
+          Just (eqTupleDictionaryValue env fields)
+    (className, [TyTuple fields])
+      | className == builtinOrdClassName && structuralTupleArity fields ->
+          Just (ordTupleDictionaryValue env fields)
+    (className, [TyTuple fields])
+      | className == builtinIxClassName && structuralTupleArity fields ->
+          Just (ixTupleDictionaryValue env fields)
     _ -> Nothing
 
 eqListDictionaryValue :: CoreElabEnv -> MonoType -> Either TypecheckError CoreExpr
@@ -11494,6 +11786,461 @@ readListDictionaryValue env elementTy = do
           (CTyFun elementDictionaryTy listDictionaryTy)
   pure (CApp specializedFunction elementDictionary listDictionaryTy)
 
+eqTupleDictionaryValue :: CoreElabEnv -> [MonoType] -> Either TypecheckError CoreExpr
+eqTupleDictionaryValue env fields = do
+  let subst = coreElabSubst env
+      metas = coreElabMetas env
+      normalizedFields = map (replaceMetasWithVars metas . applySubst subst) fields
+  fieldCoreTys <- traverse (monoToCoreType subst metas) normalizedFields
+  fieldDictionaries <- traverse (resolveDictionary env . singleClassConstraint builtinEqClassName) normalizedFields
+  info <- requiredClassInfo env builtinEqClassName
+  eqTupleDictionaryCore info fieldCoreTys fieldDictionaries
+
+ordTupleDictionaryValue :: CoreElabEnv -> [MonoType] -> Either TypecheckError CoreExpr
+ordTupleDictionaryValue env fields = do
+  let subst = coreElabSubst env
+      metas = coreElabMetas env
+      normalizedFields = map (replaceMetasWithVars metas . applySubst subst) fields
+  fieldCoreTys <- traverse (monoToCoreType subst metas) normalizedFields
+  fieldDictionaries <- traverse (resolveDictionary env . singleClassConstraint builtinOrdClassName) normalizedFields
+  eqInfo <- requiredClassInfo env builtinEqClassName
+  ordInfo <- requiredClassInfo env builtinOrdClassName
+  ordTupleDictionaryCore eqInfo ordInfo fieldCoreTys fieldDictionaries
+
+ixTupleDictionaryValue :: CoreElabEnv -> [MonoType] -> Either TypecheckError CoreExpr
+ixTupleDictionaryValue env fields = do
+  let subst = coreElabSubst env
+      metas = coreElabMetas env
+      normalizedFields = map (replaceMetasWithVars metas . applySubst subst) fields
+  fieldCoreTys <- traverse (monoToCoreType subst metas) normalizedFields
+  fieldDictionaries <- traverse (resolveDictionary env . singleClassConstraint builtinIxClassName) normalizedFields
+  eqInfo <- requiredClassInfo env builtinEqClassName
+  ordInfo <- requiredClassInfo env builtinOrdClassName
+  ixInfo <- requiredClassInfo env builtinIxClassName
+  let fieldOrdDictionaries = zipWith ixOrdSuperclassCore fieldCoreTys fieldDictionaries
+  ordSuperclass <- ordTupleDictionaryCore eqInfo ordInfo fieldCoreTys fieldOrdDictionaries
+  ixTupleDictionaryCore ixInfo fieldCoreTys fieldDictionaries ordSuperclass
+
+requiredClassInfo :: CoreElabEnv -> RName -> Either TypecheckError ClassInfo
+requiredClassInfo env className =
+  case Map.lookup className (coreElabClasses env) <|> Map.lookup className builtinClassInfos of
+    Just info -> pure info
+    Nothing -> Left (UnsupportedCore0 ("missing built-in class info for structural instance `" <> renderRName className <> "`"))
+
+eqTupleDictionaryCore :: ClassInfo -> [CoreType] -> [CoreExpr] -> Either TypecheckError CoreExpr
+eqTupleDictionaryCore info fieldTys fieldDictionaries = do
+  constructorTy <- classDictionaryConstructorCoreType info
+  let tupleTy = CTyTuple fieldTys
+      dictTy = eqDictCoreType tupleTy
+      eqMethod = eqTupleMethodCore "$eq_tuple" (-8200 - length fieldTys) fieldTys fieldDictionaries
+      neqMethod =
+        tupleBinaryMethod "$neq_tuple" (-8250 - length fieldTys) fieldTys boolTy $ \lhs rhs ->
+          boolNotCore
+            "$neq_tuple_not"
+            (-8290 - length fieldTys)
+            (eqTupleBody "$neq_tuple_eq" (-8295 - length fieldTys) fieldTys fieldDictionaries lhs rhs)
+      typedConstructor =
+        CTypeApp
+          (CCon (classInfoDictConstructorName info) constructorTy)
+          [tupleTy]
+          (CTyFun (exprType eqMethod) (CTyFun (exprType neqMethod) dictTy))
+  pure (applyCore (applyCore typedConstructor eqMethod (CTyFun (exprType neqMethod) dictTy)) neqMethod dictTy)
+
+eqTupleMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> CoreExpr
+eqTupleMethodCore occurrence unique fieldTys fieldDictionaries =
+  tupleBinaryMethod occurrence unique fieldTys boolTy (eqTupleBody occurrence (unique - 40) fieldTys fieldDictionaries)
+
+eqTupleBody :: Text -> Int -> [CoreType] -> [CoreExpr] -> [CoreExpr] -> [CoreExpr] -> CoreExpr
+eqTupleBody occurrence unique fieldTys fieldDictionaries lhsFields rhsFields =
+  foldr combine (CCon trueDataConName boolTy) (List.zip4 [0 :: Int ..] fieldTys fieldDictionaries (zip lhsFields rhsFields))
+ where
+  combine (index, fieldTy, dictionary, (lhs, rhs)) rest =
+    boolAndCore
+      (occurrence <> "_field_" <> renderInt index)
+      (unique - index)
+      (eqElementCore fieldTy dictionary lhs rhs)
+      rest
+
+ordTupleDictionaryCore :: ClassInfo -> ClassInfo -> [CoreType] -> [CoreExpr] -> Either TypecheckError CoreExpr
+ordTupleDictionaryCore eqInfo ordInfo fieldTys fieldDictionaries = do
+  constructorTy <- classDictionaryFullConstructorCoreType ordInfo
+  eqSuperclass <- eqTupleDictionaryCore eqInfo fieldTys (zipWith ordEqSuperclassCore fieldTys fieldDictionaries)
+  let tupleTy = CTyTuple fieldTys
+      dictTy = ordDictCoreType tupleTy
+      compareMethod = ordTupleCompareMethodCore "$compare_tuple" (-8300 - length fieldTys) fieldTys fieldDictionaries
+      ltMethod = ordTuplePredicateMethodCore "$lt_tuple" (-8350 - length fieldTys) fieldTys fieldDictionaries True False False
+      leMethod = ordTuplePredicateMethodCore "$le_tuple" (-8400 - length fieldTys) fieldTys fieldDictionaries True True False
+      gtMethod = ordTuplePredicateMethodCore "$gt_tuple" (-8450 - length fieldTys) fieldTys fieldDictionaries False False True
+      geMethod = ordTuplePredicateMethodCore "$ge_tuple" (-8500 - length fieldTys) fieldTys fieldDictionaries False True True
+      maxMethod = ordTupleChoiceMethodCore "$max_tuple" (-8550 - length fieldTys) fieldTys fieldDictionaries (\lhs rhs -> (rhs, rhs, lhs))
+      minMethod = ordTupleChoiceMethodCore "$min_tuple" (-8600 - length fieldTys) fieldTys fieldDictionaries (\lhs rhs -> (lhs, lhs, rhs))
+      fieldExprs = [eqSuperclass, compareMethod, ltMethod, leMethod, gtMethod, geMethod, maxMethod, minMethod]
+      typedConstructor =
+        CTypeApp
+          (CCon (classInfoDictConstructorName ordInfo) constructorTy)
+          [tupleTy]
+          (foldr CTyFun dictTy (map exprType fieldExprs))
+  pure (foldl applyValue typedConstructor fieldExprs)
+ where
+  applyValue callee argument =
+    let remainingResult =
+          case exprType callee of
+            CTyFun _ result -> result
+            _ -> exprType callee
+     in CApp callee argument remainingResult
+
+ordTupleCompareMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> CoreExpr
+ordTupleCompareMethodCore occurrence unique fieldTys fieldDictionaries =
+  tupleBinaryMethod occurrence unique fieldTys orderingTy (ordTupleCompareBody occurrence (unique - 40) fieldTys fieldDictionaries)
+
+ordTupleCompareBody :: Text -> Int -> [CoreType] -> [CoreExpr] -> [CoreExpr] -> [CoreExpr] -> CoreExpr
+ordTupleCompareBody occurrence unique fieldTys fieldDictionaries lhsFields rhsFields =
+  compareFields 0 (List.zip4 fieldTys fieldDictionaries lhsFields rhsFields)
+ where
+  compareFields _ [] = CCon orderingEQDataConName orderingTy
+  compareFields index ((fieldTy, dictionary, lhs, rhs) : rest) =
+    orderingCaseCore
+      (occurrence <> "_field_" <> renderInt index)
+      (unique - index)
+      (ordElementCompareCore fieldTy dictionary lhs rhs)
+      orderingTy
+      (CCon orderingLTDataConName orderingTy)
+      (compareFields (index + 1) rest)
+      (CCon orderingGTDataConName orderingTy)
+
+ordTuplePredicateMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> Bool -> Bool -> Bool -> CoreExpr
+ordTuplePredicateMethodCore occurrence unique fieldTys fieldDictionaries ltResult eqResult gtResult =
+  tupleBinaryMethod occurrence unique fieldTys boolTy $ \lhs rhs ->
+    orderingCaseCore
+      (occurrence <> "_case")
+      (unique - 40)
+      (ordTupleCompareBody occurrence (unique - 80) fieldTys fieldDictionaries lhs rhs)
+      boolTy
+      (boolExpr ltResult)
+      (boolExpr eqResult)
+      (boolExpr gtResult)
+ where
+  boolExpr result =
+    if result then CCon trueDataConName boolTy else CCon falseDataConName boolTy
+
+ordTupleChoiceMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> (CoreExpr -> CoreExpr -> (CoreExpr, CoreExpr, CoreExpr)) -> CoreExpr
+ordTupleChoiceMethodCore occurrence unique fieldTys fieldDictionaries choices =
+  tupleBinaryMethodWithValues occurrence unique fieldTys tupleTy $ \lhsTuple rhsTuple lhsFields rhsFields ->
+    let (ltBody, eqBody, gtBody) = choices lhsTuple rhsTuple
+     in orderingCaseCore
+          (occurrence <> "_case")
+          (unique - 40)
+          (ordTupleCompareBody occurrence (unique - 80) fieldTys fieldDictionaries lhsFields rhsFields)
+          tupleTy
+          ltBody
+          eqBody
+          gtBody
+ where
+  tupleTy = CTyTuple fieldTys
+
+ixTupleDictionaryCore :: ClassInfo -> [CoreType] -> [CoreExpr] -> CoreExpr -> Either TypecheckError CoreExpr
+ixTupleDictionaryCore info fieldTys fieldDictionaries ordSuperclass = do
+  constructorTy <- classDictionaryFullConstructorCoreType info
+  let tupleTy = CTyTuple fieldTys
+      dictTy = ixDictCoreType tupleTy
+      rangeMethod = ixTupleRangeMethodCore "$ix_range_tuple" (-8650 - length fieldTys) fieldTys fieldDictionaries
+      indexMethod = ixTupleIndexMethodCore "$ix_index_tuple" (-8750 - length fieldTys) fieldTys fieldDictionaries
+      inRangeMethod = ixTupleInRangeMethodCore "$ix_in_range_tuple" (-8850 - length fieldTys) fieldTys fieldDictionaries
+      rangeSizeMethod = ixTupleRangeSizeMethodCore "$ix_range_size_tuple" (-8950 - length fieldTys) fieldTys fieldDictionaries
+      fieldExprs = [ordSuperclass, rangeMethod, indexMethod, inRangeMethod, rangeSizeMethod]
+      typedConstructor =
+        CTypeApp
+          (CCon (classInfoDictConstructorName info) constructorTy)
+          [tupleTy]
+          (foldr CTyFun dictTy (map exprType fieldExprs))
+  pure (foldl applyValue typedConstructor fieldExprs)
+ where
+  applyValue callee argument =
+    let remainingResult =
+          case exprType callee of
+            CTyFun _ result -> result
+            _ -> exprType callee
+     in CApp callee argument remainingResult
+
+ixTupleRangeMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> CoreExpr
+ixTupleRangeMethodCore occurrence unique fieldTys fieldDictionaries =
+  ixTupleBoundsCaseMethod occurrence unique fieldTys (CTyList tupleTy) $ \lowerFields upperFields ->
+    ixTupleRangeProduct (occurrence <> "_product") (unique - 40) fieldTys fieldDictionaries lowerFields upperFields []
+ where
+  tupleTy = CTyTuple fieldTys
+
+ixTupleIndexMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> CoreExpr
+ixTupleIndexMethodCore occurrence unique fieldTys fieldDictionaries =
+  ixTupleValueMethod occurrence unique fieldTys intTy $ \lowerFields upperFields valueFields ->
+    let indexes = List.zipWith4 ixIndexCallCore fieldTys fieldDictionaries (zip lowerFields upperFields) valueFields
+        sizes = List.zipWith3 ixRangeSizeCallCore fieldTys fieldDictionaries (zip lowerFields upperFields)
+     in case indexes of
+          [] -> zeroInt
+          firstIndex : restIndexes ->
+            foldl
+              (\acc (size, fieldIndex) -> intAdd (intMul acc size) fieldIndex)
+              firstIndex
+              (zip (drop 1 sizes) restIndexes)
+
+ixTupleInRangeMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> CoreExpr
+ixTupleInRangeMethodCore occurrence unique fieldTys fieldDictionaries =
+  ixTupleValueMethod occurrence unique fieldTys boolTy $ \lowerFields upperFields valueFields ->
+    foldr
+      (\(index, fieldTy, dictionary, bounds, value) rest -> boolAndCore (occurrence <> "_field_" <> renderInt index) (unique - 80 - index) (ixInRangeCallCore fieldTy dictionary bounds value) rest)
+      (CCon trueDataConName boolTy)
+      (List.zip5 [0 :: Int ..] fieldTys fieldDictionaries (zip lowerFields upperFields) valueFields)
+
+ixTupleRangeSizeMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> CoreExpr
+ixTupleRangeSizeMethodCore occurrence unique fieldTys fieldDictionaries =
+  ixTupleBoundsCaseMethod occurrence unique fieldTys intTy $ \lowerFields upperFields ->
+    foldl
+      intMul
+      oneInt
+      (List.zipWith3 ixRangeSizeCallCore fieldTys fieldDictionaries (zip lowerFields upperFields))
+
+ixTupleRangeProduct :: Text -> Int -> [CoreType] -> [CoreExpr] -> [CoreExpr] -> [CoreExpr] -> [CoreExpr] -> CoreExpr
+ixTupleRangeProduct occurrence unique allFieldTys fieldDictionaries lowerFields upperFields selected =
+  case (drop selectedCount allFieldTys, drop selectedCount fieldDictionaries, drop selectedCount lowerFields, drop selectedCount upperFields) of
+    ([], [], [], []) ->
+      consCore tupleTy (tupleValueCore allFieldTys selected) (nilCore tupleTy)
+    (fieldTy : _, dictionary : _, lower : _, upper : _) ->
+      let valueName = builtinLocalTermName (occurrence <> "_value_" <> renderInt selectedCount) (unique - selectedCount)
+          value = CVar valueName fieldTy
+          continuation =
+            CLam
+              (CoreBinder valueName fieldTy)
+              (ixTupleRangeProduct occurrence unique allFieldTys fieldDictionaries lowerFields upperFields (selected <> [value]))
+              (CTyFun fieldTy (CTyList tupleTy))
+       in listBindCore fieldTy tupleTy (ixRangeCallCore fieldTy dictionary (lower, upper)) continuation
+    _ -> bottomCore (occurrence <> "_malformed") (unique - 1000) (CTyList tupleTy)
+ where
+  selectedCount = length selected
+  tupleTy = CTyTuple allFieldTys
+
+tupleBinaryMethod :: Text -> Int -> [CoreType] -> CoreType -> ([CoreExpr] -> [CoreExpr] -> CoreExpr) -> CoreExpr
+tupleBinaryMethod occurrence unique fieldTys resultTy body =
+  tupleBinaryMethodWithValues occurrence unique fieldTys resultTy (\_ _ lhs rhs -> body lhs rhs)
+
+tupleBinaryMethodWithValues :: Text -> Int -> [CoreType] -> CoreType -> (CoreExpr -> CoreExpr -> [CoreExpr] -> [CoreExpr] -> CoreExpr) -> CoreExpr
+tupleBinaryMethodWithValues occurrence unique fieldTys resultTy body =
+  CLam (CoreBinder lhsName tupleTy) (CLam (CoreBinder rhsName tupleTy) lhsCase (CTyFun tupleTy resultTy)) (CTyFun tupleTy (CTyFun tupleTy resultTy))
+ where
+  tupleTy = CTyTuple fieldTys
+  lhsName = builtinLocalTermName (occurrence <> "_lhs") unique
+  rhsName = builtinLocalTermName (occurrence <> "_rhs") (unique - 1)
+  lhsCaseName = builtinLocalTermName (occurrence <> "_lhs_case") (unique - 2)
+  rhsCaseName = builtinLocalTermName (occurrence <> "_rhs_case") (unique - 3)
+  lhsFieldNames = [builtinLocalTermName (occurrence <> "_lhs_" <> renderInt index) (unique - 10 - index) | index <- [0 .. length fieldTys - 1]]
+  rhsFieldNames = [builtinLocalTermName (occurrence <> "_rhs_" <> renderInt index) (unique - 30 - index) | index <- [0 .. length fieldTys - 1]]
+  lhsFields = zipWith CVar lhsFieldNames fieldTys
+  rhsFields = zipWith CVar rhsFieldNames fieldTys
+  lhsTuple = CVar lhsName tupleTy
+  rhsTuple = CVar rhsName tupleTy
+  rhsCase =
+    CCase
+      rhsTuple
+      (CoreBinder rhsCaseName tupleTy)
+      [CoreAlt (ConstructorAlt (tupleDataConName (length fieldTys))) (zipWith CoreBinder rhsFieldNames fieldTys) (body lhsTuple rhsTuple lhsFields rhsFields)]
+      resultTy
+  lhsCase =
+    CCase
+      lhsTuple
+      (CoreBinder lhsCaseName tupleTy)
+      [CoreAlt (ConstructorAlt (tupleDataConName (length fieldTys))) (zipWith CoreBinder lhsFieldNames fieldTys) rhsCase]
+      resultTy
+
+ixTupleBoundsCaseMethod :: Text -> Int -> [CoreType] -> CoreType -> ([CoreExpr] -> [CoreExpr] -> CoreExpr) -> CoreExpr
+ixTupleBoundsCaseMethod occurrence unique fieldTys resultTy body =
+  CLam (CoreBinder boundsName boundsTy) boundsCase (CTyFun boundsTy resultTy)
+ where
+  tupleTy = CTyTuple fieldTys
+  boundsTy = CTyTuple [tupleTy, tupleTy]
+  boundsName = builtinLocalTermName (occurrence <> "_bounds") unique
+  boundsCaseName = builtinLocalTermName (occurrence <> "_bounds_case") (unique - 1)
+  lowerName = builtinLocalTermName (occurrence <> "_lower_tuple") (unique - 2)
+  upperName = builtinLocalTermName (occurrence <> "_upper_tuple") (unique - 3)
+  lowerTuple = CVar lowerName tupleTy
+  upperTuple = CVar upperName tupleTy
+  boundsCase =
+    CCase
+      (CVar boundsName boundsTy)
+      (CoreBinder boundsCaseName boundsTy)
+      [ CoreAlt
+          (ConstructorAlt (tupleDataConName 2))
+          [CoreBinder lowerName tupleTy, CoreBinder upperName tupleTy]
+          (caseTupleFields (occurrence <> "_lower") (unique - 20) fieldTys lowerTuple resultTy $ \lowerFields ->
+             caseTupleFields (occurrence <> "_upper") (unique - 40) fieldTys upperTuple resultTy $ \upperFields ->
+               body lowerFields upperFields)
+      ]
+      resultTy
+
+ixTupleValueMethod :: Text -> Int -> [CoreType] -> CoreType -> ([CoreExpr] -> [CoreExpr] -> [CoreExpr] -> CoreExpr) -> CoreExpr
+ixTupleValueMethod occurrence unique fieldTys resultTy body =
+  CLam (CoreBinder boundsName boundsTy) (CLam (CoreBinder valueName tupleTy) boundsCase (CTyFun tupleTy resultTy)) (CTyFun boundsTy (CTyFun tupleTy resultTy))
+ where
+  tupleTy = CTyTuple fieldTys
+  boundsTy = CTyTuple [tupleTy, tupleTy]
+  boundsName = builtinLocalTermName (occurrence <> "_bounds") unique
+  valueName = builtinLocalTermName (occurrence <> "_value") (unique - 1)
+  boundsCaseName = builtinLocalTermName (occurrence <> "_bounds_case") (unique - 2)
+  lowerName = builtinLocalTermName (occurrence <> "_lower_tuple") (unique - 3)
+  upperName = builtinLocalTermName (occurrence <> "_upper_tuple") (unique - 4)
+  lowerTuple = CVar lowerName tupleTy
+  upperTuple = CVar upperName tupleTy
+  valueTuple = CVar valueName tupleTy
+  boundsCase =
+    CCase
+      (CVar boundsName boundsTy)
+      (CoreBinder boundsCaseName boundsTy)
+      [ CoreAlt
+          (ConstructorAlt (tupleDataConName 2))
+          [CoreBinder lowerName tupleTy, CoreBinder upperName tupleTy]
+          (caseTupleFields (occurrence <> "_lower") (unique - 20) fieldTys lowerTuple resultTy $ \lowerFields ->
+             caseTupleFields (occurrence <> "_upper") (unique - 40) fieldTys upperTuple resultTy $ \upperFields ->
+               caseTupleFields (occurrence <> "_value") (unique - 60) fieldTys valueTuple resultTy $ \valueFields ->
+                 body lowerFields upperFields valueFields)
+      ]
+      resultTy
+
+caseTupleFields :: Text -> Int -> [CoreType] -> CoreExpr -> CoreType -> ([CoreExpr] -> CoreExpr) -> CoreExpr
+caseTupleFields occurrence unique fieldTys scrutinee resultTy body =
+  CCase
+    scrutinee
+    (CoreBinder caseName tupleTy)
+    [CoreAlt (ConstructorAlt (tupleDataConName (length fieldTys))) (zipWith CoreBinder fieldNames fieldTys) (body fields)]
+    resultTy
+ where
+  tupleTy = CTyTuple fieldTys
+  caseName = builtinLocalTermName (occurrence <> "_case") unique
+  fieldNames = [builtinLocalTermName (occurrence <> "_field_" <> renderInt index) (unique - 1 - index) | index <- [0 .. length fieldTys - 1]]
+  fields = zipWith CVar fieldNames fieldTys
+
+tupleValueCore :: [CoreType] -> [CoreExpr] -> CoreExpr
+tupleValueCore fieldTys fields =
+  constructorApp (tupleDataConName (length fieldTys)) fieldTys fields (CTyTuple fieldTys)
+
+listBindCore :: CoreType -> CoreType -> CoreExpr -> CoreExpr -> CoreExpr
+listBindCore elementTy resultElementTy xs continuation =
+  applyCore (applyCore bindFunction xs (CTyFun (CTyFun elementTy resultListTy) resultListTy)) continuation resultListTy
+ where
+  listA = CTyList elementTy
+  resultListTy = CTyList resultElementTy
+  bindFunction =
+    CTypeApp
+      (CVar monadListBindName monadListBindCoreType)
+      [elementTy, resultElementTy]
+      (CTyFun listA (CTyFun (CTyFun elementTy resultListTy) resultListTy))
+
+ixDictCoreType :: CoreType -> CoreType
+ixDictCoreType ty =
+  CTyApp (CTyCon (classDictionaryTypeName builtinIxClassName)) ty
+
+ixOrdSuperclassCore :: CoreType -> CoreExpr -> CoreExpr
+ixOrdSuperclassCore elementTy dictionary =
+  CCase
+    dictionary
+    (CoreBinder caseName ixDictA)
+    [ CoreAlt
+        (ConstructorAlt (classDictionaryConstructorName builtinIxClassName))
+        [ CoreBinder ordName ordDictA
+        , CoreBinder rangeName rangeTy
+        , CoreBinder indexName indexTy
+        , CoreBinder inRangeName inRangeTy
+        , CoreBinder rangeSizeName rangeSizeTy
+        ]
+        (CVar ordName ordDictA)
+    ]
+    ordDictA
+ where
+  ixDictA = ixDictCoreType elementTy
+  ordDictA = ordDictCoreType elementTy
+  boundsTy = CTyTuple [elementTy, elementTy]
+  rangeTy = CTyFun boundsTy (CTyList elementTy)
+  indexTy = CTyFun boundsTy (CTyFun elementTy intTy)
+  inRangeTy = CTyFun boundsTy (CTyFun elementTy boolTy)
+  rangeSizeTy = CTyFun boundsTy intTy
+  caseName = builtinLocalTermName "$ix_ord_super_case" (-9000)
+  ordName = builtinLocalTermName "$ix_ord_super_ord" (-9001)
+  rangeName = builtinLocalTermName "$ix_ord_super_range" (-9002)
+  indexName = builtinLocalTermName "$ix_ord_super_index" (-9003)
+  inRangeName = builtinLocalTermName "$ix_ord_super_in_range" (-9004)
+  rangeSizeName = builtinLocalTermName "$ix_ord_super_range_size" (-9005)
+
+ixRangeCallCore :: CoreType -> CoreExpr -> (CoreExpr, CoreExpr) -> CoreExpr
+ixRangeCallCore elementTy dictionary bounds =
+  applyCore (applyCore ixRangeFunction dictionary (CTyFun boundsTy listTy)) (tupleValueCore [elementTy, elementTy] [fst bounds, snd bounds]) listTy
+ where
+  boundsTy = CTyTuple [elementTy, elementTy]
+  listTy = CTyList elementTy
+  ixRangeFunction =
+    CTypeApp
+      (CVar (preludeTermName "range" (-3601)) ixRangeSelectorCoreType)
+      [elementTy]
+      (CTyFun (ixDictCoreType elementTy) (CTyFun boundsTy listTy))
+
+ixIndexCallCore :: CoreType -> CoreExpr -> (CoreExpr, CoreExpr) -> CoreExpr -> CoreExpr
+ixIndexCallCore elementTy dictionary bounds value =
+  applyCore (applyCore (applyCore ixIndexFunction dictionary (CTyFun boundsTy (CTyFun elementTy intTy))) (tupleValueCore [elementTy, elementTy] [fst bounds, snd bounds]) (CTyFun elementTy intTy)) value intTy
+ where
+  boundsTy = CTyTuple [elementTy, elementTy]
+  ixIndexFunction =
+    CTypeApp
+      (CVar (preludeTermName "index" (-3602)) ixIndexSelectorCoreType)
+      [elementTy]
+      (CTyFun (ixDictCoreType elementTy) (CTyFun boundsTy (CTyFun elementTy intTy)))
+
+ixInRangeCallCore :: CoreType -> CoreExpr -> (CoreExpr, CoreExpr) -> CoreExpr -> CoreExpr
+ixInRangeCallCore elementTy dictionary bounds value =
+  applyCore (applyCore (applyCore ixInRangeFunction dictionary (CTyFun boundsTy (CTyFun elementTy boolTy))) (tupleValueCore [elementTy, elementTy] [fst bounds, snd bounds]) (CTyFun elementTy boolTy)) value boolTy
+ where
+  boundsTy = CTyTuple [elementTy, elementTy]
+  ixInRangeFunction =
+    CTypeApp
+      (CVar (preludeTermName "inRange" (-3603)) ixInRangeSelectorCoreType)
+      [elementTy]
+      (CTyFun (ixDictCoreType elementTy) (CTyFun boundsTy (CTyFun elementTy boolTy)))
+
+ixRangeSizeCallCore :: CoreType -> CoreExpr -> (CoreExpr, CoreExpr) -> CoreExpr
+ixRangeSizeCallCore elementTy dictionary bounds =
+  applyCore (applyCore ixRangeSizeFunction dictionary (CTyFun boundsTy intTy)) (tupleValueCore [elementTy, elementTy] [fst bounds, snd bounds]) intTy
+ where
+  boundsTy = CTyTuple [elementTy, elementTy]
+  ixRangeSizeFunction =
+    CTypeApp
+      (CVar (preludeTermName "rangeSize" (-3604)) ixRangeSizeSelectorCoreType)
+      [elementTy]
+      (CTyFun (ixDictCoreType elementTy) (CTyFun boundsTy intTy))
+
+ixRangeSelectorCoreType, ixIndexSelectorCoreType, ixInRangeSelectorCoreType, ixRangeSizeSelectorCoreType :: CoreType
+ixRangeSelectorCoreType =
+  CTyForall [a] (CTyFun ixDictA (CTyFun boundsA (CTyList aTy)))
+ where
+  a = preludeTypeVariable "a" (-1398)
+  aTy = CTyVar a
+  ixDictA = ixDictCoreType aTy
+  boundsA = CTyTuple [aTy, aTy]
+ixIndexSelectorCoreType =
+  CTyForall [a] (CTyFun ixDictA (CTyFun boundsA (CTyFun aTy intTy)))
+ where
+  a = preludeTypeVariable "a" (-1398)
+  aTy = CTyVar a
+  ixDictA = ixDictCoreType aTy
+  boundsA = CTyTuple [aTy, aTy]
+ixInRangeSelectorCoreType =
+  CTyForall [a] (CTyFun ixDictA (CTyFun boundsA (CTyFun aTy boolTy)))
+ where
+  a = preludeTypeVariable "a" (-1398)
+  aTy = CTyVar a
+  ixDictA = ixDictCoreType aTy
+  boundsA = CTyTuple [aTy, aTy]
+ixRangeSizeSelectorCoreType =
+  CTyForall [a] (CTyFun ixDictA (CTyFun boundsA intTy))
+ where
+  a = preludeTypeVariable "a" (-1398)
+  aTy = CTyVar a
+  ixDictA = ixDictCoreType aTy
+  boundsA = CTyTuple [aTy, aTy]
+
 normalizeConstraint :: Subst -> Map.Map Int RName -> ClassConstraint -> Either TypecheckError ClassConstraint
 normalizeConstraint subst metas =
   pure . mapClassConstraintArguments (replaceMetasWithVars metas . applySubst subst)
@@ -11544,6 +12291,7 @@ builtinInstanceDictionaries classes =
     , maybe [] readInstances (Map.lookup builtinReadClassName classes)
     , maybe [] enumInstances (Map.lookup builtinEnumClassName classes)
     , maybe [] boundedInstances (Map.lookup builtinBoundedClassName classes)
+    , maybe [] ixInstances (Map.lookup builtinIxClassName classes)
     , maybe [] functorInstances (Map.lookup builtinFunctorClassName classes)
     , maybe [] monadInstances (Map.lookup builtinMonadClassName classes)
     , maybe [] monadPlusInstances (Map.lookup builtinMonadPlusClassName classes)
@@ -11570,6 +12318,16 @@ builtinInstanceDictionaries classes =
         ioErrorTypeMonoType
         (preludeTermName "$fEqIOErrorType" (-1505))
         [ioErrorTypeEqMethod, ioErrorTypeNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        orderingMonoType
+        (preludeTermName "$fEqOrdering" (-1506))
+        [orderingEqMethod, orderingNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        unitMonoType
+        (preludeTermName "$fEqUnit" (-1507))
+        [unitEqMethod, unitNotEqMethod]
     ]
 
   ordInstances info =
@@ -11608,6 +12366,30 @@ builtinInstanceDictionaries classes =
         , charGeMethod
         , charMaxMethod
         , charMinMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        orderingMonoType
+        (preludeTermName "$fOrdOrdering" (-1515))
+        [ orderingCompareMethod
+        , orderingLtMethod
+        , orderingLeMethod
+        , orderingGtMethod
+        , orderingGeMethod
+        , orderingMaxMethod
+        , orderingMinMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        unitMonoType
+        (preludeTermName "$fOrdUnit" (-1516))
+        [ unitCompareMethod
+        , unitLtMethod
+        , unitLeMethod
+        , unitGtMethod
+        , unitGeMethod
+        , unitMaxMethod
+        , unitMinMethod
         ]
     ]
 
@@ -11675,6 +12457,16 @@ builtinInstanceDictionaries classes =
         ioErrorTypeMonoType
         (preludeTermName "$fShowIOErrorType" (-1535))
         [ioErrorTypeShowsPrecMethod, ioErrorTypeShowMethod, ioErrorTypeShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        orderingMonoType
+        (preludeTermName "$fShowOrdering" (-1536))
+        [orderingShowsPrecMethod, orderingShowMethod, orderingShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        unitMonoType
+        (preludeTermName "$fShowUnit" (-1537))
+        [unitShowsPrecMethod, unitShowMethod, unitShowListMethod]
     ]
 
   readInstances info =
@@ -11750,6 +12542,34 @@ builtinInstanceDictionaries classes =
         boolMonoType
         (preludeTermName "$fBoundedBool" (-1553))
         [boolMinBoundMethod, boolMaxBoundMethod]
+    ]
+
+  ixInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fIxInt" (-3611))
+        [ixRangeIntMethod, ixIndexIntMethod, ixInRangeIntMethod, ixRangeSizeIntMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        charMonoType
+        (preludeTermName "$fIxChar" (-3612))
+        [ixRangeCharMethod, ixIndexCharMethod, ixInRangeCharMethod, ixRangeSizeCharMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        boolMonoType
+        (preludeTermName "$fIxBool" (-3613))
+        [ixRangeBoolMethod, ixIndexBoolMethod, ixInRangeBoolMethod, ixRangeSizeBoolMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        orderingMonoType
+        (preludeTermName "$fIxOrdering" (-3614))
+        [ixRangeOrderingMethod, ixIndexOrderingMethod, ixInRangeOrderingMethod, ixRangeSizeOrderingMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        unitMonoType
+        (preludeTermName "$fIxUnit" (-3615))
+        [ixRangeUnitMethod, ixIndexUnitMethod, ixInRangeUnitMethod, ixRangeSizeUnitMethod]
     ]
 
   functorInstances info =
@@ -11834,6 +12654,12 @@ isBuiltinStructuralInstanceConstraint wanted =
       | className == builtinShowClassName -> True
     (className, [TyList _])
       | className == builtinReadClassName -> True
+    (className, [TyTuple fields])
+      | className == builtinEqClassName && structuralTupleArity fields -> True
+    (className, [TyTuple fields])
+      | className == builtinOrdClassName && structuralTupleArity fields -> True
+    (className, [TyTuple fields])
+      | className == builtinIxClassName && structuralTupleArity fields -> True
     (className, [TyCon typeName])
       | className == builtinFunctorClassName && typeName == listTyConName -> True
     (className, [TyCon typeName])
@@ -11848,15 +12674,20 @@ overlapsBuiltinStructuralInstanceConstraint wanted =
     (className, [argument])
       | className == builtinEqClassName ->
           typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$eq_list_overlap" (-1598))))
+            || typeMayUnifyStructuralTuple argument
     (className, [argument])
       | className == builtinOrdClassName ->
           typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$ord_list_overlap" (-1597))))
+            || typeMayUnifyStructuralTuple argument
     (className, [argument])
       | className == builtinShowClassName ->
           typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$show_list_overlap" (-1599))))
     (className, [argument])
       | className == builtinReadClassName ->
           typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$read_list_overlap" (-1600))))
+    (className, [argument])
+      | className == builtinIxClassName ->
+          typeMayUnifyStructuralTuple argument
     (className, [argument])
       | className == builtinFunctorClassName ->
           typesMayUnify argument (TyCon listTyConName)
@@ -11867,6 +12698,17 @@ overlapsBuiltinStructuralInstanceConstraint wanted =
       | className == builtinMonadPlusClassName ->
           typesMayUnify argument (TyCon listTyConName)
     _ -> False
+
+structuralTupleArity :: [a] -> Bool
+structuralTupleArity fields =
+  length fields >= 2 && length fields <= 15
+
+typeMayUnifyStructuralTuple :: MonoType -> Bool
+typeMayUnifyStructuralTuple = \case
+  TyTuple fields -> structuralTupleArity fields
+  TyVar {} -> True
+  TyMeta {} -> True
+  _ -> False
 
 builtinInstanceDictionaryToCore :: Map.Map RName ClassInfo -> BuiltinInstanceDictionary -> Either TypecheckError CoreBind
 builtinInstanceDictionaryToCore classes dictionary = do
@@ -12105,6 +12947,323 @@ charLtCore lhs rhs =
     , CPrimOp PrimCharToInt [rhs] intTy
     ]
     boolTy
+
+unitEqMethod :: CoreExpr
+unitEqMethod =
+  binaryMethod "$eq_unit" (-1991) unitTy boolTy (\_ _ -> CCon trueDataConName boolTy)
+
+unitNotEqMethod :: CoreExpr
+unitNotEqMethod =
+  binaryMethod "$neq_unit" (-1992) unitTy boolTy (\_ _ -> CCon falseDataConName boolTy)
+
+orderingEqMethod :: CoreExpr
+orderingEqMethod =
+  binaryMethod "$eq_ordering" (-1993) orderingTy boolTy $ \lhs rhs ->
+    CPrimOp PrimEq [orderingOrdinalCore "$eq_ordering_lhs" (-19931) lhs, orderingOrdinalCore "$eq_ordering_rhs" (-19932) rhs] boolTy
+
+orderingNotEqMethod :: CoreExpr
+orderingNotEqMethod =
+  binaryMethod "$neq_ordering" (-1994) orderingTy boolTy $ \lhs rhs ->
+    boolNotCore
+      "$neq_ordering_not"
+      (-19941)
+      (CPrimOp PrimEq [orderingOrdinalCore "$neq_ordering_lhs" (-19942) lhs, orderingOrdinalCore "$neq_ordering_rhs" (-19943) rhs] boolTy)
+
+orderingCompareMethod :: CoreExpr
+orderingCompareMethod =
+  binaryMethod "$compare_ordering" (-1995) orderingTy orderingTy $ \lhs rhs ->
+    intCompareCore "$compare_ordering" (-19951) (orderingOrdinalCore "$compare_ordering_lhs" (-19952) lhs) (orderingOrdinalCore "$compare_ordering_rhs" (-19953) rhs)
+
+orderingLtMethod :: CoreExpr
+orderingLtMethod =
+  binaryBoolMethod "$lt_ordering" (-1996) orderingTy $ \lhs rhs ->
+    intLt (orderingOrdinalCore "$lt_ordering_lhs" (-19961) lhs) (orderingOrdinalCore "$lt_ordering_rhs" (-19962) rhs)
+
+orderingLeMethod :: CoreExpr
+orderingLeMethod =
+  binaryBoolMethod "$le_ordering" (-1997) orderingTy $ \lhs rhs ->
+    intLeCore "$le_ordering" (-19971) (orderingOrdinalCore "$le_ordering_lhs" (-19972) lhs) (orderingOrdinalCore "$le_ordering_rhs" (-19973) rhs)
+
+orderingGtMethod :: CoreExpr
+orderingGtMethod =
+  binaryBoolMethod "$gt_ordering" (-1998) orderingTy $ \lhs rhs ->
+    intLt (orderingOrdinalCore "$gt_ordering_rhs" (-19981) rhs) (orderingOrdinalCore "$gt_ordering_lhs" (-19982) lhs)
+
+orderingGeMethod :: CoreExpr
+orderingGeMethod =
+  binaryBoolMethod "$ge_ordering" (-1999) orderingTy $ \lhs rhs ->
+    intLeCore "$ge_ordering" (-19991) (orderingOrdinalCore "$ge_ordering_rhs" (-19992) rhs) (orderingOrdinalCore "$ge_ordering_lhs" (-19993) lhs)
+
+orderingMaxMethod :: CoreExpr
+orderingMaxMethod =
+  binaryMethod "$max_ordering" (-2001) orderingTy orderingTy $ \lhs rhs ->
+    boolCaseCore "$max_ordering_case" (-20011) (intLt (orderingOrdinalCore "$max_ordering_lhs" (-20012) lhs) (orderingOrdinalCore "$max_ordering_rhs" (-20013) rhs)) orderingTy rhs lhs
+
+orderingMinMethod :: CoreExpr
+orderingMinMethod =
+  binaryMethod "$min_ordering" (-2002) orderingTy orderingTy $ \lhs rhs ->
+    boolCaseCore "$min_ordering_case" (-20021) (intLt (orderingOrdinalCore "$min_ordering_lhs" (-20022) lhs) (orderingOrdinalCore "$min_ordering_rhs" (-20023) rhs)) orderingTy lhs rhs
+
+unitCompareMethod :: CoreExpr
+unitCompareMethod =
+  binaryMethod "$compare_unit" (-2003) unitTy orderingTy (\_ _ -> CCon orderingEQDataConName orderingTy)
+
+unitLtMethod :: CoreExpr
+unitLtMethod =
+  binaryMethod "$lt_unit" (-2004) unitTy boolTy (\_ _ -> CCon falseDataConName boolTy)
+
+unitLeMethod :: CoreExpr
+unitLeMethod =
+  binaryMethod "$le_unit" (-2005) unitTy boolTy (\_ _ -> CCon trueDataConName boolTy)
+
+unitGtMethod :: CoreExpr
+unitGtMethod =
+  binaryMethod "$gt_unit" (-2006) unitTy boolTy (\_ _ -> CCon falseDataConName boolTy)
+
+unitGeMethod :: CoreExpr
+unitGeMethod =
+  binaryMethod "$ge_unit" (-2007) unitTy boolTy (\_ _ -> CCon trueDataConName boolTy)
+
+unitMaxMethod :: CoreExpr
+unitMaxMethod =
+  binaryMethod "$max_unit" (-2008) unitTy unitTy (\lhs _ -> lhs)
+
+unitMinMethod :: CoreExpr
+unitMinMethod =
+  binaryMethod "$min_unit" (-2009) unitTy unitTy (\lhs _ -> lhs)
+
+orderingOrdinalCore :: Text -> Int -> CoreExpr -> CoreExpr
+orderingOrdinalCore occurrence unique value =
+  orderingCaseCore
+    occurrence
+    unique
+    value
+    intTy
+    (CLit (LInt 0) intTy)
+    (CLit (LInt 1) intTy)
+    (CLit (LInt 2) intTy)
+
+intCompareCore :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
+intCompareCore occurrence unique lhs rhs =
+  boolCaseCore
+    (occurrence <> "_lt")
+    unique
+    (intLt lhs rhs)
+    orderingTy
+    (CCon orderingLTDataConName orderingTy)
+    ( boolCaseCore
+        (occurrence <> "_gt")
+        (unique - 1)
+        (intLt rhs lhs)
+        orderingTy
+        (CCon orderingGTDataConName orderingTy)
+        (CCon orderingEQDataConName orderingTy)
+    )
+
+intLeCore :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
+intLeCore occurrence unique lhs rhs =
+  boolNotCore (occurrence <> "_not_gt") unique (intLt rhs lhs)
+
+ixRangeIntMethod, ixIndexIntMethod, ixInRangeIntMethod, ixRangeSizeIntMethod :: CoreExpr
+ixRangeIntMethod =
+  ixRangeDirectMethod "$ix_range_int" (-3630) intTy intListCoreType enumFromToIntName enumFromToIntCoreType
+ixIndexIntMethod =
+  ixIndexOrdinalMethod "$ix_index_int" (-3640) intTy id
+ixInRangeIntMethod =
+  ixInRangeOrdinalMethod "$ix_in_range_int" (-3650) intTy id
+ixRangeSizeIntMethod =
+  ixRangeSizeOrdinalMethod "$ix_range_size_int" (-3660) intTy id
+
+ixRangeCharMethod, ixIndexCharMethod, ixInRangeCharMethod, ixRangeSizeCharMethod :: CoreExpr
+ixRangeCharMethod =
+  ixRangeDirectMethod "$ix_range_char" (-3670) charTy charListCoreType enumFromToCharName enumFromToCharCoreType
+ixIndexCharMethod =
+  ixIndexOrdinalMethod "$ix_index_char" (-3680) charTy charToIntCore
+ixInRangeCharMethod =
+  ixInRangeOrdinalMethod "$ix_in_range_char" (-3690) charTy charToIntCore
+ixRangeSizeCharMethod =
+  ixRangeSizeOrdinalMethod "$ix_range_size_char" (-3700) charTy charToIntCore
+
+ixRangeBoolMethod, ixIndexBoolMethod, ixInRangeBoolMethod, ixRangeSizeBoolMethod :: CoreExpr
+ixRangeBoolMethod =
+  ixRangeMappedOrdinalMethod "$ix_range_bool" (-3710) boolTy boolOrdinalCore intToBoolCore
+ixIndexBoolMethod =
+  ixIndexOrdinalMethod "$ix_index_bool" (-3720) boolTy boolOrdinalCore
+ixInRangeBoolMethod =
+  ixInRangeOrdinalMethod "$ix_in_range_bool" (-3730) boolTy boolOrdinalCore
+ixRangeSizeBoolMethod =
+  ixRangeSizeOrdinalMethod "$ix_range_size_bool" (-3740) boolTy boolOrdinalCore
+
+ixRangeOrderingMethod, ixIndexOrderingMethod, ixInRangeOrderingMethod, ixRangeSizeOrderingMethod :: CoreExpr
+ixRangeOrderingMethod =
+  ixRangeMappedOrdinalMethod "$ix_range_ordering" (-3750) orderingTy (orderingOrdinalCore "$ix_range_ordering_ord" (-3755)) (intToOrderingCore "$ix_range_ordering_from" (-3756))
+ixIndexOrderingMethod =
+  ixIndexOrdinalMethod "$ix_index_ordering" (-3760) orderingTy (orderingOrdinalCore "$ix_index_ordering_ord" (-3765))
+ixInRangeOrderingMethod =
+  ixInRangeOrdinalMethod "$ix_in_range_ordering" (-3770) orderingTy (orderingOrdinalCore "$ix_in_range_ordering_ord" (-3775))
+ixRangeSizeOrderingMethod =
+  ixRangeSizeOrdinalMethod "$ix_range_size_ordering" (-3780) orderingTy (orderingOrdinalCore "$ix_range_size_ordering_ord" (-3785))
+
+ixRangeUnitMethod, ixIndexUnitMethod, ixInRangeUnitMethod, ixRangeSizeUnitMethod :: CoreExpr
+ixRangeUnitMethod =
+  ixBoundsCaseMethod "$ix_range_unit" (-3790) unitTy (CTyList unitTy) (\_ _ -> consCore unitTy (CCon unitDataConName unitTy) (nilCore unitTy))
+ixIndexUnitMethod =
+  ixIndexMethod "$ix_index_unit" (-3800) unitTy (\_ _ _ -> zeroInt)
+ixInRangeUnitMethod =
+  ixIndexMethod "$ix_in_range_unit" (-3810) unitTy (\_ _ _ -> CCon trueDataConName boolTy)
+ixRangeSizeUnitMethod =
+  ixBoundsCaseMethod "$ix_range_size_unit" (-3820) unitTy intTy (\_ _ -> oneInt)
+
+ixRangeDirectMethod :: Text -> Int -> CoreType -> CoreType -> RName -> CoreType -> CoreExpr
+ixRangeDirectMethod occurrence unique valueTy listTy functionName functionTy =
+  ixBoundsCaseMethod occurrence unique valueTy listTy $ \lower upper ->
+    applyCore (applyCore (CVar functionName functionTy) lower (CTyFun valueTy listTy)) upper listTy
+
+ixRangeMappedOrdinalMethod :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr) -> (CoreExpr -> CoreExpr) -> CoreExpr
+ixRangeMappedOrdinalMethod occurrence unique valueTy toOrdinal fromOrdinal =
+  ixBoundsCaseMethod occurrence unique valueTy (CTyList valueTy) $ \lower upper ->
+    mapIntListCore
+      (occurrence <> "_map")
+      (unique - 4)
+      valueTy
+      fromOrdinal
+      (applyCore (applyCore (CVar enumFromToIntName enumFromToIntCoreType) (toOrdinal lower) (CTyFun intTy intListCoreType)) (toOrdinal upper) intListCoreType)
+
+ixIndexOrdinalMethod :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr) -> CoreExpr
+ixIndexOrdinalMethod occurrence unique valueTy toOrdinal =
+  ixIndexMethod occurrence unique valueTy $ \lower upper value ->
+    let lowerOrdinal = toOrdinal lower
+        upperOrdinal = toOrdinal upper
+        valueOrdinal = toOrdinal value
+        inBounds = ixInRangeOrdinalCore (occurrence <> "_check") (unique - 4) lowerOrdinal upperOrdinal valueOrdinal
+     in boolCaseCore
+          (occurrence <> "_case")
+          (unique - 5)
+          inBounds
+          intTy
+          (intSub valueOrdinal lowerOrdinal)
+          (bottomCore (occurrence <> "_bottom") (unique - 6) intTy)
+
+ixInRangeOrdinalMethod :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr) -> CoreExpr
+ixInRangeOrdinalMethod occurrence unique valueTy toOrdinal =
+  ixIndexMethod occurrence unique valueTy $ \lower upper value ->
+    ixInRangeOrdinalCore (occurrence <> "_check") (unique - 4) (toOrdinal lower) (toOrdinal upper) (toOrdinal value)
+
+ixRangeSizeOrdinalMethod :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr) -> CoreExpr
+ixRangeSizeOrdinalMethod occurrence unique valueTy toOrdinal =
+  ixBoundsCaseMethod occurrence unique valueTy intTy $ \lower upper ->
+    let lowerOrdinal = toOrdinal lower
+        upperOrdinal = toOrdinal upper
+     in boolCaseCore
+          (occurrence <> "_case")
+          (unique - 4)
+          (intLeCore (occurrence <> "_le") (unique - 5) lowerOrdinal upperOrdinal)
+          intTy
+          (intAdd (intSub upperOrdinal lowerOrdinal) oneInt)
+          zeroInt
+
+ixInRangeOrdinalCore :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+ixInRangeOrdinalCore occurrence unique lower upper value =
+  boolAndCore
+    (occurrence <> "_and")
+    unique
+    (intLeCore (occurrence <> "_lower") (unique - 1) lower value)
+    (intLeCore (occurrence <> "_upper") (unique - 2) value upper)
+
+ixBoundsCaseMethod :: Text -> Int -> CoreType -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+ixBoundsCaseMethod occurrence unique valueTy resultTy body =
+  CLam (CoreBinder boundsName boundsTy) boundsCase (CTyFun boundsTy resultTy)
+ where
+  boundsTy = CTyTuple [valueTy, valueTy]
+  boundsName = builtinLocalTermName (occurrence <> "_bounds") unique
+  caseName = builtinLocalTermName (occurrence <> "_case_bounds") (unique - 1)
+  lowerName = builtinLocalTermName (occurrence <> "_lower") (unique - 2)
+  upperName = builtinLocalTermName (occurrence <> "_upper") (unique - 3)
+  boundsCase =
+    CCase
+      (CVar boundsName boundsTy)
+      (CoreBinder caseName boundsTy)
+      [ CoreAlt
+          (ConstructorAlt (tupleDataConName 2))
+          [CoreBinder lowerName valueTy, CoreBinder upperName valueTy]
+          (body (CVar lowerName valueTy) (CVar upperName valueTy))
+      ]
+      resultTy
+
+ixIndexMethod :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+ixIndexMethod occurrence unique valueTy body =
+  CLam (CoreBinder boundsName boundsTy) (CLam (CoreBinder valueName valueTy) boundsCase (CTyFun valueTy (exprType boundsCase))) (CTyFun boundsTy (CTyFun valueTy (exprType boundsCase)))
+ where
+  boundsTy = CTyTuple [valueTy, valueTy]
+  boundsName = builtinLocalTermName (occurrence <> "_bounds") unique
+  valueName = builtinLocalTermName (occurrence <> "_value") (unique - 1)
+  caseName = builtinLocalTermName (occurrence <> "_case_bounds") (unique - 2)
+  lowerName = builtinLocalTermName (occurrence <> "_lower") (unique - 3)
+  upperName = builtinLocalTermName (occurrence <> "_upper") (unique - 4)
+  value = CVar valueName valueTy
+  boundsCase =
+    CCase
+      (CVar boundsName boundsTy)
+      (CoreBinder caseName boundsTy)
+      [ CoreAlt
+          (ConstructorAlt (tupleDataConName 2))
+          [CoreBinder lowerName valueTy, CoreBinder upperName valueTy]
+          (body (CVar lowerName valueTy) (CVar upperName valueTy) value)
+      ]
+      (exprType (body (CVar lowerName valueTy) (CVar upperName valueTy) value))
+
+boolOrdinalCore :: CoreExpr -> CoreExpr
+boolOrdinalCore value =
+  boolCaseCore "$bool_ordinal" (-3830) value intTy oneInt zeroInt
+
+intToBoolCore :: CoreExpr -> CoreExpr
+intToBoolCore value =
+  CCase
+    value
+    (CoreBinder (builtinLocalTermName "$int_to_bool" (-3831)) intTy)
+    [ CoreAlt (LiteralAlt (LInt 0)) [] (CCon falseDataConName boolTy)
+    , CoreAlt (LiteralAlt (LInt 1)) [] (CCon trueDataConName boolTy)
+    , CoreAlt DefaultAlt [] (bottomCore "$int_to_bool_bottom" (-3832) boolTy)
+    ]
+    boolTy
+
+intToOrderingCore :: Text -> Int -> CoreExpr -> CoreExpr
+intToOrderingCore occurrence unique value =
+  CCase
+    value
+    (CoreBinder (builtinLocalTermName occurrence unique) intTy)
+    [ CoreAlt (LiteralAlt (LInt 0)) [] (CCon orderingLTDataConName orderingTy)
+    , CoreAlt (LiteralAlt (LInt 1)) [] (CCon orderingEQDataConName orderingTy)
+    , CoreAlt (LiteralAlt (LInt 2)) [] (CCon orderingGTDataConName orderingTy)
+    , CoreAlt DefaultAlt [] (bottomCore (occurrence <> "_bottom") (unique - 1) orderingTy)
+    ]
+    orderingTy
+
+mapIntListCore :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr) -> CoreExpr -> CoreExpr
+mapIntListCore occurrence unique valueTy mapper intList =
+  applyCore (applyCore mapFunction mapperExpr (CTyFun intListCoreType resultListTy)) intList resultListTy
+ where
+  resultListTy = CTyList valueTy
+  argumentName = builtinLocalTermName (occurrence <> "_arg") unique
+  mapperExpr = CLam (CoreBinder argumentName intTy) (mapper (CVar argumentName intTy)) (CTyFun intTy valueTy)
+  mapFunction =
+    CTypeApp
+      (CVar derivedMapName mapPreludeCoreType)
+      [intTy, valueTy]
+      (CTyFun (CTyFun intTy valueTy) (CTyFun intListCoreType resultListTy))
+
+mapPreludeCoreType :: CoreType
+mapPreludeCoreType =
+  CTyForall [a, b] (CTyFun (CTyFun aTy bTy) (CTyFun (CTyList aTy) (CTyList bTy)))
+ where
+  a = preludeTypeVariable "a" (-1201)
+  b = preludeTypeVariable "b" (-1202)
+  aTy = CTyVar a
+  bTy = CTyVar b
+
+bottomCore :: Text -> Int -> CoreType -> CoreExpr
+bottomCore occurrence unique resultTy =
+  CCase (CCon falseDataConName boolTy) (CoreBinder (builtinLocalTermName occurrence unique) boolTy) [] resultTy
 
 intAddMethod :: CoreExpr
 intAddMethod =
@@ -12403,6 +13562,37 @@ ioErrorTypeShowCore value =
     , CoreAlt (ConstructorAlt ioErrorPermissionTypeDataConName) [] (stringLiteralCore "permission denied")
     , CoreAlt (ConstructorAlt ioErrorUserTypeDataConName) [] (stringLiteralCore "user error")
     ]
+
+orderingShowsPrecMethod, orderingShowMethod, orderingShowListMethod :: CoreExpr
+orderingShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_ordering" (-2840) orderingTy orderingShowCore
+
+orderingShowMethod =
+  unaryMethod "$show_ordering" (-2841) orderingTy stringTy orderingShowCore
+
+orderingShowListMethod =
+  showListFromShowsMethod orderingTy (showsPrecFromRenderedMethod "$show_list_shows_ordering" (-2842) orderingTy orderingShowCore)
+
+orderingShowCore :: CoreExpr -> CoreExpr
+orderingShowCore value =
+  orderingCaseCore
+    "$show_ordering_case"
+    (-2843)
+    value
+    stringTy
+    (stringLiteralCore "LT")
+    (stringLiteralCore "EQ")
+    (stringLiteralCore "GT")
+
+unitShowsPrecMethod, unitShowMethod, unitShowListMethod :: CoreExpr
+unitShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_unit" (-2850) unitTy (const (stringLiteralCore "()"))
+
+unitShowMethod =
+  unaryMethod "$show_unit" (-2851) unitTy stringTy (const (stringLiteralCore "()"))
+
+unitShowListMethod =
+  showListFromShowsMethod unitTy (showsPrecFromRenderedMethod "$show_list_shows_unit" (-2852) unitTy (const (stringLiteralCore "()")))
 
 intReadsPrecMethod, boolReadsPrecMethod, charReadsPrecMethod, orderingReadsPrecMethod, unitReadsPrecMethod :: CoreExpr
 intReadsPrecMethod =
@@ -13839,7 +15029,7 @@ functorListMapCorePair =
 
 builtinMonadSupportCoreBinds :: Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
 builtinMonadSupportCoreBinds classes
-  | builtinMonadClassName `Map.member` classes =
+  | builtinMonadClassName `Map.member` classes || builtinIxClassName `Map.member` classes =
       Right [CoreRec [monadListAppendCorePair, monadListBindCorePair]]
   | otherwise =
       Right []

@@ -51,8 +51,8 @@ SOURCE_SURFACE_ADDITIONAL_FIXTURES = {
     "test/haskell2010/conformance/negative/malformed-where-layout.hs",
     "test/haskell2010/conformance/negative/unbound-variable.hs",
     "test/haskell2010/conformance/unsupported/constrained-expression-signature.hs",
-    "test/haskell2010/conformance/unsupported/instance-context.hs",
     "test/haskell2010/conformance/unsupported/method-specific-constraint.hs",
+    "test/haskell2010/conformance/typeclasses/instance-context.hs",
 }
 
 SOURCE_SURFACE_ROWS = {
@@ -130,8 +130,12 @@ LIBRARY_CLOSURE_REQUIRED_FIXTURES = {
     "test/haskell2010/conformance/io/printing.hs",
     "test/haskell2010/conformance/modules/standard-library-modules.hs",
     "test/haskell2010/conformance/modules/standard-library-scalar-types.hs",
+    "test/haskell2010/conformance/modules/data-array.hs",
+    "test/haskell2010/conformance/modules/data-array-duplicate-partial.hs",
+    "test/haskell2010/conformance/modules/data-array-partial.hs",
     "test/haskell2010/conformance/modules/data-char.hs",
     "test/haskell2010/conformance/modules/data-char-partial.hs",
+    "test/haskell2010/conformance/modules/data-ix.hs",
     "test/haskell2010/conformance/prelude/append.hs",
     "test/haskell2010/conformance/prelude/broad-show.hs",
     "test/haskell2010/conformance/prelude/char-runtime.hs",
@@ -151,10 +155,8 @@ LIBRARY_CLOSURE_REQUIRED_FIXTURES = {
     "test/haskell2010/conformance/typeclasses/monad-explicit-fail.hs",
     "test/haskell2010/conformance/typeclasses/monad.hs",
     "test/haskell2010/conformance/unsupported/handle-io.hs",
-    "test/haskell2010/conformance/unsupported/library-data-array.hs",
     "test/haskell2010/conformance/unsupported/library-data-bits.hs",
     "test/haskell2010/conformance/unsupported/library-data-complex.hs",
-    "test/haskell2010/conformance/unsupported/library-data-ix.hs",
     "test/haskell2010/conformance/unsupported/library-data-ratio.hs",
     "test/haskell2010/conformance/unsupported/library-foreign-c-error.hs",
     "test/haskell2010/conformance/unsupported/library-foreign-marshal.hs",

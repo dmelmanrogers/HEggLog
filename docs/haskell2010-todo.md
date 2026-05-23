@@ -14658,7 +14658,7 @@ Notes:
 ## LIB-005 — Data.Array and Data.Ix report completion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -14699,7 +14699,17 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Created by TEST-CONF-015 to replace unnumbered array/Ix future work.
+- Complete. `Data.Ix` is importable and exports the Report `Ix` class with
+  scalar instances for `Int`, `Char`, `Bool`, `Ordering`, and `()`, structural
+  tuple instances, and derived `Ix` support for enumerations and single
+  constructor product types. `Data.Array` is a source-backed virtual module
+  implementing immutable non-strict arrays, `array`, `listArray`,
+  `accumArray`, `(!)`, `bounds`, `indices`, `elems`, `assocs`, `(//)`,
+  `accum`, `ixmap`, and `Functor`/`Eq`/`Ord`/`Show`/`Read` instances for
+  supported element types. Positive native fixtures cover Ix ranges/indexing,
+  derived Ix, array construction/access/update/accumulation/ixmap/fmap/
+  comparison/show/read, and negative wet fixtures cover out-of-range and
+  duplicate association runtime failures.
 
 ## LIB-006 — Data.Bits report completion
 

@@ -8170,7 +8170,7 @@
     {
       "id": "LIB-005",
       "title": "Data.Array and Data.Ix report completion",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "PRELUDE-020",
@@ -8192,7 +8192,8 @@
         "docs/haskell2010-standard-library-layout.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. Data.Ix is importable and exports the Report Ix class with scalar instances for Int, Char, Bool, Ordering, and (), structural tuple instances, and derived Ix support for enumerations and single constructor product types. Data.Array is a source-backed virtual module implementing immutable non-strict arrays, array, listArray, accumArray, (!), bounds, indices, elems, assocs, (//), accum, ixmap, and Functor/Eq/Ord/Show/Read instances for supported element types. Positive native fixtures cover Ix ranges/indexing, derived Ix, array construction/access/update/accumulation/ixmap/fmap/comparison/show/read, and negative wet fixtures cover out-of-range and duplicate association runtime failures."
     },
     {
       "id": "LIB-006",

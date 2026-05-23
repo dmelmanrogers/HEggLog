@@ -1,5 +1,5 @@
 module Main where
 
-import Data.Array (Array)
+import Data.Bits (Bits)
 
 main = 0

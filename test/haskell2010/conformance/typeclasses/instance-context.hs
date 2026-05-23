@@ -5,7 +5,11 @@ class Equal a where
 
 data Box a = Box a
 
+instance Equal Int where
+  equal x y = x == y
+
 instance Equal a => Equal (Box a) where
   equal (Box x) (Box y) = equal x y
 
-main = 0
+main :: IO ()
+main = print (equal (Box (4 :: Int)) (Box (4 :: Int)))

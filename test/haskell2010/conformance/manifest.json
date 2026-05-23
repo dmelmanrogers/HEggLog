@@ -245,6 +245,56 @@
       "notes": "Implemented generated standard-library modules import through ModuleInterface with explicit export lists, child exports, fixities, and ordinary Prelude-backed semantics."
     },
     {
+      "name": "modules.data-ix",
+      "sourceFile": "test/haskell2010/conformance/modules/data-ix.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "[1,2,3,4]\n2\nTrue\nxyz\n[False,True]\n[LT,EQ,GT]\n1\n[Red,Green,Blue]\n1\nTrue\n2\n4\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Ix imports expose the Haskell 2010 Ix class methods for scalar, unit, tuple, and derived enum/product indexes through native execution."
+    },
+    {
+      "name": "modules.data-array",
+      "sourceFile": "test/haskell2010/conformance/modules/data-array.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "abc\nbc\n1\n3\n[1,2,3]\naZc\n2\n3\n1\n0\n10\nbc\nAbc\nTrue\nGT\narray (1,3) [(1,'a'),(2,'b'),(3,'c')]\n(array (1,3) [(1,'a'),(2,'b'),(3,'c')])!\nabc\nxy\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Array imports expose immutable non-strict array construction, indexing, bounds, indices, elems, assocs, updates, accumulation, ixmap, Functor, Eq, Ord, Show, and Read behavior through native execution."
+    },
+    {
+      "name": "modules.data-array-partial",
+      "sourceFile": "test/haskell2010/conformance/modules/data-array-partial.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Array array preserves report-specified partial behavior for out-of-range associations."
+    },
+    {
+      "name": "modules.data-array-duplicate-partial",
+      "sourceFile": "test/haskell2010/conformance/modules/data-array-duplicate-partial.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Array array preserves report-specified partial behavior for duplicate associations at the duplicated index."
+    },
+    {
       "name": "modules.data-list",
       "sourceFile": "test/haskell2010/conformance/modules/data-list.hs",
       "category": "modules",
@@ -1372,13 +1422,17 @@
       "notes": "Derived Bounded synthesizes enumeration bounds and single-constructor field-wise minBound/maxBound dictionaries for data, record, newtype, and parameterized product declarations, with Report-shaped derived Show output for the printed values."
     },
     {
-      "name": "unsupported.instance-context",
-      "sourceFile": "test/haskell2010/conformance/unsupported/instance-context.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "unsupported",
-      "requiredStage": "typecheck",
-      "notes": "Instance contexts are intentionally outside the current concrete-instance dictionary slice."
+      "name": "typeclasses.instance-context",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/instance-context.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-success",
+      "expectedStdout": "True\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "User-written instance contexts elaborate to dictionary arguments and compile through native execution."
     },
     {
       "name": "unsupported.method-specific-constraint",
@@ -1439,15 +1493,6 @@
       "notes": "Unit and wildcard function patterns compile natively without forcing an unused argument."
     },
     {
-      "name": "unsupported.library-data-array",
-      "sourceFile": "test/haskell2010/conformance/unsupported/library-data-array.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
-      "requiredStage": "module-graph",
-      "notes": "Data.Array remains reserved until array construction, indexing, updates, and Ix integration are implemented under LIB-005."
-    },
-    {
       "name": "unsupported.library-data-bits",
       "sourceFile": "test/haskell2010/conformance/unsupported/library-data-bits.hs",
       "category": "unsupported",
@@ -1464,15 +1509,6 @@
       "expectedDiagnosticCategory": "could not read",
       "requiredStage": "module-graph",
       "notes": "Data.Complex remains reserved until the floating numeric tower and Complex API are implemented under LIB-008."
-    },
-    {
-      "name": "unsupported.library-data-ix",
-      "sourceFile": "test/haskell2010/conformance/unsupported/library-data-ix.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
-      "requiredStage": "module-graph",
-      "notes": "Data.Ix remains reserved until Ix class methods and derived Ix support are implemented under LIB-005."
     },
     {
       "name": "unsupported.library-data-ratio",

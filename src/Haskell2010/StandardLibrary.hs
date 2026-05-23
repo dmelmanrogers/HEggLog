@@ -36,8 +36,10 @@ standardLibraryModuleInterfaces =
   Map.fromList
     [ (standardPreludeModuleName, standardPreludeInterface)
     , (controlMonadModuleName, controlMonadInterface)
+    , (dataArrayModuleName, dataArrayInterface)
     , (dataCharModuleName, dataCharInterface)
     , (dataIntModuleName, dataIntInterface)
+    , (dataIxModuleName, dataIxInterface)
     , (dataListModuleName, dataListInterface)
     , (dataMaybeModuleName, dataMaybeInterface)
     , (dataWordModuleName, dataWordInterface)
@@ -254,6 +256,14 @@ dataCharModuleName :: S.ModuleName
 dataCharModuleName =
   S.ModuleName ["Data", "Char"]
 
+dataArrayModuleName :: S.ModuleName
+dataArrayModuleName =
+  S.ModuleName ["Data", "Array"]
+
+dataIxModuleName :: S.ModuleName
+dataIxModuleName =
+  S.ModuleName ["Data", "Ix"]
+
 dataListModuleName :: S.ModuleName
 dataListModuleName =
   S.ModuleName ["Data", "List"]
@@ -335,6 +345,22 @@ dataCharInterface =
     dataCharModuleName
     dataCharNames
     [((TypeNamespace, "GeneralCategory"), fmap (ConstructorNamespace,) generalCategoryConstructors)]
+    Map.empty
+
+dataArrayInterface :: ModuleInterface
+dataArrayInterface =
+  standardLibraryInterfaceWith
+    dataArrayModuleName
+    (dataIxNames <> dataArrayNames)
+    [((ClassNamespace, "Ix"), fmap (TermNamespace,) ["range", "index", "inRange", "rangeSize"])]
+    (Map.fromList [("!", S.Fixity S.InfixL 9), ("//", S.Fixity S.InfixL 9)])
+
+dataIxInterface :: ModuleInterface
+dataIxInterface =
+  standardLibraryInterfaceWith
+    dataIxModuleName
+    dataIxNames
+    [((ClassNamespace, "Ix"), fmap (TermNamespace,) ["range", "index", "inRange", "rangeSize"])]
     Map.empty
 
 dataListInterface :: ModuleInterface
@@ -450,8 +476,10 @@ standardLibraryNames =
     <> foreignPtrNames
     <> foreignMarshalNames
     <> controlMonadNames
+    <> dataArrayNames
     <> dataCharNames
     <> dataIntNames
+    <> dataIxNames
     <> dataListNames
     <> dataMaybeNames
     <> dataWordNames
@@ -580,6 +608,29 @@ generalCategoryConstructors =
   , "PrivateUse"
   , "NotAssigned"
   ]
+
+dataIxNames :: [(Namespace, Text)]
+dataIxNames =
+  (ClassNamespace, "Ix")
+    : fmap (TermNamespace,) ["range", "index", "inRange", "rangeSize"]
+
+dataArrayNames :: [(Namespace, Text)]
+dataArrayNames =
+  (TypeNamespace, "Array")
+    : fmap
+      (TermNamespace,)
+      [ "array"
+      , "listArray"
+      , "accumArray"
+      , "!"
+      , "bounds"
+      , "indices"
+      , "elems"
+      , "assocs"
+      , "//"
+      , "accum"
+      , "ixmap"
+      ]
 
 dataListNames :: [(Namespace, Text)]
 dataListNames =
@@ -867,10 +918,165 @@ foreignCTypeOccurrences =
 
 standardLibrarySourceModule :: S.ModuleName -> Maybe Text
 standardLibrarySourceModule moduleName
+  | moduleName == dataArrayModuleName = Just dataArraySourceModule
   | moduleName == dataCharModuleName = Just dataCharSourceModule
   | moduleName == dataListModuleName = Just dataListSourceModule
   | moduleName == dataMaybeModuleName = Just dataMaybeSourceModule
   | otherwise = Nothing
+
+dataArraySourceModule :: Text
+dataArraySourceModule =
+  Text.unlines
+    [ "module Data.Array (module Data.Ix, Array, array, listArray, accumArray, (!), bounds, indices, elems, assocs, (//), accum, ixmap) where"
+    , ""
+    , "import Prelude"
+    , "import Data.Ix"
+    , "import Data.List (zipWith, notElem, foldl)"
+    , ""
+    , "infixl 9 !, //"
+    , ""
+    , "data Array i e = MkArray (i, i) [i] (i -> e)"
+    , ""
+    , "array :: Ix i => (i, i) -> [(i, e)] -> Array i e"
+    , "array b ivs = if anyOutOfRange b ivs then head [] else MkArray b (range b) (lookupArray ivs)"
+    , ""
+    , "anyOutOfRange :: Ix i => (i, i) -> [(i, e)] -> Bool"
+    , "anyOutOfRange b xs = case xs of"
+    , "  [] -> False"
+    , "  iv:rest -> if inRange b (fst iv) then anyOutOfRange b rest else True"
+    , ""
+    , "lookupArray :: Eq i => [(i, e)] -> i -> e"
+    , "lookupArray ivs j = case [v | (i, v) <- ivs, i == j] of"
+    , "  [v] -> v"
+    , "  [] -> head []"
+    , "  _ -> head []"
+    , ""
+    , "listArray :: Ix i => (i, i) -> [e] -> Array i e"
+    , "listArray b vs = array b (zipWith pair (range b) vs)"
+    , "  where"
+    , "    pair i v = (i, v)"
+    , ""
+    , "(!) :: Ix i => Array i e -> i -> e"
+    , "(!) (MkArray _ _ f) = f"
+    , ""
+    , "bounds :: Ix i => Array i e -> (i, i)"
+    , "bounds (MkArray b _ _) = b"
+    , ""
+    , "indices :: Ix i => Array i e -> [i]"
+    , "indices (MkArray _ is _) = is"
+    , ""
+    , "elems :: Ix i => Array i e -> [e]"
+    , "elems (MkArray _ is f) = [f i | i <- is]"
+    , ""
+    , "assocs :: Ix i => Array i e -> [(i, e)]"
+    , "assocs a = [(i, a ! i) | i <- indices a]"
+    , ""
+    , "(//) :: Ix i => Array i e -> [(i, e)] -> Array i e"
+    , "a // newIvs = array (bounds a) ([(i, a ! i) | i <- indices a, notElem i [j | (j, _) <- newIvs]] ++ newIvs)"
+    , ""
+    , "accum :: Ix i => (e -> a -> e) -> Array i e -> [(i, a)] -> Array i e"
+    , "accum f a ivs = foldl (accumOne f) a ivs"
+    , ""
+    , "accumOne :: Ix i => (e -> a -> e) -> Array i e -> (i, a) -> Array i e"
+    , "accumOne f a iv = a // [(fst iv, f (a ! fst iv) (snd iv))]"
+    , ""
+    , "accumArray :: Ix i => (e -> a -> e) -> e -> (i, i) -> [(i, a)] -> Array i e"
+    , "accumArray f z b ivs = accum f (array b [(i, z) | i <- range b]) ivs"
+    , ""
+    , "ixmap :: (Ix i, Ix j) => (i, i) -> (i -> j) -> Array j e -> Array i e"
+    , "ixmap b f a = array b [(i, a ! f i) | i <- range b]"
+    , ""
+    , "instance Ix i => Functor (Array i) where"
+    , "  fmap f (MkArray b is g) = MkArray b is (\\i -> f (g i))"
+    , ""
+    , "instance (Ix i, Eq e) => Eq (Array i e) where"
+    , "  a == a' = assocs a == assocs a'"
+    , "  a /= a' = not (a == a')"
+    , ""
+    , "instance (Ix i, Ord e) => Ord (Array i e) where"
+    , "  compare a a' = compare (assocs a) (assocs a')"
+    , "  a < a' = assocs a < assocs a'"
+    , "  a <= a' = assocs a <= assocs a'"
+    , "  a > a' = assocs a > assocs a'"
+    , "  a >= a' = assocs a >= assocs a'"
+    , "  max a a' = if a >= a' then a else a'"
+    , "  min a a' = if a <= a' then a else a'"
+    , ""
+    , "arrPrec :: Int"
+    , "arrPrec = 10"
+    , ""
+    , "arrayShowBounds :: Show i => (i, i) -> String"
+    , "arrayShowBounds b = \"(\" ++ showsPrec 0 (fst b) (\",\" ++ showsPrec 0 (snd b) \")\")"
+    , ""
+    , "arrayShowAssoc :: (Show i, Show e) => (i, e) -> String"
+    , "arrayShowAssoc iv = \"(\" ++ showsPrec 0 (fst iv) (\",\" ++ showsPrec 0 (snd iv) \")\")"
+    , ""
+    , "arrayShowAssocs :: (Show i, Show e) => [(i, e)] -> String"
+    , "arrayShowAssocs xs = case xs of"
+    , "  [] -> \"[]\""
+    , "  iv:rest -> \"[\" ++ arrayShowAssocsTail iv rest"
+    , ""
+    , "arrayShowAssocsTail :: (Show i, Show e) => (i, e) -> [(i, e)] -> String"
+    , "arrayShowAssocsTail iv rest = case rest of"
+    , "  [] -> arrayShowAssoc iv ++ \"]\""
+    , "  next:more -> arrayShowAssoc iv ++ \",\" ++ arrayShowAssocsTail next more"
+    , ""
+    , "arrayShowBody :: (Ix i, Show i, Show e) => Array i e -> String"
+    , "arrayShowBody a = \"array \" ++ arrayShowBounds (bounds a) ++ \" \" ++ arrayShowAssocs (assocs a)"
+    , ""
+    , "arrayShowParen :: Bool -> String -> String"
+    , "arrayShowParen p s = if p then \"(\" ++ s ++ \")\" else s"
+    , ""
+    , "arrayShowList :: (Ix i, Show i, Show e) => [Array i e] -> String"
+    , "arrayShowList xs = case xs of"
+    , "  [] -> \"[]\""
+    , "  a:rest -> \"[\" ++ arrayShowListTail a rest"
+    , ""
+    , "arrayShowListTail :: (Ix i, Show i, Show e) => Array i e -> [Array i e] -> String"
+    , "arrayShowListTail a rest = case rest of"
+    , "  [] -> arrayShowBody a ++ \"]\""
+    , "  b:bs -> arrayShowBody a ++ \",\" ++ arrayShowListTail b bs"
+    , ""
+    , "instance (Ix i, Show i, Show e) => Show (Array i e) where"
+    , "  showsPrec p a rest = arrayShowParen (p > arrPrec) (arrayShowBody a) ++ rest"
+    , "  show = arrayShowBody"
+    , "  showList xs rest = arrayShowList xs ++ rest"
+    , ""
+    , "readArrayBounds :: Read i => ReadS (i, i)"
+    , "readArrayBounds r = [((lo, hi), u) | (\"(\", s) <- lex r, (lo, t) <- readsPrec 0 s, (\",\", v) <- lex t, (hi, w) <- readsPrec 0 v, (\")\", u) <- lex w]"
+    , ""
+    , "readArrayAssoc :: (Read i, Read e) => ReadS (i, e)"
+    , "readArrayAssoc r = [((i, e), u) | (\"(\", s) <- lex r, (i, t) <- readsPrec 0 s, (\",\", v) <- lex t, (e, w) <- readsPrec 0 v, (\")\", u) <- lex w]"
+    , ""
+    , "readArrayAssocs :: (Read i, Read e) => ReadS [(i, e)]"
+    , "readArrayAssocs r = [(ivs, u) | (\"[\", s) <- lex r, (ivs, u) <- readArrayAssocsTail s]"
+    , ""
+    , "readArrayAssocsTail :: (Read i, Read e) => ReadS [(i, e)]"
+    , "readArrayAssocsTail r = [([], s) | (\"]\", s) <- lex r] ++ [(iv:ivs, u) | (iv, s) <- readArrayAssoc r, (ivs, u) <- readArrayAssocsRest s]"
+    , ""
+    , "readArrayAssocsRest :: (Read i, Read e) => ReadS [(i, e)]"
+    , "readArrayAssocsRest r = [(ivs, u) | (\",\", s) <- lex r, (ivs, u) <- readArrayAssocsTail s] ++ [([], s) | (\"]\", s) <- lex r]"
+    , ""
+    , "readArrayBody :: (Ix i, Read i, Read e) => ReadS (Array i e)"
+    , "readArrayBody r = [(array b as, u) | (\"array\", s) <- lex r, (b, t) <- readArrayBounds s, (as, u) <- readArrayAssocs t]"
+    , ""
+    , "readArrayElement :: (Ix i, Read i, Read e) => ReadS (Array i e)"
+    , "readArrayElement = readParen False readArrayBody"
+    , ""
+    , "readArrayList :: (Ix i, Read i, Read e) => ReadS [Array i e]"
+    , "readArrayList r = [(xs, u) | (\"[\", s) <- lex r, (xs, u) <- readArrayListTail s]"
+    , ""
+    , "readArrayListTail :: (Ix i, Read i, Read e) => ReadS [Array i e]"
+    , "readArrayListTail r = [([], s) | (\"]\", s) <- lex r] ++ [(a:as, u) | (a, s) <- readArrayElement r, (as, u) <- readArrayListRest s]"
+    , ""
+    , "readArrayListRest :: (Ix i, Read i, Read e) => ReadS [Array i e]"
+    , "readArrayListRest r = [(as, u) | (\",\", s) <- lex r, (as, u) <- readArrayListTail s] ++ [([], s) | (\"]\", s) <- lex r]"
+    , ""
+    , "instance (Ix i, Read i, Read e) => Read (Array i e) where"
+    , "  readsPrec p = readParen (p > arrPrec) readArrayBody"
+    , "  readList = readArrayList"
+    , ""
+    ]
 
 dataCharSourceModule :: Text
 dataCharSourceModule =

@@ -1356,6 +1356,30 @@ testHaskell2010StandardLibraryExpandedInterfaces = do
     "Data.Char exposes GeneralCategory constructors"
     (interfaceExportsChild H2010Names.TypeNamespace "GeneralCategory" H2010Names.ConstructorNamespace "UppercaseLetter" dataChar)
 
+  dataIx <- requireInterface (H2010.ModuleName ["Data", "Ix"])
+  assertBool "Data.Ix exports Ix" (interfaceExportsName H2010Names.ClassNamespace "Ix" dataIx)
+  assertBool "Data.Ix exports range" (interfaceExportsName H2010Names.TermNamespace "range" dataIx)
+  assertBool
+    "Data.Ix exposes Ix range child"
+    (interfaceExportsChild H2010Names.ClassNamespace "Ix" H2010Names.TermNamespace "range" dataIx)
+
+  dataArray <- requireInterface (H2010.ModuleName ["Data", "Array"])
+  assertBool "Data.Array exports Array" (interfaceExportsName H2010Names.TypeNamespace "Array" dataArray)
+  assertBool "Data.Array exports array" (interfaceExportsName H2010Names.TermNamespace "array" dataArray)
+  assertBool "Data.Array exports !" (interfaceExportsName H2010Names.TermNamespace "!" dataArray)
+  assertBool "Data.Array exports //" (interfaceExportsName H2010Names.TermNamespace "//" dataArray)
+  assertBool
+    "Data.Array re-exports Ix range child"
+    (interfaceExportsChild H2010Names.ClassNamespace "Ix" H2010Names.TermNamespace "range" dataArray)
+  expectEqual
+    "Data.Array ! fixity"
+    (Just (H2010.Fixity H2010.InfixL 9))
+    (Map.lookup "!" (H2010ModuleInterface.interfaceFixities dataArray))
+  expectEqual
+    "Data.Array // fixity"
+    (Just (H2010.Fixity H2010.InfixL 9))
+    (Map.lookup "//" (H2010ModuleInterface.interfaceFixities dataArray))
+
   controlMonad <- requireInterface (H2010.ModuleName ["Control", "Monad"])
   assertBool "Control.Monad exports Functor" (interfaceExportsName H2010Names.ClassNamespace "Functor" controlMonad)
   assertBool "Control.Monad exports fmap" (interfaceExportsName H2010Names.TermNamespace "fmap" controlMonad)
@@ -2060,8 +2084,9 @@ testHaskell2010ClassConstraintPlaceholders = do
   assertBool "superclass dictionary constructor is recorded" (containsConstructorOccurrence "$MkOrderedDict" coreModule)
   assertBool "default method-filled instance dictionary is emitted" (containsBindingPrefix "$fOrdered" coreModule)
   expectCoreEvalInt "superclass/default method Core oracle" 7 =<< evalHaskell2010CoreModuleBinding "main" coreModule
+  instanceContextModule <- typecheckHaskell2010 instanceContextSource
+  assertBool "instance constraint dictionary is emitted" (containsBindingPrefix "$fSized" instanceContextModule)
   expectPlaceholder "method-specific constraint context" methodConstraintSource
-    *> expectPlaceholder "instance constraint context" instanceContextSource
     *> expectPlaceholder "expression signature constraint context" expressionSignatureSource
     *> expectTypecheckMessage "recursive superclass cycle" "recursive superclass cycle" recursiveSuperclassSource
  where

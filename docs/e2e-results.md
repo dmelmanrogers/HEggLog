@@ -1,16 +1,16 @@
 # End-to-End Wet Test Results
 
-Recorded for the mandatory wet-test suite after LIB-004 moved `Data.Char`
-from a reserved module to a source-backed Haskell 2010 module alongside the
-LIB-002 `Data.List` and LIB-003 `Data.Maybe` coverage. The suite covers
-the existing `.hg` native compiler baseline and Haskell 2010 executable-subset
-`.hs` programs that compile to native executables, compare lazy runtime
-behavior, and run both default Egglog and `--no-egglog` modes for Haskell 2010
-optimizer coverage.
+Recorded for the mandatory wet-test suite after LIB-005 added Haskell 2010
+`Data.Ix` and source-backed `Data.Array` coverage alongside the LIB-002
+`Data.List`, LIB-003 `Data.Maybe`, and LIB-004 `Data.Char` library work. The
+suite covers the existing `.hg` native compiler baseline and Haskell 2010
+executable-subset `.hs` programs that compile to native executables, compare
+lazy runtime behavior, and run both default Egglog and `--no-egglog` modes for
+Haskell 2010 optimizer coverage.
 
 Run metadata:
 
-- Date/time: `2026-05-23 05:14:49 UTC`
+- Date/time: `2026-05-23 07:14:11 UTC`
 - OS: `macOS 15.7.3 24G419`, Darwin `24.6.0`, `arm64`
 - GHC: `9.10.1`
 - Cabal: `3.12.1.0`
@@ -19,23 +19,25 @@ Run metadata:
 
 Summary:
 
-- HUnit checks: 205
-- Source files: 79
-- Successful source cases: 64
-- Runtime-error source cases: 12
+- HUnit checks: 215
+- Source files: 83
+- Successful source cases: 66
+- Runtime-error source cases: 14
 - Compile-error source cases: 3
-- Native compile/run checks: 148
-- Default Egglog native checks: 80
-- `--no-egglog` native checks: 68
-- Emit-LLVM checks: 45
+- Native compile/run checks: 156
+- Default Egglog native checks: 84
+- `--no-egglog` native checks: 72
+- Emit-LLVM checks: 47
 - Report/interpreter comparisons: 12
 - Failures: 0
 
-This update adds a dedicated Haskell 2010 native case for LIB-004:
-`haskell2010-data-char` imports source-backed `Data.Char` and exercises the
-Report classification, conversion, digit, ordinal, and literal helper surface
-through default, `--no-egglog`, and emit-LLVM execution. The paired partial
-case verifies invalid `digitToInt` input as a native runtime error.
+This update adds dedicated Haskell 2010 native cases for LIB-005:
+`haskell2010-data-ix` exercises scalar, unit, tuple, and derived `Ix`
+dictionaries, and `haskell2010-data-array` exercises immutable array
+construction, indexing, bounds, indices, elems, assocs, updates, accumulation,
+`ixmap`, `Functor`, `Eq`, `Ord`, `Show`, and `Read`. Paired partial cases
+verify out-of-range and duplicate-index array behavior as native runtime
+errors.
 
 ## Case Table
 
@@ -141,6 +143,12 @@ case verifies invalid `digitToInt` input as a native runtime error.
 | haskell2010-data-char | `test/haskell2010/conformance/modules/data-char.hs` | success | native/default | Data.Char helper output | stdout matched, stderr empty, exit 0 | pass |
 | haskell2010-data-char | `test/haskell2010/conformance/modules/data-char.hs` | success | native/no-egglog | Data.Char helper output | stdout matched, stderr empty, exit 0 | pass |
 | haskell2010-data-char | `test/haskell2010/conformance/modules/data-char.hs` | success | emit-llvm/default | Data.Char helper output | LLVM compiled through clang, stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-data-ix | `test/haskell2010/conformance/modules/data-ix.hs` | success | native/default | Data.Ix helper output | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-data-ix | `test/haskell2010/conformance/modules/data-ix.hs` | success | native/no-egglog | Data.Ix helper output | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-data-ix | `test/haskell2010/conformance/modules/data-ix.hs` | success | emit-llvm/default | Data.Ix helper output | LLVM compiled through clang, stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-data-array | `test/haskell2010/conformance/modules/data-array.hs` | success | native/default | Data.Array helper, Show, and Read output | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-data-array | `test/haskell2010/conformance/modules/data-array.hs` | success | native/no-egglog | Data.Array helper, Show, and Read output | stdout matched, stderr empty, exit 0 | pass |
+| haskell2010-data-array | `test/haskell2010/conformance/modules/data-array.hs` | success | emit-llvm/default | Data.Array helper, Show, and Read output | LLVM compiled through clang, stdout matched, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/default | `20` | stdout `20`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | native/no-egglog | `20` | stdout `20`, stderr empty, exit 0 | pass |
 | haskell2010-modules | `test/e2e/programs/haskell2010/modules/Main.hs` | success | emit-llvm/default | `20` | LLVM compiled through clang, stdout `20`, stderr empty, exit 0 | pass |
@@ -210,6 +218,10 @@ case verifies invalid `digitToInt` input as a native runtime error.
 | haskell2010-data-maybe-partial | `test/haskell2010/conformance/modules/data-maybe-partial.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | haskell2010-data-char-partial | `test/haskell2010/conformance/modules/data-char-partial.hs` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | haskell2010-data-char-partial | `test/haskell2010/conformance/modules/data-char-partial.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
+| haskell2010-data-array-partial | `test/haskell2010/conformance/modules/data-array-partial.hs` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
+| haskell2010-data-array-partial | `test/haskell2010/conformance/modules/data-array-partial.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
+| haskell2010-data-array-duplicate-partial | `test/haskell2010/conformance/modules/data-array-duplicate-partial.hs` | runtime-error | native/default | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
+| haskell2010-data-array-duplicate-partial | `test/haskell2010/conformance/modules/data-array-duplicate-partial.hs` | runtime-error | native/no-egglog | nonzero exit | compile exit 0; run nonzero; stdout/stderr empty | pass |
 | open-free-variable | `test/e2e/programs/compile-errors/open-free-variable.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |
 | type-error | `test/e2e/programs/compile-errors/type-error.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |
 | unsupported-recursion | `test/e2e/programs/unsupported/unsupported-recursion.hg` | compile-error | native/default | nonzero compile; no executable; category diagnostic | nonzero compile, no executable, category matched | pass |
