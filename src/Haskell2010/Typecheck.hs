@@ -1683,6 +1683,16 @@ builtinDataConstructors =
           (Scheme [] [] (TyFun (TyApp (TyCon maybeTyConName) intMonoType) bufferModeMonoType))
           CoreDataConstructor
       )
+    , (exitSuccessDataConName, positionalDataConstructorInfo [] [] exitCodeMonoType (Scheme [] [] exitCodeMonoType) CoreDataConstructor)
+    ,
+      ( exitFailureDataConName
+      , positionalDataConstructorInfo
+          []
+          [intMonoType]
+          exitCodeMonoType
+          (Scheme [] [] (TyFun intMonoType exitCodeMonoType))
+          CoreDataConstructor
+      )
     , (seekModeAbsoluteDataConName, seekModeDataConstructorInfo)
     , (seekModeRelativeDataConName, seekModeDataConstructorInfo)
     , (seekModeFromEndDataConName, seekModeDataConstructorInfo)
@@ -2156,6 +2166,12 @@ supportedPreludeValueOccurrences =
   , "putStr"
   , "getChar"
   , "getContents"
+  , "getArgs"
+  , "getProgName"
+  , "getEnv"
+  , "exitWith"
+  , "exitFailure"
+  , "exitSuccess"
   , "readIO"
   , "readLn"
   , "nullPtr"
@@ -6022,6 +6038,8 @@ preludeConstructorInfo name
         "NoBuffering" -> lookupBuiltin bufferModeNoDataConName
         "LineBuffering" -> lookupBuiltin bufferModeLineDataConName
         "BlockBuffering" -> lookupBuiltin bufferModeBlockDataConName
+        "ExitSuccess" -> lookupBuiltin exitSuccessDataConName
+        "ExitFailure" -> lookupBuiltin exitFailureDataConName
         "AbsoluteSeek" -> lookupBuiltin seekModeAbsoluteDataConName
         "RelativeSeek" -> lookupBuiltin seekModeRelativeDataConName
         "SeekFromEnd" -> lookupBuiltin seekModeFromEndDataConName
@@ -6163,6 +6181,12 @@ preludeValueScheme name
             "getChar" -> Just (Scheme [] [] (ioMonoType charMonoType))
             "getLine" -> Just (Scheme [] [] (ioMonoType stringMonoType))
             "getContents" -> Just (Scheme [] [] (ioMonoType stringMonoType))
+            "getArgs" -> Just (Scheme [] [] (ioMonoType (TyList stringMonoType)))
+            "getProgName" -> Just (Scheme [] [] (ioMonoType stringMonoType))
+            "getEnv" -> Just (Scheme [] [] (TyFun stringMonoType (ioMonoType stringMonoType)))
+            "exitWith" -> Just (Scheme [a] [] (TyFun exitCodeMonoType (ioMonoType aTy)))
+            "exitFailure" -> Just (Scheme [a] [] (ioMonoType aTy))
+            "exitSuccess" -> Just (Scheme [a] [] (ioMonoType aTy))
             "print" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun aTy ioUnit))
             "readIO" -> Just (Scheme [a] [singleClassConstraint builtinReadClassName aTy] (TyFun stringMonoType (ioMonoType aTy)))
             "readLn" -> Just (Scheme [a] [singleClassConstraint builtinReadClassName aTy] (ioMonoType aTy))
@@ -7677,6 +7701,7 @@ builtinTypeConstructorMonoType name =
         "IOMode" -> pure ioModeMonoType
         "BufferMode" -> pure bufferModeMonoType
         "SeekMode" -> pure seekModeMonoType
+        "ExitCode" -> pure exitCodeMonoType
         "Maybe" -> pure (TyCon maybeTyConName)
         "Either" -> pure (TyCon eitherTyConName)
         "Ordering" -> pure orderingMonoType
@@ -7724,6 +7749,7 @@ builtinTypeConstructorInfo name
           "IOMode" -> Just 0
           "BufferMode" -> Just 0
           "SeekMode" -> Just 0
+          "ExitCode" -> Just 0
           "Maybe" -> Just 1
           "Either" -> Just 2
           "Ordering" -> Just 0
@@ -8304,6 +8330,18 @@ preludeCorePair name =
       Just (binderFor name getLineTy, CPrimOp PrimHGetLine [CPrimOp (PrimStdHandle StdInHandle) [] handleTy] getLineTy)
     "getContents" ->
       Just (binderFor name getLineTy, CPrimOp PrimHGetContents [CPrimOp (PrimStdHandle StdInHandle) [] handleTy] getLineTy)
+    "getArgs" ->
+      Just (binderFor name getArgsTy, CPrimOp PrimGetArgs [] getArgsTy)
+    "getProgName" ->
+      Just (binderFor name getProgNameTy, CPrimOp PrimGetProgName [] getProgNameTy)
+    "getEnv" ->
+      Just (binderFor name getEnvTy, lam getEnvNameValue stringTy (CPrimOp PrimGetEnv [var getEnvNameValue stringTy] getProgNameTy))
+    "exitWith" ->
+      Just (binderFor name exitWithTy, CTypeLam [a] (lam exitWithCode exitCodeTy (CPrimOp PrimExitWith [var exitWithCode exitCodeTy] ioA)) exitWithTy)
+    "exitFailure" ->
+      Just (binderFor name exitFailureTy, CTypeLam [a] (CPrimOp PrimExitWith [exitFailureOne] ioA) exitFailureTy)
+    "exitSuccess" ->
+      Just (binderFor name exitSuccessTy, CTypeLam [a] (CPrimOp PrimExitWith [CCon exitSuccessDataConName exitCodeTy] ioA) exitSuccessTy)
     "print" ->
       Just (binderFor name printTy, printRhs)
     "readIO" ->
@@ -8542,6 +8580,12 @@ preludeCorePair name =
   putStrLnTy = CTyFun stringTy ioUnitTy
   getLineTy = ioTy stringTy
   getCharTy = ioTy charTy
+  getArgsTy = ioTy (CTyList stringTy)
+  getProgNameTy = ioTy stringTy
+  getEnvTy = CTyFun stringTy getProgNameTy
+  exitWithTy = CTyForall [a] (CTyFun exitCodeTy ioA)
+  exitFailureTy = CTyForall [a] ioA
+  exitSuccessTy = CTyForall [a] ioA
   showSTy = CTyFun stringTy stringTy
   showsPrecTy = CTyForall [showMethodA] (CTyFun showMethodDictA (CTyFun intTy (CTyFun showMethodATy showSTy)))
   showTy = CTyForall [showMethodA] (CTyFun showMethodDictA (CTyFun showMethodATy stringTy))
@@ -8556,6 +8600,9 @@ preludeCorePair name =
   printTy = CTyForall [a] (CTyFun showDictA (CTyFun aTy ioUnitTy))
   readIOTy = CTyForall [a] (CTyFun readDictA (CTyFun stringTy (ioTy aTy)))
   readLnTy = CTyForall [a] (CTyFun readDictA (ioTy aTy))
+  getEnvNameValue = preludeTermName "$get_env_name" (-1680)
+  exitWithCode = preludeTermName "$exit_with_code" (-1681)
+  exitFailureOne = constructorApp exitFailureDataConName [] [CLit (LInt 1) intTy] exitCodeTy
   maybeHandleTy = CTyApp (CTyCon maybeTyConName) handleTy
   maybeFilePathTy = CTyApp (CTyCon maybeTyConName) stringTy
   userErrorTy = CTyFun stringTy ioErrorTy
@@ -13296,6 +13343,11 @@ builtinInstanceDictionaries classes =
         [orderingEqMethod, orderingNotEqMethod]
     , BuiltinInstanceDictionary
         (classInfoName info)
+        exitCodeMonoType
+        (preludeTermName "$fEqExitCode" (-1509))
+        [exitCodeEqMethod, exitCodeNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
         unitMonoType
         (preludeTermName "$fEqUnit" (-1507))
         [unitEqMethod, unitNotEqMethod]
@@ -13365,6 +13417,18 @@ builtinInstanceDictionaries classes =
         , orderingGeMethod
         , orderingMaxMethod
         , orderingMinMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        exitCodeMonoType
+        (preludeTermName "$fOrdExitCode" (-1518))
+        [ exitCodeCompareMethod
+        , exitCodeLtMethod
+        , exitCodeLeMethod
+        , exitCodeGtMethod
+        , exitCodeGeMethod
+        , exitCodeMaxMethod
+        , exitCodeMinMethod
         ]
     , BuiltinInstanceDictionary
         (classInfoName info)
@@ -13622,6 +13686,11 @@ builtinInstanceDictionaries classes =
         [orderingShowsPrecMethod, orderingShowMethod, orderingShowListMethod]
     , BuiltinInstanceDictionary
         (classInfoName info)
+        exitCodeMonoType
+        (preludeTermName "$fShowExitCode" (-1539))
+        [exitCodeShowsPrecMethod, exitCodeShowMethod, exitCodeShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
         unitMonoType
         (preludeTermName "$fShowUnit" (-1537))
         [unitShowsPrecMethod, unitShowMethod, unitShowListMethod]
@@ -13664,6 +13733,11 @@ builtinInstanceDictionaries classes =
         orderingMonoType
         (preludeTermName "$fReadOrdering" (-1704))
         [orderingReadsPrecMethod, orderingReadListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        exitCodeMonoType
+        (preludeTermName "$fReadExitCode" (-1707))
+        [exitCodeReadsPrecMethod, exitCodeReadListMethod]
     , BuiltinInstanceDictionary
         (classInfoName info)
         unitMonoType
@@ -14195,6 +14269,132 @@ orderingMinMethod :: CoreExpr
 orderingMinMethod =
   binaryMethod "$min_ordering" (-2002) orderingTy orderingTy $ \lhs rhs ->
     boolCaseCore "$min_ordering_case" (-20021) (intLt (orderingOrdinalCore "$min_ordering_lhs" (-20022) lhs) (orderingOrdinalCore "$min_ordering_rhs" (-20023) rhs)) orderingTy lhs rhs
+
+exitCodeEqMethod :: CoreExpr
+exitCodeEqMethod =
+  binaryBoolMethod "$eq_exit_code" (-2021) exitCodeTy exitCodeEqCore
+
+exitCodeNotEqMethod :: CoreExpr
+exitCodeNotEqMethod =
+  binaryBoolMethod "$neq_exit_code" (-2022) exitCodeTy $ \lhs rhs ->
+    boolNotCore "$neq_exit_code_not" (-20221) (exitCodeEqCore lhs rhs)
+
+exitCodeCompareMethod :: CoreExpr
+exitCodeCompareMethod =
+  binaryMethod "$compare_exit_code" (-2023) exitCodeTy orderingTy exitCodeCompareCore
+
+exitCodeLtMethod :: CoreExpr
+exitCodeLtMethod =
+  binaryBoolMethod "$lt_exit_code" (-2024) exitCodeTy $ \lhs rhs ->
+    orderingEqualCore (exitCodeCompareCore lhs rhs) (CCon orderingLTDataConName orderingTy)
+
+exitCodeLeMethod :: CoreExpr
+exitCodeLeMethod =
+  binaryBoolMethod "$le_exit_code" (-2025) exitCodeTy $ \lhs rhs ->
+    boolNotCore "$le_exit_code_not" (-20251) (orderingEqualCore (exitCodeCompareCore lhs rhs) (CCon orderingGTDataConName orderingTy))
+
+exitCodeGtMethod :: CoreExpr
+exitCodeGtMethod =
+  binaryBoolMethod "$gt_exit_code" (-2026) exitCodeTy $ \lhs rhs ->
+    orderingEqualCore (exitCodeCompareCore lhs rhs) (CCon orderingGTDataConName orderingTy)
+
+exitCodeGeMethod :: CoreExpr
+exitCodeGeMethod =
+  binaryBoolMethod "$ge_exit_code" (-2027) exitCodeTy $ \lhs rhs ->
+    boolNotCore "$ge_exit_code_not" (-20271) (orderingEqualCore (exitCodeCompareCore lhs rhs) (CCon orderingLTDataConName orderingTy))
+
+exitCodeMaxMethod :: CoreExpr
+exitCodeMaxMethod =
+  binaryMethod "$max_exit_code" (-2028) exitCodeTy exitCodeTy $ \lhs rhs ->
+    boolCaseCore "$max_exit_code_case" (-20281) (orderingEqualCore (exitCodeCompareCore lhs rhs) (CCon orderingLTDataConName orderingTy)) exitCodeTy rhs lhs
+
+exitCodeMinMethod :: CoreExpr
+exitCodeMinMethod =
+  binaryMethod "$min_exit_code" (-2029) exitCodeTy exitCodeTy $ \lhs rhs ->
+    boolCaseCore "$min_exit_code_case" (-20291) (orderingEqualCore (exitCodeCompareCore lhs rhs) (CCon orderingGTDataConName orderingTy)) exitCodeTy rhs lhs
+
+orderingEqualCore :: CoreExpr -> CoreExpr -> CoreExpr
+orderingEqualCore lhs rhs =
+  CPrimOp
+    PrimEq
+    [ orderingOrdinalCore "$ordering_equal_lhs" (-20300) lhs
+    , orderingOrdinalCore "$ordering_equal_rhs" (-20301) rhs
+    ]
+    boolTy
+
+exitCodeEqCore :: CoreExpr -> CoreExpr -> CoreExpr
+exitCodeEqCore lhs rhs =
+  CCase lhs (CoreBinder lhsCase exitCodeTy) lhsAlts boolTy
+ where
+  lhsCase = builtinLocalTermName "$eq_exit_code_lhs_case" (-2030)
+  rhsCaseSuccess = builtinLocalTermName "$eq_exit_code_rhs_success_case" (-2031)
+  rhsCaseFailure = builtinLocalTermName "$eq_exit_code_rhs_failure_case" (-2032)
+  lhsFailureCode = builtinLocalTermName "$eq_exit_code_lhs_failure" (-2033)
+  rhsFailureCode = builtinLocalTermName "$eq_exit_code_rhs_failure" (-2034)
+  lhsAlts =
+    [ CoreAlt
+        (ConstructorAlt exitSuccessDataConName)
+        []
+        ( CCase
+            rhs
+            (CoreBinder rhsCaseSuccess exitCodeTy)
+            [ CoreAlt (ConstructorAlt exitSuccessDataConName) [] (CCon trueDataConName boolTy)
+            , CoreAlt (ConstructorAlt exitFailureDataConName) [CoreBinder rhsFailureCode intTy] (CCon falseDataConName boolTy)
+            ]
+            boolTy
+        )
+    , CoreAlt
+        (ConstructorAlt exitFailureDataConName)
+        [CoreBinder lhsFailureCode intTy]
+        ( CCase
+            rhs
+            (CoreBinder rhsCaseFailure exitCodeTy)
+            [ CoreAlt (ConstructorAlt exitSuccessDataConName) [] (CCon falseDataConName boolTy)
+            , CoreAlt
+                (ConstructorAlt exitFailureDataConName)
+                [CoreBinder rhsFailureCode intTy]
+                (CPrimOp PrimEq [CVar lhsFailureCode intTy, CVar rhsFailureCode intTy] boolTy)
+            ]
+            boolTy
+        )
+    ]
+
+exitCodeCompareCore :: CoreExpr -> CoreExpr -> CoreExpr
+exitCodeCompareCore lhs rhs =
+  CCase lhs (CoreBinder lhsCase exitCodeTy) lhsAlts orderingTy
+ where
+  lhsCase = builtinLocalTermName "$compare_exit_code_lhs_case" (-2040)
+  rhsCaseSuccess = builtinLocalTermName "$compare_exit_code_rhs_success_case" (-2041)
+  rhsCaseFailure = builtinLocalTermName "$compare_exit_code_rhs_failure_case" (-2042)
+  lhsFailureCode = builtinLocalTermName "$compare_exit_code_lhs_failure" (-2043)
+  rhsFailureCode = builtinLocalTermName "$compare_exit_code_rhs_failure" (-2044)
+  lhsAlts =
+    [ CoreAlt
+        (ConstructorAlt exitSuccessDataConName)
+        []
+        ( CCase
+            rhs
+            (CoreBinder rhsCaseSuccess exitCodeTy)
+            [ CoreAlt (ConstructorAlt exitSuccessDataConName) [] (CCon orderingEQDataConName orderingTy)
+            , CoreAlt (ConstructorAlt exitFailureDataConName) [CoreBinder rhsFailureCode intTy] (CCon orderingLTDataConName orderingTy)
+            ]
+            orderingTy
+        )
+    , CoreAlt
+        (ConstructorAlt exitFailureDataConName)
+        [CoreBinder lhsFailureCode intTy]
+        ( CCase
+            rhs
+            (CoreBinder rhsCaseFailure exitCodeTy)
+            [ CoreAlt (ConstructorAlt exitSuccessDataConName) [] (CCon orderingGTDataConName orderingTy)
+            , CoreAlt
+                (ConstructorAlt exitFailureDataConName)
+                [CoreBinder rhsFailureCode intTy]
+                (intCompareCore "$compare_exit_code_failure" (-2045) (CVar lhsFailureCode intTy) (CVar rhsFailureCode intTy))
+            ]
+            orderingTy
+        )
+    ]
 
 unitCompareMethod :: CoreExpr
 unitCompareMethod =
@@ -15681,6 +15881,45 @@ orderingShowCore value =
     (stringLiteralCore "EQ")
     (stringLiteralCore "GT")
 
+exitCodeShowsPrecMethod, exitCodeShowMethod, exitCodeShowListMethod :: CoreExpr
+exitCodeShowsPrecMethod =
+  CLam precBinder (CLam valueBinder (CLam restBinder body showSCoreType) (CTyFun exitCodeTy showSCoreType)) (showsPrecFunctionCoreType exitCodeTy)
+ where
+  precName = builtinLocalTermName "$shows_prec_exit_code_prec" (-2890)
+  valueName = builtinLocalTermName "$shows_prec_exit_code_value" (-2891)
+  restName = builtinLocalTermName "$shows_prec_exit_code_rest" (-2892)
+  precBinder = CoreBinder precName intTy
+  valueBinder = CoreBinder valueName exitCodeTy
+  restBinder = CoreBinder restName stringTy
+  body = appendStringCore (exitCodeShowWithPrecCore (CVar precName intTy) (CVar valueName exitCodeTy)) (CVar restName stringTy)
+
+exitCodeShowMethod =
+  unaryMethod "$show_exit_code" (-2893) exitCodeTy stringTy (exitCodeShowWithPrecCore (CLit (LInt 0) intTy))
+
+exitCodeShowListMethod =
+  showListFromShowsMethod exitCodeTy exitCodeShowsPrecMethod
+
+exitCodeShowWithPrecCore :: CoreExpr -> CoreExpr -> CoreExpr
+exitCodeShowWithPrecCore prec value =
+  CCase value (CoreBinder caseName exitCodeTy) alts stringTy
+ where
+  caseName = builtinLocalTermName "$show_exit_code_case" (-2894)
+  failureCode = builtinLocalTermName "$show_exit_code_failure" (-2895)
+  failureBody =
+    boolCaseCore
+      "$show_exit_code_parens"
+      (-2896)
+      (intLt (CLit (LInt 10) intTy) prec)
+      stringTy
+      (appendStringCore (stringLiteralCore "(") (appendStringCore rawFailure (stringLiteralCore ")")))
+      rawFailure
+  rawFailure =
+    appendStringCore (stringLiteralCore "ExitFailure ") (CPrimOp PrimShowInt [CVar failureCode intTy] stringTy)
+  alts =
+    [ CoreAlt (ConstructorAlt exitSuccessDataConName) [] (stringLiteralCore "ExitSuccess")
+    , CoreAlt (ConstructorAlt exitFailureDataConName) [CoreBinder failureCode intTy] failureBody
+    ]
+
 unitShowsPrecMethod, unitShowMethod, unitShowListMethod :: CoreExpr
 unitShowsPrecMethod =
   showsPrecFromRenderedMethod "$shows_prec_unit" (-2850) unitTy (const (stringLiteralCore "()"))
@@ -15739,7 +15978,7 @@ doubleShowMethod =
 doubleShowListMethod =
   showListFromShowsMethod doubleTy doubleShowsPrecMethod
 
-intReadsPrecMethod, boolReadsPrecMethod, charReadsPrecMethod, orderingReadsPrecMethod, unitReadsPrecMethod, ratioReadsPrecMethod :: CoreExpr
+intReadsPrecMethod, boolReadsPrecMethod, charReadsPrecMethod, orderingReadsPrecMethod, exitCodeReadsPrecMethod, unitReadsPrecMethod, ratioReadsPrecMethod :: CoreExpr
 intReadsPrecMethod =
   readsPrecFromParserMethod "$reads_prec_int" (-2707) intTy (CVar readIntName readIntCoreType)
 boolReadsPrecMethod =
@@ -15748,6 +15987,19 @@ charReadsPrecMethod =
   readsPrecFromParserMethod "$reads_prec_char" (-2709) charTy (CVar readCharName readCharCoreType)
 orderingReadsPrecMethod =
   readsPrecFromParserMethod "$reads_prec_ordering" (-2710) orderingTy orderingReadParserCore
+exitCodeReadsPrecMethod =
+  coreLam precName intTy $
+    applyCore
+      ( applyCore
+          (CTypeApp (CVar readParenName readParenCoreType) [exitCodeTy] (CTyFun boolTy (CTyFun exitCodeParserTy exitCodeParserTy)))
+          (intLt (CLit (LInt 10) intTy) (CVar precName intTy))
+          (CTyFun exitCodeParserTy exitCodeParserTy)
+      )
+      exitCodeReadParserCore
+      exitCodeParserTy
+ where
+  precName = builtinLocalTermName "$reads_prec_exit_code_prec" (-2722)
+  exitCodeParserTy = readSCoreType exitCodeTy
 unitReadsPrecMethod =
   readsPrecFromParserMethod "$reads_prec_unit" (-2711) unitTy unitReadParserCore
 ratioReadsPrecMethod =
@@ -15764,7 +16016,7 @@ ratioReadsPrecMethod =
   precName = builtinLocalTermName "$reads_prec_ratio_int_prec" (-2714)
   ratioParserTy = readSCoreType rationalCoreType
 
-intReadListMethod, boolReadListMethod, charReadListMethod, orderingReadListMethod, unitReadListMethod, ratioReadListMethod :: CoreExpr
+intReadListMethod, boolReadListMethod, charReadListMethod, orderingReadListMethod, exitCodeReadListMethod, unitReadListMethod, ratioReadListMethod :: CoreExpr
 intReadListMethod =
   readListFromParserMethod intTy (CVar readIntName readIntCoreType)
 boolReadListMethod =
@@ -15773,6 +16025,8 @@ charReadListMethod =
   CVar readStringName readStringCoreType
 orderingReadListMethod =
   readListFromParserMethod orderingTy orderingReadParserCore
+exitCodeReadListMethod =
+  readListFromParserMethod exitCodeTy exitCodeReadParserCore
 unitReadListMethod =
   readListFromParserMethod unitTy unitReadParserCore
 ratioReadListMethod =
@@ -15804,6 +16058,40 @@ orderingReadParserCore =
           (readConstantParserCore orderingTy "EQ" (CCon orderingEQDataConName orderingTy) input)
           (readConstantParserCore orderingTy "GT" (CCon orderingGTDataConName orderingTy) input)
       )
+
+exitCodeReadParserCore :: CoreExpr
+exitCodeReadParserCore =
+  coreLam inputName stringTy body
+ where
+  inputName = builtinLocalTermName "$read_exit_code_input" (-2723)
+  afterConstructorName = builtinLocalTermName "$read_exit_code_after_constructor" (-2724)
+  constructorUnitName = builtinLocalTermName "$read_exit_code_constructor_unit" (-2725)
+  codeName = builtinLocalTermName "$read_exit_code_failure_code" (-2726)
+  restName = builtinLocalTermName "$read_exit_code_failure_rest" (-2727)
+  input = CVar inputName stringTy
+  successParser =
+    readConstantParserCore exitCodeTy "ExitSuccess" (CCon exitSuccessDataConName exitCodeTy) input
+  failureParser =
+    readBindCallCore
+      unitTy
+      exitCodeTy
+      (readExactCallCore "ExitFailure" input)
+      ( coreLam constructorUnitName unitTy $
+          coreLam afterConstructorName stringTy $
+            readBindCallCore
+              intTy
+              exitCodeTy
+              (applyCore (CVar readIntName readIntCoreType) (CVar afterConstructorName stringTy) (readResultsCoreType intTy))
+              ( coreLam codeName intTy $
+                  coreLam restName stringTy $
+                    readSingleResultCore
+                      exitCodeTy
+                      (constructorApp exitFailureDataConName [] [CVar codeName intTy] exitCodeTy)
+                      (CVar restName stringTy)
+              )
+      )
+  body =
+    readAppendCallCore (readResultCoreType exitCodeTy) successParser failureParser
 
 unitReadParserCore :: CoreExpr
 unitReadParserCore =
@@ -18171,6 +18459,10 @@ bufferModeMonoType =
 seekModeMonoType :: MonoType
 seekModeMonoType =
   coreTypeToMono seekModeTy
+
+exitCodeMonoType :: MonoType
+exitCodeMonoType =
+  coreTypeToMono exitCodeTy
 
 rationalMonoType :: MonoType
 rationalMonoType =

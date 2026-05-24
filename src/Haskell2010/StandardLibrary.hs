@@ -47,6 +47,8 @@ standardLibraryModuleInterfaces =
     , (dataMaybeModuleName, dataMaybeInterface)
     , (dataRatioModuleName, dataRatioInterface)
     , (dataWordModuleName, dataWordInterface)
+    , (systemEnvironmentModuleName, systemEnvironmentInterface)
+    , (systemExitModuleName, systemExitInterface)
     , (systemIOModuleName, systemIOInterface)
     , (systemIOErrorModuleName, systemIOErrorInterface)
     , (foreignModuleName, foreignInterface)
@@ -358,6 +360,14 @@ systemIOErrorModuleName :: S.ModuleName
 systemIOErrorModuleName =
   S.ModuleName ["System", "IO", "Error"]
 
+systemEnvironmentModuleName :: S.ModuleName
+systemEnvironmentModuleName =
+  S.ModuleName ["System", "Environment"]
+
+systemExitModuleName :: S.ModuleName
+systemExitModuleName =
+  S.ModuleName ["System", "Exit"]
+
 foreignModuleName :: S.ModuleName
 foreignModuleName =
   S.ModuleName ["Foreign"]
@@ -511,6 +521,18 @@ systemIOErrorInterface :: ModuleInterface
 systemIOErrorInterface =
   standardLibraryInterface systemIOErrorModuleName systemIOErrorNames
 
+systemEnvironmentInterface :: ModuleInterface
+systemEnvironmentInterface =
+  standardLibraryInterface systemEnvironmentModuleName systemEnvironmentNames
+
+systemExitInterface :: ModuleInterface
+systemExitInterface =
+  standardLibraryInterfaceWith
+    systemExitModuleName
+    systemExitNames
+    [((TypeNamespace, "ExitCode"), fmap (ConstructorNamespace,) ["ExitSuccess", "ExitFailure"])]
+    Map.empty
+
 foreignInterface :: ModuleInterface
 foreignInterface =
   standardLibraryInterface foreignModuleName foreignNames
@@ -605,6 +627,8 @@ standardLibraryNames =
     <> dataListNames
     <> dataMaybeNames
     <> dataWordNames
+    <> systemEnvironmentNames
+    <> systemExitNames
     <> systemIONames
     <> systemIOErrorNames
     <> dataBitsNames
@@ -1047,6 +1071,16 @@ systemIOErrorNames =
       , "catch"
       , "try"
       ]
+
+systemEnvironmentNames :: [(Namespace, Text)]
+systemEnvironmentNames =
+  fmap (TermNamespace,) ["getArgs", "getProgName", "getEnv"]
+
+systemExitNames :: [(Namespace, Text)]
+systemExitNames =
+  (TypeNamespace, "ExitCode")
+    : fmap (ConstructorNamespace,) ["ExitSuccess", "ExitFailure"]
+      <> fmap (TermNamespace,) ["exitWith", "exitFailure", "exitSuccess"]
 
 foreignNames :: [(Namespace, Text)]
 foreignNames =

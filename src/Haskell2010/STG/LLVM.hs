@@ -157,7 +157,9 @@ findMain occurrence (STGProgram _ binds _foreignExports) =
 
 lowerMainFunction :: STGProgram -> STGBinder -> ModuleM LLVMFunction
 lowerMainFunction (STGProgram _ binds _foreignExports) mainBinder =
-  runFunction "main" LI32 [] $ do
+  runFunction "main" LI32 [(LI32, Register "argc"), (LPtr, Register "argv")] $ do
+    emit (IStore LI32 (OLocal LI32 (Register "argc")) (OGlobal LPtr argcGlobalName))
+    emit (IStore LPtr (OLocal LPtr (Register "argv")) (OGlobal LPtr argvGlobalName))
     env <- emitRecursiveGroup Map.empty (concatMap bindPairs binds)
     mainObject <- resolveName env (stgBinderName mainBinder)
     if stgBinderType mainBinder == ioTy unitTy
@@ -546,6 +548,21 @@ emitPrim env op arguments =
       resultReg <- freshRegister "getline"
       emit (ICall (Just resultReg) LPtr (DirectCall getLineFunctionName) False [])
       emitMakeIOSuccess (OLocal LPtr resultReg)
+    (PrimGetArgs, []) -> do
+      resultReg <- freshRegister "getargs"
+      emit (ICall (Just resultReg) LPtr (DirectCall getArgsFunctionName) False [])
+      emitMakeIOSuccess (OLocal LPtr resultReg)
+    (PrimGetProgName, []) -> do
+      resultReg <- freshRegister "getprogname"
+      emit (ICall (Just resultReg) LPtr (DirectCall getProgNameFunctionName) False [])
+      emitMakeIOSuccess (OLocal LPtr resultReg)
+    (PrimGetEnv, [name]) -> do
+      nameObject <- emitAtomAddress env name
+      envResult <- emitGetEnv nameObject
+      pure envResult
+    (PrimExitWith, [exitCode]) -> do
+      exitCodeObject <- emitAtomAddress env exitCode
+      emitExitWithResult exitCodeObject
     (PrimStdHandle _, []) ->
       emitMakePointer OConstNull
     (PrimOpenFile, [_path, _mode]) -> do
@@ -635,14 +652,14 @@ emitPrim env op arguments =
     (PrimIOThen, [firstAction, secondAction]) -> do
       firstObject <- emitAtomAddress env firstAction
       firstResult <- emitForce firstObject
-      emitIOResultBranch
+      emitIOResultSuccessBranch
         firstResult
         (pure firstResult)
         (emitAtomAddress env secondAction >>= emitForce)
     (PrimIOBind, [firstAction, continuation]) -> do
       firstObject <- emitAtomAddress env firstAction
       firstResult <- emitForce firstObject
-      emitIOResultBranch firstResult (pure firstResult) $ do
+      emitIOResultSuccessBranch firstResult (pure firstResult) $ do
         firstPayload <- emitIOResultPayload firstResult
         continuationObject <- emitAtomAddress env continuation
         functionObject <- emitExpectFunction continuationObject
@@ -681,17 +698,7 @@ emitPrim env op arguments =
       actionObject <- emitAtomAddress env action
       actionResult <- emitForce actionObject
       resultTy <- ioTryResultType action
-      emitIOResultBranch actionResult
-        ( do
-            errorObject <- emitIOResultPayload actionResult
-            leftObject <- emitConstructorObject eitherLeftDataConName resultTy [errorObject]
-            emitMakeIOSuccess leftObject
-        )
-        ( do
-            valueObject <- emitIOResultPayload actionResult
-            rightObject <- emitConstructorObject eitherRightDataConName resultTy [valueObject]
-            emitMakeIOSuccess rightObject
-        )
+      emitIOTryResult resultTy actionResult
     (PrimNewStablePtr, [value]) -> do
       valueObject <- emitAtomAddress env value
       reg <- freshRegister "stable_ptr"
@@ -2481,10 +2488,125 @@ emitMakeIOFailure value = do
   emit (ICall (Just reg) LPtr (DirectCall makeIOFailureFunctionName) False [(LPtr, value)])
   pure (OLocal LPtr reg)
 
+emitMakeIOExit :: LLVMOperand -> FunctionM LLVMOperand
+emitMakeIOExit code = do
+  reg <- freshRegister "io_exit"
+  emit (ICall (Just reg) LPtr (DirectCall makeIOExitFunctionName) False [(LI64, code)])
+  pure (OLocal LPtr reg)
+
 emitUnitIOSuccess :: FunctionM LLVMOperand
 emitUnitIOSuccess = do
   unitObject <- emitConstructorObject unitDataConName unitTy []
   emitMakeIOSuccess unitObject
+
+emitGetEnv :: LLVMOperand -> FunctionM LLVMOperand
+emitGetEnv nameObject = do
+  cString <- freshRegister "getenv_name"
+  emit (ICall (Just cString) LPtr (DirectCall charListToCStringFunctionName) False [(LPtr, nameObject)])
+  value <- freshRegister "getenv_value"
+  emit (ICall (Just value) LPtr (DirectCall "getenv") False [(LPtr, OLocal LPtr cString)])
+  isMissing <- freshRegister "getenv_missing"
+  emit (IIcmp isMissing ICmpEq LPtr (OLocal LPtr value) OConstNull)
+  missingLabel <- freshBlockLabel "getenv_missing"
+  foundLabel <- freshBlockLabel "getenv_found"
+  joinLabel <- freshBlockLabel "getenv_join"
+  terminateCurrent (TCondBr (OLocal LI1 isMissing) missingLabel foundLabel)
+
+  startBlock missingLabel
+  missingResult <- emitDoesNotExistIOFailure "environment variable not found"
+  missingPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock foundLabel
+  stringObject <- freshRegister "getenv_string"
+  emit (ICall (Just stringObject) LPtr (DirectCall makeCharListFromCStringFunctionName) False [(LPtr, OLocal LPtr value)])
+  foundResult <- emitMakeIOSuccess (OLocal LPtr stringObject)
+  foundPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  result <- freshRegister "getenv_result"
+  emit (IPhi result LPtr [(missingResult, missingPredecessor), (foundResult, foundPredecessor)])
+  pure (OLocal LPtr result)
+
+emitExitWithResult :: LLVMOperand -> FunctionM LLVMOperand
+emitExitWithResult exitCodeObject = do
+  forced <- emitForce exitCodeObject
+  tag <- loadObjectI64Field forced 0 "exitcode_tag"
+  isData <- freshRegister "exitcode_is_data"
+  emit (IIcmp isData ICmpEq LI64 tag (OConstInt LI64 tagData))
+  dataLabel <- freshBlockLabel "exitcode_data"
+  abortLabel <- freshBlockLabel "exitcode_abort"
+  successLabel <- freshBlockLabel "exitcode_success"
+  failureCheckLabel <- freshBlockLabel "exitcode_failure_check"
+  failureLabel <- freshBlockLabel "exitcode_failure"
+  failureZeroLabel <- freshBlockLabel "exitcode_failure_zero"
+  failureNonZeroLabel <- freshBlockLabel "exitcode_failure_nonzero"
+  joinLabel <- freshBlockLabel "exitcode_join"
+  terminateCurrent (TCondBr (OLocal LI1 isData) dataLabel abortLabel)
+
+  startBlock abortLabel
+  emitAbort
+
+  startBlock dataLabel
+  constructor <- loadObjectI64Field forced 1 "exitcode_constructor"
+  isSuccess <- freshRegister "exitcode_is_success"
+  emit (IIcmp isSuccess ICmpEq LI64 constructor (OConstInt LI64 (constructorRuntimeTag exitSuccessDataConName)))
+  terminateCurrent (TCondBr (OLocal LI1 isSuccess) successLabel failureCheckLabel)
+
+  startBlock successLabel
+  successResult <- emitMakeIOExit (OConstInt LI64 0)
+  successPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock failureCheckLabel
+  isFailure <- freshRegister "exitcode_is_failure"
+  emit (IIcmp isFailure ICmpEq LI64 constructor (OConstInt LI64 (constructorRuntimeTag exitFailureDataConName)))
+  terminateCurrent (TCondBr (OLocal LI1 isFailure) failureLabel abortLabel)
+
+  startBlock failureLabel
+  arity <- loadObjectI64Field forced 5 "exitcode_arity"
+  arityOk <- freshRegister "exitcode_arity_ok"
+  emit (IIcmp arityOk ICmpEq LI64 arity (OConstInt LI64 1))
+  arityAbortLabel <- freshBlockLabel "exitcode_arity_abort"
+  arityOkLabel <- freshBlockLabel "exitcode_arity_ok"
+  terminateCurrent (TCondBr (OLocal LI1 arityOk) arityOkLabel arityAbortLabel)
+
+  startBlock arityAbortLabel
+  emitAbort
+
+  startBlock arityOkLabel
+  fieldsPointer <- loadObjectPtrField forced 2 "exitcode_fields"
+  codeSlot <- envSlotPointer 1 fieldsPointer 0
+  codeObjectRegister <- freshRegister "exitcode_code_object"
+  emit (ILoad codeObjectRegister LPtr codeSlot)
+  codeValue <- emitExpectObjectInt (OLocal LPtr codeObjectRegister)
+  isZero <- freshRegister "exitcode_failure_is_zero"
+  emit (IIcmp isZero ICmpEq LI64 codeValue (OConstInt LI64 0))
+  terminateCurrent (TCondBr (OLocal LI1 isZero) failureZeroLabel failureNonZeroLabel)
+
+  startBlock failureZeroLabel
+  failureZeroResult <- emitIllegalOperationIOFailure "ExitFailure 0"
+  failureZeroPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock failureNonZeroLabel
+  failureResult <- emitMakeIOExit codeValue
+  failurePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  result <- freshRegister "exitcode_result"
+  emit
+    ( IPhi
+        result
+        LPtr
+        [ (successResult, successPredecessor)
+        , (failureZeroResult, failureZeroPredecessor)
+        , (failureResult, failurePredecessor)
+        ]
+    )
+  pure (OLocal LPtr result)
 
 emitCharOrEOF :: LLVMOperand -> FunctionM LLVMOperand
 emitCharOrEOF charValue = do
@@ -2522,12 +2644,53 @@ emitEOFIOFailure = do
   errorObject <- emitConstructorObject ioErrorDataConName ioErrorTy [errorType, messageObject, nothingHandle, nothingFile]
   emitMakeIOFailure errorObject
 
+emitDoesNotExistIOFailure :: Text -> FunctionM LLVMOperand
+emitDoesNotExistIOFailure message = do
+  errorType <- emitConstructorObject ioErrorDoesNotExistTypeDataConName ioErrorTypeTy []
+  messageObject <- emitMakeStringLiteral message
+  nothingHandle <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) handleTy) []
+  nothingFile <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) stringTy) []
+  errorObject <- emitConstructorObject ioErrorDataConName ioErrorTy [errorType, messageObject, nothingHandle, nothingFile]
+  emitMakeIOFailure errorObject
+
+emitIllegalOperationIOFailure :: Text -> FunctionM LLVMOperand
+emitIllegalOperationIOFailure message = do
+  errorType <- emitConstructorObject ioErrorIllegalOperationTypeDataConName ioErrorTypeTy []
+  messageObject <- emitMakeStringLiteral message
+  nothingHandle <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) handleTy) []
+  nothingFile <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) stringTy) []
+  errorObject <- emitConstructorObject ioErrorDataConName ioErrorTy [errorType, messageObject, nothingHandle, nothingFile]
+  emitMakeIOFailure errorObject
+
 emitUserIOError :: LLVMOperand -> FunctionM LLVMOperand
 emitUserIOError messageObject = do
   errorType <- emitConstructorObject ioErrorUserTypeDataConName ioErrorTypeTy []
   nothingHandle <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) handleTy) []
   nothingFile <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) stringTy) []
   emitConstructorObject ioErrorDataConName ioErrorTy [errorType, messageObject, nothingHandle, nothingFile]
+
+emitIOResultSuccessBranch :: LLVMOperand -> FunctionM LLVMOperand -> FunctionM LLVMOperand -> FunctionM LLVMOperand
+emitIOResultSuccessBranch result onNonSuccess onSuccess = do
+  isSuccess <- emitIOResultIsSuccess result
+  nonSuccessLabel <- freshBlockLabel "io_non_success"
+  successLabel <- freshBlockLabel "io_success"
+  joinLabel <- freshBlockLabel "io_join"
+  terminateCurrent (TCondBr isSuccess successLabel nonSuccessLabel)
+
+  startBlock successLabel
+  successResult <- onSuccess
+  successPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock nonSuccessLabel
+  nonSuccessResult <- onNonSuccess
+  nonSuccessPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  resultRegister <- freshRegister "io_result"
+  emit (IPhi resultRegister LPtr [(successResult, successPredecessor), (nonSuccessResult, nonSuccessPredecessor)])
+  pure (OLocal LPtr resultRegister)
 
 emitIOResultBranch :: LLVMOperand -> FunctionM LLVMOperand -> FunctionM LLVMOperand -> FunctionM LLVMOperand
 emitIOResultBranch result onFailure onSuccess = do
@@ -2552,12 +2715,63 @@ emitIOResultBranch result onFailure onSuccess = do
   emit (IPhi resultRegister LPtr [(failureResult, failurePredecessor), (successResult, successPredecessor)])
   pure (OLocal LPtr resultRegister)
 
+emitIOTryResult :: CoreType -> LLVMOperand -> FunctionM LLVMOperand
+emitIOTryResult resultTy actionResult = do
+  isFailure <- emitIOResultIsFailure actionResult
+  failureLabel <- freshBlockLabel "io_try_failure"
+  nonFailureLabel <- freshBlockLabel "io_try_non_failure"
+  exitLabel <- freshBlockLabel "io_try_exit"
+  successLabel <- freshBlockLabel "io_try_success"
+  joinLabel <- freshBlockLabel "io_try_join"
+  terminateCurrent (TCondBr isFailure failureLabel nonFailureLabel)
+
+  startBlock failureLabel
+  errorObject <- emitIOResultPayload actionResult
+  leftObject <- emitConstructorObject eitherLeftDataConName resultTy [errorObject]
+  failureResult <- emitMakeIOSuccess leftObject
+  failurePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock nonFailureLabel
+  isExit <- emitIOResultIsExit actionResult
+  terminateCurrent (TCondBr isExit exitLabel successLabel)
+
+  startBlock exitLabel
+  exitPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock successLabel
+  valueObject <- emitIOResultPayload actionResult
+  rightObject <- emitConstructorObject eitherRightDataConName resultTy [valueObject]
+  successResult <- emitMakeIOSuccess rightObject
+  successPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  resultRegister <- freshRegister "io_try_result"
+  emit (IPhi resultRegister LPtr [(failureResult, failurePredecessor), (actionResult, exitPredecessor), (successResult, successPredecessor)])
+  pure (OLocal LPtr resultRegister)
+
 emitIOResultIsFailure :: LLVMOperand -> FunctionM LLVMOperand
 emitIOResultIsFailure result = do
   tag <- loadObjectI64Field result 0 "io_result_tag"
   failureRegister <- freshRegister "io_is_failure"
   emit (IIcmp failureRegister ICmpEq LI64 tag (OConstInt LI64 tagIOFailure))
   pure (OLocal LI1 failureRegister)
+
+emitIOResultIsSuccess :: LLVMOperand -> FunctionM LLVMOperand
+emitIOResultIsSuccess result = do
+  tag <- loadObjectI64Field result 0 "io_result_tag"
+  successRegister <- freshRegister "io_is_success"
+  emit (IIcmp successRegister ICmpEq LI64 tag (OConstInt LI64 tagIOSuccess))
+  pure (OLocal LI1 successRegister)
+
+emitIOResultIsExit :: LLVMOperand -> FunctionM LLVMOperand
+emitIOResultIsExit result = do
+  tag <- loadObjectI64Field result 0 "io_result_tag"
+  exitRegister <- freshRegister "io_is_exit"
+  emit (IIcmp exitRegister ICmpEq LI64 tag (OConstInt LI64 tagIOExit))
+  pure (OLocal LI1 exitRegister)
 
 emitIOResultPayload :: LLVMOperand -> FunctionM LLVMOperand
 emitIOResultPayload result =
@@ -2567,12 +2781,25 @@ emitIOResultExitCode :: LLVMOperand -> FunctionM LLVMOperand
 emitIOResultExitCode result = do
   isFailure <- emitIOResultIsFailure result
   failureLabel <- freshBlockLabel "io_main_failure"
+  nonFailureLabel <- freshBlockLabel "io_main_non_failure"
+  exitLabel <- freshBlockLabel "io_main_exit"
   successLabel <- freshBlockLabel "io_main_success"
   joinLabel <- freshBlockLabel "io_main_join"
-  terminateCurrent (TCondBr isFailure failureLabel successLabel)
+  terminateCurrent (TCondBr isFailure failureLabel nonFailureLabel)
 
   startBlock failureLabel
   failurePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock nonFailureLabel
+  isExit <- emitIOResultIsExit result
+  terminateCurrent (TCondBr isExit exitLabel successLabel)
+
+  startBlock exitLabel
+  exitCode <- loadObjectI64Field result 1 "io_exit_code"
+  exitCode32 <- freshRegister "io_exit_i32"
+  emit (ITrunc exitCode32 exitCode LI32)
+  exitPredecessor <- getsCurrentLabel
   terminateCurrent (TBr joinLabel)
 
   startBlock successLabel
@@ -2581,7 +2808,15 @@ emitIOResultExitCode result = do
 
   startBlock joinLabel
   exitRegister <- freshRegister "io_exit"
-  emit (IPhi exitRegister LI32 [(OConstInt LI32 1, failurePredecessor), (OConstInt LI32 0, successPredecessor)])
+  emit
+    ( IPhi
+        exitRegister
+        LI32
+        [ (OConstInt LI32 1, failurePredecessor)
+        , (OLocal LI32 exitCode32, exitPredecessor)
+        , (OConstInt LI32 0, successPredecessor)
+        ]
+    )
   pure (OLocal LI32 exitRegister)
 
 emitIOResultSuccessPayloadOrAbort :: LLVMOperand -> FunctionM LLVMOperand
@@ -3382,6 +3617,7 @@ runtimeFunctions =
   , makePointerFunction
   , makeIOSuccessFunction
   , makeIOFailureFunction
+  , makeIOExitFunction
   , makeStringFunction
   , makeDataFunction
   , makeFunctionFunction
@@ -3404,6 +3640,13 @@ runtimeFunctions =
   , finalizeForeignPtrFunction
   , touchForeignPtrFunction
   , makeCharListFromCStringFunction
+  , getArgsFunction
+  , getProgNameFunction
+  , makeStringListFromArgvFunction
+  , baseNameFunction
+  , charListToCStringFunction
+  , charListLengthFunction
+  , writeCharListCStringFunction
   , showIntFunction
   , showWordFunction
   , showDoubleFunction
@@ -3542,6 +3785,15 @@ makeIOFailureFunction =
     [(LPtr, Register "value")]
     [ (0, LI64, OConstInt LI64 tagIOFailure)
     , (2, LPtr, OLocal LPtr (Register "value"))
+    ]
+
+makeIOExitFunction :: LLVMFunction
+makeIOExitFunction =
+  makeValueFunction
+    makeIOExitFunctionName
+    [(LI64, Register "code")]
+    [ (0, LI64, OConstInt LI64 tagIOExit)
+    , (1, LI64, OLocal LI64 (Register "code"))
     ]
 
 makeStringFunction :: LLVMFunction
@@ -4140,6 +4392,286 @@ makeCharListFromCStringFunction =
         ]
     }
 
+getArgsFunction :: LLVMFunction
+getArgsFunction =
+  LLVMFunction
+    { functionName = getArgsFunctionName
+    , functionReturnType = LPtr
+    , functionParams = []
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ILoad (Register "argc") LI32 (OGlobal LPtr argcGlobalName)
+            , ILoad (Register "argv") LPtr (OGlobal LPtr argvGlobalName)
+            , IIcmp (Register "has_args") ICmpSlt LI32 (OConstInt LI32 1) (OLocal LI32 (Register "argc"))
+            ]
+            (TCondBr (OLocal LI1 (Register "has_args")) "argv_check" "nil")
+        , LLVMBlock
+            "argv_check"
+            [IIcmp (Register "argv_is_null") ICmpEq LPtr (OLocal LPtr (Register "argv")) OConstNull]
+            (TCondBr (OLocal LI1 (Register "argv_is_null")) "nil" "build")
+        , nilListBlock "nil"
+        , LLVMBlock
+            "build"
+            [ ICall
+                (Just (Register "args"))
+                LPtr
+                (DirectCall makeStringListFromArgvFunctionName)
+                False
+                [(LI32, OLocal LI32 (Register "argc")), (LPtr, OLocal LPtr (Register "argv")), (LI32, OConstInt LI32 1)]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "args")))
+        ]
+    }
+
+getProgNameFunction :: LLVMFunction
+getProgNameFunction =
+  LLVMFunction
+    { functionName = getProgNameFunctionName
+    , functionReturnType = LPtr
+    , functionParams = []
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ILoad (Register "argc") LI32 (OGlobal LPtr argcGlobalName)
+            , ILoad (Register "argv") LPtr (OGlobal LPtr argvGlobalName)
+            , IIcmp (Register "has_prog") ICmpSlt LI32 (OConstInt LI32 0) (OLocal LI32 (Register "argc"))
+            ]
+            (TCondBr (OLocal LI1 (Register "has_prog")) "argv_check" "empty")
+        , LLVMBlock
+            "argv_check"
+            [IIcmp (Register "argv_is_null") ICmpEq LPtr (OLocal LPtr (Register "argv")) OConstNull]
+            (TCondBr (OLocal LI1 (Register "argv_is_null")) "empty" "load_path")
+        , LLVMBlock
+            "load_path"
+            [ IGetElementPtr (Register "slot") LPtr (OLocal LPtr (Register "argv")) [(LI64, OConstInt LI64 0)]
+            , ILoad (Register "path") LPtr (OLocal LPtr (Register "slot"))
+            , IIcmp (Register "path_is_null") ICmpEq LPtr (OLocal LPtr (Register "path")) OConstNull
+            ]
+            (TCondBr (OLocal LI1 (Register "path_is_null")) "empty" "basename")
+        , LLVMBlock
+            "basename"
+            [ ICall (Just (Register "base")) LPtr (DirectCall baseNameFunctionName) False [(LPtr, OLocal LPtr (Register "path"))]
+            , ICall (Just (Register "name")) LPtr (DirectCall makeCharListFromCStringFunctionName) False [(LPtr, OLocal LPtr (Register "base"))]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "name")))
+        , LLVMBlock
+            "empty"
+            [ IGetElementPtr
+                (Register "empty_cstring")
+                (LArray 1 LI8)
+                (OGlobal LPtr emptyCStringGlobalName)
+                [(LI64, OConstInt LI64 0), (LI64, OConstInt LI64 0)]
+            , ICall
+                (Just (Register "empty_name"))
+                LPtr
+                (DirectCall makeCharListFromCStringFunctionName)
+                False
+                [(LPtr, OLocal LPtr (Register "empty_cstring"))]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "empty_name")))
+        ]
+    }
+
+makeStringListFromArgvFunction :: LLVMFunction
+makeStringListFromArgvFunction =
+  LLVMFunction
+    { functionName = makeStringListFromArgvFunctionName
+    , functionReturnType = LPtr
+    , functionParams = [(LI32, Register "argc"), (LPtr, Register "argv"), (LI32, Register "index")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [IIcmp (Register "has_entry") ICmpSlt LI32 (OLocal LI32 (Register "index")) (OLocal LI32 (Register "argc"))]
+            (TCondBr (OLocal LI1 (Register "has_entry")) "cons" "nil")
+        , nilListBlock "nil"
+        , LLVMBlock
+            "cons"
+            [ ISext (Register "index64") (OLocal LI32 (Register "index")) LI64
+            , IGetElementPtr (Register "slot") LPtr (OLocal LPtr (Register "argv")) [(LI64, OLocal LI64 (Register "index64"))]
+            , ILoad (Register "cstring") LPtr (OLocal LPtr (Register "slot"))
+            , ICall
+                (Just (Register "head"))
+                LPtr
+                (DirectCall makeCharListFromCStringFunctionName)
+                False
+                [(LPtr, OLocal LPtr (Register "cstring"))]
+            , IAdd (Register "next_index") LI32 (OLocal LI32 (Register "index")) (OConstInt LI32 1)
+            , ICall
+                (Just (Register "tail"))
+                LPtr
+                (DirectCall makeStringListFromArgvFunctionName)
+                False
+                [(LI32, OLocal LI32 (Register "argc")), (LPtr, OLocal LPtr (Register "argv")), (LI32, OLocal LI32 (Register "next_index"))]
+            , ICall
+                (Just (Register "fields"))
+                LPtr
+                (DirectCall processLifetimeAllocFunctionName)
+                False
+                [(LI64, OConstInt LI64 16)]
+            , IGetElementPtr (Register "head_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 0)]
+            , IStore LPtr (OLocal LPtr (Register "head")) (OLocal LPtr (Register "head_slot"))
+            , IGetElementPtr (Register "tail_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 1)]
+            , IStore LPtr (OLocal LPtr (Register "tail")) (OLocal LPtr (Register "tail_slot"))
+            , ICall
+                (Just (Register "cons_list"))
+                LPtr
+                (DirectCall makeDataFunctionName)
+                False
+                [ (LI64, OConstInt LI64 (constructorRuntimeTag listConsDataConName))
+                , (LI64, OConstInt LI64 2)
+                , (LPtr, OLocal LPtr (Register "fields"))
+                ]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "cons_list")))
+        ]
+    }
+
+baseNameFunction :: LLVMFunction
+baseNameFunction =
+  LLVMFunction
+    { functionName = baseNameFunctionName
+    , functionReturnType = LPtr
+    , functionParams = [(LPtr, Register "path")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "slash")) LPtr (DirectCall "strrchr") False [(LPtr, OLocal LPtr (Register "path")), (LI32, OConstInt LI32 47)]
+            , IIcmp (Register "has_slash") ICmpEq LPtr (OLocal LPtr (Register "slash")) OConstNull
+            ]
+            (TCondBr (OLocal LI1 (Register "has_slash")) "no_slash" "after_slash")
+        , LLVMBlock "no_slash" [] (TRet LPtr (OLocal LPtr (Register "path")))
+        , LLVMBlock
+            "after_slash"
+            [IGetElementPtr (Register "base") LI8 (OLocal LPtr (Register "slash")) [(LI64, OConstInt LI64 1)]]
+            (TRet LPtr (OLocal LPtr (Register "base")))
+        ]
+    }
+
+charListToCStringFunction :: LLVMFunction
+charListToCStringFunction =
+  LLVMFunction
+    { functionName = charListToCStringFunctionName
+    , functionReturnType = LPtr
+    , functionParams = [(LPtr, Register "obj")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "len")) LI64 (DirectCall charListLengthFunctionName) False [(LPtr, OLocal LPtr (Register "obj"))]
+            , IAdd (Register "size") LI64 (OLocal LI64 (Register "len")) (OConstInt LI64 1)
+            , ICall (Just (Register "buffer")) LPtr (DirectCall processLifetimeAllocFunctionName) False [(LI64, OLocal LI64 (Register "size"))]
+            , ICall Nothing LVoid (DirectCall writeCharListCStringFunctionName) False [(LPtr, OLocal LPtr (Register "obj")), (LPtr, OLocal LPtr (Register "buffer"))]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "buffer")))
+        ]
+    }
+
+charListLengthFunction :: LLVMFunction
+charListLengthFunction =
+  LLVMFunction
+    { functionName = charListLengthFunctionName
+    , functionReturnType = LI64
+    , functionParams = [(LPtr, Register "obj")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "forced")) LPtr (DirectCall forceFunctionName) False [(LPtr, OLocal LPtr (Register "obj"))]
+            , IGetElementPtr (Register "tag_ptr") objectType (OLocal LPtr (Register "forced")) objectField0
+            , ILoad (Register "tag") LI64 (OLocal LPtr (Register "tag_ptr"))
+            , IIcmp (Register "is_data") ICmpEq LI64 (OLocal LI64 (Register "tag")) (OConstInt LI64 tagData)
+            ]
+            (TCondBr (OLocal LI1 (Register "is_data")) "data" "abort")
+        , LLVMBlock
+            "data"
+            [ IGetElementPtr (Register "constructor_ptr") objectType (OLocal LPtr (Register "forced")) objectField1
+            , ILoad (Register "constructor") LI64 (OLocal LPtr (Register "constructor_ptr"))
+            , IIcmp (Register "is_nil") ICmpEq LI64 (OLocal LI64 (Register "constructor")) (OConstInt LI64 (constructorRuntimeTag listNilDataConName))
+            ]
+            (TCondBr (OLocal LI1 (Register "is_nil")) "nil" "cons_check")
+        , LLVMBlock "nil" [] (TRet LI64 (OConstInt LI64 0))
+        , LLVMBlock
+            "cons_check"
+            [IIcmp (Register "is_cons") ICmpEq LI64 (OLocal LI64 (Register "constructor")) (OConstInt LI64 (constructorRuntimeTag listConsDataConName))]
+            (TCondBr (OLocal LI1 (Register "is_cons")) "cons" "abort")
+        , LLVMBlock
+            "cons"
+            [ IGetElementPtr (Register "fields_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
+            , ILoad (Register "fields") LPtr (OLocal LPtr (Register "fields_ptr"))
+            , IGetElementPtr (Register "tail_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 1)]
+            , ILoad (Register "tail") LPtr (OLocal LPtr (Register "tail_slot"))
+            , ICall (Just (Register "tail_len")) LI64 (DirectCall charListLengthFunctionName) False [(LPtr, OLocal LPtr (Register "tail"))]
+            , IAdd (Register "len") LI64 (OLocal LI64 (Register "tail_len")) (OConstInt LI64 1)
+            ]
+            (TRet LI64 (OLocal LI64 (Register "len")))
+        , LLVMBlock "abort" [ICall Nothing LVoid (DirectCall "abort") False []] TUnreachable
+        ]
+    }
+
+writeCharListCStringFunction :: LLVMFunction
+writeCharListCStringFunction =
+  LLVMFunction
+    { functionName = writeCharListCStringFunctionName
+    , functionReturnType = LVoid
+    , functionParams = [(LPtr, Register "obj"), (LPtr, Register "buffer")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "forced")) LPtr (DirectCall forceFunctionName) False [(LPtr, OLocal LPtr (Register "obj"))]
+            , IGetElementPtr (Register "tag_ptr") objectType (OLocal LPtr (Register "forced")) objectField0
+            , ILoad (Register "tag") LI64 (OLocal LPtr (Register "tag_ptr"))
+            , IIcmp (Register "is_data") ICmpEq LI64 (OLocal LI64 (Register "tag")) (OConstInt LI64 tagData)
+            ]
+            (TCondBr (OLocal LI1 (Register "is_data")) "data" "abort")
+        , LLVMBlock
+            "data"
+            [ IGetElementPtr (Register "constructor_ptr") objectType (OLocal LPtr (Register "forced")) objectField1
+            , ILoad (Register "constructor") LI64 (OLocal LPtr (Register "constructor_ptr"))
+            , IIcmp (Register "is_nil") ICmpEq LI64 (OLocal LI64 (Register "constructor")) (OConstInt LI64 (constructorRuntimeTag listNilDataConName))
+            ]
+            (TCondBr (OLocal LI1 (Register "is_nil")) "nil" "cons_check")
+        , LLVMBlock
+            "nil"
+            [IStore LI8 (OConstInt LI8 0) (OLocal LPtr (Register "buffer"))]
+            TRetVoid
+        , LLVMBlock
+            "cons_check"
+            [IIcmp (Register "is_cons") ICmpEq LI64 (OLocal LI64 (Register "constructor")) (OConstInt LI64 (constructorRuntimeTag listConsDataConName))]
+            (TCondBr (OLocal LI1 (Register "is_cons")) "cons" "abort")
+        , LLVMBlock
+            "cons"
+            [ IGetElementPtr (Register "fields_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
+            , ILoad (Register "fields") LPtr (OLocal LPtr (Register "fields_ptr"))
+            , IGetElementPtr (Register "head_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 0)]
+            , ILoad (Register "head") LPtr (OLocal LPtr (Register "head_slot"))
+            , IGetElementPtr (Register "tail_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 1)]
+            , ILoad (Register "tail") LPtr (OLocal LPtr (Register "tail_slot"))
+            , ICall (Just (Register "char_i32")) LI32 (DirectCall expectCharFunctionName) False [(LPtr, OLocal LPtr (Register "head"))]
+            , ITrunc (Register "char_i8") (OLocal LI32 (Register "char_i32")) LI8
+            , IStore LI8 (OLocal LI8 (Register "char_i8")) (OLocal LPtr (Register "buffer"))
+            , IGetElementPtr (Register "next_buffer") LI8 (OLocal LPtr (Register "buffer")) [(LI64, OConstInt LI64 1)]
+            , ICall Nothing LVoid (DirectCall writeCharListCStringFunctionName) False [(LPtr, OLocal LPtr (Register "tail")), (LPtr, OLocal LPtr (Register "next_buffer"))]
+            ]
+            TRetVoid
+        , LLVMBlock "abort" [ICall Nothing LVoid (DirectCall "abort") False []] TUnreachable
+        ]
+    }
+
+nilListBlock :: Text -> LLVMBlock
+nilListBlock label =
+  LLVMBlock
+    label
+    [ ICall
+        (Just (Register "nil_list"))
+        LPtr
+        (DirectCall makeDataFunctionName)
+        False
+        [ (LI64, OConstInt LI64 (constructorRuntimeTag listNilDataConName))
+        , (LI64, OConstInt LI64 0)
+        , (LPtr, OConstNull)
+        ]
+    ]
+    (TRet LPtr (OLocal LPtr (Register "nil_list")))
+
 putStrLnFunction :: LLVMFunction
 putStrLnFunction =
   LLVMFunction
@@ -4503,7 +5035,7 @@ foreignPtrFinalizerSlot :: Int -> [(LLVMType, LLVMOperand)]
 foreignPtrFinalizerSlot index =
   [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 (fromIntegral index))]
 
-tagInt, tagBool, tagFunction, tagThunk, tagBlackHole, tagIndirection, tagData, tagChar, tagString, tagPointer, tagIOSuccess, tagIOFailure, tagFloat, tagDouble :: Integer
+tagInt, tagBool, tagFunction, tagThunk, tagBlackHole, tagIndirection, tagData, tagChar, tagString, tagPointer, tagIOSuccess, tagIOFailure, tagIOExit, tagFloat, tagDouble :: Integer
 tagInt = 0
 tagBool = 1
 tagFunction = 2
@@ -4516,8 +5048,9 @@ tagString = 8
 tagPointer = 9
 tagIOSuccess = 10
 tagIOFailure = 11
-tagFloat = 12
-tagDouble = 13
+tagIOExit = 12
+tagFloat = 13
+tagDouble = 14
 
 updatableCode, singleEntryCode :: Integer
 updatableCode = 0
@@ -4532,7 +5065,7 @@ constructorRuntimeTag :: RName -> Integer
 constructorRuntimeTag =
   fromIntegral . nameUnique
 
-processLifetimeAllocFunctionName, allocObjectFunctionName, makeIntFunctionName, makeFloatFunctionName, makeDoubleFunctionName, makeBoolFunctionName, makeCharFunctionName, makePointerFunctionName, makeIOSuccessFunctionName, makeIOFailureFunctionName, makeStringFunctionName, makeDataFunctionName :: Text
+processLifetimeAllocFunctionName, allocObjectFunctionName, makeIntFunctionName, makeFloatFunctionName, makeDoubleFunctionName, makeBoolFunctionName, makeCharFunctionName, makePointerFunctionName, makeIOSuccessFunctionName, makeIOFailureFunctionName, makeIOExitFunctionName, makeStringFunctionName, makeDataFunctionName :: Text
 processLifetimeAllocFunctionName = "hegglog_hs_alloc_process_lifetime"
 allocObjectFunctionName = "hegglog_hs_alloc_object"
 makeIntFunctionName = "hegglog_hs_make_int"
@@ -4543,6 +5076,7 @@ makeCharFunctionName = "hegglog_hs_make_char"
 makePointerFunctionName = "hegglog_hs_make_ptr"
 makeIOSuccessFunctionName = "hegglog_hs_make_io_success"
 makeIOFailureFunctionName = "hegglog_hs_make_io_failure"
+makeIOExitFunctionName = "hegglog_hs_make_io_exit"
 makeStringFunctionName = "hegglog_hs_make_string"
 makeDataFunctionName = "hegglog_hs_make_data"
 
@@ -4551,7 +5085,7 @@ makeFunctionFunctionName = "hegglog_hs_make_function"
 makeThunkFunctionName = "hegglog_hs_make_thunk"
 forceFunctionName = "hegglog_hs_force"
 
-expectIntFunctionName, expectFloatFunctionName, expectDoubleFunctionName, expectBoolFunctionName, expectCharFunctionName, expectPointerFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, showWordFunctionName, showDoubleFunctionName, putStrLnFunctionName, getLineFunctionName, getContentsFunctionName, printCharListFunctionName :: Text
+expectIntFunctionName, expectFloatFunctionName, expectDoubleFunctionName, expectBoolFunctionName, expectCharFunctionName, expectPointerFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, getArgsFunctionName, getProgNameFunctionName, makeStringListFromArgvFunctionName, baseNameFunctionName, charListToCStringFunctionName, charListLengthFunctionName, writeCharListCStringFunctionName, showIntFunctionName, showWordFunctionName, showDoubleFunctionName, putStrLnFunctionName, getLineFunctionName, getContentsFunctionName, printCharListFunctionName :: Text
 expectIntFunctionName = "hegglog_hs_expect_int"
 expectFloatFunctionName = "hegglog_hs_expect_float"
 expectDoubleFunctionName = "hegglog_hs_expect_double"
@@ -4561,6 +5095,13 @@ expectPointerFunctionName = "hegglog_hs_expect_ptr"
 expectStringFunctionName = "hegglog_hs_expect_string"
 expectFunctionName = "hegglog_hs_expect_function"
 makeCharListFromCStringFunctionName = "hegglog_hs_make_char_list_from_cstring"
+getArgsFunctionName = "hegglog_hs_get_args"
+getProgNameFunctionName = "hegglog_hs_get_prog_name"
+makeStringListFromArgvFunctionName = "hegglog_hs_make_string_list_from_argv"
+baseNameFunctionName = "hegglog_hs_basename"
+charListToCStringFunctionName = "hegglog_hs_char_list_to_cstring"
+charListLengthFunctionName = "hegglog_hs_char_list_length"
+writeCharListCStringFunctionName = "hegglog_hs_write_char_list_cstring"
 showIntFunctionName = "hegglog_hs_show_int"
 showWordFunctionName = "hegglog_hs_show_word"
 showDoubleFunctionName = "hegglog_hs_show_double"
@@ -4581,6 +5122,11 @@ addForeignPtrFinalizerFunctionName = "hegglog_hs_add_foreign_ptr_finalizer"
 finalizeForeignPtrFunctionName = "hegglog_hs_finalize_foreign_ptr"
 touchForeignPtrFunctionName = "hegglog_hs_touch_foreign_ptr"
 
+argcGlobalName, argvGlobalName, emptyCStringGlobalName :: Text
+argcGlobalName = "hegglog_hs_argc"
+argvGlobalName = "hegglog_hs_argv"
+emptyCStringGlobalName = "haskell2010_empty_cstring"
+
 formatGlobals :: [LLVMGlobal]
 formatGlobals =
   [ LLVMStringGlobal "haskell2010_fmt_i64" intFormatBytes
@@ -4592,14 +5138,19 @@ formatGlobals =
   , LLVMStringGlobal "haskell2010_fmt_u64_raw" wordRawFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_double_raw" doubleRawFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_string_line" stringLineFormatBytes
+  , LLVMStringGlobal emptyCStringGlobalName "\0"
   ]
 
 runtimeDeclarations :: [Text]
 runtimeDeclarations =
-  [ "declare i32 @printf(ptr, ...)"
+  [ "@" <> argcGlobalName <> " = internal global i32 0"
+  , "@" <> argvGlobalName <> " = internal global ptr null"
+  , "declare i32 @printf(ptr, ...)"
   , "declare i32 @putchar(i32)"
   , "declare i32 @getchar()"
   , "declare i32 @snprintf(ptr, i64, ptr, ...)"
+  , "declare ptr @getenv(ptr)"
+  , "declare ptr @strrchr(ptr, i32)"
   , "declare noalias ptr @malloc(i64)"
   , "declare void @abort()"
   , "declare double @fabs(double)"

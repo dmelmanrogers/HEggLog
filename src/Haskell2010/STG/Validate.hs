@@ -295,6 +295,10 @@ validatePrimitive op arguments resultTy =
     PrimShowBool -> validateFixedPrimitive op [boolTy] stringTy arguments resultTy
     PrimPutStrLn -> validateFixedPrimitive op [stringTy] (ioTy unitTy) arguments resultTy
     PrimGetLine -> validateFixedPrimitive op [] (ioTy stringTy) arguments resultTy
+    PrimGetArgs -> validateFixedPrimitive op [] (ioTy (CTyList stringTy)) arguments resultTy
+    PrimGetProgName -> validateFixedPrimitive op [] (ioTy stringTy) arguments resultTy
+    PrimGetEnv -> validateFixedPrimitive op [stringTy] (ioTy stringTy) arguments resultTy
+    PrimExitWith -> validateExitWithPrimitive op arguments resultTy
     PrimStdHandle {} -> validateFixedPrimitive op [] handleTy arguments resultTy
     PrimOpenFile -> validateFixedPrimitive op [stringTy, ioModeTy] (ioTy handleTy) arguments resultTy
     PrimHClose -> validateFixedPrimitive op [handleTy] (ioTy unitTy) arguments resultTy
@@ -608,6 +612,21 @@ validateIOErrorPrimitive op arguments resultTy =
             Left [STGPrimitiveResultMismatch op (ioTy (CTyVar unknownIOTypeVariable)) resultTy]
         | otherwise ->
             Left [STGPrimitiveArgumentMismatch op 0 ioErrorTy errorTy]
+      _ -> Right ()
+  ]
+
+validateExitWithPrimitive :: CorePrimOp -> [STGAtom] -> CoreType -> [Either [STGValidationError] ()]
+validateExitWithPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map stgAtomType arguments of
+      [exitTy]
+        | exitTy == exitCodeTy
+        , Just _ <- ioResultType resultTy ->
+            Right ()
+        | exitTy == exitCodeTy ->
+            Left [STGPrimitiveResultMismatch op (ioTy (CTyVar unknownIOTypeVariable)) resultTy]
+        | otherwise ->
+            Left [STGPrimitiveArgumentMismatch op 0 exitCodeTy exitTy]
       _ -> Right ()
   ]
 

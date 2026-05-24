@@ -696,6 +696,10 @@ corePrimToANF = \case
   PrimShowBool -> Nothing
   PrimPutStrLn -> Nothing
   PrimGetLine -> Nothing
+  PrimGetArgs -> Nothing
+  PrimGetProgName -> Nothing
+  PrimGetEnv -> Nothing
+  PrimExitWith -> Nothing
   PrimStdHandle {} -> Nothing
   PrimOpenFile -> Nothing
   PrimHClose -> Nothing

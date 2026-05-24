@@ -91,7 +91,12 @@ builtinConstructorInfos =
   , (orderingEQDataConName, dataConstructor [] [] orderingTy)
   , (orderingGTDataConName, dataConstructor [] [] orderingTy)
   , (ratioDataConName, dataConstructor [a] [aTy, aTy] (ratioTy aTy))
+  , (exitSuccessDataConName, dataConstructor [] [] exitCodeTy)
+  , (exitFailureDataConName, dataConstructor [] [intTy] exitCodeTy)
   ]
+    <> [ (tupleDataConName arity, tupleConstructor arity)
+       | arity <- [2 .. 62]
+       ]
  where
   a = builtinTypeVariable "a" (-1001)
   b = builtinTypeVariable "b" (-1002)
@@ -101,6 +106,13 @@ builtinConstructorInfos =
   eitherAB = CTyApp (CTyApp (CTyCon eitherTyConName) aTy) bTy
   dataConstructor variables fields result =
     CoreConstructorInfo variables fields result CoreDataConstructor
+  tupleConstructor arity =
+    let variables =
+          [ builtinTypeVariable ("t" <> Text.pack (show index)) (-1100 - index)
+          | index <- [0 .. arity - 1]
+          ]
+        fields = map CTyVar variables
+     in dataConstructor variables fields (CTyTuple fields)
 
 builtinTypeVariable :: Text -> Int -> RName
 builtinTypeVariable occurrence unique =
@@ -325,6 +337,10 @@ validatePrimitive op arguments resultTy =
     PrimShowBool -> validateFixedPrimitive op [boolTy] stringTy arguments resultTy
     PrimPutStrLn -> validateFixedPrimitive op [stringTy] (ioTy unitTy) arguments resultTy
     PrimGetLine -> validateFixedPrimitive op [] (ioTy stringTy) arguments resultTy
+    PrimGetArgs -> validateFixedPrimitive op [] (ioTy (CTyList stringTy)) arguments resultTy
+    PrimGetProgName -> validateFixedPrimitive op [] (ioTy stringTy) arguments resultTy
+    PrimGetEnv -> validateFixedPrimitive op [stringTy] (ioTy stringTy) arguments resultTy
+    PrimExitWith -> validateExitWithPrimitive op arguments resultTy
     PrimStdHandle {} -> validateFixedPrimitive op [] handleTy arguments resultTy
     PrimOpenFile -> validateFixedPrimitive op [stringTy, ioModeTy] (ioTy handleTy) arguments resultTy
     PrimHClose -> validateFixedPrimitive op [handleTy] (ioTy unitTy) arguments resultTy
@@ -634,6 +650,21 @@ validateIOErrorPrimitive op arguments resultTy =
             Left [CorePrimitiveResultMismatch op (ioTy (CTyVar unknownIOTypeVariable)) resultTy]
         | otherwise ->
             Left [CorePrimitiveArgumentMismatch op 0 ioErrorTy errorTy]
+      _ -> Right ()
+  ]
+
+validateExitWithPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateExitWithPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [exitTy]
+        | normalizeCoreType exitTy == exitCodeTy
+        , Just _ <- ioResultType resultTy ->
+            Right ()
+        | normalizeCoreType exitTy == exitCodeTy ->
+            Left [CorePrimitiveResultMismatch op (ioTy (CTyVar unknownIOTypeVariable)) resultTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 exitCodeTy exitTy]
       _ -> Right ()
   ]
 

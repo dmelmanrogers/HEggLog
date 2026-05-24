@@ -78,6 +78,7 @@ data STGValue
 data STGIOResult
   = STGIOSuccess STGValue
   | STGIOFailure STGValue
+  | STGIOExit HInt
   deriving stock (Show, Eq, Ord)
 
 data STGEvalStats = STGEvalStats
@@ -441,6 +442,8 @@ evalPrimitive env op arguments =
       case first of
         STGIO firstChunks (STGIOFailure err) ->
           pure (STGIO firstChunks (STGIOFailure err))
+        STGIO firstChunks (STGIOExit code) ->
+          pure (STGIO firstChunks (STGIOExit code))
         STGIO firstChunks (STGIOSuccess _) -> do
           second <- evalAtom env secondAtom
           case second of
@@ -455,6 +458,8 @@ evalPrimitive env op arguments =
       case first of
         STGIO firstChunks (STGIOFailure err) ->
           pure (STGIO firstChunks (STGIOFailure err))
+        STGIO firstChunks (STGIOExit code) ->
+          pure (STGIO firstChunks (STGIOExit code))
         STGIO firstChunks (STGIOSuccess value) -> do
           continuation <- evalAtom env continuationAtom
           case continuation of
@@ -475,6 +480,8 @@ evalPrimitive env op arguments =
       case action of
         STGIO chunks (STGIOSuccess value) ->
           pure (STGIO chunks (STGIOSuccess value))
+        STGIO chunks (STGIOExit code) ->
+          pure (STGIO chunks (STGIOExit code))
         STGIO chunks (STGIOFailure err) -> do
           handler <- evalAtom env handlerAtom
           case handler of
@@ -499,6 +506,8 @@ evalPrimitive env op arguments =
         STGIO chunks (STGIOFailure err) -> do
           errorAddress <- allocateClosure (ValueClosure err)
           pure (STGIO chunks (STGIOSuccess (STGData eitherLeftDataConName [errorAddress])))
+        STGIO chunks (STGIOExit code) ->
+          pure (STGIO chunks (STGIOExit code))
         other ->
           typeError ("expected STG IO action, got " <> renderSTGValue other)
     _ -> do
@@ -577,6 +586,16 @@ evalPrimitiveValues op values =
       (\text -> STGIO [text <> "\n"] (STGIOSuccess (STGData unitDataConName []))) <$> stgStringText value
     (PrimGetLine, []) ->
       stringListValue "" >>= \line -> pure (STGIO [] (STGIOSuccess line))
+    (PrimGetArgs, []) ->
+      listValue [] >>= \args -> pure (STGIO [] (STGIOSuccess args))
+    (PrimGetProgName, []) ->
+      stringListValue "hegglog" >>= \program -> pure (STGIO [] (STGIOSuccess program))
+    (PrimGetEnv, [nameValue]) -> do
+      nameText <- stgStringText nameValue
+      err <- stgDoesNotExistIOError ("environment variable not found: " <> nameText)
+      pure (STGIO [] (STGIOFailure err))
+    (PrimExitWith, [exitCode]) ->
+      stgExitWithResult exitCode >>= \result -> pure (STGIO [] result)
     (PrimStdHandle handle, []) ->
       pure (STGHandle handle False)
     (PrimOpenFile, [_path, _mode]) ->
@@ -905,9 +924,37 @@ stringListValue value =
       tailAddress <- allocateClosure (ValueClosure tailValue)
       pure (constructorValue listConsDataConName [headAddress, tailAddress])
 
+listValue :: [STGValue] -> EvalM STGValue
+listValue =
+  foldr cons (pure (constructorValue listNilDataConName []))
+ where
+  cons headValue tailAction = do
+    tailValue <- tailAction
+    headAddress <- allocateClosure (ValueClosure headValue)
+    tailAddress <- allocateClosure (ValueClosure tailValue)
+    pure (constructorValue listConsDataConName [headAddress, tailAddress])
+
 stgUserIOError :: Text -> EvalM STGValue
 stgUserIOError message = do
   errorTypeAddress <- allocateClosure (ValueClosure (constructorValue ioErrorUserTypeDataConName []))
+  messageValue <- stringListValue message
+  messageAddress <- allocateClosure (ValueClosure messageValue)
+  handleAddress <- allocateClosure (ValueClosure (constructorValue maybeNothingDataConName []))
+  fileAddress <- allocateClosure (ValueClosure (constructorValue maybeNothingDataConName []))
+  pure (constructorValue ioErrorDataConName [errorTypeAddress, messageAddress, handleAddress, fileAddress])
+
+stgDoesNotExistIOError :: Text -> EvalM STGValue
+stgDoesNotExistIOError message = do
+  errorTypeAddress <- allocateClosure (ValueClosure (constructorValue ioErrorDoesNotExistTypeDataConName []))
+  messageValue <- stringListValue message
+  messageAddress <- allocateClosure (ValueClosure messageValue)
+  handleAddress <- allocateClosure (ValueClosure (constructorValue maybeNothingDataConName []))
+  fileAddress <- allocateClosure (ValueClosure (constructorValue maybeNothingDataConName []))
+  pure (constructorValue ioErrorDataConName [errorTypeAddress, messageAddress, handleAddress, fileAddress])
+
+stgIllegalOperationIOError :: Text -> EvalM STGValue
+stgIllegalOperationIOError message = do
+  errorTypeAddress <- allocateClosure (ValueClosure (constructorValue ioErrorIllegalOperationTypeDataConName []))
   messageValue <- stringListValue message
   messageAddress <- allocateClosure (ValueClosure messageValue)
   handleAddress <- allocateClosure (ValueClosure (constructorValue maybeNothingDataConName []))
@@ -922,6 +969,27 @@ stgEOFIOError message = do
   handleAddress <- allocateClosure (ValueClosure (constructorValue maybeNothingDataConName []))
   fileAddress <- allocateClosure (ValueClosure (constructorValue maybeNothingDataConName []))
   pure (constructorValue ioErrorDataConName [errorTypeAddress, messageAddress, handleAddress, fileAddress])
+
+stgExitWithResult :: STGValue -> EvalM STGIOResult
+stgExitWithResult (STGData name [])
+  | name == exitSuccessDataConName =
+      STGIOExit <$> checkedExitCode 0
+stgExitWithResult (STGData name [codeAddress])
+  | name == exitFailureDataConName = do
+      code <- forceAddress codeAddress
+      case code of
+        STGInt value
+          | hintToInteger value == 0 -> STGIOFailure <$> stgIllegalOperationIOError "ExitFailure 0"
+          | otherwise -> pure (STGIOExit value)
+        other -> typeError ("expected Int in ExitFailure, got " <> renderSTGValue other)
+stgExitWithResult other =
+  typeError ("expected ExitCode, got " <> renderSTGValue other)
+
+checkedExitCode :: Integer -> EvalM HInt
+checkedExitCode value =
+  case mkHIntLiteral value of
+    Right intValue -> pure intValue
+    Left err -> throwEval (STGEvalIntError err)
 
 valueEquals :: STGValue -> STGValue -> Either STGEvalError Bool
 valueEquals lhs rhs =
@@ -1111,6 +1179,10 @@ renderCorePrimOpName = \case
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"
   PrimGetLine -> "getLine#"
+  PrimGetArgs -> "getArgs#"
+  PrimGetProgName -> "getProgName#"
+  PrimGetEnv -> "getEnv#"
+  PrimExitWith -> "exitWith#"
   PrimStdHandle handle -> renderStdHandlePrim handle
   PrimOpenFile -> "openFile#"
   PrimHClose -> "hClose#"

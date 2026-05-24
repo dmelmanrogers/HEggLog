@@ -145,6 +145,10 @@ renderCorePrimOp = \case
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"
   PrimGetLine -> "getLine#"
+  PrimGetArgs -> "getArgs#"
+  PrimGetProgName -> "getProgName#"
+  PrimGetEnv -> "getEnv#"
+  PrimExitWith -> "exitWith#"
   PrimStdHandle handle -> renderStdHandlePrim handle
   PrimOpenFile -> "openFile#"
   PrimHClose -> "hClose#"

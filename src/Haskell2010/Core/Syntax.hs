@@ -23,6 +23,10 @@ module Haskell2010.Core.Syntax
   , eitherLeftDataConName
   , eitherRightDataConName
   , eitherTyConName
+  , exitCodeTy
+  , exitCodeTyConName
+  , exitFailureDataConName
+  , exitSuccessDataConName
   , falseDataConName
   , floatTy
   , fixedIntegralTy
@@ -212,6 +216,10 @@ data CorePrimOp
   | PrimShowBool
   | PrimPutStrLn
   | PrimGetLine
+  | PrimGetArgs
+  | PrimGetProgName
+  | PrimGetEnv
+  | PrimExitWith
   | PrimStdHandle StdHandle
   | PrimOpenFile
   | PrimHClose
@@ -461,6 +469,14 @@ seekModeTy :: CoreType
 seekModeTy =
   CTyCon seekModeTyConName
 
+exitCodeTyConName :: RName
+exitCodeTyConName =
+  builtinTypeName "ExitCode" (-29)
+
+exitCodeTy :: CoreType
+exitCodeTy =
+  CTyCon exitCodeTyConName
+
 listTyConName :: RName
 listTyConName =
   builtinTypeName "[]" (-8)
@@ -632,6 +648,14 @@ seekModeRelativeDataConName =
 seekModeFromEndDataConName :: RName
 seekModeFromEndDataConName =
   builtinCon "SeekFromEnd" (-59)
+
+exitSuccessDataConName :: RName
+exitSuccessDataConName =
+  builtinCon "ExitSuccess" (-60)
+
+exitFailureDataConName :: RName
+exitFailureDataConName =
+  builtinCon "ExitFailure" (-61)
 
 tupleDataConName :: Int -> RName
 tupleDataConName arity =

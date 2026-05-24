@@ -1445,6 +1445,19 @@ testHaskell2010StandardLibraryExpandedInterfaces = do
   assertBool "Numeric exports showFFloat" (interfaceExportsName H2010Names.TermNamespace "showFFloat" numeric)
   assertBool "Numeric exports readFloat" (interfaceExportsName H2010Names.TermNamespace "readFloat" numeric)
   assertBool "Numeric exports fromRat" (interfaceExportsName H2010Names.TermNamespace "fromRat" numeric)
+
+  systemEnvironment <- requireInterface (H2010.ModuleName ["System", "Environment"])
+  assertBool "System.Environment exports getArgs" (interfaceExportsName H2010Names.TermNamespace "getArgs" systemEnvironment)
+  assertBool "System.Environment exports getProgName" (interfaceExportsName H2010Names.TermNamespace "getProgName" systemEnvironment)
+  assertBool "System.Environment exports getEnv" (interfaceExportsName H2010Names.TermNamespace "getEnv" systemEnvironment)
+
+  systemExit <- requireInterface (H2010.ModuleName ["System", "Exit"])
+  assertBool "System.Exit exports ExitCode" (interfaceExportsName H2010Names.TypeNamespace "ExitCode" systemExit)
+  assertBool "System.Exit exports ExitSuccess" (interfaceExportsName H2010Names.ConstructorNamespace "ExitSuccess" systemExit)
+  assertBool "System.Exit exports exitWith" (interfaceExportsName H2010Names.TermNamespace "exitWith" systemExit)
+  assertBool
+    "System.Exit exposes ExitCode constructors"
+    (interfaceExportsChild H2010Names.TypeNamespace "ExitCode" H2010Names.ConstructorNamespace "ExitFailure" systemExit)
   _ <- typecheckHaskell2010 haskell2010StandardLibraryModulesSource
   Right ()
  where
@@ -4015,7 +4028,7 @@ testHaskell2010NativeStringCharList = do
   assertBool "native LLVM boxes String literal chars" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
   assertBool "native LLVM converts show buffers to Char lists" ("@hegglog_hs_make_char_list_from_cstring" `Text.isInfixOf` llvmText)
   assertBool "native LLVM does not emit per-literal string globals" (not ("@haskell2010_str_" `Text.isInfixOf` llvmText))
-  assertBool "native LLVM does not call special string payload allocator" (not ("call ptr @hegglog_hs_make_string" `Text.isInfixOf` llvmText))
+  assertBool "native LLVM calls Char boxing for source String literals" ("call ptr @hegglog_hs_make_char" `Text.isInfixOf` llvmText)
   outputText <- compileHaskell2010NativeText haskell2010StringOutputSource
   assertBool "native output LLVM boxes direct String literal chars" ("@hegglog_hs_make_char" `Text.isInfixOf` outputText)
   assertBool "native output LLVM keeps direct String literals as Char lists" (not ("@haskell2010_str_" `Text.isInfixOf` outputText))
@@ -9393,13 +9406,16 @@ haskell2010IOGetLineEmptyOutput =
 haskell2010IOErrorSource :: Text
 haskell2010IOErrorSource =
   "module Main where\n\
-  \import System.IO.Error (annotateIOError, doesNotExistErrorType, ioeGetErrorString, ioeGetFileName, isDoesNotExistError, isUserError, mkIOError, try, userErrorType)\n\
+  \import System.IO.Error (annotateIOError, doesNotExistErrorType, ioeGetErrorString, ioeGetFileName, isDoesNotExistError, isIllegalOperation, isUserError, mkIOError, try, userErrorType)\n\
+  \import System.Exit (ExitCode (..), exitWith)\n\
   \missingAction :: IO Int\n\
   \missingAction = ioError (mkIOError doesNotExistErrorType \"missing\" Nothing (Just \"path.txt\"))\n\
   \okAction :: IO Int\n\
   \okAction = return 7\n\
   \failAction :: IO Int\n\
   \failAction = fail \"failed\"\n\
+  \zeroExitAction :: IO Int\n\
+  \zeroExitAction = exitWith (ExitFailure 0)\n\
   \main :: IO ()\n\
   \main = do\n\
   \  catch (ioError (userError \"boom\")) (\\err -> putStrLn (\"caught:\" ++ ioeGetErrorString err))\n\
@@ -9422,6 +9438,12 @@ haskell2010IOErrorSource =
   \      print (isUserError err)\n\
   \      putStrLn (ioeGetErrorString err)\n\
   \    Right value -> print value\n\
+  \  zeroExitResult <- try zeroExitAction\n\
+  \  case zeroExitResult of\n\
+  \    Left err -> do\n\
+  \      print (isIllegalOperation err)\n\
+  \      putStrLn (ioeGetErrorString err)\n\
+  \    Right value -> print value\n\
   \  let annotated = annotateIOError (userError \"old\") \"new\" Nothing (Just \"ann.txt\")\n\
   \  print (isUserError annotated)\n\
   \  putStrLn (ioeGetErrorString annotated)\n\
@@ -9436,7 +9458,7 @@ haskell2010IOErrorSource =
 
 haskell2010IOErrorOutput :: Text
 haskell2010IOErrorOutput =
-  "caught:boom\nTrue\nmissing\npath.txt\n7\nTrue\nfailed\nTrue\nnew\nann.txt\nuser error\ndoes not exist\nTrue\nTrue\n"
+  "caught:boom\nTrue\nmissing\npath.txt\n7\nTrue\nfailed\nTrue\nExitFailure 0\nTrue\nnew\nann.txt\nuser error\ndoes not exist\nTrue\nTrue\n"
 
 haskell2010MonadSource :: Text
 haskell2010MonadSource =

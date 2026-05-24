@@ -69,6 +69,7 @@ data CoreValue
 data CoreIOResult
   = CoreIOSuccess CoreValue
   | CoreIOFailure CoreValue
+  | CoreIOExit HInt
   deriving stock (Show)
 
 data CoreEvalError
@@ -318,6 +319,8 @@ evalPrimitiveExpr coreEnv env op arguments =
       case first of
         CoreIO firstChunks (CoreIOFailure err) ->
           Right (CoreIO firstChunks (CoreIOFailure err))
+        CoreIO firstChunks (CoreIOExit code) ->
+          Right (CoreIO firstChunks (CoreIOExit code))
         CoreIO firstChunks (CoreIOSuccess _) -> do
           second <- evalExpr coreEnv env secondExpr
           case second of
@@ -332,6 +335,8 @@ evalPrimitiveExpr coreEnv env op arguments =
       case first of
         CoreIO firstChunks (CoreIOFailure err) ->
           Right (CoreIO firstChunks (CoreIOFailure err))
+        CoreIO firstChunks (CoreIOExit code) ->
+          Right (CoreIO firstChunks (CoreIOExit code))
         CoreIO firstChunks (CoreIOSuccess value) -> do
           continuation <- evalExpr coreEnv env continuationExpr
           case continuation of
@@ -351,6 +356,8 @@ evalPrimitiveExpr coreEnv env op arguments =
       case action of
         CoreIO chunks (CoreIOSuccess value) ->
           Right (CoreIO chunks (CoreIOSuccess value))
+        CoreIO chunks (CoreIOExit code) ->
+          Right (CoreIO chunks (CoreIOExit code))
         CoreIO chunks (CoreIOFailure err) -> do
           handler <- evalExpr coreEnv env handlerExpr
           case handler of
@@ -372,6 +379,8 @@ evalPrimitiveExpr coreEnv env op arguments =
           Right (CoreIO chunks (CoreIOSuccess (CoreData eitherRightDataConName [Evaluated value])))
         CoreIO chunks (CoreIOFailure err) ->
           Right (CoreIO chunks (CoreIOSuccess (CoreData eitherLeftDataConName [Evaluated err])))
+        CoreIO chunks (CoreIOExit code) ->
+          Right (CoreIO chunks (CoreIOExit code))
         other ->
           Left (CoreEvalTypeError ("expected Core IO action, got " <> renderCoreValue other))
     _ ->
@@ -449,6 +458,15 @@ evalPrimitive coreEnv op values =
       (\text -> CoreIO [text <> "\n"] (CoreIOSuccess (CoreData unitDataConName []))) <$> coreStringText coreEnv value
     (PrimGetLine, []) ->
       Right (CoreIO [] (CoreIOSuccess (coreStringList "")))
+    (PrimGetArgs, []) ->
+      Right (CoreIO [] (CoreIOSuccess (coreList stringTy [])))
+    (PrimGetProgName, []) ->
+      Right (CoreIO [] (CoreIOSuccess (coreStringList "hegglog")))
+    (PrimGetEnv, [nameValue]) ->
+      coreStringText coreEnv nameValue >>= \nameText ->
+        Right (CoreIO [] (CoreIOFailure (coreDoesNotExistIOError ("environment variable not found: " <> nameText))))
+    (PrimExitWith, [exitCode]) ->
+      coreExitWithResult coreEnv exitCode >>= \result -> Right (CoreIO [] result)
     (PrimStdHandle handle, []) ->
       Right (CoreHandle handle False)
     (PrimOpenFile, [_path, _mode]) ->
@@ -761,6 +779,47 @@ coreEOFIOError message =
     , Evaluated (CoreData maybeNothingDataConName [])
     ]
 
+coreDoesNotExistIOError :: Text -> CoreValue
+coreDoesNotExistIOError message =
+  CoreData
+    ioErrorDataConName
+    [ Evaluated (CoreData ioErrorDoesNotExistTypeDataConName [])
+    , Evaluated (coreStringList message)
+    , Evaluated (CoreData maybeNothingDataConName [])
+    , Evaluated (CoreData maybeNothingDataConName [])
+    ]
+
+coreIllegalOperationIOError :: Text -> CoreValue
+coreIllegalOperationIOError message =
+  CoreData
+    ioErrorDataConName
+    [ Evaluated (CoreData ioErrorIllegalOperationTypeDataConName [])
+    , Evaluated (coreStringList message)
+    , Evaluated (CoreData maybeNothingDataConName [])
+    , Evaluated (CoreData maybeNothingDataConName [])
+    ]
+
+coreExitWithResult :: CoreValidate.CoreValidationEnv -> CoreValue -> Either CoreEvalError CoreIOResult
+coreExitWithResult _ (CoreData name [])
+  | name == exitSuccessDataConName =
+      CoreIOExit <$> checkedExitCode 0
+coreExitWithResult coreEnv (CoreData name [codeThunk])
+  | name == exitFailureDataConName = do
+      code <- force coreEnv codeThunk
+      case code of
+        CoreInt value
+          | hintToInteger value == 0 -> Right (CoreIOFailure (coreIllegalOperationIOError "ExitFailure 0"))
+          | otherwise -> Right (CoreIOExit value)
+        other -> Left (CoreEvalTypeError ("expected Int in ExitFailure, got " <> renderCoreValue other))
+coreExitWithResult _ other =
+  Left (CoreEvalTypeError ("expected ExitCode, got " <> renderCoreValue other))
+
+checkedExitCode :: Integer -> Either CoreEvalError HInt
+checkedExitCode value =
+  case mkHIntLiteral value of
+    Right intValue -> Right intValue
+    Left err -> Left (CoreEvalIntError err)
+
 coreStringText :: CoreValidate.CoreValidationEnv -> CoreValue -> Either CoreEvalError Text
 coreStringText coreEnv = \case
   CoreString value ->
@@ -786,6 +845,15 @@ coreStringList =
     CoreData listNilDataConName []
   cons char tailValue =
     CoreData listConsDataConName [Evaluated (CoreChar char), Evaluated tailValue]
+
+coreList :: CoreType -> [CoreValue] -> CoreValue
+coreList _ =
+  foldr cons nil
+ where
+  nil =
+    CoreData listNilDataConName []
+  cons headValue tailValue =
+    CoreData listConsDataConName [Evaluated headValue, Evaluated tailValue]
 
 valueEquals :: CoreValue -> CoreValue -> Either CoreEvalError Bool
 valueEquals lhs rhs =
@@ -905,6 +973,10 @@ renderCorePrimOpName = \case
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"
   PrimGetLine -> "getLine#"
+  PrimGetArgs -> "getArgs#"
+  PrimGetProgName -> "getProgName#"
+  PrimGetEnv -> "getEnv#"
+  PrimExitWith -> "exitWith#"
   PrimStdHandle handle -> renderStdHandlePrim handle
   PrimOpenFile -> "openFile#"
   PrimHClose -> "hClose#"
