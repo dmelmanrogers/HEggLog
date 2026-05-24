@@ -85,8 +85,9 @@ implemented:
 - remaining IO follow-up scope is outside the Haskell 2010 text baseline:
   post-2010 encoding/binary IO, threaded/asynchronous IO behavior, and richer
   terminal echo/control effects beyond the current metadata and `isatty` checks
-- remaining FFI closure for errno, Storable dictionaries, raw allocation, array
-  marshalling, and C string marshalling functions
+- target-specific FFI follow-up outside the current Darwin `ccall` runtime slice,
+  such as non-Darwin errno accessors or `stdcall` diagnostics on targets where
+  that ABI is meaningful
 - full Haskell 2010 conformance suite breadth beyond the current
   manifest-backed executable subset
 
@@ -120,8 +121,9 @@ standard-library module tasks.
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
 is complete for floating-point native ABI marshalling, FFI-011 is complete for
 link metadata and explicit native link inputs, FFI-012 is complete for
-explicit callback/finalizer lifetime behavior, and FFI-013 now owns the
-documented errno, Storable, raw allocation, array, and C-string library gaps.
+explicit callback/finalizer lifetime behavior, and FFI-013 is complete for the
+previously documented errno, Storable, raw allocation, array, and C-string
+library gaps under the current native runtime model.
 
 ## What Is Parsed Today
 
@@ -190,8 +192,10 @@ supported infix subset desugared to generated Core lambdas; built-in `Show Int`,
 dictionaries; and primitive `/`.
 Foreign declarations now typecheck at the frontend boundary: generated
 `Foreign`, `Foreign.C`, `Foreign.C.Types`, `Foreign.Ptr`,
-`Foreign.ForeignPtr`, `Foreign.Marshal`, `Foreign.Marshal.Error`, and
-`Foreign.Marshal.Utils` module interfaces expose the current FFI library
+`Foreign.C.Error`, `Foreign.C.String`, `Foreign.ForeignPtr`,
+`Foreign.Marshal`, `Foreign.Marshal.Alloc`, `Foreign.Marshal.Array`,
+`Foreign.Marshal.Error`, `Foreign.Marshal.Utils`, and `Foreign.Storable`
+module interfaces expose the current FFI library
 surface, valid `ccall`/`stdcall` imports and exports are
 checked for marshallable scalar/floating/pointer/synonym/local-newtype shapes, and
 invalid address, `dynamic`, `wrapper`, or export signatures fail before
@@ -217,12 +221,16 @@ implemented and wet-tested. The broader Foreign library surface now includes
 null pointer values, pointer and function-pointer casts, `FinalizerPtr` and
 `FinalizerEnvPtr` aliases, `freeHaskellFunPtr`, `unsafeForeignPtrToPtr`,
 `castForeignPtr`, `throwIf`, `throwIf_`, `throwIfNull`, `void`, `maybeNew`,
-`maybeWith`, and `maybePeek`, covered by native C-helper fixtures. FFI link metadata is
+`maybeWith`, `maybePeek`, all Report errno constants, `Errno(Errno)`,
+`isValidErrno`, errno access/reset, retry/may-block/path errno guards,
+`Storable` peek/poke/offset methods, raw allocation/reallocation/free/finalizer
+values, array allocation/copy/move/sentinel traversal, and C/CW string
+conversion helpers, covered by native C-helper fixtures. FFI link metadata is
 preserved in the native result and emitted LLVM comments for headers,
 import/address symbols, and export symbols; explicit link inputs are passed
-through the compile CLI to clang. Automatic GC finalization, errno, Storable
-dictionaries, raw allocation, array marshalling, and C string marshalling
-functions remain pending.
+through the compile CLI to clang. Automatic GC finalization remains outside the
+current process-lifetime runtime claim; the prior Foreign library marshalling
+gaps are implemented and tested.
 Recursive top-level functions, mutually recursive
 top-level groups, singleton self-recursive bindings, and local recursive `let`
 bindings now emit recursive Core groups in the supported subset. The initial

@@ -1,10 +1,12 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <errno.h>
 
 static int64_t hegglog_ffi_total = 0;
 static int64_t hegglog_ffi_finalizer_total = 0;
 static int64_t hegglog_ffi_finalizer_order = 0;
+static int32_t hegglog_ffi_retry_count = 0;
 int64_t hegglog_ffi_global_i64 = 77;
 int64_t hegglog_ffi_alt_i64 = 99;
 
@@ -136,4 +138,31 @@ int64_t hegglog_ffi_mix_float_double(float lhs, double rhs) {
 
 int64_t hegglog_ffi_apply_double(double (*fn)(double), double value) {
   return hegglog_ffi_score_double(fn(value));
+}
+
+int32_t hegglog_ffi_set_errno_minus1(int32_t value) {
+  errno = value;
+  return -1;
+}
+
+void hegglog_ffi_reset_retry_count(void) {
+  hegglog_ffi_retry_count = 0;
+}
+
+int32_t hegglog_ffi_retry_after_eintr(void) {
+  if (hegglog_ffi_retry_count++ == 0) {
+    errno = EINTR;
+    return -1;
+  }
+  errno = 0;
+  return 42;
+}
+
+int32_t hegglog_ffi_retry_after_eagain(void) {
+  if (hegglog_ffi_retry_count++ == 0) {
+    errno = EAGAIN;
+    return -1;
+  }
+  errno = 0;
+  return 33;
 }

@@ -68,8 +68,8 @@ foreign export entrypoints. FFI-011 is complete for FFI link metadata and
 explicit native link inputs. FFI-012 is complete for explicit wrapper
 callback/finalizer lifetime behavior: `freeHaskellFunPtr`, slot reclamation,
 callback-after-free rejection, idempotent double-free, and reverse-order manual
-ForeignPtr finalization are covered. Remaining FFI closure is the
-FFI-013-documented errno, Storable, allocation, array, and C-string library gaps.
+ForeignPtr finalization are covered. FFI-013 is complete for the previously
+documented errno, Storable, allocation, array, and C-string library gaps.
 
 Completed Haskell 2010 roadmap work:
 
@@ -88,10 +88,14 @@ Completed Haskell 2010 roadmap work:
   plus source-backed Report APIs for `Data.List`, `Data.Maybe`, and `Data.Char`,
   while keeping reserved Report modules unimportable until they have real support.
 - FFI-013 Foreign library surface completion: implemented for the current
-  runtime-supported `Foreign.Ptr`, `Foreign.ForeignPtr`, `Foreign.Marshal`,
-  `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils` slices with native
-  fixture coverage, while keeping errno, Storable, raw allocation, array
-  marshalling, and C string marshalling functions explicit as pending gaps.
+  runtime-supported `Foreign`, `Foreign.C`, `Foreign.C.Error`,
+  `Foreign.C.String`, `Foreign.C.Types`, `Foreign.Ptr`,
+  `Foreign.StablePtr`, `Foreign.ForeignPtr`, `Foreign.Marshal`,
+  `Foreign.Marshal.Alloc`, `Foreign.Marshal.Array`,
+  `Foreign.Marshal.Error`, `Foreign.Marshal.Utils`, and
+  `Foreign.Storable` slices with native fixture coverage, including errno,
+  raw allocation, array marshalling, typed memory access, and C/CW string
+  conversion.
 - FFI-012 callback and finalizer lifetime completion: implemented
   `freeHaskellFunPtr`, reclaimable wrapper callback slots, idempotent
   double-free for wrapper pointers, callback-after-free runtime failure, and

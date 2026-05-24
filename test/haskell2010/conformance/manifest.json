@@ -1149,6 +1149,61 @@
       "notes": "Broader Foreign library surface imports and runs through null pointer guards, pointer casts, ForeignPtr casts/extraction, and implemented Foreign.Marshal.Error/Utils helpers."
     },
     {
+      "name": "ffi.foreign-storable",
+      "sourceFile": "test/haskell2010/conformance/ffi/foreign-storable.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "123\n456\n456\n77\nZ\n0\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Foreign.Storable native wet coverage for Int, CInt, Char, Ptr payloads, peek/poke, byte offsets, element offsets, and malloc/free lifetime."
+    },
+    {
+      "name": "ffi.foreign-marshal-array",
+      "sourceFile": "test/haskell2010/conformance/ffi/foreign-marshal-array.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "[3,4,5]\n[9,8,7]\n[9,8,7]\n[9,9,8,7]\n3\n[1,2,3]\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Foreign.Marshal.Array native wet coverage for newArray, pokeArray, peekArray, copyArray, moveArray overlap behavior, advancePtr, sentinel arrays, and lengthArray0."
+    },
+    {
+      "name": "ffi.foreign-c-string",
+      "sourceFile": "test/haskell2010/conformance/ffi/foreign-c-string.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "abc\nab\nxy\nhi\nlmno\nAZ\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Foreign.C.String native wet coverage for CString, CStringLen, withCString, withCStringLen, freeable newCString buffers, and CWString conversion."
+    },
+    {
+      "name": "ffi.foreign-c-error",
+      "sourceFile": "test/haskell2010/conformance/ffi/foreign-c-error.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "0\n5\ndenied\ndenied-unit\n4\nTrue\nFalse\n99\nTrue\n42\ngeneric-unit-ok\n42\nminus-unit-ok\nblocked\n33\nblocked-unit\nmayblock-unit-ok\nminus-blocked\n33\nminus-blocked-unit\nminus-mayblock-unit-ok\nsecret.txt\nunit-secret.txt\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c"
+      ],
+      "notes": "Foreign.C.Error native wet coverage for errno constants, isValidErrno, getErrno/resetErrno, retry/may-block guards, path-carrying errors, and C errno set by helper functions."
+    },
+    {
       "name": "negative.type-error",
       "sourceFile": "test/haskell2010/conformance/negative/type-error.hs",
       "category": "negative",
@@ -1630,33 +1685,6 @@
         "no-egglog"
       ],
       "notes": "Data.Complex is importable and source-backed, including Complex((:+)), rectangular and polar operations, Eq/Num/Fractional/Floating/Show instances, and native Double-backed execution."
-    },
-    {
-      "name": "unsupported.library-foreign-c-error",
-      "sourceFile": "test/haskell2010/conformance/unsupported/library-foreign-c-error.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
-      "requiredStage": "module-graph",
-      "notes": "Foreign.C.Error remains reserved until errno and IO-error marshalling are implemented under FFI-013."
-    },
-    {
-      "name": "unsupported.library-foreign-marshal",
-      "sourceFile": "test/haskell2010/conformance/unsupported/library-foreign-marshal.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
-      "requiredStage": "module-graph",
-      "notes": "Foreign.Marshal.Alloc and array allocation remain reserved until raw memory allocation and Storable-backed array marshalling are implemented; Foreign.Marshal.Error and the supported Foreign.Marshal.Utils subset are covered by ffi.foreign-library-surface."
-    },
-    {
-      "name": "unsupported.library-foreign-storable",
-      "sourceFile": "test/haskell2010/conformance/unsupported/library-foreign-storable.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
-      "requiredStage": "module-graph",
-      "notes": "Foreign.Storable remains reserved until Storable dictionaries and memory access primitives are implemented under FFI-013."
     },
     {
       "name": "modules.numeric",

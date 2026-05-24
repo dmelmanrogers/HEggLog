@@ -120,8 +120,12 @@ LIBRARY_CLOSURE_REQUIRED_FIXTURES = {
     "test/haskell2010/conformance/adts/maybe-constructor-case.hs",
     "test/haskell2010/conformance/ffi/dynamic-wrapper.hs",
     "test/haskell2010/conformance/ffi/floating-ccall.hs",
+    "test/haskell2010/conformance/ffi/foreign-c-error.hs",
+    "test/haskell2010/conformance/ffi/foreign-c-string.hs",
     "test/haskell2010/conformance/ffi/foreign-library-surface.hs",
     "test/haskell2010/conformance/ffi/foreign-export.hs",
+    "test/haskell2010/conformance/ffi/foreign-marshal-array.hs",
+    "test/haskell2010/conformance/ffi/foreign-storable.hs",
     "test/haskell2010/conformance/ffi/pointer-address.hs",
     "test/haskell2010/conformance/ffi/stable-foreignptr-finalizers.hs",
     "test/haskell2010/conformance/ffi/static-ccall.hs",
@@ -166,9 +170,6 @@ LIBRARY_CLOSURE_REQUIRED_FIXTURES = {
     "test/haskell2010/conformance/typeclasses/derived-show.hs",
     "test/haskell2010/conformance/typeclasses/monad-explicit-fail.hs",
     "test/haskell2010/conformance/typeclasses/monad.hs",
-    "test/haskell2010/conformance/unsupported/library-foreign-c-error.hs",
-    "test/haskell2010/conformance/unsupported/library-foreign-marshal.hs",
-    "test/haskell2010/conformance/unsupported/library-foreign-storable.hs",
 }
 
 FIXTURE_PATH_RE = re.compile(r"`(test/haskell2010/conformance/[^`]+\.hs)`")

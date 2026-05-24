@@ -153,15 +153,20 @@ process-lifetime finalizer lists, support `withForeignPtr`, and finalize
 idempotently with reverse-order finalizer dispatch. `Foreign.Ptr` also exposes null and representation-preserving
 pointer/function-pointer casts plus `freeHaskellFunPtr`; `Foreign.ForeignPtr` exposes
 `FinalizerPtr`/`FinalizerEnvPtr`, `unsafeForeignPtrToPtr`, and
-`castForeignPtr`; and `Foreign.Marshal.Error`/`Foreign.Marshal.Utils` expose
-the implemented guard and `Maybe` pointer helpers. FFI link metadata is now
+`castForeignPtr`; `Foreign.C.Error`, `Foreign.C.String`,
+`Foreign.Marshal.Alloc`, `Foreign.Marshal.Array`, and `Foreign.Storable`
+cover all Report errno constants, `Errno(Errno)`, `isValidErrno`,
+errno access/reset, retry/may-block/path errno guards, C/CW string conversion,
+raw allocation, array marshalling, and typed memory peek/poke; and
+`Foreign.Marshal.Error`/`Foreign.Marshal.Utils` expose guard and `Maybe`
+pointer helpers. FFI link metadata is now
 preserved through native compilation: header-qualified imports, static/address
 symbols, and export symbols appear in the Haskell 2010 LLVM result and emitted
 LLVM comments, while the CLI/toolchain accepts explicit `--link-object`,
 `--link-library`, `--library-path`, and `--framework` inputs for clang.
-Automatic GC finalizer scheduling, errno, Storable dictionaries, raw
-allocation, array marshalling, and C string marshalling functions remain later
-FFI work.
+Automatic GC finalizer scheduling remains outside the current process-lifetime
+runtime claim; the prior errno, Storable, raw allocation, array marshalling,
+and C string marshalling gaps are implemented and native-tested.
 Multi-module Haskell 2010 compilation now also follows the Report's special
 instance import/export rule for the executable source-instance subset:
 instances move across empty export lists, empty import lists, and transitive
@@ -263,9 +268,9 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 151 manifest-tracked fixtures with
-  100 native-success cases, 13 native-runtime-error cases, 28 compile-error
-  cases, and 10 unsupported-documented cases
+  `haskell2010-conformance-test`; it contains 157 manifest-tracked fixtures with
+  111 native-success cases, 15 native-runtime-error cases, 28 compile-error
+  cases, and 3 unsupported-documented cases
 - Haskell 2010 standard library layout: implemented for the current executable
   subset as generated/importable `Prelude`, `Control.Monad`, `Data.Int`,
   `Data.List`, `Data.Maybe`, `Data.Char`, `Data.Word`, `System.IO`, `System.IO.Error`, and implemented
@@ -304,8 +309,8 @@ Haskell 2010 Libraries module inventory. FFI-010 is complete for floating-point
 native ABI marshalling of `Float`, `Double`, `CFloat`, and `CDouble`; FFI-011
 is complete for link metadata and explicit native link inputs; FFI-012 is
 complete for explicit callback/finalizer lifetime behavior; and FFI-013
-documents the implemented Foreign surface plus the still-reserved errno,
-Storable, allocation, array, and C-string pieces.
+implements the Foreign library surface that fits the current native runtime
+model, including errno, Storable, allocation, array, and C-string pieces.
 MOD-011 and MOD-012 are complete as a documented module-compilation boundary:
 the current compiler is intentionally whole-program over loaded source modules,
 and future interface files must wait for stable search-path and dependency

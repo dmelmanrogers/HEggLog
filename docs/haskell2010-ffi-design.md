@@ -338,12 +338,16 @@ are not scoped-down product slices.
 11. Add `stdcall` where the target ABI exposes it and target-specific
    diagnostics where it does not.
 12. Fill out `Foreign.*` marshalling modules and conformance fixtures.
-    Status: complete for generated/importable `Foreign.Marshal`,
-    `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils` slices that fit the
+    Status: complete for generated/importable `Foreign.C.Error`,
+    `Foreign.C.String`, `Foreign.Marshal`, `Foreign.Marshal.Alloc`,
+    `Foreign.Marshal.Array`, `Foreign.Marshal.Error`,
+    `Foreign.Marshal.Utils`, and `Foreign.Storable` slices that fit the
     current runtime model, with native fixtures for null-pointer guards,
-    `void`, `throwIf`, `throwIf_`, `maybeNew`, `maybeWith`, and `maybePeek`.
-    `Foreign.C.Error`, `Foreign.Storable`, raw allocation, array marshalling,
-    and C string marshalling functions remain explicit pending surface.
+    `void`, `throwIf`, `throwIf_`, `maybeNew`, `maybeWith`, `maybePeek`,
+    all Report errno constants, `Errno(Errno)`, `isValidErrno`,
+    errno access/reset, retry/may-block/path errno guards, raw allocation,
+    reallocation, free, typed peek/poke/offset access, byte copy/move,
+    array marshalling, and C/CW string conversion.
 
 ## Tests
 

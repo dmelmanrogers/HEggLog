@@ -555,9 +555,9 @@ Acceptance criteria:
 Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
-`haskell2010-conformance-test` Cabal suite. The baseline currently records 138
-fixtures: 87 native-success cases, 6 native-runtime-error cases, 28 compile-error
-cases, and 17 unsupported-documented cases. The suite invokes the built
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 157
+fixtures: 111 native-success cases, 15 native-runtime-error cases, 28 compile-error
+cases, and 3 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
 runtime-error exits, checks compile-error diagnostics, links manifest-declared
@@ -672,11 +672,15 @@ finalizers remain explicit/idempotent with reverse-order dispatch under the
 process-lifetime runtime model.
 
 1. FFI-013 — Foreign library surface completion. Status: complete for the
-   generated/importable `Foreign.Ptr`, `Foreign.ForeignPtr`,
-   `Foreign.Marshal`, `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils`
-   surface added under the current runtime model; errno, Storable, raw
-   allocation, array marshalling, and C string marshalling remain explicit
-   documented Foreign library gaps.
+   generated/importable `Foreign`, `Foreign.C`, `Foreign.C.Error`,
+   `Foreign.C.String`, `Foreign.C.Types`, `Foreign.Ptr`,
+   `Foreign.StablePtr`, `Foreign.ForeignPtr`, `Foreign.Marshal`,
+   `Foreign.Marshal.Alloc`, `Foreign.Marshal.Array`,
+   `Foreign.Marshal.Error`, `Foreign.Marshal.Utils`, and
+   `Foreign.Storable` surface that fits the current native runtime model.
+   The previous errno, Storable, raw allocation, array marshalling, and
+   C string marshalling gaps now have Core/STG/native lowering and native
+   conformance fixtures in default and no-egglog modes.
 
 Completed immediate tasks:
 

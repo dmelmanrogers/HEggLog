@@ -14925,7 +14925,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Complete for the non-`Storable` `Data.Int`/`Data.Word` surface owned by this task. `Data.Int` and `Data.Word` now use shared fixed-width runtime representations for `Int8`, `Int16`, `Int32`, `Int64`, `Word`, `Word8`, `Word16`, `Word32`, and `Word64`, with Core/STG/native primitives for modulo arithmetic, signed and unsigned comparisons, quotient/remainder, bounds, `Show`, `Read` through the current integer lexer, `Enum`, `Ix`, and `Bits`. Native conformance covers overflow, bounds, unsigned `Word64` rendering, signed shift edge cases, fixed-width list/range behavior, and static FFI scalar marshalling for `Int8`, `Word8`, and `Word64`. Plain `Word` remains intentionally rejected as a Haskell 2010 basic FFI type; the Report basic FFI word types are `Word8`/`Word16`/`Word32`/`Word64`. `Storable` instances remain under `FFI-013` with the broader reserved `Foreign.Storable` surface. Arbitrary-precision `Integer` is still represented by the existing checked-`Int` runtime subset, so `Integral` conversions are complete for values representable by that project-wide `Integer` representation; true arbitrary-precision `Integer` remains a separate conformance gap.
+- Complete for the fixed-width `Data.Int`/`Data.Word` surface owned by this task. `Data.Int` and `Data.Word` now use shared fixed-width runtime representations for `Int8`, `Int16`, `Int32`, `Int64`, `Word`, `Word8`, `Word16`, `Word32`, and `Word64`, with Core/STG/native primitives for modulo arithmetic, signed and unsigned comparisons, quotient/remainder, bounds, `Show`, `Read` through the current integer lexer, `Enum`, `Ix`, and `Bits`. Native conformance covers overflow, bounds, unsigned `Word64` rendering, signed shift edge cases, fixed-width list/range behavior, and static FFI scalar marshalling for `Int8`, `Word8`, and `Word64`. Plain `Word` remains intentionally rejected as a Haskell 2010 basic FFI type; the Report basic FFI word types are `Word8`/`Word16`/`Word32`/`Word64`. `FFI-013` adds generated `Storable` support for the fixed-width and pointer-shaped runtime representations. Arbitrary-precision `Integer` is still represented by the existing checked-`Int` runtime subset, so `Integral` conversions are complete for values representable by that project-wide `Integer` representation; true arbitrary-precision `Integer` remains a separate conformance gap.
 
 ## LIB-010 — Numeric report completion
 
@@ -16729,7 +16729,7 @@ Acceptance criteria:
 - The typechecker validates marshallable scalar, pointer, type-synonym, and local visible-newtype foreign types.
 - Static, address, `dynamic`, and `wrapper` import signatures receive shape-specific diagnostics.
 - `foreign export` declarations validate that the exported binding can instantiate to the declared foreign type.
-- Runtime primitive marshalling and ABI conversion are implemented for the supported scalar integer/Bool/Char/Float/Double and pointer ABI slice; remaining Foreign library marshalling for Storable, allocation, arrays, errno, and C strings remains explicit future work.
+- Runtime primitive marshalling and ABI conversion are implemented for the supported scalar integer/Bool/Char/Float/Double and pointer ABI slice, including the current Foreign library marshalling surface for Storable, allocation, arrays, errno, and C strings.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -16746,7 +16746,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/Float/Double/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, export validation, and the FFI-013 Foreign.Ptr/Foreign.ForeignPtr/Foreign.Marshal.Error/Foreign.Marshal.Utils surface are implemented; remaining Foreign library marshalling for Storable, allocation, arrays, errno, and C strings remains explicit future work.
+- Milestone M15 (FFI). In progress for target-specific ABI follow-up; generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/Float/Double/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, export validation, and the FFI-013 Foreign library surface are implemented, including Storable, allocation, arrays, errno, and C strings under the current native runtime model.
 
 ## FFI-006 — runtime integration
 
@@ -16901,7 +16901,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: static scalar, floating, pointer/address, dynamic/wrapper lifetime, foreign-export, StablePtr, and ForeignPtr finalizer native C-helper wet tests are implemented; link metadata and explicit link-object coverage are complete, while broader Foreign library coverage remains open.
+- Milestone M15 (FFI). Static scalar, floating, pointer/address, dynamic/wrapper lifetime, foreign-export, StablePtr, ForeignPtr finalizer, link metadata, explicit link-object, and FFI-013 Foreign library native C-helper coverage are implemented for the current runtime model.
 
 ## FFI-009 — FFI-wide deferral retired
 
@@ -17161,7 +17161,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Complete for the current generated/importable Foreign library surface. `Foreign.Ptr` now exposes null pointer values and pointer/function-pointer casts; `Foreign.ForeignPtr` exposes `FinalizerPtr`, `FinalizerEnvPtr`, `unsafeForeignPtrToPtr`, and `castForeignPtr`; `Foreign.Marshal`, `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils` expose the implemented guard and Maybe pointer-helper subset. Native conformance fixture `ffi.foreign-library-surface` covers the added surface in default and no-egglog modes. Remaining `Foreign.C.Error`, `Foreign.Storable`, raw allocation, array marshalling, and C string marshalling functions stay explicitly documented as reserved/pending rather than implicit omissions.
+- Complete for the current generated/importable Foreign library surface. `Foreign.Ptr` exposes null pointer values and pointer/function-pointer casts; `Foreign.ForeignPtr` exposes `FinalizerPtr`, `FinalizerEnvPtr`, `unsafeForeignPtrToPtr`, and `castForeignPtr`; `Foreign.Marshal.Error` and `Foreign.Marshal.Utils` expose guard and Maybe pointer helpers; `Foreign.C.Error` exposes `Errno(Errno)`, all Report errno constants with target-runtime values, `isValidErrno`, errno access/reset, `errnoToIOError`, retry/may-block guards, and path-carrying errno helpers; `Foreign.Storable` exposes generated dictionaries for supported scalar, pointer, and fixed-width runtime representations; `Foreign.Marshal.Alloc` and `Foreign.Marshal.Array` expose raw allocation, reallocation, free, byte copy/move, pointer advancement, and list/sentinel array helpers; and `Foreign.C.String` exposes C/CW string conversion helpers. Native conformance fixtures `ffi.foreign-library-surface`, `ffi.foreign-storable`, `ffi.foreign-marshal-array`, `ffi.foreign-c-string`, and `ffi.foreign-c-error` cover the surface in default and no-egglog modes.
 
 ## EGG-CORE-001 — Core Egglog schema
 

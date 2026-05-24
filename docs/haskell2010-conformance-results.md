@@ -1,8 +1,8 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-24 05:44:32 UTC
+Date/time: 2026-05-24 17:46:24 UTC
 
-Code hash tested: source implementation in the System.IO runtime working tree
+Code hash tested: source implementation in the Foreign library closure working tree
 before final commit.
 
 Primary conformance command run:
@@ -37,14 +37,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 156 |
-| Manifest source files in corpus | 156 |
-| HUnit test cases executed | 235 |
-| Native-success fixtures | 107 |
+| Manifest conformance fixtures | 157 |
+| Manifest source files in corpus | 157 |
+| HUnit test cases executed | 240 |
+| Native-success fixtures | 111 |
 | Native-runtime-error fixtures | 15 |
 | Compile-error fixtures | 28 |
-| Unsupported-documented fixtures | 6 |
-| Native subprocess compile/run checks | 201 |
+| Unsupported-documented fixtures | 3 |
+| Native subprocess compile/run checks | 209 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -213,11 +213,12 @@ Library Conformance Closure table covering Chapter 9 Prelude areas and every
 Part II Libraries module group. The conformance validator now checks all 18
 library closure rows, verifies that each row cites manifest-backed fixtures and
 numbered remaining tracker tasks, and requires the library closure fixtures to
-stay represented in the matrix. Reserved Report modules now have explicit
-unsupported-documented fixtures for `Foreign.C.Error`,
-`Foreign.Marshal.Alloc`/array allocation, and `Foreign.Storable`.
-`System.Environment`, `System.Exit`, and `Numeric` have moved from that
-reserved set to native/generated or source-backed fixtures.
+stay represented in the matrix. The former FFI-013 reserved Report modules now
+have positive native fixtures: `Foreign.C.Error`, `Foreign.C.String`,
+`Foreign.Marshal.Alloc`, `Foreign.Marshal.Array`, and `Foreign.Storable` moved
+from documented gaps to generated/native coverage. `System.Environment`,
+`System.Exit`, and `Numeric` have also moved from the reserved set to
+native/generated or source-backed fixtures.
 `modules.data-complex` and `prelude.floating-numeric` now positively check
 the LIB-008 floating numeric tower and importable `Data.Complex` module in
 default and `--no-egglog` native modes.
@@ -237,7 +238,12 @@ non-basic Haskell 2010 FFI type.
 
 `ffi.foreign-library-surface` positively checks the implemented `Foreign.Ptr`, `Foreign.ForeignPtr`,
 `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils` surface in native default
-and `--no-egglog` modes. `ffi.floating-ccall` positively checks
+and `--no-egglog` modes. `ffi.foreign-storable`,
+`ffi.foreign-marshal-array`, `ffi.foreign-c-string`, and
+`ffi.foreign-c-error` positively check typed memory access, raw allocation,
+array marshalling, C/CW string conversion, all Report errno constants,
+`Errno(Errno)`, retry/may-block/path errno guards, and errno behavior in both
+compiler modes. `ffi.floating-ccall` positively checks
 `Float`/`Double`/`CFloat`/`CDouble` FFI marshalling across static calls,
 dynamic calls, wrapper callbacks, and foreign export entrypoints.
 
@@ -249,7 +255,7 @@ dynamic calls, wrapper callbacks, and foreign export entrypoints.
 | `declarations` | 6 | representative native tests exist |
 | `egglog` | 1 | optimized/unoptimized native agreement covered |
 | `expressions` | 13 | representative native tests exist, including user-defined infix operators and line-broken `where` layout |
-| `ffi` | 10 | static ccall, fixed-width scalar ccall, floating ccall, pointer/address, dynamic/wrapper, wrapper reclamation/after-free, foreign export, StablePtr/ForeignPtr ownership, and broader Foreign library surface native fixtures link C helpers and run in default and `--no-egglog` modes |
+| `ffi` | 14 | static ccall, fixed-width scalar ccall, floating ccall, pointer/address, dynamic/wrapper, wrapper reclamation/after-free, foreign export, StablePtr/ForeignPtr ownership, broader Foreign library surface, Storable, allocation/array marshalling, C/CW string conversion, and errno native fixtures link C helpers where needed and run in default and `--no-egglog` modes |
 | `io` | 7 | line-oriented stdin/stdout IO, expanded `System.IO` standard-handle and file-backed text behavior, and recoverable IO-error behavior covered, including do-bind, explicit `(>>=)`, `getLine`, `getContents`, `hGetChar`, `hGetLine`, `hLookAhead`, lazy semi-closed `hGetContents`, `hFileSize`, `hSetFileSize`, `hGetPosn`, `hSetPosn`, `hSeek`, `hTell`, handle predicates, `hPutStr`/`hPutChar`/`hPutStrLn`, `hPrint`, `hShow`, productive `fixIO`, explicit `fail`, `ioError`, `catch`, `try`, and System.IO.Error examples |
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
