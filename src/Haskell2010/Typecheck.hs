@@ -34,6 +34,7 @@ import qualified Haskell2010.Core.Validate as CoreValidate
 import Haskell2010.FixedWidth
 import Haskell2010.Names
 import Haskell2010.Renamed
+import Haskell2010.StandardLibrary (standardLibraryExternalName)
 import Haskell2010.Syntax (Literal (..))
 import qualified Haskell2010.Syntax as S
 import Syntax.Span (SourceSpan (..), renderSourceDiagnostic)
@@ -1126,6 +1127,7 @@ builtinClassInfos =
     , (builtinFunctorClassName, functorInfo)
     , (builtinMonadClassName, monadInfo)
     , (builtinMonadPlusClassName, builtinMonadPlusInfo)
+    , (builtinStorableClassName, builtinStorableInfo)
     ]
  where
   eqA = preludeTypeVariable "a" (-1301)
@@ -1435,6 +1437,30 @@ builtinMonadPlusInfo =
   monadPlusMTy = TyVar monadPlusM
   monadPlusMA = TyApp monadPlusMTy (TyVar monadPlusA)
 
+builtinStorableInfo :: ClassInfo
+builtinStorableInfo =
+  builtinClassInfoWithKind
+    builtinStorableClassName
+    storableA
+    StarKind
+    []
+    [ BuiltinMethodSpec "sizeOf" (-1497) [] (TyFun storableATy intMonoType)
+    , BuiltinMethodSpec "alignment" (-1498) [] (TyFun storableATy intMonoType)
+    , BuiltinMethodSpec "peekElemOff" (-1499) [] (TyFun storablePtrA (TyFun intMonoType (ioMonoType storableATy)))
+    , BuiltinMethodSpec "pokeElemOff" (-1500) [] (TyFun storablePtrA (TyFun intMonoType (TyFun storableATy (ioMonoType unitMonoType))))
+    , BuiltinMethodSpec "peekByteOff" (-1501) [storableB] (TyFun storablePtrB (TyFun intMonoType (ioMonoType storableATy)))
+    , BuiltinMethodSpec "pokeByteOff" (-1502) [storableB] (TyFun storablePtrB (TyFun intMonoType (TyFun storableATy (ioMonoType unitMonoType))))
+    , BuiltinMethodSpec "peek" (-1503) [] (TyFun storablePtrA (ioMonoType storableATy))
+    , BuiltinMethodSpec "poke" (-1504) [] (TyFun storablePtrA (TyFun storableATy (ioMonoType unitMonoType)))
+    ]
+ where
+  storableA = preludeTypeVariable "a" (-1572)
+  storableB = preludeTypeVariable "b" (-1573)
+  storableATy = TyVar storableA
+  storableBTy = TyVar storableB
+  storablePtrA = TyApp (TyCon ptrTyConName) storableATy
+  storablePtrB = TyApp (TyCon ptrTyConName) storableBTy
+
 builtinClassInfo :: RName -> RName -> [ClassConstraint] -> [(Text, Int, MonoType)] -> ClassInfo
 builtinClassInfo className classVariable superclasses methodSpecs =
   builtinClassInfoWithKind
@@ -1540,6 +1566,10 @@ builtinMonadPlusClassName :: RName
 builtinMonadPlusClassName =
   preludeClassName "MonadPlus" (-1395)
 
+builtinStorableClassName :: RName
+builtinStorableClassName =
+  preludeClassName "Storable" (-1399)
+
 preludeClassName :: Text -> Int -> RName
 preludeClassName occurrence unique =
   RName ClassNamespace occurrence unique True
@@ -1566,6 +1596,7 @@ canonicalClassName name
         "Functor" -> builtinFunctorClassName
         "Monad" -> builtinMonadClassName
         "MonadPlus" -> builtinMonadPlusClassName
+        "Storable" -> builtinStorableClassName
         _ -> name
   | otherwise = name
 
@@ -1597,6 +1628,7 @@ builtinClassInfoByOccurrence occurrence = do
           "Functor" -> builtinFunctorClassName
           "Monad" -> builtinMonadClassName
           "MonadPlus" -> builtinMonadPlusClassName
+          "Storable" -> builtinStorableClassName
           _ -> RName ClassNamespace occurrence 0 True
   case Map.lookup className classes of
     Just info -> pure info
@@ -1705,6 +1737,15 @@ builtinDataConstructors =
           (Scheme [a] [] (TyFun aTy (TyFun aTy ratioA)))
           CoreDataConstructor
       )
+    ,
+      ( errnoDataConName
+      , positionalDataConstructorInfo
+          []
+          [fixedIntegralMonoType FixedInt32]
+          (fixedIntegralMonoType FixedInt32)
+          (Scheme [] [] (TyFun (fixedIntegralMonoType FixedInt32) (fixedIntegralMonoType FixedInt32)))
+          CoreNewtypeConstructor
+      )
     ]
  where
   a = preludeTypeVariable "a" (-1001)
@@ -1729,6 +1770,10 @@ builtinDataConstructors =
 preludeTypeVariable :: Text -> Int -> RName
 preludeTypeVariable occurrence unique =
   RName TypeVariableNamespace occurrence unique True
+
+errnoDataConName :: RName
+errnoDataConName =
+  preludeTermName "Errno" (-120050)
 
 usedClassInfos ::
   Map.Map RName ClassInfo ->
@@ -2201,6 +2246,189 @@ supportedPreludeValueOccurrences =
   , "maybeNew"
   , "maybeWith"
   , "maybePeek"
+  , "plusPtr"
+  , "minusPtr"
+  , "alignPtr"
+  , "malloc"
+  , "mallocBytes"
+  , "alloca"
+  , "allocaBytes"
+  , "realloc"
+  , "reallocBytes"
+  , "free"
+  , "finalizerFree"
+  , "advancePtr"
+  , "mallocArray"
+  , "mallocArray0"
+  , "allocaArray"
+  , "allocaArray0"
+  , "reallocArray"
+  , "reallocArray0"
+  , "peekArray"
+  , "peekArray0"
+  , "pokeArray"
+  , "pokeArray0"
+  , "newArray"
+  , "newArray0"
+  , "withArray"
+  , "withArray0"
+  , "withArrayLen"
+  , "withArrayLen0"
+  , "copyArray"
+  , "moveArray"
+  , "lengthArray0"
+  , "copyBytes"
+  , "moveBytes"
+  , "peekCString"
+  , "peekCStringLen"
+  , "newCString"
+  , "newCStringLen"
+  , "withCString"
+  , "withCStringLen"
+  , "peekCAString"
+  , "peekCAStringLen"
+  , "newCAString"
+  , "newCAStringLen"
+  , "withCAString"
+  , "withCAStringLen"
+  , "peekCWString"
+  , "peekCWStringLen"
+  , "newCWString"
+  , "newCWStringLen"
+  , "withCWString"
+  , "withCWStringLen"
+  , "charIsRepresentable"
+  , "castCharToCChar"
+  , "castCCharToChar"
+  , "castCharToCUChar"
+  , "castCUCharToChar"
+  , "castCharToCSChar"
+  , "castCSCharToChar"
+  , "eOK"
+  , "e2BIG"
+  , "eACCES"
+  , "eADDRINUSE"
+  , "eADDRNOTAVAIL"
+  , "eADV"
+  , "eAFNOSUPPORT"
+  , "eAGAIN"
+  , "eALREADY"
+  , "eBADF"
+  , "eBADMSG"
+  , "eBADRPC"
+  , "eBUSY"
+  , "eCHILD"
+  , "eCOMM"
+  , "eCONNABORTED"
+  , "eCONNREFUSED"
+  , "eCONNRESET"
+  , "eDEADLK"
+  , "eDESTADDRREQ"
+  , "eDIRTY"
+  , "eDOM"
+  , "eDQUOT"
+  , "eEXIST"
+  , "eFAULT"
+  , "eFBIG"
+  , "eFTYPE"
+  , "eHOSTDOWN"
+  , "eHOSTUNREACH"
+  , "eIDRM"
+  , "eILSEQ"
+  , "eINPROGRESS"
+  , "eINTR"
+  , "eINVAL"
+  , "eIO"
+  , "eISCONN"
+  , "eISDIR"
+  , "eLOOP"
+  , "eMFILE"
+  , "eMLINK"
+  , "eMSGSIZE"
+  , "eMULTIHOP"
+  , "eNAMETOOLONG"
+  , "eNETDOWN"
+  , "eNETRESET"
+  , "eNETUNREACH"
+  , "eNFILE"
+  , "eNOBUFS"
+  , "eNODATA"
+  , "eNODEV"
+  , "eNOENT"
+  , "eNOEXEC"
+  , "eNOLCK"
+  , "eNOLINK"
+  , "eNOMEM"
+  , "eNOMSG"
+  , "eNONET"
+  , "eNOPROTOOPT"
+  , "eNOSPC"
+  , "eNOSR"
+  , "eNOSTR"
+  , "eNOSYS"
+  , "eNOTBLK"
+  , "eNOTCONN"
+  , "eNOTDIR"
+  , "eNOTEMPTY"
+  , "eNOTSOCK"
+  , "eNOTTY"
+  , "eNXIO"
+  , "eOPNOTSUPP"
+  , "ePERM"
+  , "ePFNOSUPPORT"
+  , "ePIPE"
+  , "ePROCLIM"
+  , "ePROCUNAVAIL"
+  , "ePROGMISMATCH"
+  , "ePROGUNAVAIL"
+  , "ePROTO"
+  , "ePROTONOSUPPORT"
+  , "ePROTOTYPE"
+  , "eRANGE"
+  , "eREMCHG"
+  , "eREMOTE"
+  , "eROFS"
+  , "eRPCMISMATCH"
+  , "eRREMOTE"
+  , "eSHUTDOWN"
+  , "eSOCKTNOSUPPORT"
+  , "eSPIPE"
+  , "eSRCH"
+  , "eSRMNT"
+  , "eSTALE"
+  , "eTIME"
+  , "eTIMEDOUT"
+  , "eTOOMANYREFS"
+  , "eTXTBSY"
+  , "eUSERS"
+  , "eWOULDBLOCK"
+  , "eXDEV"
+  , "isValidErrno"
+  , "getErrno"
+  , "resetErrno"
+  , "errnoToIOError"
+  , "throwErrno"
+  , "throwErrnoIf"
+  , "throwErrnoIf_"
+  , "throwErrnoIfRetry"
+  , "throwErrnoIfRetry_"
+  , "throwErrnoIfMinus1"
+  , "throwErrnoIfMinus1_"
+  , "throwErrnoIfMinus1Retry"
+  , "throwErrnoIfMinus1Retry_"
+  , "throwErrnoIfNull"
+  , "throwErrnoIfNullRetry"
+  , "throwErrnoIfRetryMayBlock"
+  , "throwErrnoIfRetryMayBlock_"
+  , "throwErrnoIfMinus1RetryMayBlock"
+  , "throwErrnoIfMinus1RetryMayBlock_"
+  , "throwErrnoIfNullRetryMayBlock"
+  , "throwErrnoPath"
+  , "throwErrnoPathIf"
+  , "throwErrnoPathIf_"
+  , "throwErrnoPathIfNull"
+  , "throwErrnoPathIfMinus1"
+  , "throwErrnoPathIfMinus1_"
   , "return"
   , "fail"
   , ">>="
@@ -2244,6 +2472,121 @@ supportedPreludeValueOccurrences =
   , "divMod"
   , "toInteger"
   ]
+
+errnoConstantValues :: [(Text, Integer)]
+errnoConstantValues =
+  [ ("eOK", 0)
+  , ("e2BIG", 7)
+  , ("eACCES", 13)
+  , ("eADDRINUSE", 48)
+  , ("eADDRNOTAVAIL", 49)
+  , ("eADV", -1)
+  , ("eAFNOSUPPORT", 47)
+  , ("eAGAIN", 35)
+  , ("eALREADY", 37)
+  , ("eBADF", 9)
+  , ("eBADMSG", 94)
+  , ("eBADRPC", 72)
+  , ("eBUSY", 16)
+  , ("eCHILD", 10)
+  , ("eCOMM", -1)
+  , ("eCONNABORTED", 53)
+  , ("eCONNREFUSED", 61)
+  , ("eCONNRESET", 54)
+  , ("eDEADLK", 11)
+  , ("eDESTADDRREQ", 39)
+  , ("eDIRTY", -1)
+  , ("eDOM", 33)
+  , ("eDQUOT", 69)
+  , ("eEXIST", 17)
+  , ("eFAULT", 14)
+  , ("eFBIG", 27)
+  , ("eFTYPE", 79)
+  , ("eHOSTDOWN", 64)
+  , ("eHOSTUNREACH", 65)
+  , ("eIDRM", 90)
+  , ("eILSEQ", 92)
+  , ("eINPROGRESS", 36)
+  , ("eINTR", 4)
+  , ("eINVAL", 22)
+  , ("eIO", 5)
+  , ("eISCONN", 56)
+  , ("eISDIR", 21)
+  , ("eLOOP", 62)
+  , ("eMFILE", 24)
+  , ("eMLINK", 31)
+  , ("eMSGSIZE", 40)
+  , ("eMULTIHOP", 95)
+  , ("eNAMETOOLONG", 63)
+  , ("eNETDOWN", 50)
+  , ("eNETRESET", 52)
+  , ("eNETUNREACH", 51)
+  , ("eNFILE", 23)
+  , ("eNOBUFS", 55)
+  , ("eNODATA", 96)
+  , ("eNODEV", 19)
+  , ("eNOENT", 2)
+  , ("eNOEXEC", 8)
+  , ("eNOLCK", 77)
+  , ("eNOLINK", 97)
+  , ("eNOMEM", 12)
+  , ("eNOMSG", 91)
+  , ("eNONET", -1)
+  , ("eNOPROTOOPT", 42)
+  , ("eNOSPC", 28)
+  , ("eNOSR", 98)
+  , ("eNOSTR", 99)
+  , ("eNOSYS", 78)
+  , ("eNOTBLK", 15)
+  , ("eNOTCONN", 57)
+  , ("eNOTDIR", 20)
+  , ("eNOTEMPTY", 66)
+  , ("eNOTSOCK", 38)
+  , ("eNOTTY", 25)
+  , ("eNXIO", 6)
+  , ("eOPNOTSUPP", 102)
+  , ("ePERM", 1)
+  , ("ePFNOSUPPORT", 46)
+  , ("ePIPE", 32)
+  , ("ePROCLIM", 67)
+  , ("ePROCUNAVAIL", 76)
+  , ("ePROGMISMATCH", 75)
+  , ("ePROGUNAVAIL", 74)
+  , ("ePROTO", 100)
+  , ("ePROTONOSUPPORT", 43)
+  , ("ePROTOTYPE", 41)
+  , ("eRANGE", 34)
+  , ("eREMCHG", -1)
+  , ("eREMOTE", 71)
+  , ("eROFS", 30)
+  , ("eRPCMISMATCH", 73)
+  , ("eRREMOTE", -1)
+  , ("eSHUTDOWN", 58)
+  , ("eSOCKTNOSUPPORT", 44)
+  , ("eSPIPE", 29)
+  , ("eSRCH", 3)
+  , ("eSRMNT", -1)
+  , ("eSTALE", 70)
+  , ("eTIME", 101)
+  , ("eTIMEDOUT", 60)
+  , ("eTOOMANYREFS", 59)
+  , ("eTXTBSY", 26)
+  , ("eUSERS", 68)
+  , ("eWOULDBLOCK", 35)
+  , ("eXDEV", 18)
+  ]
+
+errnoConstantValue :: Text -> Maybe Integer
+errnoConstantValue occurrence =
+  lookup occurrence errnoConstantValues
+
+isErrnoConstantOccurrence :: Text -> Bool
+isErrnoConstantOccurrence occurrence =
+  maybe False (const True) (errnoConstantValue occurrence)
+
+validErrnoValues :: [Integer]
+validErrnoValues =
+  List.nub [value | (_, value) <- errnoConstantValues, value >= 0]
 
 inferBindingGroup :: TypeEnv -> [RDecl] -> InferM ([TypedBinding], TypeEnv)
 inferBindingGroup outerEnv decls = do
@@ -6043,6 +6386,7 @@ preludeConstructorInfo name
         "AbsoluteSeek" -> lookupBuiltin seekModeAbsoluteDataConName
         "RelativeSeek" -> lookupBuiltin seekModeRelativeDataConName
         "SeekFromEnd" -> lookupBuiltin seekModeFromEndDataConName
+        "Errno" -> lookupBuiltin errnoDataConName
         _ -> Nothing
  where
   lookupBuiltin coreName = (coreName,) <$> Map.lookup coreName builtinDataConstructors
@@ -6241,6 +6585,92 @@ preludeValueScheme name
             "maybeNew" -> Just (Scheme [a] [] (TyFun (TyFun aTy (ioMonoType ptrA)) (TyFun maybeA (ioMonoType ptrA))))
             "maybeWith" -> Just (Scheme [a, b, c] [] (TyFun (TyFun aTy (TyFun (TyFun ptrB (ioMonoType cTy)) (ioMonoType cTy))) (TyFun maybeA (TyFun (TyFun ptrB (ioMonoType cTy)) (ioMonoType cTy)))))
             "maybePeek" -> Just (Scheme [a, b] [] (TyFun (TyFun ptrA (ioMonoType bTy)) (TyFun ptrA (ioMonoType maybeB))))
+            "plusPtr" -> Just (Scheme [a, b] [] (TyFun ptrA (TyFun intMonoType ptrB)))
+            "minusPtr" -> Just (Scheme [a, b] [] (TyFun ptrA (TyFun ptrB intMonoType)))
+            "alignPtr" -> Just (Scheme [a] [] (TyFun ptrA (TyFun intMonoType ptrA)))
+            "malloc" -> Just (Scheme [a] [storableA] (ioMonoType ptrA))
+            "mallocBytes" -> Just (Scheme [a] [] (TyFun intMonoType (ioMonoType ptrA)))
+            "alloca" -> Just (Scheme [a, b] [storableA] (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy)))
+            "allocaBytes" -> Just (Scheme [a, b] [] (TyFun intMonoType (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy))))
+            "realloc" -> Just (Scheme [a, b] [storableB] (TyFun ptrA (ioMonoType ptrB)))
+            "reallocBytes" -> Just (Scheme [a] [] (TyFun ptrA (TyFun intMonoType (ioMonoType ptrA))))
+            "free" -> Just (Scheme [a] [] (TyFun ptrA ioUnit))
+            "finalizerFree" -> Just (Scheme [a] [] finalizerPtrA)
+            "advancePtr" -> Just (Scheme [a] [storableA] (TyFun ptrA (TyFun intMonoType ptrA)))
+            "mallocArray" -> Just (Scheme [a] [storableA] (TyFun intMonoType (ioMonoType ptrA)))
+            "mallocArray0" -> Just (Scheme [a] [storableA] (TyFun intMonoType (ioMonoType ptrA)))
+            "allocaArray" -> Just (Scheme [a, b] [storableA] (TyFun intMonoType (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy))))
+            "allocaArray0" -> Just (Scheme [a, b] [storableA] (TyFun intMonoType (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy))))
+            "reallocArray" -> Just (Scheme [a] [storableA] (TyFun ptrA (TyFun intMonoType (ioMonoType ptrA))))
+            "reallocArray0" -> Just (Scheme [a] [storableA] (TyFun ptrA (TyFun intMonoType (ioMonoType ptrA))))
+            "peekArray" -> Just (Scheme [a] [storableA] (TyFun intMonoType (TyFun ptrA (ioMonoType listA))))
+            "peekArray0" -> Just (Scheme [a] [storableA, eqA] (TyFun aTy (TyFun ptrA (ioMonoType listA))))
+            "pokeArray" -> Just (Scheme [a] [storableA] (TyFun ptrA (TyFun listA ioUnit)))
+            "pokeArray0" -> Just (Scheme [a] [storableA] (TyFun aTy (TyFun ptrA (TyFun listA ioUnit))))
+            "newArray" -> Just (Scheme [a] [storableA] (TyFun listA (ioMonoType ptrA)))
+            "newArray0" -> Just (Scheme [a] [storableA] (TyFun aTy (TyFun listA (ioMonoType ptrA))))
+            "withArray" -> Just (Scheme [a, b] [storableA] (TyFun listA (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy))))
+            "withArray0" -> Just (Scheme [a, b] [storableA] (TyFun aTy (TyFun listA (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy)))))
+            "withArrayLen" -> Just (Scheme [a, b] [storableA] (TyFun listA (TyFun (TyFun intMonoType (TyFun ptrA (ioMonoType bTy))) (ioMonoType bTy))))
+            "withArrayLen0" -> Just (Scheme [a, b] [storableA] (TyFun aTy (TyFun listA (TyFun (TyFun intMonoType (TyFun ptrA (ioMonoType bTy))) (ioMonoType bTy)))))
+            "copyArray" -> Just (Scheme [a] [storableA] (TyFun ptrA (TyFun ptrA (TyFun intMonoType ioUnit))))
+            "moveArray" -> Just (Scheme [a] [storableA] (TyFun ptrA (TyFun ptrA (TyFun intMonoType ioUnit))))
+            "lengthArray0" -> Just (Scheme [a] [storableA, eqA] (TyFun aTy (TyFun ptrA (ioMonoType intMonoType))))
+            "copyBytes" -> Just (Scheme [a, b] [] (TyFun ptrA (TyFun ptrB (TyFun intMonoType ioUnit))))
+            "moveBytes" -> Just (Scheme [a, b] [] (TyFun ptrA (TyFun ptrB (TyFun intMonoType ioUnit))))
+            "peekCString" -> Just (Scheme [] [] (TyFun cStringMonoType (ioMonoType stringMonoType)))
+            "peekCStringLen" -> Just (Scheme [] [] (TyFun cStringLenMonoType (ioMonoType stringMonoType)))
+            "newCString" -> Just (Scheme [] [] (TyFun stringMonoType (ioMonoType cStringMonoType)))
+            "newCStringLen" -> Just (Scheme [] [] (TyFun stringMonoType (ioMonoType cStringLenMonoType)))
+            "withCString" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (TyFun cStringMonoType (ioMonoType aTy)) (ioMonoType aTy))))
+            "withCStringLen" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (TyFun cStringLenMonoType (ioMonoType aTy)) (ioMonoType aTy))))
+            "peekCAString" -> Just (Scheme [] [] (TyFun cStringMonoType (ioMonoType stringMonoType)))
+            "peekCAStringLen" -> Just (Scheme [] [] (TyFun cStringLenMonoType (ioMonoType stringMonoType)))
+            "newCAString" -> Just (Scheme [] [] (TyFun stringMonoType (ioMonoType cStringMonoType)))
+            "newCAStringLen" -> Just (Scheme [] [] (TyFun stringMonoType (ioMonoType cStringLenMonoType)))
+            "withCAString" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (TyFun cStringMonoType (ioMonoType aTy)) (ioMonoType aTy))))
+            "withCAStringLen" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (TyFun cStringLenMonoType (ioMonoType aTy)) (ioMonoType aTy))))
+            "peekCWString" -> Just (Scheme [] [] (TyFun cWStringMonoType (ioMonoType stringMonoType)))
+            "peekCWStringLen" -> Just (Scheme [] [] (TyFun cWStringLenMonoType (ioMonoType stringMonoType)))
+            "newCWString" -> Just (Scheme [] [] (TyFun stringMonoType (ioMonoType cWStringMonoType)))
+            "newCWStringLen" -> Just (Scheme [] [] (TyFun stringMonoType (ioMonoType cWStringLenMonoType)))
+            "withCWString" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (TyFun cWStringMonoType (ioMonoType aTy)) (ioMonoType aTy))))
+            "withCWStringLen" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (TyFun cWStringLenMonoType (ioMonoType aTy)) (ioMonoType aTy))))
+            "charIsRepresentable" -> Just (Scheme [] [] (TyFun charMonoType (ioMonoType boolMonoType)))
+            "castCharToCChar" -> Just (Scheme [] [] (TyFun charMonoType cCharMonoType))
+            "castCCharToChar" -> Just (Scheme [] [] (TyFun cCharMonoType charMonoType))
+            "castCharToCUChar" -> Just (Scheme [] [] (TyFun charMonoType cUCharMonoType))
+            "castCUCharToChar" -> Just (Scheme [] [] (TyFun cUCharMonoType charMonoType))
+            "castCharToCSChar" -> Just (Scheme [] [] (TyFun charMonoType cCharMonoType))
+            "castCSCharToChar" -> Just (Scheme [] [] (TyFun cCharMonoType charMonoType))
+            "isValidErrno" -> Just (Scheme [] [] (TyFun errnoMonoType boolMonoType))
+            "getErrno" -> Just (Scheme [] [] (ioMonoType errnoMonoType))
+            "resetErrno" -> Just (Scheme [] [] ioUnit)
+            "errnoToIOError" -> Just (Scheme [] [] (TyFun stringMonoType (TyFun errnoMonoType (TyFun maybeHandle (TyFun maybeFilePath ioErrorMonoType)))))
+            "throwErrno" -> Just (Scheme [a] [] (TyFun stringMonoType (ioMonoType aTy)))
+            "throwErrnoIf" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun (ioMonoType aTy) (ioMonoType aTy)))))
+            "throwErrnoIf_" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun (ioMonoType aTy) ioUnit))))
+            "throwErrnoIfRetry" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun (ioMonoType aTy) (ioMonoType aTy)))))
+            "throwErrnoIfRetry_" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun (ioMonoType aTy) ioUnit))))
+            "throwErrnoIfMinus1" -> Just (Scheme [a] [numA, eqA] (TyFun stringMonoType (TyFun (ioMonoType aTy) (ioMonoType aTy))))
+            "throwErrnoIfMinus1_" -> Just (Scheme [a] [numA, eqA] (TyFun stringMonoType (TyFun (ioMonoType aTy) ioUnit)))
+            "throwErrnoIfMinus1Retry" -> Just (Scheme [a] [numA, eqA] (TyFun stringMonoType (TyFun (ioMonoType aTy) (ioMonoType aTy))))
+            "throwErrnoIfMinus1Retry_" -> Just (Scheme [a] [numA, eqA] (TyFun stringMonoType (TyFun (ioMonoType aTy) ioUnit)))
+            "throwErrnoIfNull" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (ioMonoType ptrA) (ioMonoType ptrA))))
+            "throwErrnoIfNullRetry" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (ioMonoType ptrA) (ioMonoType ptrA))))
+            "throwErrnoIfRetryMayBlock" -> Just (Scheme [a, b] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun (ioMonoType aTy) (TyFun (ioMonoType bTy) (ioMonoType aTy))))))
+            "throwErrnoIfRetryMayBlock_" -> Just (Scheme [a, b] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun (ioMonoType aTy) (TyFun (ioMonoType bTy) ioUnit)))))
+            "throwErrnoIfMinus1RetryMayBlock" -> Just (Scheme [a, b] [numA, eqA] (TyFun stringMonoType (TyFun (ioMonoType aTy) (TyFun (ioMonoType bTy) (ioMonoType aTy)))))
+            "throwErrnoIfMinus1RetryMayBlock_" -> Just (Scheme [a, b] [numA, eqA] (TyFun stringMonoType (TyFun (ioMonoType aTy) (TyFun (ioMonoType bTy) ioUnit))))
+            "throwErrnoIfNullRetryMayBlock" -> Just (Scheme [a, b] [] (TyFun stringMonoType (TyFun (ioMonoType ptrA) (TyFun (ioMonoType bTy) (ioMonoType ptrA)))))
+            "throwErrnoPath" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun stringMonoType (ioMonoType aTy))))
+            "throwErrnoPathIf" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun stringMonoType (TyFun (ioMonoType aTy) (ioMonoType aTy))))))
+            "throwErrnoPathIf_" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun stringMonoType (TyFun (ioMonoType aTy) ioUnit)))))
+            "throwErrnoPathIfNull" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun stringMonoType (TyFun (ioMonoType ptrA) (ioMonoType ptrA)))))
+            "throwErrnoPathIfMinus1" -> Just (Scheme [a] [numA, eqA] (TyFun stringMonoType (TyFun stringMonoType (TyFun (ioMonoType aTy) (ioMonoType aTy)))))
+            "throwErrnoPathIfMinus1_" -> Just (Scheme [a] [numA, eqA] (TyFun stringMonoType (TyFun stringMonoType (TyFun (ioMonoType aTy) ioUnit))))
+            occurrence
+              | isErrnoConstantOccurrence occurrence -> Just (Scheme [] [] errnoMonoType)
             _ -> Nothing
  where
   a = preludeTypeVariable "a" (-1201)
@@ -6280,6 +6710,18 @@ preludeValueScheme name
   fUnit = TyApp fTy unitMonoType
   monadConstraint = singleClassConstraint builtinMonadClassName mTy
   monadPlusConstraint = singleClassConstraint builtinMonadPlusClassName mTy
+  storableA = singleClassConstraint builtinStorableClassName aTy
+  storableB = singleClassConstraint builtinStorableClassName bTy
+  eqA = singleClassConstraint builtinEqClassName aTy
+  numA = singleClassConstraint builtinNumClassName aTy
+  cCharMonoType = builtinForeignTypeMonoType "CChar"
+  cUCharMonoType = builtinForeignTypeMonoType "CUChar"
+  cWCharMonoType = builtinForeignTypeMonoType "CWchar"
+  cStringMonoType = TyApp (TyCon ptrTyConName) cCharMonoType
+  cWStringMonoType = TyApp (TyCon ptrTyConName) cWCharMonoType
+  cStringLenMonoType = TyTuple [cStringMonoType, intMonoType]
+  cWStringLenMonoType = TyTuple [cWStringMonoType, intMonoType]
+  errnoMonoType = builtinForeignTypeMonoType "CInt"
   readSA = TyFun stringMonoType (TyList (TyTuple [aTy, stringMonoType]))
   readListSA = TyFun stringMonoType (TyList (TyTuple [listA, stringMonoType]))
   intReadS = TyFun stringMonoType (TyList (TyTuple [intMonoType, stringMonoType]))
@@ -7712,6 +8154,7 @@ builtinTypeConstructorMonoType name =
         "ForeignPtr" -> pure (TyCon foreignPtrTyConName)
         "FinalizerPtr" -> pure (TyCon name)
         "FinalizerEnvPtr" -> pure (TyCon name)
+        "Errno" -> pure (builtinForeignTypeMonoType "CInt")
         "CString" -> pure (TyApp (TyCon ptrTyConName) (builtinForeignTypeMonoType "CChar"))
         "CWString" -> pure (TyApp (TyCon ptrTyConName) (builtinForeignTypeMonoType "CWchar"))
         "CStringLen" -> pure (TyCon name)
@@ -7756,6 +8199,7 @@ builtinTypeConstructorInfo name
           "()" -> Just 0
           "FinalizerPtr" -> Just 1
           "FinalizerEnvPtr" -> Just 2
+          "Errno" -> Just 0
           "CString" -> Just 0
           "CWString" -> Just 0
           "CStringLen" -> Just 0
@@ -7841,6 +8285,12 @@ builtinTypeSynonymInfo name
               { typeSynonymParams = []
               , typeSynonymBody = RTyTuple [RTyCon (preludeTypeName "CWString" (-120012)), RTyCon (preludeTypeName "Int" (-120001))]
               }
+        "Errno" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = []
+              , typeSynonymBody = RTyCon (preludeTypeName "CInt" (-120041))
+              }
         "CString" ->
           Just
             TypeSynonymInfo
@@ -7917,7 +8367,36 @@ pointerForeignTypeOccurrences =
 
 builtinForeignTypeMonoType :: Text -> MonoType
 builtinForeignTypeMonoType occurrence =
-  TyCon (builtinForeignTypeName occurrence)
+  case foreignCTypeAlias occurrence of
+    Just ty -> ty
+    Nothing -> TyCon (builtinForeignTypeName occurrence)
+
+foreignCTypeAlias :: Text -> Maybe MonoType
+foreignCTypeAlias = \case
+  "CChar" -> Just (fixedIntegralMonoType FixedInt8)
+  "CSChar" -> Just (fixedIntegralMonoType FixedInt8)
+  "CUChar" -> Just (fixedIntegralMonoType FixedWord8)
+  "CShort" -> Just (fixedIntegralMonoType FixedInt16)
+  "CUShort" -> Just (fixedIntegralMonoType FixedWord16)
+  "CInt" -> Just (fixedIntegralMonoType FixedInt32)
+  "CUInt" -> Just (fixedIntegralMonoType FixedWord32)
+  "CLong" -> Just (fixedIntegralMonoType FixedInt64)
+  "CULong" -> Just (fixedIntegralMonoType FixedWord64)
+  "CLLong" -> Just (fixedIntegralMonoType FixedInt64)
+  "CULLong" -> Just (fixedIntegralMonoType FixedWord64)
+  "CFloat" -> Just floatMonoType
+  "CDouble" -> Just doubleMonoType
+  "CPtrdiff" -> Just (fixedIntegralMonoType FixedInt64)
+  "CSize" -> Just (fixedIntegralMonoType FixedWord64)
+  "CWchar" -> Just (fixedIntegralMonoType FixedInt32)
+  "CSigAtomic" -> Just (fixedIntegralMonoType FixedInt32)
+  "CIntPtr" -> Just (fixedIntegralMonoType FixedInt64)
+  "CUIntPtr" -> Just (fixedIntegralMonoType FixedWord64)
+  "CIntMax" -> Just (fixedIntegralMonoType FixedInt64)
+  "CUIntMax" -> Just (fixedIntegralMonoType FixedWord64)
+  "CClock" -> Just (fixedIntegralMonoType FixedInt64)
+  "CTime" -> Just (fixedIntegralMonoType FixedInt64)
+  _ -> Nothing
 
 builtinForeignTypeName :: Text -> RName
 builtinForeignTypeName occurrence =
@@ -8123,7 +8602,7 @@ preludeCoreBindings names =
       [] -> []
       _ -> [CoreRec pairs]
  where
-  expandedNames = List.nub (names <> concatMap preludeCoreDependencies names)
+  expandedNames = preludeCoreDependencyClosure names
   pairs =
     [ pair
     | name <- expandedNames
@@ -8141,10 +8620,31 @@ preludeCoreDependencies name =
     "readParen" -> readSupportPreludeNames
     "%" -> ratioSupportPreludeNames
     "approxRational" -> ratioSupportPreludeNames
+    "newArray" -> [standardLibraryTermName "pokeArray"]
+    "pokeArray0" -> [standardLibraryTermName "pokeArray"]
+    "newArray0" -> [standardLibraryTermName "pokeArray0"]
+    "withArray" -> [standardLibraryTermName "newArray"]
+    "withArray0" -> [standardLibraryTermName "newArray0"]
+    "withArrayLen" -> [standardLibraryTermName "withArray"]
+    "withArrayLen0" -> [standardLibraryTermName "withArray0"]
+    "throwErrnoIfRetry_" -> [standardLibraryTermName "throwErrnoIfRetry"]
+    "throwErrnoIfMinus1Retry_" -> [standardLibraryTermName "throwErrnoIfMinus1Retry"]
+    "throwErrnoIfRetryMayBlock_" -> [standardLibraryTermName "throwErrnoIfRetryMayBlock"]
+    "throwErrnoIfMinus1RetryMayBlock_" -> [standardLibraryTermName "throwErrnoIfMinus1RetryMayBlock"]
     occurrence
       | "$read_" `Text.isPrefixOf` occurrence -> []
       | "$ratio_" `Text.isPrefixOf` occurrence -> []
     _ -> []
+
+preludeCoreDependencyClosure :: [RName] -> [RName]
+preludeCoreDependencyClosure =
+  go []
+ where
+  go seen [] =
+    List.nub (reverse seen)
+  go seen (name : rest)
+    | name `elem` seen = go seen rest
+    | otherwise = go (name : seen) (preludeCoreDependencies name <> rest)
 
 classPreludeSupportNames :: Map.Map RName ClassInfo -> [RName]
 classPreludeSupportNames classes =
@@ -8494,6 +8994,177 @@ preludeCorePair name =
       Just (binderFor name maybeWithTy, maybeWithRhs)
     "maybePeek" ->
       Just (binderFor name maybePeekTy, maybePeekRhs)
+    "plusPtr" ->
+      Just (binderFor name plusPtrTy, CTypeLam [a, b] (lam ptrPlusValue ptrA (lam ptrPlusOffset intTy (CPrimOp PrimPtrPlus [var ptrPlusValue ptrA, var ptrPlusOffset intTy] ptrB))) plusPtrTy)
+    "minusPtr" ->
+      Just (binderFor name minusPtrTy, CTypeLam [a, b] (lam ptrMinusLeft ptrA (lam ptrMinusRight ptrB (CPrimOp PrimPtrMinus [var ptrMinusLeft ptrA, var ptrMinusRight ptrB] intTy))) minusPtrTy)
+    "alignPtr" ->
+      Just (binderFor name alignPtrTy, CTypeLam [a] (lam ptrAlignValue ptrA (lam ptrAlignOffset intTy (CPrimOp PrimPtrAlign [var ptrAlignValue ptrA, var ptrAlignOffset intTy] ptrA))) alignPtrTy)
+    "malloc" ->
+      Just (binderFor name mallocTy, mallocRhs)
+    "mallocBytes" ->
+      Just (binderFor name mallocBytesTy, CTypeLam [a] (lam mallocBytesSize intTy (CPrimOp PrimMallocBytes [var mallocBytesSize intTy] (ioTy ptrA))) mallocBytesTy)
+    "alloca" ->
+      Just (binderFor name allocaTy, allocaRhs)
+    "allocaBytes" ->
+      Just (binderFor name allocaBytesTy, allocaBytesRhs)
+    "realloc" ->
+      Just (binderFor name reallocTy, reallocRhs)
+    "reallocBytes" ->
+      Just (binderFor name reallocBytesTy, CTypeLam [a] (lam reallocBytesPointer ptrA (lam reallocBytesSize intTy (CPrimOp PrimReallocBytes [var reallocBytesPointer ptrA, var reallocBytesSize intTy] (ioTy ptrA)))) reallocBytesTy)
+    "free" ->
+      Just (binderFor name freeTy, CTypeLam [a] (lam freePointer ptrA (CPrimOp PrimFree [var freePointer ptrA] ioUnitTy)) freeTy)
+    "finalizerFree" ->
+      Just (binderFor name finalizerFreeTy, CTypeLam [a] (CPrimOp PrimFinalizerFree [] finalizerPtrA) finalizerFreeTy)
+    "advancePtr" ->
+      Just (binderFor name advancePtrTy, advancePtrRhs)
+    "mallocArray" ->
+      Just (binderFor name mallocArrayTy, mallocArrayRhs 0)
+    "mallocArray0" ->
+      Just (binderFor name mallocArrayTy, mallocArrayRhs 1)
+    "allocaArray" ->
+      Just (binderFor name allocaArrayTy, allocaArrayRhs 0)
+    "allocaArray0" ->
+      Just (binderFor name allocaArrayTy, allocaArrayRhs 1)
+    "reallocArray" ->
+      Just (binderFor name reallocArrayTy, reallocArrayRhs 0)
+    "reallocArray0" ->
+      Just (binderFor name reallocArrayTy, reallocArrayRhs 1)
+    "peekArray" ->
+      Just (binderFor name peekArrayTy, peekArrayRhs name)
+    "peekArray0" ->
+      Just (binderFor name peekArray0Ty, peekArray0Rhs name)
+    "pokeArray" ->
+      Just (binderFor name pokeArrayTy, pokeArrayRhs name)
+    "pokeArray0" ->
+      Just (binderFor name pokeArray0Ty, pokeArray0Rhs)
+    "newArray" ->
+      Just (binderFor name newArrayTy, newArrayRhs)
+    "newArray0" ->
+      Just (binderFor name newArray0Ty, newArray0Rhs)
+    "withArray" ->
+      Just (binderFor name withArrayTy, withArrayRhs)
+    "withArray0" ->
+      Just (binderFor name withArray0Ty, withArray0Rhs)
+    "withArrayLen" ->
+      Just (binderFor name withArrayLenTy, withArrayLenRhs)
+    "withArrayLen0" ->
+      Just (binderFor name withArrayLen0Ty, withArrayLen0Rhs)
+    "copyArray" ->
+      Just (binderFor name copyArrayTy, copyArrayRhs PrimCopyBytes)
+    "moveArray" ->
+      Just (binderFor name copyArrayTy, copyArrayRhs PrimMoveBytes)
+    "lengthArray0" ->
+      Just (binderFor name lengthArray0Ty, lengthArray0Rhs name)
+    "copyBytes" ->
+      Just (binderFor name copyBytesTy, CTypeLam [a, b] (lam copyDest ptrA (lam copySource ptrB (lam copyCount intTy (CPrimOp PrimCopyBytes [var copyDest ptrA, var copySource ptrB, var copyCount intTy] ioUnitTy)))) copyBytesTy)
+    "moveBytes" ->
+      Just (binderFor name copyBytesTy, CTypeLam [a, b] (lam copyDest ptrA (lam copySource ptrB (lam copyCount intTy (CPrimOp PrimMoveBytes [var copyDest ptrA, var copySource ptrB, var copyCount intTy] ioUnitTy)))) copyBytesTy)
+    "peekCString" ->
+      Just (binderFor name peekCStringTy, lam cStringPointer cStringTy (CPrimOp PrimPeekCString [var cStringPointer cStringTy] (ioTy stringTy)))
+    "peekCStringLen" ->
+      Just (binderFor name peekCStringLenTy, peekCStringLenRhs PrimPeekCStringLen cStringTy)
+    "newCString" ->
+      Just (binderFor name newCStringTy, lam cStringSource stringTy (CPrimOp PrimNewCString [var cStringSource stringTy] (ioTy cStringTy)))
+    "newCStringLen" ->
+      Just (binderFor name newCStringLenTy, newCStringLenRhs PrimNewCString cStringTy cStringLenTy)
+    "withCString" ->
+      Just (binderFor name withCStringTy, withCStringRhs cStringTy)
+    "withCStringLen" ->
+      Just (binderFor name withCStringLenTy, withCStringLenRhs cStringLenTy cStringTy)
+    "peekCAString" ->
+      Just (binderFor name peekCStringTy, lam cStringPointer cStringTy (CPrimOp PrimPeekCString [var cStringPointer cStringTy] (ioTy stringTy)))
+    "peekCAStringLen" ->
+      Just (binderFor name peekCStringLenTy, peekCStringLenRhs PrimPeekCStringLen cStringTy)
+    "newCAString" ->
+      Just (binderFor name newCStringTy, lam cStringSource stringTy (CPrimOp PrimNewCString [var cStringSource stringTy] (ioTy cStringTy)))
+    "newCAStringLen" ->
+      Just (binderFor name newCStringLenTy, newCStringLenRhs PrimNewCString cStringTy cStringLenTy)
+    "withCAString" ->
+      Just (binderFor name withCStringTy, withCStringRhs cStringTy)
+    "withCAStringLen" ->
+      Just (binderFor name withCStringLenTy, withCStringLenRhs cStringLenTy cStringTy)
+    "peekCWString" ->
+      Just (binderFor name peekCWStringTy, lam cWStringPointer cWStringTy (CPrimOp PrimPeekCWString [var cWStringPointer cWStringTy] (ioTy stringTy)))
+    "peekCWStringLen" ->
+      Just (binderFor name peekCWStringLenTy, peekCStringLenRhs PrimPeekCWStringLen cWStringTy)
+    "newCWString" ->
+      Just (binderFor name newCWStringTy, lam cStringSource stringTy (CPrimOp PrimNewCWString [var cStringSource stringTy] (ioTy cWStringTy)))
+    "newCWStringLen" ->
+      Just (binderFor name newCWStringLenTy, newCStringLenRhs PrimNewCWString cWStringTy cWStringLenTy)
+    "withCWString" ->
+      Just (binderFor name withCWStringTy, withCStringRhs cWStringTy)
+    "withCWStringLen" ->
+      Just (binderFor name withCWStringLenTy, withCStringLenRhs cWStringLenTy cWStringTy)
+    "charIsRepresentable" ->
+      Just (binderFor name charIsRepresentableTy, lam cStringChar charTy (ioReturn boolTy (CCon trueDataConName boolTy)))
+    "castCharToCChar" ->
+      Just (binderFor name castCharToCCharTy, lam cStringChar charTy (CPrimOp (PrimFixedIntegral FixedInt8 FixedFromInteger) [CPrimOp PrimCharToInt [var cStringChar charTy] intTy] cCharTy))
+    "castCCharToChar" ->
+      Just (binderFor name castCCharToCharTy, lam cStringCChar cCharTy (CPrimOp PrimIntToChar [CPrimOp (PrimFixedIntegral FixedInt8 FixedToInteger) [var cStringCChar cCharTy] intTy] charTy))
+    "castCharToCUChar" ->
+      Just (binderFor name castCharToCUCharTy, lam cStringChar charTy (CPrimOp (PrimFixedIntegral FixedWord8 FixedFromInteger) [CPrimOp PrimCharToInt [var cStringChar charTy] intTy] cUCharTy))
+    "castCUCharToChar" ->
+      Just (binderFor name castCUCharToCharTy, lam cStringCUChar cUCharTy (CPrimOp PrimIntToChar [CPrimOp (PrimFixedIntegral FixedWord8 FixedToInteger) [var cStringCUChar cUCharTy] intTy] charTy))
+    "castCharToCSChar" ->
+      Just (binderFor name castCharToCCharTy, lam cStringChar charTy (CPrimOp (PrimFixedIntegral FixedInt8 FixedFromInteger) [CPrimOp PrimCharToInt [var cStringChar charTy] intTy] cCharTy))
+    "castCSCharToChar" ->
+      Just (binderFor name castCCharToCharTy, lam cStringCChar cCharTy (CPrimOp PrimIntToChar [CPrimOp (PrimFixedIntegral FixedInt8 FixedToInteger) [var cStringCChar cCharTy] intTy] charTy))
+    "getErrno" ->
+      Just (binderFor name getErrnoTy, CPrimOp PrimGetErrno [] getErrnoTy)
+    "resetErrno" ->
+      Just (binderFor name resetErrnoTy, CPrimOp PrimResetErrno [] resetErrnoTy)
+    "isValidErrno" ->
+      Just (binderFor name isValidErrnoTy, isValidErrnoRhs)
+    "errnoToIOError" ->
+      Just (binderFor name errnoToIOErrorTy, errnoToIOErrorRhs)
+    "throwErrno" ->
+      Just (binderFor name throwErrnoTy, throwErrnoRhs)
+    "throwErrnoIf" ->
+      Just (binderFor name throwErrnoIfTy, throwErrnoIfRhs)
+    "throwErrnoIf_" ->
+      Just (binderFor name throwErrnoIfUnitTy, throwErrnoIfUnitRhs)
+    "throwErrnoIfRetry" ->
+      Just (binderFor name throwErrnoIfRetryTy, throwErrnoIfRetryRhs name)
+    "throwErrnoIfRetry_" ->
+      Just (binderFor name throwErrnoIfRetryUnitTy, throwErrnoIfRetryUnitRhs name)
+    "throwErrnoIfMinus1" ->
+      Just (binderFor name throwErrnoIfMinus1Ty, throwErrnoIfMinus1Rhs)
+    "throwErrnoIfMinus1_" ->
+      Just (binderFor name throwErrnoIfMinus1UnitTy, throwErrnoIfMinus1UnitRhs)
+    "throwErrnoIfMinus1Retry" ->
+      Just (binderFor name throwErrnoIfMinus1RetryTy, throwErrnoIfMinus1RetryRhs name)
+    "throwErrnoIfMinus1Retry_" ->
+      Just (binderFor name throwErrnoIfMinus1RetryUnitTy, throwErrnoIfMinus1RetryUnitRhs name)
+    "throwErrnoIfNull" ->
+      Just (binderFor name throwErrnoIfNullTy, throwErrnoIfNullRhs)
+    "throwErrnoIfNullRetry" ->
+      Just (binderFor name throwErrnoIfNullRetryTy, throwErrnoIfNullRetryRhs name)
+    "throwErrnoIfRetryMayBlock" ->
+      Just (binderFor name throwErrnoIfRetryMayBlockTy, throwErrnoIfRetryMayBlockRhs name)
+    "throwErrnoIfRetryMayBlock_" ->
+      Just (binderFor name throwErrnoIfRetryMayBlockUnitTy, throwErrnoIfRetryMayBlockUnitRhs name)
+    "throwErrnoIfMinus1RetryMayBlock" ->
+      Just (binderFor name throwErrnoIfMinus1RetryMayBlockTy, throwErrnoIfMinus1RetryMayBlockRhs name)
+    "throwErrnoIfMinus1RetryMayBlock_" ->
+      Just (binderFor name throwErrnoIfMinus1RetryMayBlockUnitTy, throwErrnoIfMinus1RetryMayBlockUnitRhs name)
+    "throwErrnoIfNullRetryMayBlock" ->
+      Just (binderFor name throwErrnoIfNullRetryMayBlockTy, throwErrnoIfNullRetryMayBlockRhs name)
+    "throwErrnoPath" ->
+      Just (binderFor name throwErrnoPathTy, throwErrnoPathRhs)
+    "throwErrnoPathIf" ->
+      Just (binderFor name throwErrnoPathIfTy, throwErrnoPathIfRhs)
+    "throwErrnoPathIf_" ->
+      Just (binderFor name throwErrnoPathIfUnitTy, throwErrnoPathIfUnitRhs)
+    "throwErrnoPathIfNull" ->
+      Just (binderFor name throwErrnoPathIfNullTy, throwErrnoPathIfNullRhs)
+    "throwErrnoPathIfMinus1" ->
+      Just (binderFor name throwErrnoPathIfMinus1Ty, throwErrnoPathIfMinus1Rhs)
+    "throwErrnoPathIfMinus1_" ->
+      Just (binderFor name throwErrnoPathIfMinus1UnitTy, throwErrnoPathIfMinus1UnitRhs)
+    occurrence
+      | Just value <- errnoConstantValue occurrence ->
+          Just (binderFor name errnoTy, errnoLiteral value)
     _ -> controlMonadCorePair name <|> readPreludeCorePair name <|> ratioPreludeCorePair name <|> arithmeticSequenceCorePair name
  where
   a = preludeTypeVariable "a" (-1201)
@@ -8641,6 +9312,89 @@ preludeCorePair name =
   maybeNewTy = CTyForall [a] (CTyFun (CTyFun aTy (ioTy ptrA)) (CTyFun maybeA (ioTy ptrA)))
   maybeWithTy = CTyForall [a, b, c] (CTyFun (CTyFun aTy (CTyFun (CTyFun ptrB (ioTy cTy)) (ioTy cTy))) (CTyFun maybeA (CTyFun (CTyFun ptrB (ioTy cTy)) (ioTy cTy))))
   maybePeekTy = CTyForall [a, b] (CTyFun (CTyFun ptrA (ioTy bTy)) (CTyFun ptrA (ioTy maybeB)))
+  storableDictA = CTyApp (CTyCon (classDictionaryTypeName builtinStorableClassName)) aTy
+  storableDictB = CTyApp (CTyCon (classDictionaryTypeName builtinStorableClassName)) bTy
+  eqDictA = CTyApp (CTyCon (classDictionaryTypeName builtinEqClassName)) aTy
+  numDictA = CTyApp (CTyCon (classDictionaryTypeName builtinNumClassName)) aTy
+  cCharTy = fixedIntegralTy FixedInt8
+  cUCharTy = fixedIntegralTy FixedWord8
+  cWCharTy = fixedIntegralTy FixedInt32
+  cStringTy = ptrTy cCharTy
+  cWStringTy = ptrTy cWCharTy
+  cStringLenTy = CTyTuple [cStringTy, intTy]
+  cWStringLenTy = CTyTuple [cWStringTy, intTy]
+  errnoTy = fixedIntegralTy FixedInt32
+  plusPtrTy = CTyForall [a, b] (CTyFun ptrA (CTyFun intTy ptrB))
+  minusPtrTy = CTyForall [a, b] (CTyFun ptrA (CTyFun ptrB intTy))
+  alignPtrTy = CTyForall [a] (CTyFun ptrA (CTyFun intTy ptrA))
+  mallocTy = CTyForall [a] (CTyFun storableDictA (ioTy ptrA))
+  mallocBytesTy = CTyForall [a] (CTyFun intTy (ioTy ptrA))
+  allocaTy = CTyForall [a, b] (CTyFun storableDictA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))
+  allocaBytesTy = CTyForall [a, b] (CTyFun intTy (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))
+  reallocTy = CTyForall [a, b] (CTyFun storableDictB (CTyFun ptrA (ioTy ptrB)))
+  reallocBytesTy = CTyForall [a] (CTyFun ptrA (CTyFun intTy (ioTy ptrA)))
+  freeTy = CTyForall [a] (CTyFun ptrA ioUnitTy)
+  finalizerFreeTy = CTyForall [a] finalizerPtrA
+  advancePtrTy = CTyForall [a] (CTyFun storableDictA (CTyFun ptrA (CTyFun intTy ptrA)))
+  mallocArrayTy = CTyForall [a] (CTyFun storableDictA (CTyFun intTy (ioTy ptrA)))
+  allocaArrayTy = CTyForall [a, b] (CTyFun storableDictA (CTyFun intTy (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy))))
+  reallocArrayTy = CTyForall [a] (CTyFun storableDictA (CTyFun ptrA (CTyFun intTy (ioTy ptrA))))
+  peekArrayTy = CTyForall [a] (CTyFun storableDictA (CTyFun intTy (CTyFun ptrA (ioTy listA))))
+  peekArray0Ty = CTyForall [a] (CTyFun storableDictA (CTyFun eqDictA (CTyFun aTy (CTyFun ptrA (ioTy listA)))))
+  pokeArrayTy = CTyForall [a] (CTyFun storableDictA (CTyFun ptrA (CTyFun listA ioUnitTy)))
+  pokeArray0Ty = CTyForall [a] (CTyFun storableDictA (CTyFun aTy (CTyFun ptrA (CTyFun listA ioUnitTy))))
+  newArrayTy = CTyForall [a] (CTyFun storableDictA (CTyFun listA (ioTy ptrA)))
+  newArray0Ty = CTyForall [a] (CTyFun storableDictA (CTyFun aTy (CTyFun listA (ioTy ptrA))))
+  withArrayTy = CTyForall [a, b] (CTyFun storableDictA (CTyFun listA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy))))
+  withArray0Ty = CTyForall [a, b] (CTyFun storableDictA (CTyFun aTy (CTyFun listA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))))
+  withArrayLenTy = CTyForall [a, b] (CTyFun storableDictA (CTyFun listA (CTyFun (CTyFun intTy (CTyFun ptrA (ioTy bTy))) (ioTy bTy))))
+  withArrayLen0Ty = CTyForall [a, b] (CTyFun storableDictA (CTyFun aTy (CTyFun listA (CTyFun (CTyFun intTy (CTyFun ptrA (ioTy bTy))) (ioTy bTy)))))
+  copyArrayTy = CTyForall [a] (CTyFun storableDictA (CTyFun ptrA (CTyFun ptrA (CTyFun intTy ioUnitTy))))
+  lengthArray0Ty = CTyForall [a] (CTyFun storableDictA (CTyFun eqDictA (CTyFun aTy (CTyFun ptrA (ioTy intTy)))))
+  copyBytesTy = CTyForall [a, b] (CTyFun ptrA (CTyFun ptrB (CTyFun intTy ioUnitTy)))
+  peekCStringTy = CTyFun cStringTy (ioTy stringTy)
+  peekCStringLenTy = CTyFun cStringLenTy (ioTy stringTy)
+  newCStringTy = CTyFun stringTy (ioTy cStringTy)
+  newCStringLenTy = CTyFun stringTy (ioTy cStringLenTy)
+  withCStringTy = CTyForall [a] (CTyFun stringTy (CTyFun (CTyFun cStringTy (ioTy aTy)) (ioTy aTy)))
+  withCStringLenTy = CTyForall [a] (CTyFun stringTy (CTyFun (CTyFun cStringLenTy (ioTy aTy)) (ioTy aTy)))
+  peekCWStringTy = CTyFun cWStringTy (ioTy stringTy)
+  peekCWStringLenTy = CTyFun cWStringLenTy (ioTy stringTy)
+  newCWStringTy = CTyFun stringTy (ioTy cWStringTy)
+  newCWStringLenTy = CTyFun stringTy (ioTy cWStringLenTy)
+  withCWStringTy = CTyForall [a] (CTyFun stringTy (CTyFun (CTyFun cWStringTy (ioTy aTy)) (ioTy aTy)))
+  withCWStringLenTy = CTyForall [a] (CTyFun stringTy (CTyFun (CTyFun cWStringLenTy (ioTy aTy)) (ioTy aTy)))
+  charIsRepresentableTy = CTyFun charTy (ioTy boolTy)
+  castCharToCCharTy = CTyFun charTy cCharTy
+  castCCharToCharTy = CTyFun cCharTy charTy
+  castCharToCUCharTy = CTyFun charTy cUCharTy
+  castCUCharToCharTy = CTyFun cUCharTy charTy
+  getErrnoTy = ioTy errnoTy
+  resetErrnoTy = ioUnitTy
+  isValidErrnoTy = CTyFun errnoTy boolTy
+  errnoToIOErrorTy = CTyFun stringTy (CTyFun errnoTy (CTyFun maybeHandleTy (CTyFun maybeFilePathTy ioErrorTy)))
+  throwErrnoTy = CTyForall [a] (CTyFun stringTy (ioTy aTy))
+  throwErrnoIfTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun stringTy (CTyFun (ioTy aTy) (ioTy aTy))))
+  throwErrnoIfUnitTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun stringTy (CTyFun (ioTy aTy) ioUnitTy)))
+  throwErrnoIfRetryTy = throwErrnoIfTy
+  throwErrnoIfRetryUnitTy = throwErrnoIfUnitTy
+  throwErrnoIfMinus1Ty = CTyForall [a] (CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun (ioTy aTy) (ioTy aTy)))))
+  throwErrnoIfMinus1UnitTy = CTyForall [a] (CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun (ioTy aTy) ioUnitTy))))
+  throwErrnoIfMinus1RetryTy = throwErrnoIfMinus1Ty
+  throwErrnoIfMinus1RetryUnitTy = throwErrnoIfMinus1UnitTy
+  throwErrnoIfNullTy = CTyForall [a] (CTyFun stringTy (CTyFun (ioTy ptrA) (ioTy ptrA)))
+  throwErrnoIfNullRetryTy = throwErrnoIfNullTy
+  throwErrnoIfRetryMayBlockTy = CTyForall [a, b] (CTyFun (CTyFun aTy boolTy) (CTyFun stringTy (CTyFun (ioTy aTy) (CTyFun (ioTy bTy) (ioTy aTy)))))
+  throwErrnoIfRetryMayBlockUnitTy = CTyForall [a, b] (CTyFun (CTyFun aTy boolTy) (CTyFun stringTy (CTyFun (ioTy aTy) (CTyFun (ioTy bTy) ioUnitTy))))
+  throwErrnoIfMinus1RetryMayBlockTy = CTyForall [a, b] (CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun (ioTy aTy) (CTyFun (ioTy bTy) (ioTy aTy))))))
+  throwErrnoIfMinus1RetryMayBlockUnitTy = CTyForall [a, b] (CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun (ioTy aTy) (CTyFun (ioTy bTy) ioUnitTy)))))
+  throwErrnoIfNullRetryMayBlockTy = CTyForall [a, b] (CTyFun stringTy (CTyFun (ioTy ptrA) (CTyFun (ioTy bTy) (ioTy ptrA))))
+  throwErrnoPathTy = CTyForall [a] (CTyFun stringTy (CTyFun stringTy (ioTy aTy)))
+  throwErrnoPathIfTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun stringTy (CTyFun stringTy (CTyFun (ioTy aTy) (ioTy aTy)))))
+  throwErrnoPathIfUnitTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun stringTy (CTyFun stringTy (CTyFun (ioTy aTy) ioUnitTy))))
+  throwErrnoPathIfNullTy = CTyForall [a] (CTyFun stringTy (CTyFun stringTy (CTyFun (ioTy ptrA) (ioTy ptrA))))
+  throwErrnoPathIfMinus1Ty = CTyForall [a] (CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun stringTy (CTyFun (ioTy aTy) (ioTy aTy))))))
+  throwErrnoPathIfMinus1UnitTy = CTyForall [a] (CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun stringTy (CTyFun (ioTy aTy) ioUnitTy)))))
 
   idX = preludeTermName "$id_x" (-3001)
   constX = preludeTermName "$const_x" (-3002)
@@ -8803,6 +9557,65 @@ preludeCorePair name =
   maybePeekPointer = preludeTermName "$maybe_peek_pointer" (-3540)
   maybePeekCase = preludeTermName "$maybe_peek_case" (-3541)
   maybePeekValue = preludeTermName "$maybe_peek_value" (-3542)
+  ptrPlusValue = preludeTermName "$ptr_plus_value" (-3550)
+  ptrPlusOffset = preludeTermName "$ptr_plus_offset" (-3551)
+  ptrMinusLeft = preludeTermName "$ptr_minus_left" (-3552)
+  ptrMinusRight = preludeTermName "$ptr_minus_right" (-3553)
+  ptrAlignValue = preludeTermName "$ptr_align_value" (-3554)
+  ptrAlignOffset = preludeTermName "$ptr_align_offset" (-3555)
+  mallocDict = preludeTermName "$malloc_dict" (-3560)
+  mallocBytesSize = preludeTermName "$malloc_bytes_size" (-3561)
+  allocaDict = preludeTermName "$alloca_dict" (-3562)
+  allocaContinuation = preludeTermName "$alloca_continuation" (-3563)
+  allocaBytesSize = preludeTermName "$alloca_bytes_size" (-3564)
+  allocaBytesContinuation = preludeTermName "$alloca_bytes_continuation" (-3565)
+  allocaBytesPointer = preludeTermName "$alloca_bytes_pointer" (-3566)
+  allocaBytesResult = preludeTermName "$alloca_bytes_result" (-3567)
+  allocaBytesError = preludeTermName "$alloca_bytes_error" (-3568)
+  reallocDict = preludeTermName "$realloc_dict" (-3569)
+  reallocPointer = preludeTermName "$realloc_pointer" (-3570)
+  reallocBytesPointer = preludeTermName "$realloc_bytes_pointer" (-3571)
+  reallocBytesSize = preludeTermName "$realloc_bytes_size" (-3572)
+  freePointer = preludeTermName "$free_pointer" (-3573)
+  arrayDict = preludeTermName "$array_dict" (-3580)
+  arrayCount = preludeTermName "$array_count" (-3581)
+  arrayPointer = preludeTermName "$array_pointer" (-3582)
+  arrayValues = preludeTermName "$array_values" (-3584)
+  arrayValue = preludeTermName "$array_value" (-3585)
+  arrayRest = preludeTermName "$array_rest" (-3586)
+  arrayCase = preludeTermName "$array_case" (-3587)
+  arrayTail = preludeTermName "$array_tail" (-3588)
+  arrayContinuation = preludeTermName "$array_continuation" (-3589)
+  arrayEqDict = preludeTermName "$array_eq_dict" (-3621)
+  arrayMarker = preludeTermName "$array_marker" (-3622)
+  arrayLength = preludeTermName "$array_length" (-3623)
+  copyDest = preludeTermName "$copy_dest" (-3591)
+  copySource = preludeTermName "$copy_source" (-3592)
+  copyCount = preludeTermName "$copy_count" (-3593)
+  cStringPointer = preludeTermName "$cstring_pointer" (-3594)
+  cWStringPointer = preludeTermName "$cwstring_pointer" (-3595)
+  cStringLength = preludeTermName "$cstring_length" (-3596)
+  cStringSource = preludeTermName "$cstring_source" (-3597)
+  cStringPair = preludeTermName "$cstring_pair" (-3598)
+  cStringContinuation = preludeTermName "$cstring_continuation" (-3599)
+  cStringChar = preludeTermName "$cstring_char" (-3601)
+  cStringCChar = preludeTermName "$cstring_cchar" (-3602)
+  cStringCUChar = preludeTermName "$cstring_cuchar" (-3603)
+  errnoValue = preludeTermName "$errno_value" (-3610)
+  errnoLocation = preludeTermName "$errno_location" (-3611)
+  errnoHandle = preludeTermName "$errno_handle" (-3612)
+  errnoFile = preludeTermName "$errno_file" (-3613)
+  throwErrnoLocation = preludeTermName "$throw_errno_location" (-3614)
+  throwErrnoPredicate = preludeTermName "$throw_errno_predicate" (-3615)
+  throwErrnoAction = preludeTermName "$throw_errno_action" (-3616)
+  throwErrnoResult = preludeTermName "$throw_errno_result" (-3617)
+  throwErrnoCase = preludeTermName "$throw_errno_case" (-3618)
+  throwErrnoDictNum = preludeTermName "$throw_errno_num_dict" (-3619)
+  throwErrnoDictEq = preludeTermName "$throw_errno_eq_dict" (-3620)
+  throwErrnoPathName = preludeTermName "$throw_errno_path" (-3624)
+  throwErrnoBlockAction = preludeTermName "$throw_errno_block_action" (-3625)
+  throwErrnoRetryCase = preludeTermName "$throw_errno_retry_case" (-3627)
+  throwErrnoWouldBlockCase = preludeTermName "$throw_errno_would_block_case" (-3628)
 
   binderFor binderName ty = CoreBinder binderName ty
   lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
@@ -9422,6 +10235,1003 @@ preludeCorePair name =
             ]
             (ioTy maybeB)
         )
+
+  storableClassA = preludeTypeVariable "a" (-1572)
+  storableClassATy = CTyVar storableClassA
+  storableClassDictA = CTyApp (CTyCon (classDictionaryTypeName builtinStorableClassName)) storableClassATy
+  storableClassPtrA = ptrTy storableClassATy
+  sizeOfSelectorTy = CTyForall [storableClassA] (CTyFun storableClassDictA (CTyFun storableClassATy intTy))
+  peekSelectorTy = CTyForall [storableClassA] (CTyFun storableClassDictA (CTyFun storableClassPtrA (ioTy storableClassATy)))
+  pokeSelectorTy = CTyForall [storableClassA] (CTyFun storableClassDictA (CTyFun storableClassPtrA (CTyFun storableClassATy ioUnitTy)))
+  sizeOfSelector = preludeTermName "sizeOf" (-1497)
+  storableSizeA =
+    storableSizeExpr a aTy storableDictA (var mallocDict storableDictA)
+  storableSizeExpr typeVar valueTy dictTy dictExpr =
+    CLet
+      (CoreRec [(CoreBinder storableDummy valueTy, var storableDummy valueTy)])
+      ( apply
+          ( apply
+              (specialize sizeOfSelector sizeOfSelectorTy [valueTy] (CTyFun dictTy (CTyFun valueTy intTy)))
+              dictExpr
+              (CTyFun valueTy intTy)
+          )
+          (var storableDummy valueTy)
+          intTy
+      )
+      intTy
+   where
+    storableDummy = RName TermNamespace ("$storable_dummy_" <> renderRName typeVar) (-6732 - nameUnique typeVar) False
+
+  mallocRhs =
+    CTypeLam [a] (lam mallocDict storableDictA (CPrimOp PrimMallocBytes [storableSizeA] (ioTy ptrA))) mallocTy
+
+  allocaRhs =
+    CTypeLam [a, b] (lam allocaDict storableDictA (lam allocaContinuation (CTyFun ptrA (ioTy bTy)) (allocaBytesBody ptrA bTy (storableSizeExpr a aTy storableDictA (var allocaDict storableDictA)) (var allocaContinuation (CTyFun ptrA (ioTy bTy)))))) allocaTy
+
+  allocaBytesRhs =
+    CTypeLam [a, b] (lam allocaBytesSize intTy (lam allocaBytesContinuation (CTyFun ptrA (ioTy bTy)) (allocaBytesBody ptrA bTy (var allocaBytesSize intTy) (var allocaBytesContinuation (CTyFun ptrA (ioTy bTy)))))) allocaBytesTy
+
+  allocaBytesBody pointerTy resultTy sizeExpr continuationExpr =
+    CPrimOp
+      PrimIOBind
+      [ CPrimOp PrimMallocBytes [sizeExpr] (ioTy pointerTy)
+      , CLam (CoreBinder allocaBytesPointer pointerTy) (CPrimOp PrimIOCatch [successAction, failureHandler] (ioTy resultTy)) (CTyFun pointerTy (ioTy resultTy))
+      ]
+      (ioTy resultTy)
+   where
+    pointer = var allocaBytesPointer pointerTy
+    freeAction = CPrimOp PrimFree [pointer] ioUnitTy
+    successAction =
+      CPrimOp
+        PrimIOBind
+        [ apply continuationExpr pointer (ioTy resultTy)
+        , CLam
+            (CoreBinder allocaBytesResult resultTy)
+            (CPrimOp PrimIOThen [freeAction, ioReturn resultTy (var allocaBytesResult resultTy)] (ioTy resultTy))
+            (CTyFun resultTy (ioTy resultTy))
+        ]
+        (ioTy resultTy)
+    failureHandler =
+      CLam
+        (CoreBinder allocaBytesError ioErrorTy)
+        (CPrimOp PrimIOThen [freeAction, CPrimOp PrimIOError [var allocaBytesError ioErrorTy] (ioTy resultTy)] (ioTy resultTy))
+        (CTyFun ioErrorTy (ioTy resultTy))
+
+  withMallocedPointer pointer resultTy action =
+    CPrimOp PrimIOCatch [successAction, failureHandler] (ioTy resultTy)
+   where
+    freeAction = CPrimOp PrimFree [pointer] ioUnitTy
+    successAction =
+      CPrimOp
+        PrimIOBind
+        [ action
+        , CLam
+            (CoreBinder allocaBytesResult resultTy)
+            (CPrimOp PrimIOThen [freeAction, ioReturn resultTy (var allocaBytesResult resultTy)] (ioTy resultTy))
+            (CTyFun resultTy (ioTy resultTy))
+        ]
+        (ioTy resultTy)
+    failureHandler =
+      CLam
+        (CoreBinder allocaBytesError ioErrorTy)
+        (CPrimOp PrimIOThen [freeAction, CPrimOp PrimIOError [var allocaBytesError ioErrorTy] (ioTy resultTy)] (ioTy resultTy))
+        (CTyFun ioErrorTy (ioTy resultTy))
+
+  reallocRhs =
+    CTypeLam
+      [a, b]
+      ( lam reallocDict storableDictB $
+          lam reallocPointer ptrA $
+            CPrimOp PrimReallocBytes [var reallocPointer ptrA, storableSizeExpr b bTy storableDictB (var reallocDict storableDictB)] (ioTy ptrB)
+      )
+      reallocTy
+
+  advancePtrRhs =
+    CTypeLam
+      [a]
+      ( lam arrayDict storableDictA $
+          lam arrayPointer ptrA $
+            lam arrayCount intTy $
+              CPrimOp PrimPtrPlus [var arrayPointer ptrA, CPrimOp PrimMul [var arrayCount intTy, storableSizeExpr a aTy storableDictA (var arrayDict storableDictA)] intTy] ptrA
+      )
+      advancePtrTy
+
+  mallocArrayRhs extra =
+    CTypeLam
+      [a]
+      ( lam arrayDict storableDictA $
+          lam arrayCount intTy $
+            CPrimOp PrimMallocBytes [arrayByteCount extra (var arrayDict storableDictA) (var arrayCount intTy)] (ioTy ptrA)
+      )
+      mallocArrayTy
+
+  allocaArrayRhs extra =
+    CTypeLam
+      [a, b]
+      ( lam arrayDict storableDictA $
+          lam arrayCount intTy $
+            lam arrayContinuation (CTyFun ptrA (ioTy bTy)) $
+              allocaBytesBody ptrA bTy (arrayByteCount extra (var arrayDict storableDictA) (var arrayCount intTy)) (var arrayContinuation (CTyFun ptrA (ioTy bTy)))
+      )
+      allocaArrayTy
+
+  reallocArrayRhs extra =
+    CTypeLam
+      [a]
+      ( lam arrayDict storableDictA $
+          lam arrayPointer ptrA $
+            lam arrayCount intTy $
+              CPrimOp PrimReallocBytes [var arrayPointer ptrA, arrayByteCount extra (var arrayDict storableDictA) (var arrayCount intTy)] (ioTy ptrA)
+      )
+      reallocArrayTy
+
+  arrayByteCount extra dict count =
+    CPrimOp PrimMul [CPrimOp PrimAdd [count, intLiteral extra] intTy, storableSizeExpr a aTy storableDictA dict] intTy
+
+  advancePtrExpr dict pointer count =
+    CPrimOp PrimPtrPlus [pointer, CPrimOp PrimMul [count, storableSizeExpr a aTy storableDictA dict] intTy] ptrA
+
+  peekStorable dict pointer =
+    apply
+      (apply
+        (specialize (preludeTermName "peek" (-1503)) peekSelectorTy [aTy] (CTyFun storableDictA (CTyFun ptrA (ioTy aTy))))
+        dict
+        (CTyFun ptrA (ioTy aTy)))
+      pointer
+      (ioTy aTy)
+
+  pokeStorable dict pointer value =
+    apply
+      (apply
+        (apply
+          (specialize (preludeTermName "poke" (-1504)) pokeSelectorTy [aTy] (CTyFun storableDictA (CTyFun ptrA (CTyFun aTy ioUnitTy))))
+          dict
+          (CTyFun ptrA (CTyFun aTy ioUnitTy)))
+        pointer
+        (CTyFun aTy ioUnitTy))
+      value
+      ioUnitTy
+
+  eqAValue dict lhs rhs =
+    apply
+      (apply
+        (apply
+          (specialize eqSelectorName eqSelectorTy [aTy] (CTyFun eqDictA (CTyFun aTy (CTyFun aTy boolTy))))
+          dict
+          (CTyFun aTy (CTyFun aTy boolTy)))
+        lhs
+        (CTyFun aTy boolTy))
+      rhs
+      boolTy
+   where
+    eqSelectorName = preludeTermName "==" (-1401)
+    eqClassA = preludeTypeVariable "a" (-1301)
+    eqClassATy = CTyVar eqClassA
+    eqClassDictA = CTyApp (CTyCon (classDictionaryTypeName builtinEqClassName)) eqClassATy
+    eqSelectorTy = CTyForall [eqClassA] (CTyFun eqClassDictA (CTyFun eqClassATy (CTyFun eqClassATy boolTy)))
+
+  listLengthExpr elementTy xs =
+    let lenName = builtinLocalTermName "$foreign_list_length" (-6733)
+        lenArg = builtinLocalTermName "$foreign_list_length_xs" (-6734)
+        lenHead = builtinLocalTermName "$foreign_list_length_x" (-6735)
+        lenTail = builtinLocalTermName "$foreign_list_length_tail" (-6736)
+        lenCase = builtinLocalTermName "$foreign_list_length_case" (-6737)
+        listTy_ = CTyList elementTy
+        lenTy = CTyFun listTy_ intTy
+        recursive =
+          apply (var lenName lenTy) (var lenTail listTy_) intTy
+        lenRhs =
+          lam lenArg listTy_ $
+            listCase
+              (var lenArg listTy_)
+              lenCase
+              elementTy
+              intTy
+              (intLiteral 0)
+              lenHead
+              lenTail
+              (CPrimOp PrimAdd [intLiteral 1, recursive] intTy)
+     in CLet
+          (CoreRec [(CoreBinder lenName lenTy, lenRhs)])
+          (apply (var lenName lenTy) xs intTy)
+          intTy
+
+  peekArrayRhs functionName =
+    let dict = var arrayDict storableDictA
+        count = var arrayCount intTy
+        pointer = var arrayPointer ptrA
+        recursive =
+          \nextCount nextPtr ->
+            CApp
+              ( CApp
+                  ( CApp
+                      (specialize functionName peekArrayTy [aTy] (CTyFun storableDictA (CTyFun intTy (CTyFun ptrA (ioTy listA)))))
+                      dict
+                      (CTyFun intTy (CTyFun ptrA (ioTy listA)))
+                  )
+                  nextCount
+                  (CTyFun ptrA (ioTy listA))
+              )
+              nextPtr
+              (ioTy listA)
+        peekTail =
+          \value ->
+            CPrimOp
+              PrimIOBind
+              [ recursive (CPrimOp PrimSub [count, intLiteral 1] intTy) (advancePtrExpr dict pointer (intLiteral 1))
+              , CLam (CoreBinder arrayTail listA) (ioReturn listA (cons aTy value (var arrayTail listA))) (CTyFun listA (ioTy listA))
+              ]
+              (ioTy listA)
+        peekBody =
+          boolCase
+            (CPrimOp PrimLt [count, intLiteral 1] boolTy)
+            arrayCase
+            (ioTy listA)
+            (ioReturn listA (nil aTy))
+            ( CPrimOp
+                PrimIOBind
+                [ peekStorable dict pointer
+                , CLam (CoreBinder arrayValue aTy) (peekTail (var arrayValue aTy)) (CTyFun aTy (ioTy listA))
+                ]
+                (ioTy listA)
+            )
+     in CTypeLam [a] (lam arrayDict storableDictA (lam arrayCount intTy (lam arrayPointer ptrA peekBody))) peekArrayTy
+
+  pokeArrayRhs functionName =
+    let dict = var arrayDict storableDictA
+        pointer = var arrayPointer ptrA
+        values = var arrayValues listA
+        recursive =
+          \nextPtr rest ->
+            CApp
+              ( CApp
+                  ( CApp
+                      (specialize functionName pokeArrayTy [aTy] (CTyFun storableDictA (CTyFun ptrA (CTyFun listA ioUnitTy))))
+                      dict
+                      (CTyFun ptrA (CTyFun listA ioUnitTy))
+                  )
+                  nextPtr
+                  (CTyFun listA ioUnitTy)
+              )
+              rest
+              ioUnitTy
+        pokeBody =
+          listCase
+            values
+            arrayCase
+            aTy
+            ioUnitTy
+            (ioReturn unitTy unitValue)
+            arrayValue
+            arrayRest
+            ( CPrimOp
+                PrimIOThen
+                [ pokeStorable dict pointer (var arrayValue aTy)
+                , recursive (advancePtrExpr dict pointer (intLiteral 1)) (var arrayRest listA)
+                ]
+                ioUnitTy
+            )
+     in CTypeLam [a] (lam arrayDict storableDictA (lam arrayPointer ptrA (lam arrayValues listA pokeBody))) pokeArrayTy
+
+  peekArray0Rhs functionName =
+    let storableDict = var arrayDict storableDictA
+        equalityDict = var arrayEqDict eqDictA
+        marker = var arrayMarker aTy
+        pointer = var arrayPointer ptrA
+        recursive nextPtr =
+          CApp
+            ( CApp
+                ( CApp
+                    ( CApp
+                        (specialize functionName peekArray0Ty [aTy] (CTyFun storableDictA (CTyFun eqDictA (CTyFun aTy (CTyFun ptrA (ioTy listA))))))
+                        storableDict
+                        (CTyFun eqDictA (CTyFun aTy (CTyFun ptrA (ioTy listA))))
+                    )
+                    equalityDict
+                    (CTyFun aTy (CTyFun ptrA (ioTy listA)))
+                )
+                marker
+                (CTyFun ptrA (ioTy listA))
+            )
+            nextPtr
+            (ioTy listA)
+        consTail value =
+          CPrimOp
+            PrimIOBind
+            [ recursive (advancePtrExpr storableDict pointer (intLiteral 1))
+            , CLam (CoreBinder arrayTail listA) (ioReturn listA (cons aTy value (var arrayTail listA))) (CTyFun listA (ioTy listA))
+            ]
+            (ioTy listA)
+        body =
+          CPrimOp
+            PrimIOBind
+            [ peekStorable storableDict pointer
+            , CLam
+                (CoreBinder arrayValue aTy)
+                ( boolCase
+                    (eqAValue equalityDict (var arrayValue aTy) marker)
+                    arrayCase
+                    (ioTy listA)
+                    (ioReturn listA (nil aTy))
+                    (consTail (var arrayValue aTy))
+                )
+                (CTyFun aTy (ioTy listA))
+            ]
+            (ioTy listA)
+     in CTypeLam [a] (lam arrayDict storableDictA (lam arrayEqDict eqDictA (lam arrayMarker aTy (lam arrayPointer ptrA body)))) peekArray0Ty
+
+  pokeArray0Rhs =
+    CTypeLam [a] (lam arrayDict storableDictA (lam arrayMarker aTy (lam arrayPointer ptrA (lam arrayValues listA body)))) pokeArray0Ty
+   where
+    dict = var arrayDict storableDictA
+    marker = var arrayMarker aTy
+    pointer = var arrayPointer ptrA
+    values = var arrayValues listA
+    len = listLengthExpr aTy values
+    body =
+      CPrimOp
+        PrimIOThen
+        [ CApp
+            ( CApp
+                ( CApp
+                    (specialize (standardLibraryTermName "pokeArray") pokeArrayTy [aTy] (CTyFun storableDictA (CTyFun ptrA (CTyFun listA ioUnitTy))))
+                    dict
+                    (CTyFun ptrA (CTyFun listA ioUnitTy))
+                )
+                pointer
+                (CTyFun listA ioUnitTy)
+            )
+            values
+            ioUnitTy
+        , pokeStorable dict (advancePtrExpr dict pointer len) marker
+        ]
+        ioUnitTy
+
+  lengthArray0Rhs functionName =
+    let storableDict = var arrayDict storableDictA
+        equalityDict = var arrayEqDict eqDictA
+        marker = var arrayMarker aTy
+        pointer = var arrayPointer ptrA
+        recursive nextPtr =
+          CApp
+            ( CApp
+                ( CApp
+                    ( CApp
+                        (specialize functionName lengthArray0Ty [aTy] (CTyFun storableDictA (CTyFun eqDictA (CTyFun aTy (CTyFun ptrA (ioTy intTy))))))
+                        storableDict
+                        (CTyFun eqDictA (CTyFun aTy (CTyFun ptrA (ioTy intTy))))
+                    )
+                    equalityDict
+                    (CTyFun aTy (CTyFun ptrA (ioTy intTy)))
+                )
+                marker
+                (CTyFun ptrA (ioTy intTy))
+            )
+            nextPtr
+            (ioTy intTy)
+        countTail =
+          CPrimOp
+            PrimIOBind
+            [ recursive (advancePtrExpr storableDict pointer (intLiteral 1))
+            , CLam (CoreBinder arrayLength intTy) (ioReturn intTy (CPrimOp PrimAdd [intLiteral 1, var arrayLength intTy] intTy)) (CTyFun intTy (ioTy intTy))
+            ]
+            (ioTy intTy)
+        body =
+          CPrimOp
+            PrimIOBind
+            [ peekStorable storableDict pointer
+            , CLam
+                (CoreBinder arrayValue aTy)
+                ( boolCase
+                    (eqAValue equalityDict (var arrayValue aTy) marker)
+                    arrayCase
+                    (ioTy intTy)
+                    (ioReturn intTy (intLiteral 0))
+                    countTail
+                )
+                (CTyFun aTy (ioTy intTy))
+            ]
+            (ioTy intTy)
+     in CTypeLam [a] (lam arrayDict storableDictA (lam arrayEqDict eqDictA (lam arrayMarker aTy (lam arrayPointer ptrA body)))) lengthArray0Ty
+
+  newArrayRhs =
+    CTypeLam [a] (lam arrayDict storableDictA (lam arrayValues listA body)) newArrayTy
+   where
+    dict = var arrayDict storableDictA
+    values = var arrayValues listA
+    len = listLengthExpr aTy values
+    body =
+      CPrimOp
+        PrimIOBind
+        [ CPrimOp PrimMallocBytes [arrayByteCount 0 dict len] (ioTy ptrA)
+        , CLam
+            (CoreBinder arrayPointer ptrA)
+            ( CPrimOp
+                PrimIOThen
+                [ CApp
+                    ( CApp
+                        ( CApp
+                            (specialize (standardLibraryTermName "pokeArray") pokeArrayTy [aTy] (CTyFun storableDictA (CTyFun ptrA (CTyFun listA ioUnitTy))))
+                            dict
+                            (CTyFun ptrA (CTyFun listA ioUnitTy))
+                        )
+                        (var arrayPointer ptrA)
+                        (CTyFun listA ioUnitTy)
+                    )
+                    values
+                    ioUnitTy
+                , ioReturn ptrA (var arrayPointer ptrA)
+                ]
+                (ioTy ptrA)
+            )
+            (CTyFun ptrA (ioTy ptrA))
+        ]
+        (ioTy ptrA)
+
+  newArray0Rhs =
+    CTypeLam [a] (lam arrayDict storableDictA (lam arrayMarker aTy (lam arrayValues listA body))) newArray0Ty
+   where
+    dict = var arrayDict storableDictA
+    marker = var arrayMarker aTy
+    values = var arrayValues listA
+    len = listLengthExpr aTy values
+    body =
+      CPrimOp
+        PrimIOBind
+        [ CPrimOp PrimMallocBytes [arrayByteCount 1 dict len] (ioTy ptrA)
+        , CLam
+            (CoreBinder arrayPointer ptrA)
+            ( CPrimOp
+                PrimIOThen
+                [ CApp
+                    ( CApp
+                        ( CApp
+                            ( CApp
+                                (specialize (standardLibraryTermName "pokeArray0") pokeArray0Ty [aTy] (CTyFun storableDictA (CTyFun aTy (CTyFun ptrA (CTyFun listA ioUnitTy)))))
+                                dict
+                                (CTyFun aTy (CTyFun ptrA (CTyFun listA ioUnitTy)))
+                            )
+                            marker
+                            (CTyFun ptrA (CTyFun listA ioUnitTy))
+                        )
+                        (var arrayPointer ptrA)
+                        (CTyFun listA ioUnitTy)
+                    )
+                    values
+                    ioUnitTy
+                , ioReturn ptrA (var arrayPointer ptrA)
+                ]
+                (ioTy ptrA)
+            )
+            (CTyFun ptrA (ioTy ptrA))
+        ]
+        (ioTy ptrA)
+
+  withArrayRhs =
+    CTypeLam [a, b] (lam arrayDict storableDictA (lam arrayValues listA (lam arrayContinuation (CTyFun ptrA (ioTy bTy)) body))) withArrayTy
+   where
+    dict = var arrayDict storableDictA
+    values = var arrayValues listA
+    body =
+      CPrimOp
+        PrimIOBind
+        [ CApp
+            ( CApp
+                (specialize (standardLibraryTermName "newArray") newArrayTy [aTy] (CTyFun storableDictA (CTyFun listA (ioTy ptrA))))
+                dict
+                (CTyFun listA (ioTy ptrA))
+            )
+            values
+            (ioTy ptrA)
+        , CLam (CoreBinder arrayPointer ptrA) (withMallocedPointer (var arrayPointer ptrA) bTy (var arrayContinuation (CTyFun ptrA (ioTy bTy)) `CApp` var arrayPointer ptrA $ ioTy bTy)) (CTyFun ptrA (ioTy bTy))
+        ]
+        (ioTy bTy)
+
+  withArray0Rhs =
+    CTypeLam [a, b] (lam arrayDict storableDictA (lam arrayMarker aTy (lam arrayValues listA (lam arrayContinuation (CTyFun ptrA (ioTy bTy)) body)))) withArray0Ty
+   where
+    dict = var arrayDict storableDictA
+    marker = var arrayMarker aTy
+    values = var arrayValues listA
+    body =
+      CPrimOp
+        PrimIOBind
+        [ CApp
+            ( CApp
+                ( CApp
+                    (specialize (standardLibraryTermName "newArray0") newArray0Ty [aTy] (CTyFun storableDictA (CTyFun aTy (CTyFun listA (ioTy ptrA)))))
+                    dict
+                    (CTyFun aTy (CTyFun listA (ioTy ptrA)))
+                )
+                marker
+                (CTyFun listA (ioTy ptrA))
+            )
+            values
+            (ioTy ptrA)
+        , CLam (CoreBinder arrayPointer ptrA) (withMallocedPointer (var arrayPointer ptrA) bTy (CApp (var arrayContinuation (CTyFun ptrA (ioTy bTy))) (var arrayPointer ptrA) (ioTy bTy))) (CTyFun ptrA (ioTy bTy))
+        ]
+        (ioTy bTy)
+
+  withArrayLenRhs =
+    CTypeLam [a, b] (lam arrayDict storableDictA (lam arrayValues listA (lam arrayContinuation (CTyFun intTy (CTyFun ptrA (ioTy bTy))) body))) withArrayLenTy
+   where
+    dict = var arrayDict storableDictA
+    values = var arrayValues listA
+    len = listLengthExpr aTy values
+    body =
+      CApp
+        ( CApp
+            ( CApp
+                (specialize (standardLibraryTermName "withArray") withArrayTy [aTy, bTy] (CTyFun storableDictA (CTyFun listA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))))
+                dict
+                (CTyFun listA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))
+            )
+            values
+            (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy))
+        )
+        (CLam (CoreBinder arrayPointer ptrA) (CApp (CApp (var arrayContinuation (CTyFun intTy (CTyFun ptrA (ioTy bTy)))) len (CTyFun ptrA (ioTy bTy))) (var arrayPointer ptrA) (ioTy bTy)) (CTyFun ptrA (ioTy bTy)))
+        (ioTy bTy)
+
+  withArrayLen0Rhs =
+    CTypeLam [a, b] (lam arrayDict storableDictA (lam arrayMarker aTy (lam arrayValues listA (lam arrayContinuation (CTyFun intTy (CTyFun ptrA (ioTy bTy))) body)))) withArrayLen0Ty
+   where
+    dict = var arrayDict storableDictA
+    marker = var arrayMarker aTy
+    values = var arrayValues listA
+    lenWithTerminator = CPrimOp PrimAdd [listLengthExpr aTy values, intLiteral 1] intTy
+    body =
+      CApp
+        ( CApp
+            ( CApp
+                ( CApp
+                    (specialize (standardLibraryTermName "withArray0") withArray0Ty [aTy, bTy] (CTyFun storableDictA (CTyFun aTy (CTyFun listA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy))))))
+                    dict
+                    (CTyFun aTy (CTyFun listA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy))))
+                )
+                marker
+                (CTyFun listA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))
+            )
+            values
+            (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy))
+        )
+        (CLam (CoreBinder arrayPointer ptrA) (CApp (CApp (var arrayContinuation (CTyFun intTy (CTyFun ptrA (ioTy bTy)))) lenWithTerminator (CTyFun ptrA (ioTy bTy))) (var arrayPointer ptrA) (ioTy bTy)) (CTyFun ptrA (ioTy bTy)))
+        (ioTy bTy)
+
+  copyArrayRhs prim =
+    CTypeLam
+      [a]
+      ( lam arrayDict storableDictA $
+          lam copyDest ptrA $
+            lam copySource ptrA $
+              lam copyCount intTy $
+                CPrimOp prim [var copyDest ptrA, var copySource ptrA, CPrimOp PrimMul [var copyCount intTy, storableSizeExpr a aTy storableDictA (var arrayDict storableDictA)] intTy] ioUnitTy
+      )
+      copyArrayTy
+
+  peekCStringLenRhs prim ptrTy_ =
+    lam cStringPair (CTyTuple [ptrTy_, intTy]) $
+      CCase
+        (var cStringPair (CTyTuple [ptrTy_, intTy]))
+        (CoreBinder arrayCase (CTyTuple [ptrTy_, intTy]))
+        [CoreAlt (ConstructorAlt (tupleDataConName 2)) [CoreBinder cStringPointer ptrTy_, CoreBinder cStringLength intTy] (CPrimOp prim [var cStringPointer ptrTy_, var cStringLength intTy] (ioTy stringTy))]
+        (ioTy stringTy)
+
+  newCStringLenRhs prim ptrTy_ tupleTy =
+    lam cStringSource stringTy $
+      CPrimOp
+        PrimIOBind
+        [ CPrimOp prim [var cStringSource stringTy] (ioTy ptrTy_)
+        , CLam
+            (CoreBinder cStringPointer ptrTy_)
+            (ioReturn tupleTy (constructorApp (tupleDataConName 2) [ptrTy_, intTy] [var cStringPointer ptrTy_, listLengthExpr charTy (var cStringSource stringTy)] tupleTy))
+            (CTyFun ptrTy_ (ioTy tupleTy))
+        ]
+        (ioTy tupleTy)
+
+  withCStringRhs ptrTy_ =
+    CTypeLam [a] (lam cStringSource stringTy (lam cStringContinuation (CTyFun ptrTy_ (ioTy aTy)) body)) (CTyForall [a] (CTyFun stringTy (CTyFun (CTyFun ptrTy_ (ioTy aTy)) (ioTy aTy))))
+   where
+    body =
+      CPrimOp
+        PrimIOBind
+        [ CPrimOp (if ptrTy_ == cWStringTy then PrimNewCWString else PrimNewCString) [var cStringSource stringTy] (ioTy ptrTy_)
+        , CLam (CoreBinder cStringPointer ptrTy_) (withMallocedPointer (var cStringPointer ptrTy_) aTy (var cStringContinuation (CTyFun ptrTy_ (ioTy aTy)) `CApp` var cStringPointer ptrTy_ $ ioTy aTy)) (CTyFun ptrTy_ (ioTy aTy))
+        ]
+        (ioTy aTy)
+
+  withCStringLenRhs tupleTy ptrTy_ =
+    CTypeLam [a] (lam cStringSource stringTy (lam cStringContinuation (CTyFun tupleTy (ioTy aTy)) body)) (CTyForall [a] (CTyFun stringTy (CTyFun (CTyFun tupleTy (ioTy aTy)) (ioTy aTy))))
+   where
+    body =
+      CPrimOp
+        PrimIOBind
+        [ newCStringLenRhs (if ptrTy_ == cWStringTy then PrimNewCWString else PrimNewCString) ptrTy_ tupleTy `CApp` var cStringSource stringTy $ ioTy tupleTy
+        , CLam
+            (CoreBinder cStringPair tupleTy)
+            ( CCase
+                (var cStringPair tupleTy)
+                (CoreBinder arrayCase tupleTy)
+                [ CoreAlt
+                    (ConstructorAlt (tupleDataConName 2))
+                    [CoreBinder cStringPointer ptrTy_, CoreBinder cStringLength intTy]
+                    (withMallocedPointer (var cStringPointer ptrTy_) aTy (var cStringContinuation (CTyFun tupleTy (ioTy aTy)) `CApp` var cStringPair tupleTy $ ioTy aTy))
+                ]
+                (ioTy aTy)
+            )
+            (CTyFun tupleTy (ioTy aTy))
+        ]
+        (ioTy aTy)
+
+  errnoToIOErrorRhs =
+    lam errnoLocation stringTy $
+      lam errnoValue errnoTy $
+        lam errnoHandle maybeHandleTy $
+          lam errnoFile maybeFilePathTy $
+            ioErrorValue (errnoErrorType (var errnoValue errnoTy)) (var errnoLocation stringTy) (var errnoHandle maybeHandleTy) (var errnoFile maybeFilePathTy)
+
+  isValidErrnoRhs =
+    lam errnoValue errnoTy $
+      boolOrChain [errnoEq (var errnoValue errnoTy) value | value <- validErrnoValues]
+
+  boolOrChain = \case
+    [] -> con falseDataConName boolTy
+    predicate : rest ->
+      boolCase
+        predicate
+        throwErrnoCase
+        boolTy
+        (con trueDataConName boolTy)
+        (boolOrChain rest)
+
+  errnoErrorType value =
+    boolCase
+      (errnoEq value 2)
+      throwErrnoCase
+      ioErrorTypeTy
+      (CCon ioErrorDoesNotExistTypeDataConName ioErrorTypeTy)
+      ( boolCase
+          (boolOrChain [errnoEq value 1, errnoEq value 13])
+          throwErrnoCase
+          ioErrorTypeTy
+          (CCon ioErrorPermissionTypeDataConName ioErrorTypeTy)
+          ( boolCase
+              (errnoEq value 17)
+              throwErrnoCase
+              ioErrorTypeTy
+              (CCon ioErrorAlreadyExistsTypeDataConName ioErrorTypeTy)
+              ( boolCase
+                  (errnoEq value 28)
+                  throwErrnoCase
+                  ioErrorTypeTy
+                  (CCon ioErrorFullTypeDataConName ioErrorTypeTy)
+                  ( boolCase
+                      (boolOrChain [errnoEq value 16, errnoEq value 48])
+                      throwErrnoCase
+                      ioErrorTypeTy
+                      (CCon ioErrorAlreadyInUseTypeDataConName ioErrorTypeTy)
+                      (CCon ioErrorIllegalOperationTypeDataConName ioErrorTypeTy)
+                  )
+              )
+          )
+      )
+  errnoEq value intValue =
+    CPrimOp (PrimFixedIntegral FixedInt32 FixedEq) [value, errnoLiteral intValue] boolTy
+  errnoLiteral value =
+    CPrimOp (PrimFixedIntegral FixedInt32 FixedFromInteger) [intLiteral value] errnoTy
+
+  throwErrnoRhs =
+    CTypeLam [a] (lam throwErrnoLocation stringTy (throwErrnoWithFile aTy (var throwErrnoLocation stringTy) (maybeNothing stringTy))) throwErrnoTy
+
+  throwErrnoWithFile resultTy location maybeFile =
+    CPrimOp
+      PrimIOBind
+      [ CPrimOp PrimGetErrno [] (ioTy errnoTy)
+      , CLam
+          (CoreBinder errnoValue errnoTy)
+          (errnoIOError resultTy location maybeFile (var errnoValue errnoTy))
+          (CTyFun errnoTy (ioTy resultTy))
+      ]
+      (ioTy resultTy)
+
+  errnoIOError resultTy location maybeFile errno =
+    CPrimOp PrimIOError [errnoToIOErrorCallWithFile location errno maybeFile] (ioTy resultTy)
+
+  errnoToIOErrorCallWithFile location errno maybeFile =
+    apply
+      (apply
+        (apply
+          (apply errnoToIOErrorRhs location (CTyFun errnoTy (CTyFun maybeHandleTy (CTyFun maybeFilePathTy ioErrorTy))))
+          errno
+          (CTyFun maybeHandleTy (CTyFun maybeFilePathTy ioErrorTy)))
+        (maybeNothing handleTy)
+        (CTyFun maybeFilePathTy ioErrorTy))
+      maybeFile
+      ioErrorTy
+
+  throwErrnoIfRhs =
+    CTypeLam [a] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (throwErrnoIfBody aTy (maybeNothing stringTy))))) throwErrnoIfTy
+  throwErrnoIfBody resultTy maybeFile =
+    CPrimOp
+      PrimIOBind
+      [ var throwErrnoAction (ioTy resultTy)
+      , CLam
+          (CoreBinder throwErrnoResult resultTy)
+          ( boolCase
+              (apply (var throwErrnoPredicate (CTyFun resultTy boolTy)) (var throwErrnoResult resultTy) boolTy)
+              throwErrnoCase
+              (ioTy resultTy)
+              (throwErrnoWithFile resultTy (var throwErrnoLocation stringTy) maybeFile)
+              (ioReturn resultTy (var throwErrnoResult resultTy))
+          )
+          (CTyFun resultTy (ioTy resultTy))
+      ]
+      (ioTy resultTy)
+
+  throwErrnoIfUnitRhs =
+    CTypeLam [a] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (CPrimOp PrimIOThen [throwErrnoIfBody aTy (maybeNothing stringTy), ioReturn unitTy unitValue] ioUnitTy)))) throwErrnoIfUnitTy
+
+  throwErrnoIfRetryRhs functionName =
+    CTypeLam [a] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (throwErrnoRetryBody aTy predicate retryAction Nothing)))) throwErrnoIfRetryTy
+   where
+    predicate value = apply (var throwErrnoPredicate (CTyFun aTy boolTy)) value boolTy
+    retryAction = genericRetryCall functionName throwErrnoIfRetryTy aTy Nothing
+
+  throwErrnoIfRetryUnitRhs _functionName =
+    CTypeLam [a] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (CPrimOp PrimIOThen [genericRetryCall (standardLibraryTermName "throwErrnoIfRetry") throwErrnoIfRetryTy aTy Nothing, ioReturn unitTy unitValue] ioUnitTy)))) throwErrnoIfRetryUnitTy
+
+  throwErrnoIfMinus1Rhs =
+    CTypeLam [a] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (throwErrnoIfMinus1Body aTy (maybeNothing stringTy)))))) throwErrnoIfMinus1Ty
+  throwErrnoIfMinus1UnitRhs =
+    CTypeLam [a] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (CPrimOp PrimIOThen [throwErrnoIfMinus1Body aTy (maybeNothing stringTy), ioReturn unitTy unitValue] ioUnitTy))))) throwErrnoIfMinus1UnitTy
+  throwErrnoIfMinus1Body resultTy maybeFile =
+    CPrimOp
+      PrimIOBind
+      [ var throwErrnoAction (ioTy resultTy)
+      , CLam
+          (CoreBinder throwErrnoResult resultTy)
+          ( boolCase
+              (minusOnePredicate resultTy (var throwErrnoResult resultTy))
+              throwErrnoCase
+              (ioTy resultTy)
+              (throwErrnoWithFile resultTy (var throwErrnoLocation stringTy) maybeFile)
+              (ioReturn resultTy (var throwErrnoResult resultTy))
+          )
+          (CTyFun resultTy (ioTy resultTy))
+      ]
+      (ioTy resultTy)
+
+  throwErrnoIfMinus1RetryRhs functionName =
+    CTypeLam [a] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (throwErrnoRetryBody aTy predicate retryAction Nothing))))) throwErrnoIfMinus1RetryTy
+   where
+    predicate value = minusOnePredicate aTy value
+    retryAction = minusOneRetryCall functionName throwErrnoIfMinus1RetryTy aTy Nothing
+
+  throwErrnoIfMinus1RetryUnitRhs _functionName =
+    CTypeLam [a] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (CPrimOp PrimIOThen [minusOneRetryCall (standardLibraryTermName "throwErrnoIfMinus1Retry") throwErrnoIfMinus1RetryTy aTy Nothing, ioReturn unitTy unitValue] ioUnitTy))))) throwErrnoIfMinus1RetryUnitTy
+  minusOnePredicate resultTy value =
+    apply
+      (apply
+        (apply
+          (specialize (preludeTermName "==" (-1401)) eqSelectorTy [resultTy] (CTyFun eqDictResult (CTyFun resultTy (CTyFun resultTy boolTy))))
+          (var throwErrnoDictEq eqDictA)
+          (CTyFun resultTy (CTyFun resultTy boolTy)))
+        value
+        (CTyFun resultTy boolTy))
+      ( apply
+          (apply
+            (specialize (preludeTermName "fromInteger" (-1427)) fromIntegerSelectorTy [resultTy] (CTyFun numDictResult (CTyFun intTy resultTy)))
+            (var throwErrnoDictNum numDictA)
+            (CTyFun intTy resultTy))
+          (intLiteral (-1))
+          resultTy
+      )
+      boolTy
+   where
+    eqClassA = preludeTypeVariable "a" (-1301)
+    eqClassATy = CTyVar eqClassA
+    eqClassDictA = CTyApp (CTyCon (classDictionaryTypeName builtinEqClassName)) eqClassATy
+    eqSelectorTy = CTyForall [eqClassA] (CTyFun eqClassDictA (CTyFun eqClassATy (CTyFun eqClassATy boolTy)))
+    numClassA = preludeTypeVariable "a" (-1321)
+    numClassATy = CTyVar numClassA
+    numClassDictA = CTyApp (CTyCon (classDictionaryTypeName builtinNumClassName)) numClassATy
+    fromIntegerSelectorTy = CTyForall [numClassA] (CTyFun numClassDictA (CTyFun intTy numClassATy))
+    eqDictResult = CTyApp (CTyCon (classDictionaryTypeName builtinEqClassName)) resultTy
+    numDictResult = CTyApp (CTyCon (classDictionaryTypeName builtinNumClassName)) resultTy
+
+  throwErrnoIfNullRhs =
+    CTypeLam [a] (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy ptrA) (throwErrnoIfNullBody ptrA (maybeNothing stringTy)))) throwErrnoIfNullTy
+
+  throwErrnoIfNullBody pointerTy maybeFile =
+    CPrimOp
+      PrimIOBind
+      [ var throwErrnoAction (ioTy pointerTy)
+      , CLam
+          (CoreBinder throwErrnoResult pointerTy)
+          ( boolCase
+              (CPrimOp PrimIsNullPtr [var throwErrnoResult pointerTy] boolTy)
+              throwErrnoCase
+              (ioTy pointerTy)
+              (throwErrnoWithFile pointerTy (var throwErrnoLocation stringTy) maybeFile)
+              (ioReturn pointerTy (var throwErrnoResult pointerTy))
+          )
+          (CTyFun pointerTy (ioTy pointerTy))
+      ]
+      (ioTy pointerTy)
+
+  throwErrnoIfNullRetryRhs functionName =
+    CTypeLam [a] (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy ptrA) (throwErrnoRetryBody ptrA predicate retryAction Nothing))) throwErrnoIfNullRetryTy
+   where
+    predicate value = CPrimOp PrimIsNullPtr [value] boolTy
+    retryAction = nullRetryCall functionName throwErrnoIfNullRetryTy ptrA Nothing
+
+  throwErrnoIfRetryMayBlockRhs functionName =
+    CTypeLam [a, b] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (lam throwErrnoBlockAction (ioTy bTy) (throwErrnoRetryBody aTy predicate retryAction (Just bTy)))))) throwErrnoIfRetryMayBlockTy
+   where
+    predicate value = apply (var throwErrnoPredicate (CTyFun aTy boolTy)) value boolTy
+    retryAction = genericRetryCall functionName throwErrnoIfRetryMayBlockTy aTy (Just bTy)
+
+  throwErrnoIfRetryMayBlockUnitRhs _functionName =
+    CTypeLam [a, b] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (lam throwErrnoBlockAction (ioTy bTy) (CPrimOp PrimIOThen [genericRetryCall (standardLibraryTermName "throwErrnoIfRetryMayBlock") throwErrnoIfRetryMayBlockTy aTy (Just bTy), ioReturn unitTy unitValue] ioUnitTy))))) throwErrnoIfRetryMayBlockUnitTy
+
+  throwErrnoIfMinus1RetryMayBlockRhs functionName =
+    CTypeLam [a, b] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (lam throwErrnoBlockAction (ioTy bTy) (throwErrnoRetryBody aTy predicate retryAction (Just bTy))))))) throwErrnoIfMinus1RetryMayBlockTy
+   where
+    predicate value = minusOnePredicate aTy value
+    retryAction = minusOneRetryCall functionName throwErrnoIfMinus1RetryMayBlockTy aTy (Just bTy)
+
+  throwErrnoIfMinus1RetryMayBlockUnitRhs _functionName =
+    CTypeLam [a, b] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (lam throwErrnoBlockAction (ioTy bTy) (CPrimOp PrimIOThen [minusOneRetryCall (standardLibraryTermName "throwErrnoIfMinus1RetryMayBlock") throwErrnoIfMinus1RetryMayBlockTy aTy (Just bTy), ioReturn unitTy unitValue] ioUnitTy)))))) throwErrnoIfMinus1RetryMayBlockUnitTy
+
+  throwErrnoIfNullRetryMayBlockRhs functionName =
+    CTypeLam [a, b] (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy ptrA) (lam throwErrnoBlockAction (ioTy bTy) (throwErrnoRetryBody ptrA predicate retryAction (Just bTy))))) throwErrnoIfNullRetryMayBlockTy
+   where
+    predicate value = CPrimOp PrimIsNullPtr [value] boolTy
+    retryAction = nullRetryCall functionName throwErrnoIfNullRetryMayBlockTy ptrA (Just bTy)
+
+  throwErrnoRetryBody resultTy predicate retryAction maybeBlockTy =
+    CPrimOp
+      PrimIOBind
+      [ var throwErrnoAction (ioTy resultTy)
+      , CLam
+          (CoreBinder throwErrnoResult resultTy)
+          ( boolCase
+              (predicate (var throwErrnoResult resultTy))
+              throwErrnoCase
+              (ioTy resultTy)
+              ( CPrimOp
+                  PrimIOBind
+                  [ CPrimOp PrimGetErrno [] (ioTy errnoTy)
+                  , CLam
+                      (CoreBinder errnoValue errnoTy)
+                      (retryErrnoDecision resultTy retryAction maybeBlockTy (var errnoValue errnoTy))
+                      (CTyFun errnoTy (ioTy resultTy))
+                  ]
+                  (ioTy resultTy)
+              )
+              (ioReturn resultTy (var throwErrnoResult resultTy))
+          )
+          (CTyFun resultTy (ioTy resultTy))
+      ]
+      (ioTy resultTy)
+
+  retryErrnoDecision resultTy retryAction maybeBlockTy currentErrno =
+    boolCase
+      (errnoEq currentErrno (errnoConstant "eINTR" 4))
+      throwErrnoRetryCase
+      (ioTy resultTy)
+      retryAction
+      ( case maybeBlockTy of
+          Nothing ->
+            errnoIOError resultTy (var throwErrnoLocation stringTy) (maybeNothing stringTy) currentErrno
+          Just blockTy ->
+            boolCase
+              (errnoWouldBlock currentErrno)
+              throwErrnoWouldBlockCase
+              (ioTy resultTy)
+              (CPrimOp PrimIOThen [var throwErrnoBlockAction (ioTy blockTy), retryAction] (ioTy resultTy))
+              (errnoIOError resultTy (var throwErrnoLocation stringTy) (maybeNothing stringTy) currentErrno)
+      )
+
+  errnoWouldBlock currentErrno =
+    boolOrChain
+      [ errnoEq currentErrno (errnoConstant "eAGAIN" 35)
+      , errnoEq currentErrno (errnoConstant "eWOULDBLOCK" 35)
+      ]
+
+  errnoConstant occurrence fallback =
+    fromMaybe fallback (errnoConstantValue occurrence)
+
+  genericRetryCall functionName functionTy resultTy maybeBlockTy =
+    case maybeBlockTy of
+      Nothing ->
+        let ioResultTy = ioTy resultTy
+            predicateTy = CTyFun resultTy boolTy
+            functionResultTy = CTyFun predicateTy (CTyFun stringTy (CTyFun ioResultTy ioResultTy))
+            afterPredicateTy = CTyFun stringTy (CTyFun ioResultTy ioResultTy)
+            afterLocationTy = CTyFun ioResultTy ioResultTy
+            specialized = specialize functionName functionTy [resultTy] functionResultTy
+            withPredicate = apply specialized (var throwErrnoPredicate predicateTy) afterPredicateTy
+            withLocation = apply withPredicate (var throwErrnoLocation stringTy) afterLocationTy
+         in apply withLocation (var throwErrnoAction ioResultTy) ioResultTy
+      Just blockTy ->
+        let ioResultTy = ioTy resultTy
+            ioBlockTy = ioTy blockTy
+            predicateTy = CTyFun resultTy boolTy
+            functionResultTy = CTyFun predicateTy (CTyFun stringTy (CTyFun ioResultTy (CTyFun ioBlockTy ioResultTy)))
+            afterPredicateTy = CTyFun stringTy (CTyFun ioResultTy (CTyFun ioBlockTy ioResultTy))
+            afterLocationTy = CTyFun ioResultTy (CTyFun ioBlockTy ioResultTy)
+            afterActionTy = CTyFun ioBlockTy ioResultTy
+            specialized = specialize functionName functionTy [resultTy, blockTy] functionResultTy
+            withPredicate = apply specialized (var throwErrnoPredicate predicateTy) afterPredicateTy
+            withLocation = apply withPredicate (var throwErrnoLocation stringTy) afterLocationTy
+            withAction = apply withLocation (var throwErrnoAction ioResultTy) afterActionTy
+         in apply withAction (var throwErrnoBlockAction ioBlockTy) ioResultTy
+
+  minusOneRetryCall functionName functionTy resultTy maybeBlockTy =
+    case maybeBlockTy of
+      Nothing ->
+        let ioResultTy = ioTy resultTy
+            functionResultTy = CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun ioResultTy ioResultTy)))
+            afterNumTy = CTyFun eqDictA (CTyFun stringTy (CTyFun ioResultTy ioResultTy))
+            afterEqTy = CTyFun stringTy (CTyFun ioResultTy ioResultTy)
+            afterLocationTy = CTyFun ioResultTy ioResultTy
+            specialized = specialize functionName functionTy [resultTy] functionResultTy
+            withNum = apply specialized (var throwErrnoDictNum numDictA) afterNumTy
+            withEq = apply withNum (var throwErrnoDictEq eqDictA) afterEqTy
+            withLocation = apply withEq (var throwErrnoLocation stringTy) afterLocationTy
+         in apply withLocation (var throwErrnoAction ioResultTy) ioResultTy
+      Just blockTy ->
+        let ioResultTy = ioTy resultTy
+            ioBlockTy = ioTy blockTy
+            functionResultTy = CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun ioResultTy (CTyFun ioBlockTy ioResultTy))))
+            afterNumTy = CTyFun eqDictA (CTyFun stringTy (CTyFun ioResultTy (CTyFun ioBlockTy ioResultTy)))
+            afterEqTy = CTyFun stringTy (CTyFun ioResultTy (CTyFun ioBlockTy ioResultTy))
+            afterLocationTy = CTyFun ioResultTy (CTyFun ioBlockTy ioResultTy)
+            afterActionTy = CTyFun ioBlockTy ioResultTy
+            specialized = specialize functionName functionTy [resultTy, blockTy] functionResultTy
+            withNum = apply specialized (var throwErrnoDictNum numDictA) afterNumTy
+            withEq = apply withNum (var throwErrnoDictEq eqDictA) afterEqTy
+            withLocation = apply withEq (var throwErrnoLocation stringTy) afterLocationTy
+            withAction = apply withLocation (var throwErrnoAction ioResultTy) afterActionTy
+         in apply withAction (var throwErrnoBlockAction ioBlockTy) ioResultTy
+
+  nullRetryCall functionName functionTy pointerTy maybeBlockTy =
+    case maybeBlockTy of
+      Nothing ->
+        let ioPointerTy = ioTy pointerTy
+            functionResultTy = CTyFun stringTy (CTyFun ioPointerTy ioPointerTy)
+            afterLocationTy = CTyFun ioPointerTy ioPointerTy
+            specialized = specialize functionName functionTy [aTy] functionResultTy
+            withLocation = apply specialized (var throwErrnoLocation stringTy) afterLocationTy
+         in apply withLocation (var throwErrnoAction ioPointerTy) ioPointerTy
+      Just blockTy ->
+        let ioPointerTy = ioTy pointerTy
+            ioBlockTy = ioTy blockTy
+            functionResultTy = CTyFun stringTy (CTyFun ioPointerTy (CTyFun ioBlockTy ioPointerTy))
+            afterLocationTy = CTyFun ioPointerTy (CTyFun ioBlockTy ioPointerTy)
+            afterActionTy = CTyFun ioBlockTy ioPointerTy
+            specialized = specialize functionName functionTy [aTy, blockTy] functionResultTy
+            withLocation = apply specialized (var throwErrnoLocation stringTy) afterLocationTy
+            withAction = apply withLocation (var throwErrnoAction ioPointerTy) afterActionTy
+         in apply withAction (var throwErrnoBlockAction ioBlockTy) ioPointerTy
+
+  throwErrnoPathRhs =
+    CTypeLam [a] (lam throwErrnoLocation stringTy (lam throwErrnoPathName stringTy (throwErrnoWithFile aTy (var throwErrnoLocation stringTy) (maybeJust stringTy (var throwErrnoPathName stringTy))))) throwErrnoPathTy
+
+  throwErrnoPathIfRhs =
+    CTypeLam [a] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoPathName stringTy (lam throwErrnoAction (ioTy aTy) (throwErrnoIfBody aTy (maybeJust stringTy (var throwErrnoPathName stringTy))))))) throwErrnoPathIfTy
+
+  throwErrnoPathIfUnitRhs =
+    CTypeLam [a] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoPathName stringTy (lam throwErrnoAction (ioTy aTy) (CPrimOp PrimIOThen [throwErrnoIfBody aTy (maybeJust stringTy (var throwErrnoPathName stringTy)), ioReturn unitTy unitValue] ioUnitTy))))) throwErrnoPathIfUnitTy
+
+  throwErrnoPathIfNullRhs =
+    CTypeLam [a] (lam throwErrnoLocation stringTy (lam throwErrnoPathName stringTy (lam throwErrnoAction (ioTy ptrA) (throwErrnoIfNullBody ptrA (maybeJust stringTy (var throwErrnoPathName stringTy)))))) throwErrnoPathIfNullTy
+
+  throwErrnoPathIfMinus1Rhs =
+    CTypeLam [a] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoPathName stringTy (lam throwErrnoAction (ioTy aTy) (throwErrnoIfMinus1Body aTy (maybeJust stringTy (var throwErrnoPathName stringTy)))))))) throwErrnoPathIfMinus1Ty
+
+  throwErrnoPathIfMinus1UnitRhs =
+    CTypeLam [a] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoPathName stringTy (lam throwErrnoAction (ioTy aTy) (CPrimOp PrimIOThen [throwErrnoIfMinus1Body aTy (maybeJust stringTy (var throwErrnoPathName stringTy)), ioReturn unitTy unitValue] ioUnitTy)))))) throwErrnoPathIfMinus1UnitTy
 
   ioErrorValue errorType message maybeHandle maybeFile =
     constructorApp ioErrorDataConName [] [errorType, message, maybeHandle, maybeFile] ioErrorTy
@@ -11921,6 +13731,10 @@ preludeTermName :: Text -> Int -> RName
 preludeTermName occurrence unique =
   RName TermNamespace occurrence unique True
 
+standardLibraryTermName :: Text -> RName
+standardLibraryTermName =
+  standardLibraryExternalName TermNamespace
+
 arithmeticSequencePreludeNames :: [RName]
 arithmeticSequencePreludeNames =
   [ enumFromIntName
@@ -12732,6 +14546,9 @@ builtinStructuralDictionary env wanted =
     (className, [TyTuple fields])
       | className == builtinIxClassName && structuralTupleArity fields ->
           Just (ixTupleDictionaryValue env fields)
+    (className, [TyApp (TyCon ptrName) payloadTy])
+      | className == builtinStorableClassName && ptrName == ptrTyConName ->
+          Just (storablePtrDictionaryValue env payloadTy)
     _ -> Nothing
 
 eqListDictionaryValue :: CoreElabEnv -> MonoType -> Either TypecheckError CoreExpr
@@ -13324,6 +15141,7 @@ builtinInstanceDictionaries classes =
     , maybe [] functorInstances (Map.lookup builtinFunctorClassName classes)
     , maybe [] monadInstances (Map.lookup builtinMonadClassName classes)
     , maybe [] monadPlusInstances (Map.lookup builtinMonadPlusClassName classes)
+    , maybe [] storableInstances (Map.lookup builtinStorableClassName classes)
     ]
  where
   eqInstances info =
@@ -13889,6 +15707,42 @@ builtinInstanceDictionaries classes =
         [listMonadPlusMzeroMethod, listMonadPlusMplusMethod]
     ]
 
+  storableInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fStorableInt" (-6700))
+        (storableMethods StoreInt 8 8 intTy)
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        boolMonoType
+        (preludeTermName "$fStorableBool" (-6701))
+        (storableMethods StoreBool 1 1 boolTy)
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        charMonoType
+        (preludeTermName "$fStorableChar" (-6702))
+        (storableMethods StoreChar 4 4 charTy)
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fStorableFloat" (-6703))
+        (storableMethods StoreFloat 4 4 floatTy)
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fStorableDouble" (-6704))
+        (storableMethods StoreDouble 8 8 doubleTy)
+    ]
+      <> [ BuiltinInstanceDictionary
+            (classInfoName info)
+            (fixedIntegralMonoType fixed)
+            (preludeTermName ("$fStorable" <> fixedIntegralOccurrence fixed) (-6710 - fromEnum fixed))
+            (storableMethods kind size align (fixedIntegralTy fixed))
+         | fixed <- fixedIntegralAll
+         , let (kind, size, align) = fixedIntegralStorableLayout fixed
+         ]
+
   fixedIntegralBuiltinInstances info classTag uniqueBase methods =
     [ BuiltinInstanceDictionary
         (classInfoName info)
@@ -13943,6 +15797,8 @@ isBuiltinStructuralInstanceConstraint wanted =
       | className == builtinMonadClassName && typeName == listTyConName -> True
     (className, [TyCon typeName])
       | className == builtinMonadPlusClassName && typeName == listTyConName -> True
+    (className, [TyApp (TyCon ptrName) _])
+      | className == builtinStorableClassName && ptrName == ptrTyConName -> True
     _ -> False
 
 overlapsBuiltinStructuralInstanceConstraint :: ClassConstraint -> Bool
@@ -13974,6 +15830,14 @@ overlapsBuiltinStructuralInstanceConstraint wanted =
     (className, [argument])
       | className == builtinMonadPlusClassName ->
           typesMayUnify argument (TyCon listTyConName)
+    (className, [argument])
+      | className == builtinStorableClassName ->
+          case argument of
+            TyApp (TyCon ptrName) _ | ptrName == ptrTyConName -> True
+            TyApp fn _ -> typesMayUnify fn (TyCon ptrTyConName)
+            TyVar {} -> True
+            TyMeta {} -> True
+            _ -> False
     _ -> False
 
 structuralTupleArity :: [a] -> Bool
@@ -14010,6 +15874,112 @@ builtinInstanceDictionaryToCore classes dictionary = do
           constructorResultTy
       rhs = foldl applyValue typedConstructor fieldExprs
   pure (CoreNonRec (CoreBinder (builtinInstanceName dictionary) dictTy) rhs)
+ where
+  applyValue callee argument =
+    let remainingResult =
+          case exprType callee of
+            CTyFun _ result -> result
+            _ -> exprType callee
+     in CApp callee argument remainingResult
+
+fixedIntegralStorableLayout :: FixedIntegral -> (ForeignStorableKind, Integer, Integer)
+fixedIntegralStorableLayout = \case
+  FixedInt8 -> (StoreInt8, 1, 1)
+  FixedInt16 -> (StoreInt16, 2, 2)
+  FixedInt32 -> (StoreInt32, 4, 4)
+  FixedInt64 -> (StoreInt64, 8, 8)
+  FixedWord -> (StoreWord, 8, 8)
+  FixedWord8 -> (StoreWord8, 1, 1)
+  FixedWord16 -> (StoreWord16, 2, 2)
+  FixedWord32 -> (StoreWord32, 4, 4)
+  FixedWord64 -> (StoreWord64, 8, 8)
+
+storableMethods :: ForeignStorableKind -> Integer -> Integer -> CoreType -> [CoreExpr]
+storableMethods kind size align valueTy =
+  [ sizeOfMethod
+  , alignmentMethod
+  , peekElemOffMethod
+  , pokeElemOffMethod
+  , peekByteOffMethod
+  , pokeByteOffMethod
+  , peekMethod
+  , pokeMethod
+  ]
+ where
+  b = preludeTypeVariable "b" (-1573)
+  bTy = CTyVar b
+  ptrValueTy = ptrTy valueTy
+  ptrBTy = ptrTy bTy
+  ioValueTy = ioTy valueTy
+  ioUnitTy = ioTy unitTy
+  intLit n = CLit (LInt n) intTy
+  var name ty = CVar name ty
+  lam name ty body = CLam (CoreBinder name ty) body (CTyFun ty (exprType body))
+  byteOffset index =
+    CPrimOp PrimMul [index, intLit size] intTy
+  sizeOfArg = builtinLocalTermName "$storable_size_arg" (-6721)
+  alignmentArg = builtinLocalTermName "$storable_alignment_arg" (-6722)
+  elemPtr = builtinLocalTermName "$storable_elem_ptr" (-6723)
+  elemIndex = builtinLocalTermName "$storable_elem_index" (-6724)
+  elemValue = builtinLocalTermName "$storable_elem_value" (-6725)
+  bytePtr = builtinLocalTermName "$storable_byte_ptr" (-6726)
+  byteOffsetArg = builtinLocalTermName "$storable_byte_offset" (-6727)
+  byteValue = builtinLocalTermName "$storable_byte_value" (-6728)
+  peekPtr = builtinLocalTermName "$storable_peek_ptr" (-6729)
+  pokePtr = builtinLocalTermName "$storable_poke_ptr" (-6730)
+  pokeValue = builtinLocalTermName "$storable_poke_value" (-6731)
+  sizeOfMethod =
+    lam sizeOfArg valueTy (intLit size)
+  alignmentMethod =
+    lam alignmentArg valueTy (intLit align)
+  peekElemOffMethod =
+    lam elemPtr ptrValueTy $
+      lam elemIndex intTy $
+        CPrimOp (PrimPeek kind) [var elemPtr ptrValueTy, byteOffset (var elemIndex intTy)] ioValueTy
+  pokeElemOffMethod =
+    lam elemPtr ptrValueTy $
+      lam elemIndex intTy $
+        lam elemValue valueTy $
+          CPrimOp (PrimPoke kind) [var elemPtr ptrValueTy, byteOffset (var elemIndex intTy), var elemValue valueTy] ioUnitTy
+  peekByteOffMethod =
+    CTypeLam
+      [b]
+      ( lam bytePtr ptrBTy $
+          lam byteOffsetArg intTy $
+            CPrimOp (PrimPeek kind) [var bytePtr ptrBTy, var byteOffsetArg intTy] ioValueTy
+      )
+      (CTyForall [b] (CTyFun ptrBTy (CTyFun intTy ioValueTy)))
+  pokeByteOffMethod =
+    CTypeLam
+      [b]
+      ( lam bytePtr ptrBTy $
+          lam byteOffsetArg intTy $
+            lam byteValue valueTy $
+              CPrimOp (PrimPoke kind) [var bytePtr ptrBTy, var byteOffsetArg intTy, var byteValue valueTy] ioUnitTy
+      )
+      (CTyForall [b] (CTyFun ptrBTy (CTyFun intTy (CTyFun valueTy ioUnitTy))))
+  peekMethod =
+    lam peekPtr ptrValueTy (CPrimOp (PrimPeek kind) [var peekPtr ptrValueTy, intLit 0] ioValueTy)
+  pokeMethod =
+    lam pokePtr ptrValueTy $
+      lam pokeValue valueTy $
+        CPrimOp (PrimPoke kind) [var pokePtr ptrValueTy, intLit 0, var pokeValue valueTy] ioUnitTy
+
+storablePtrDictionaryValue :: CoreElabEnv -> MonoType -> Either TypecheckError CoreExpr
+storablePtrDictionaryValue env payloadTy = do
+  let subst = coreElabSubst env
+      metas = coreElabMetas env
+      normalizedPayload = replaceMetasWithVars metas (applySubst subst payloadTy)
+      ptrMono = TyApp (TyCon ptrTyConName) normalizedPayload
+      constraint = singleClassConstraint builtinStorableClassName ptrMono
+      info = builtinStorableInfo
+  dictTy <- classConstraintCoreType subst metas constraint
+  ptrCoreTy <- monoToCoreType subst metas ptrMono
+  let fieldExprs = storableMethods StorePtr 8 8 ptrCoreTy
+  constructorTy <- classDictionaryFullConstructorCoreType info
+  let constructorResultTy = foldr CTyFun dictTy (map exprType fieldExprs)
+      typedConstructor = CTypeApp (CCon (classInfoDictConstructorName info) constructorTy) [ptrCoreTy] constructorResultTy
+  pure (foldl applyValue typedConstructor fieldExprs)
  where
   applyValue callee argument =
     let remainingResult =

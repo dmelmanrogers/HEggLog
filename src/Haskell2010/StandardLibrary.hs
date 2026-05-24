@@ -53,14 +53,18 @@ standardLibraryModuleInterfaces =
     , (systemIOErrorModuleName, systemIOErrorInterface)
     , (foreignModuleName, foreignInterface)
     , (foreignCModuleName, foreignCInterface)
+    , (foreignCErrorModuleName, foreignCErrorInterface)
     , (foreignCStringModuleName, foreignCStringInterface)
     , (foreignCTypesModuleName, foreignCTypesInterface)
     , (foreignForeignPtrModuleName, foreignForeignPtrInterface)
     , (foreignMarshalModuleName, foreignMarshalInterface)
+    , (foreignMarshalAllocModuleName, foreignMarshalAllocInterface)
+    , (foreignMarshalArrayModuleName, foreignMarshalArrayInterface)
     , (foreignMarshalErrorModuleName, foreignMarshalErrorInterface)
     , (foreignMarshalUtilsModuleName, foreignMarshalUtilsInterface)
     , (foreignPtrModuleName, foreignPtrInterface)
     , (foreignStablePtrModuleName, foreignStablePtrInterface)
+    , (foreignStorableModuleName, foreignStorableInterface)
     ]
 
 standardPreludeInterface :: ModuleInterface
@@ -388,6 +392,14 @@ foreignMarshalModuleName :: S.ModuleName
 foreignMarshalModuleName =
   S.ModuleName ["Foreign", "Marshal"]
 
+foreignMarshalAllocModuleName :: S.ModuleName
+foreignMarshalAllocModuleName =
+  S.ModuleName ["Foreign", "Marshal", "Alloc"]
+
+foreignMarshalArrayModuleName :: S.ModuleName
+foreignMarshalArrayModuleName =
+  S.ModuleName ["Foreign", "Marshal", "Array"]
+
 foreignMarshalErrorModuleName :: S.ModuleName
 foreignMarshalErrorModuleName =
   S.ModuleName ["Foreign", "Marshal", "Error"]
@@ -400,6 +412,10 @@ foreignCModuleName :: S.ModuleName
 foreignCModuleName =
   S.ModuleName ["Foreign", "C"]
 
+foreignCErrorModuleName :: S.ModuleName
+foreignCErrorModuleName =
+  S.ModuleName ["Foreign", "C", "Error"]
+
 foreignCStringModuleName :: S.ModuleName
 foreignCStringModuleName =
   S.ModuleName ["Foreign", "C", "String"]
@@ -407,6 +423,10 @@ foreignCStringModuleName =
 foreignCTypesModuleName :: S.ModuleName
 foreignCTypesModuleName =
   S.ModuleName ["Foreign", "C", "Types"]
+
+foreignStorableModuleName :: S.ModuleName
+foreignStorableModuleName =
+  S.ModuleName ["Foreign", "Storable"]
 
 controlMonadInterface :: ModuleInterface
 controlMonadInterface =
@@ -553,6 +573,14 @@ foreignMarshalInterface :: ModuleInterface
 foreignMarshalInterface =
   standardLibraryInterface foreignMarshalModuleName foreignMarshalNames
 
+foreignMarshalAllocInterface :: ModuleInterface
+foreignMarshalAllocInterface =
+  standardLibraryInterface foreignMarshalAllocModuleName foreignMarshalAllocNames
+
+foreignMarshalArrayInterface :: ModuleInterface
+foreignMarshalArrayInterface =
+  standardLibraryInterface foreignMarshalArrayModuleName foreignMarshalArrayNames
+
 foreignMarshalErrorInterface :: ModuleInterface
 foreignMarshalErrorInterface =
   standardLibraryInterface foreignMarshalErrorModuleName foreignMarshalErrorNames
@@ -565,6 +593,14 @@ foreignCInterface :: ModuleInterface
 foreignCInterface =
   standardLibraryInterface foreignCModuleName foreignCNames
 
+foreignCErrorInterface :: ModuleInterface
+foreignCErrorInterface =
+  standardLibraryInterfaceWith
+    foreignCErrorModuleName
+    foreignCErrorNames
+    [((TypeNamespace, "Errno"), [(ConstructorNamespace, "Errno")])]
+    Map.empty
+
 foreignCStringInterface :: ModuleInterface
 foreignCStringInterface =
   standardLibraryInterface foreignCStringModuleName foreignCStringNames
@@ -572,6 +608,14 @@ foreignCStringInterface =
 foreignCTypesInterface :: ModuleInterface
 foreignCTypesInterface =
   standardLibraryInterface foreignCTypesModuleName foreignCTypesNames
+
+foreignStorableInterface :: ModuleInterface
+foreignStorableInterface =
+  standardLibraryInterfaceWith
+    foreignStorableModuleName
+    foreignStorableNames
+    [((ClassNamespace, "Storable"), fmap (TermNamespace,) foreignStorableMethodNames)]
+    Map.empty
 
 standardLibraryInterface :: S.ModuleName -> [(Namespace, Text)] -> ModuleInterface
 standardLibraryInterface moduleName names =
@@ -614,10 +658,14 @@ standardLibraryNames =
     <> numericNames
     <> foreignNames
     <> foreignCNames
+    <> foreignCErrorNames
     <> foreignCStringNames
     <> foreignCTypesNames
     <> foreignPtrNames
     <> foreignMarshalNames
+    <> foreignMarshalAllocNames
+    <> foreignMarshalArrayNames
+    <> foreignStorableNames
     <> controlMonadNames
     <> dataArrayNames
     <> dataCharNames
@@ -1084,7 +1132,7 @@ systemExitNames =
 
 foreignNames :: [(Namespace, Text)]
 foreignNames =
-  foreignTypeNames <> foreignStablePtrNames <> foreignForeignPtrNames <> foreignMarshalNames
+  foreignTypeNames <> foreignStablePtrNames <> foreignForeignPtrNames <> foreignStorableNames <> foreignMarshalNames
 
 foreignTypeNames :: [(Namespace, Text)]
 foreignTypeNames =
@@ -1097,6 +1145,9 @@ foreignPtrNames =
       (TermNamespace,)
       [ "nullPtr"
       , "castPtr"
+      , "plusPtr"
+      , "minusPtr"
+      , "alignPtr"
       , "nullFunPtr"
       , "castFunPtr"
       , "castFunPtrToPtr"
@@ -1133,7 +1184,47 @@ foreignForeignPtrNames =
 
 foreignMarshalNames :: [(Namespace, Text)]
 foreignMarshalNames =
-  foreignMarshalErrorNames <> foreignMarshalUtilsNames
+  foreignMarshalAllocNames <> foreignMarshalArrayNames <> foreignMarshalErrorNames <> foreignMarshalUtilsNames
+
+foreignMarshalAllocNames :: [(Namespace, Text)]
+foreignMarshalAllocNames =
+  fmap
+    (TermNamespace,)
+    [ "malloc"
+    , "mallocBytes"
+    , "alloca"
+    , "allocaBytes"
+    , "realloc"
+    , "reallocBytes"
+    , "free"
+    , "finalizerFree"
+    ]
+
+foreignMarshalArrayNames :: [(Namespace, Text)]
+foreignMarshalArrayNames =
+  fmap
+    (TermNamespace,)
+    [ "mallocArray"
+    , "mallocArray0"
+    , "allocaArray"
+    , "allocaArray0"
+    , "reallocArray"
+    , "reallocArray0"
+    , "peekArray"
+    , "peekArray0"
+    , "pokeArray"
+    , "pokeArray0"
+    , "newArray"
+    , "newArray0"
+    , "withArray"
+    , "withArray0"
+    , "withArrayLen"
+    , "withArrayLen0"
+    , "copyArray"
+    , "moveArray"
+    , "lengthArray0"
+    , "advancePtr"
+    ]
 
 foreignMarshalErrorNames :: [(Namespace, Text)]
 foreignMarshalErrorNames =
@@ -1141,15 +1232,192 @@ foreignMarshalErrorNames =
 
 foreignMarshalUtilsNames :: [(Namespace, Text)]
 foreignMarshalUtilsNames =
-  fmap (TermNamespace,) ["maybeNew", "maybeWith", "maybePeek"]
+  fmap (TermNamespace,) ["maybeNew", "maybeWith", "maybePeek", "copyBytes", "moveBytes"]
 
 foreignCNames :: [(Namespace, Text)]
 foreignCNames =
-  foreignCStringNames <> foreignCTypesNames
+  foreignCErrorNames <> foreignCStringNames <> foreignCTypesNames
+
+foreignCErrorNames :: [(Namespace, Text)]
+foreignCErrorNames =
+  (TypeNamespace, "Errno")
+    : (ConstructorNamespace, "Errno")
+    : fmap
+      (TermNamespace,)
+      [ "eOK"
+      , "e2BIG"
+      , "eACCES"
+      , "eADDRINUSE"
+      , "eADDRNOTAVAIL"
+      , "eADV"
+      , "eAFNOSUPPORT"
+      , "eAGAIN"
+      , "eALREADY"
+      , "eBADF"
+      , "eBADMSG"
+      , "eBADRPC"
+      , "eBUSY"
+      , "eCHILD"
+      , "eCOMM"
+      , "eCONNABORTED"
+      , "eCONNREFUSED"
+      , "eCONNRESET"
+      , "eDEADLK"
+      , "eDESTADDRREQ"
+      , "eDIRTY"
+      , "eDOM"
+      , "eDQUOT"
+      , "eEXIST"
+      , "eFAULT"
+      , "eFBIG"
+      , "eFTYPE"
+      , "eHOSTDOWN"
+      , "eHOSTUNREACH"
+      , "eIDRM"
+      , "eILSEQ"
+      , "eINPROGRESS"
+      , "eINTR"
+      , "eINVAL"
+      , "eIO"
+      , "eISCONN"
+      , "eISDIR"
+      , "eLOOP"
+      , "eMFILE"
+      , "eMLINK"
+      , "eMSGSIZE"
+      , "eMULTIHOP"
+      , "eNAMETOOLONG"
+      , "eNETDOWN"
+      , "eNETRESET"
+      , "eNETUNREACH"
+      , "eNFILE"
+      , "eNOBUFS"
+      , "eNODATA"
+      , "eNODEV"
+      , "eNOENT"
+      , "eNOEXEC"
+      , "eNOLCK"
+      , "eNOLINK"
+      , "eNOMEM"
+      , "eNOMSG"
+      , "eNONET"
+      , "eNOPROTOOPT"
+      , "eNOSPC"
+      , "eNOSR"
+      , "eNOSTR"
+      , "eNOSYS"
+      , "eNOTBLK"
+      , "eNOTCONN"
+      , "eNOTDIR"
+      , "eNOTEMPTY"
+      , "eNOTSOCK"
+      , "eNOTTY"
+      , "eNXIO"
+      , "eOPNOTSUPP"
+      , "ePERM"
+      , "ePFNOSUPPORT"
+      , "ePIPE"
+      , "ePROCLIM"
+      , "ePROCUNAVAIL"
+      , "ePROGMISMATCH"
+      , "ePROGUNAVAIL"
+      , "ePROTO"
+      , "ePROTONOSUPPORT"
+      , "ePROTOTYPE"
+      , "eRANGE"
+      , "eREMCHG"
+      , "eREMOTE"
+      , "eROFS"
+      , "eRPCMISMATCH"
+      , "eRREMOTE"
+      , "eSHUTDOWN"
+      , "eSOCKTNOSUPPORT"
+      , "eSPIPE"
+      , "eSRCH"
+      , "eSRMNT"
+      , "eSTALE"
+      , "eTIME"
+      , "eTIMEDOUT"
+      , "eTOOMANYREFS"
+      , "eTXTBSY"
+      , "eUSERS"
+      , "eWOULDBLOCK"
+      , "eXDEV"
+      , "isValidErrno"
+      , "getErrno"
+      , "resetErrno"
+      , "errnoToIOError"
+      , "throwErrno"
+      , "throwErrnoIf"
+      , "throwErrnoIf_"
+      , "throwErrnoIfRetry"
+      , "throwErrnoIfRetry_"
+      , "throwErrnoIfMinus1"
+      , "throwErrnoIfMinus1_"
+      , "throwErrnoIfMinus1Retry"
+      , "throwErrnoIfMinus1Retry_"
+      , "throwErrnoIfNull"
+      , "throwErrnoIfNullRetry"
+      , "throwErrnoIfRetryMayBlock"
+      , "throwErrnoIfRetryMayBlock_"
+      , "throwErrnoIfMinus1RetryMayBlock"
+      , "throwErrnoIfMinus1RetryMayBlock_"
+      , "throwErrnoIfNullRetryMayBlock"
+      , "throwErrnoPath"
+      , "throwErrnoPathIf"
+      , "throwErrnoPathIf_"
+      , "throwErrnoPathIfNull"
+      , "throwErrnoPathIfMinus1"
+      , "throwErrnoPathIfMinus1_"
+      ]
 
 foreignCStringNames :: [(Namespace, Text)]
 foreignCStringNames =
   fmap (TypeNamespace,) ["CString", "CStringLen", "CWString", "CWStringLen"]
+    <> fmap
+      (TermNamespace,)
+      [ "peekCString"
+      , "peekCStringLen"
+      , "newCString"
+      , "newCStringLen"
+      , "withCString"
+      , "withCStringLen"
+      , "charIsRepresentable"
+      , "castCharToCChar"
+      , "castCCharToChar"
+      , "castCharToCUChar"
+      , "castCUCharToChar"
+      , "castCharToCSChar"
+      , "castCSCharToChar"
+      , "peekCAString"
+      , "peekCAStringLen"
+      , "newCAString"
+      , "newCAStringLen"
+      , "withCAString"
+      , "withCAStringLen"
+      , "peekCWString"
+      , "peekCWStringLen"
+      , "newCWString"
+      , "newCWStringLen"
+      , "withCWString"
+      , "withCWStringLen"
+      ]
+
+foreignStorableNames :: [(Namespace, Text)]
+foreignStorableNames =
+  (ClassNamespace, "Storable") : fmap (TermNamespace,) foreignStorableMethodNames
+
+foreignStorableMethodNames :: [Text]
+foreignStorableMethodNames =
+  [ "sizeOf"
+  , "alignment"
+  , "peekElemOff"
+  , "pokeElemOff"
+  , "peekByteOff"
+  , "pokeByteOff"
+  , "peek"
+  , "poke"
+  ]
 
 foreignCTypesNames :: [(Namespace, Text)]
 foreignCTypesNames =
