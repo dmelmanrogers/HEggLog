@@ -13,6 +13,7 @@ import Haskell2010.Native
   ( compileHaskell2010FileToLLVMWithOptions
   , compileHaskell2010ToLLVMWithOptions
   , defaultHaskell2010NativeOptions
+  , haskell2010ImportPaths
   , haskell2010LLVMText
   , haskell2010OptimizationStatus
   , haskell2010UseEgglog
@@ -76,7 +77,7 @@ runCompile path flags =
             defaultCompileLLVMOptions
               { compileUseEgglog = cliUseEgglog cliOptions
               }
-      compilePathToLLVM options path >>= \case
+      compilePathToLLVM options (cliImportPaths cliOptions) path >>= \case
         Left err -> do
           Text.IO.hPutStrLn stderr err
           exitFailure
@@ -130,12 +131,13 @@ compileSourceToLLVM options path source
       { haskell2010UseEgglog = compileUseEgglog options
       }
 
-compilePathToLLVM :: CompileLLVMOptions -> FilePath -> IO (Either Text CompiledLLVMOutput)
-compilePathToLLVM options path
+compilePathToLLVM :: CompileLLVMOptions -> [FilePath] -> FilePath -> IO (Either Text CompiledLLVMOutput)
+compilePathToLLVM options importPaths path
   | isHaskell2010Source path = do
       let haskellOptions =
             defaultHaskell2010NativeOptions
               { haskell2010UseEgglog = compileUseEgglog options
+              , haskell2010ImportPaths = importPaths
               }
       result <- compileHaskell2010FileToLLVMWithOptions haskellOptions path
       pure $
@@ -318,6 +320,8 @@ compileUsage =
     , "      Run generated LLVM text through lli, or through a temporary clang executable."
     , "  --no-egglog"
     , "      Compile without Egglog optimization."
+    , "  -i, --import-path PATH"
+    , "      Add a source module import search directory. May be repeated; the root module directory is searched first."
     , "  --link-object PATH"
     , "      Add an object file or native archive to the clang link command. May be repeated."
     , "  --link-library NAME"

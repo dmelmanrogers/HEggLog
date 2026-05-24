@@ -167,10 +167,10 @@ instances move across empty export lists, empty import lists, and transitive
 import chains independently of ordinary name filtering.
 The module compilation boundary is explicit in
 `Haskell2010.ModuleGraph.currentModuleCompilationBoundary`: current imports
-use same-directory source search plus generated standard-library interfaces,
-current compilation is whole-program source-graph compilation, and persistent
-interface files are intentionally deferred until module search-path identity is
-stable.
+use root-directory-first source search, generated standard-library interfaces,
+and ordered CLI `-i`/`--import-path` source roots; current compilation is
+whole-program source-graph compilation, and persistent interface files are
+intentionally deferred until package/interface identity is stable.
 The Haskell 2010
 native path now runs an Egglog Core optimizer by
 default for safe typed Core fragments before STG lowering; `--no-egglog`

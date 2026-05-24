@@ -419,15 +419,16 @@ Acceptance criteria:
 ### Phase 14 - Modules and Whole-Program Compilation
 
 Status: completed for the current executable subset. The compiler now loads
-same-directory dependency files from source import declarations, detects module
-cycles and module-name mismatches, renames modules in dependency order against
-actual exported definitions, enforces explicit export/import filtering
-including `Thing(..)` children and hiding, supports qualified aliases, flattens
-the renamed module graph into one typed Core program, and selects the root
-module's `main` as the native entry point. `MOD-011` and `MOD-012` now document
-the explicit whole-program compilation boundary and future interface-file
-requirements. Broader package search paths and remaining standard-library value
-surfaces remain later work.
+same-directory dependency files and ordered CLI `-i`/`--import-path` source
+roots from source import declarations, detects module cycles and module-name
+mismatches, renames modules in dependency order against actual exported
+definitions, enforces explicit export/import filtering including `Thing(..)`
+children and hiding, supports qualified aliases, flattens the renamed module
+graph into one typed Core program, and selects the root module's `main` as the
+native entry point. `MOD-011` and `MOD-012` document the explicit whole-program
+compilation boundary and future interface-file requirements. Package databases,
+interface-file roots, and remaining standard-library value surfaces remain
+later work.
 
 Deliverables:
 

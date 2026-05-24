@@ -6,7 +6,7 @@ This document closes `MOD-011` and `MOD-012` for the current compiler
 architecture. The implemented boundary is explicit in
 `Haskell2010.ModuleGraph.currentModuleCompilationBoundary`:
 
-- module search policy: `SameDirectorySourceSearch`
+- module search policy: `RootDirectoryAndImportPathSourceSearch []`
 - compilation mode: `WholeProgramSourceCompilation`
 - interface-file policy: `InterfaceFilesDeferredUntilStableSearchPaths`
 
@@ -24,8 +24,9 @@ compilation:
 2. A source file with no module header is treated as `Main`.
 3. Imports that name generated standard-library modules are satisfied from
    `Haskell2010.StandardLibrary.standardLibraryModuleInterfaces`.
-4. Other imports are resolved by `SameDirectorySourceSearch`: module `A.B`
-   resolves to `A/B.hs` under the root file's directory.
+4. Other imports are resolved by `RootDirectoryAndImportPathSourceSearch`:
+   module `A.B` resolves to `A/B.hs` first under the root file's directory,
+   then under each repeated CLI `-i`/`--import-path` directory in order.
 5. The graph loader rejects unreadable modules, parse failures, module-name
    mismatches, duplicate module names from different files, and import cycles.
 6. The renamer builds `ModuleInterface` values containing exports, child
@@ -95,9 +96,8 @@ change.
 
 The correct order for full separate compilation is:
 
-1. Generalize `ModuleSearchPolicy` from same-directory source search to an
-   explicit ordered resolver over source roots, generated standard-library
-   interfaces, and future package/interface roots.
+1. Extend the existing ordered source resolver with explicit package and
+   interface roots while preserving root-directory-first source lookup.
 2. Add a versioned interface artifact type next to `ModuleInterface`, with
    deterministic serialization and round-trip tests.
 3. Make the renamer and typechecker consume either loaded source modules or
@@ -121,11 +121,11 @@ The current boundary is covered by:
 - `test/Main.hs` module graph tests, including import/export resolution,
   instance propagation, cycle rejection, and the explicit compilation-boundary
   value
-- Haskell 2010 conformance tests for multi-module native execution, implicit
-  and explicit `Prelude` imports, standard-library module imports, instance
-  import/export behavior, bad imports, and unsupported package/module search
-  paths
-- documentation tracker entries `MOD-011` and `MOD-012`
+- Haskell 2010 conformance tests for same-directory and `-i` source-path
+  multi-module native execution, implicit and explicit `Prelude` imports,
+  standard-library module imports, instance import/export behavior, bad
+  imports, and unsupported package-database/unimplemented-library imports
+- documentation tracker entries `MOD-003`, `MOD-011`, and `MOD-012`
 
 ## Report References
 

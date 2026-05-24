@@ -37,6 +37,7 @@ data E2ECase = E2ECase
   , egglogModes :: [EgglogMode]
   , alsoEmitLLVM :: Bool
   , includeReport :: Bool
+  , extraCompileArgs :: [String]
   , stdinText :: Text
   , expectedCompileWarnings :: [Text]
   }
@@ -109,7 +110,7 @@ runNativeCase :: FilePath -> E2ECase -> EgglogMode -> Assertion
 runNativeCase hegglog e2eCase mode =
   withSystemTempDirectory "hegglog-e2e-native" $ \tmpDir -> do
     let outputPath = tmpDir </> executableName e2eCase mode
-        args = ["compile", sourcePath e2eCase, "-o", outputPath] <> modeArgs mode
+        args = ["compile", sourcePath e2eCase, "-o", outputPath] <> extraCompileArgs e2eCase <> modeArgs mode
     compileResult <- runCommand hegglog args
     case expected e2eCase of
       ExpectSuccess expectedStdout -> do
@@ -140,7 +141,7 @@ runEmitLLVMCase hegglog clang e2eCase =
   withSystemTempDirectory "hegglog-e2e-llvm" $ \tmpDir -> do
     let llvmPath = tmpDir </> safeCaseName e2eCase <.> "ll"
         exePath = tmpDir </> safeCaseName e2eCase <> "-from-llvm"
-        args = ["compile", sourcePath e2eCase, "--emit-llvm", "-o", llvmPath]
+        args = ["compile", sourcePath e2eCase, "--emit-llvm", "-o", llvmPath] <> extraCompileArgs e2eCase
     emitResult <- runCommand hegglog args
     assertExitSuccess ("emit LLVM " <> showCommand hegglog args) emitResult
     assertCompileWarnings e2eCase emitResult
@@ -292,6 +293,7 @@ successCase name path expectedStdout modes emitLLVM =
     , egglogModes = modes
     , alsoEmitLLVM = emitLLVM
     , includeReport = True
+    , extraCompileArgs = []
     , stdinText = ""
     , expectedCompileWarnings = []
     }
@@ -305,9 +307,14 @@ nativeOnlySuccessCase name path expectedStdout modes emitLLVM =
     , egglogModes = modes
     , alsoEmitLLVM = emitLLVM
     , includeReport = False
+    , extraCompileArgs = []
     , stdinText = ""
     , expectedCompileWarnings = []
     }
+
+nativeOnlySuccessCaseWithCompileArgs :: Text -> FilePath -> Text -> [EgglogMode] -> Bool -> [String] -> E2ECase
+nativeOnlySuccessCaseWithCompileArgs name path expectedStdout modes emitLLVM compileArgs =
+  (nativeOnlySuccessCase name path expectedStdout modes emitLLVM) {extraCompileArgs = compileArgs}
 
 nativeOnlySuccessCaseWithInput :: Text -> FilePath -> Text -> Text -> [EgglogMode] -> Bool -> E2ECase
 nativeOnlySuccessCaseWithInput name path input expectedStdout modes emitLLVM =
@@ -326,6 +333,7 @@ runtimeErrorCase name path modes =
     , egglogModes = modes
     , alsoEmitLLVM = False
     , includeReport = False
+    , extraCompileArgs = []
     , stdinText = ""
     , expectedCompileWarnings = []
     }
@@ -339,6 +347,7 @@ compileErrorCase name path categories =
     , egglogModes = [DefaultEgglog]
     , alsoEmitLLVM = False
     , includeReport = False
+    , extraCompileArgs = []
     , stdinText = ""
     , expectedCompileWarnings = []
     }
@@ -570,6 +579,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-data-bits" "test/haskell2010/conformance/modules/data-bits.hs" dataBitsExpectedStdout [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-data-ratio" "test/haskell2010/conformance/modules/data-ratio.hs" dataRatioExpectedStdout [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-modules" "test/e2e/programs/haskell2010/modules/Main.hs" "20" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCaseWithCompileArgs "haskell2010-import-search-path" "test/e2e/programs/haskell2010/search-path/Main.hs" "42" [DefaultEgglog, NoEgglog] True ["-i", "test/e2e/programs/haskell2010/search-path-lib"]
   , nativeOnlySuccessCase "haskell2010-io-printing" "test/e2e/programs/haskell2010/io-printing.hs" "ok\nanswer\n42\nTrue" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-normal-examples" "test/e2e/programs/haskell2010/io-normal-examples.hs" "hello\nbound\n\"quoted\"\n'X'\n\"plain\"\n[1,2,3]\n[True,False]" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCaseWithInput "haskell2010-io-getline" "test/e2e/programs/haskell2010/io-getline.hs" "hegg\nlog\nunused\n" "first=hegg\nsecond=log\n7" [DefaultEgglog, NoEgglog] True

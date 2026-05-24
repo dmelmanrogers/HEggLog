@@ -81,9 +81,9 @@ with checked integer/Bool/Char/Float/Double marshalling, and now lowers boxed
 `Ptr`/`FunPtr` values, static `&symbol` address imports, pointer
 arguments/results, and `wrapper` callback trampolines for the same ABI slice.
 FFI link metadata is preserved for header-qualified imports and C symbols, and
-native executable builds accept explicit link objects, libraries, library
-paths, and frameworks through the compile CLI. Complete package search paths,
-complete Prelude module coverage, automatic GC finalization, and remaining
+native executable builds accept explicit source import paths, link objects,
+libraries, library paths, and frameworks through the compile CLI. Package
+database/interface search paths, complete Prelude module coverage, automatic GC finalization, and remaining
 Foreign library breadth remain later module-system/runtime work; `foreign
 export ccall` entrypoints, `freeHaskellFunPtr` wrapper slot reclamation, and
 explicit `StablePtr`/manual `ForeignPtr` ownership APIs are implemented for the
@@ -120,13 +120,14 @@ The current Haskell 2010 module pipeline is explicit source-graph
 whole-program compilation. `Haskell2010.ModuleGraph.currentModuleCompilationBoundary`
 records the active policy:
 
-- `SameDirectorySourceSearch` resolves source imports under the root module's
-  directory, with generated standard-library modules supplied by
-  `Haskell2010.StandardLibrary`.
+- `RootDirectoryAndImportPathSourceSearch []` resolves source imports under
+  the root module's directory first, with generated standard-library modules
+  supplied by `Haskell2010.StandardLibrary`. Native compile commands may add
+  ordered source roots with repeated `-i`/`--import-path` flags.
 - `WholeProgramSourceCompilation` keeps loaded source modules together through
   renaming, typechecking, Core/STG lowering, and native compilation.
 - `InterfaceFilesDeferredUntilStableSearchPaths` documents that `.hi`-style
-  interface artifacts are intentionally deferred until package/search-path
+  interface artifacts are intentionally deferred until package/interface
   identity and generated standard-library boundaries are stable.
 
 This boundary is specified in

@@ -20,6 +20,7 @@ data CompileOutputMode
 data CompileCLIOptions = CompileCLIOptions
   { cliOutputMode :: CompileOutputMode
   , cliUseEgglog :: Bool
+  , cliImportPaths :: [FilePath]
   , cliLinkOptions :: CompileLinkOptions
   }
   deriving stock (Show, Eq, Ord)
@@ -47,6 +48,7 @@ data CompileFlagState = CompileFlagState
   , flagUseEgglog :: Bool
   , flagRunLLVM :: Bool
   , flagRunNative :: Bool
+  , flagImportPaths :: [FilePath]
   , flagLinkOptions :: CompileLinkOptions
   }
   deriving stock (Show, Eq, Ord)
@@ -59,6 +61,7 @@ parseCompileFlags flags = do
     CompileCLIOptions
       { cliOutputMode = mode
       , cliUseEgglog = flagUseEgglog parsed
+      , cliImportPaths = flagImportPaths parsed
       , cliLinkOptions = flagLinkOptions parsed
       }
  where
@@ -77,6 +80,10 @@ parseCompileFlags flags = do
       setOutput "-o" output options >>= \next -> go next rest
     "--output" : output : rest ->
       setOutput "--output" output options >>= \next -> go next rest
+    "-i" : importPath : rest ->
+      go (addImportPath importPath options) rest
+    "--import-path" : importPath : rest ->
+      go (addImportPath importPath options) rest
     "--link-object" : objectPath : rest ->
       go (addLinkObject objectPath options) rest
     "--link-library" : libraryName : rest ->
@@ -85,6 +92,10 @@ parseCompileFlags flags = do
       go (addLibraryPath libraryPath options) rest
     "--framework" : framework : rest ->
       go (addFramework framework options) rest
+    "-i" : [] ->
+      Left "-i requires a directory path"
+    "--import-path" : [] ->
+      Left "--import-path requires a directory path"
     "-o" : [] ->
       Left "-o requires a file path"
     "--output" : [] ->
@@ -97,8 +108,17 @@ parseCompileFlags flags = do
       Left "--library-path requires a directory path"
     "--framework" : [] ->
       Left "--framework requires a framework name"
-    flag : _ ->
-      Left ("unknown compile option: " <> Text.pack flag)
+    flag : rest
+      | Just importPath <- Text.stripPrefix "-i" (Text.pack flag) ->
+          if Text.null importPath
+            then Left "-i requires a directory path"
+            else go (addImportPath (Text.unpack importPath) options) rest
+      | Just importPath <- Text.stripPrefix "--import-path=" (Text.pack flag) ->
+          if Text.null importPath
+            then Left "--import-path requires a directory path"
+            else go (addImportPath (Text.unpack importPath) options) rest
+      | otherwise ->
+          Left ("unknown compile option: " <> Text.pack flag)
 
 defaultCompileFlagState :: CompileFlagState
 defaultCompileFlagState =
@@ -108,8 +128,13 @@ defaultCompileFlagState =
     , flagUseEgglog = True
     , flagRunLLVM = False
     , flagRunNative = False
+    , flagImportPaths = []
     , flagLinkOptions = emptyCompileLinkOptions
     }
+
+addImportPath :: FilePath -> CompileFlagState -> CompileFlagState
+addImportPath importPath options =
+  options {flagImportPaths = flagImportPaths options <> [importPath]}
 
 addLinkObject :: FilePath -> CompileFlagState -> CompileFlagState
 addLinkObject objectPath =

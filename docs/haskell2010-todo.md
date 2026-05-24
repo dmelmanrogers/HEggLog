@@ -15870,7 +15870,7 @@ Notes:
 ## MOD-003 — import search path
 
 Status:
-- not started
+- complete
 
 Category:
 - modules
@@ -15899,7 +15899,7 @@ Files likely touched:
 - `test/haskell2010/conformance/modules/`
 
 Acceptance criteria:
-- import search path is implemented, completed, or explicitly documented according to status `not started`.
+- import search path is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -15907,6 +15907,16 @@ Required tests:
 - module graph tests
 - import/export negative tests
 - multi-module native wet tests
+
+Notes:
+- Complete. Haskell 2010 source import resolution is now root-directory-first
+  over the root module's directory plus ordered repeated CLI `-i`/`--import-path`
+  source roots. Missing imports report every searched path; read, parse,
+  module-name mismatch, duplicate-module, and cycle failures remain hard
+  diagnostics. Unit, conformance, and native e2e fixtures cover cross-directory
+  imports, including default and `--no-egglog` native execution and emit-LLVM
+  coverage. Package databases, interface-file roots, and unimplemented library
+  modules remain documented outside MOD-003.
 
 Documentation updates:
 - `docs/haskell2010-frontend-spec.md`

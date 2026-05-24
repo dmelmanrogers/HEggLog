@@ -143,6 +143,7 @@ testGroups =
       , pureTest "resolves module graph imports through exports" testHaskell2010RenamerModuleGraphExports
       , pureTest "exports and imports instances through module interfaces" testHaskell2010RenamerModuleGraphInstances
       , pureTest "exposes explicit module compilation boundary" testHaskell2010ModuleCompilationBoundary
+      , ioTest "loads imports through source search paths" testHaskell2010ModuleGraphImportSearchPath
       , ioTest "detects module graph import cycles" testHaskell2010ModuleGraphCycle
       ]
   , TestGroup
@@ -1600,7 +1601,7 @@ testHaskell2010ModuleCompilationBoundary = do
   let boundary = H2010ModuleGraph.currentModuleCompilationBoundary
   expectEqual
     "module graph search policy"
-    H2010ModuleGraph.SameDirectorySourceSearch
+    (H2010ModuleGraph.RootDirectoryAndImportPathSourceSearch [])
     (H2010ModuleGraph.moduleBoundarySearchPolicy boundary)
   expectEqual
     "module graph compilation mode"
@@ -1611,13 +1612,54 @@ testHaskell2010ModuleCompilationBoundary = do
     H2010ModuleGraph.InterfaceFilesDeferredUntilStableSearchPaths
     (H2010ModuleGraph.moduleBoundaryInterfaceFilePolicy boundary)
   expectEqual
-    "same-directory import path resolution"
+    "root-directory import path resolution"
     (".context" </> "module-boundary" </> "Data" </> "Thing.hs")
     ( H2010ModuleGraph.resolveModuleImportPath
-        H2010ModuleGraph.SameDirectorySourceSearch
+        (H2010ModuleGraph.RootDirectoryAndImportPathSourceSearch [])
         (".context" </> "module-boundary")
         (H2010.ModuleName ["Data", "Thing"])
     )
+  expectEqual
+    "ordered import search path resolution"
+    [ ".context" </> "module-boundary" </> "Data" </> "Thing.hs"
+    , ".context" </> "module-boundary-lib" </> "Data" </> "Thing.hs"
+    ]
+    ( H2010ModuleGraph.resolveModuleImportPaths
+        (H2010ModuleGraph.RootDirectoryAndImportPathSourceSearch [".context" </> "module-boundary-lib", ".context" </> "module-boundary"])
+        (".context" </> "module-boundary")
+        (H2010.ModuleName ["Data", "Thing"])
+    )
+
+testHaskell2010ModuleGraphImportSearchPath :: IO (Either String ())
+testHaskell2010ModuleGraphImportSearchPath = do
+  let directory = ".context/module-graph-search-path-test"
+      rootDirectory = directory </> "app"
+      libraryDirectory = directory </> "lib"
+      mainPath = rootDirectory </> "Main.hs"
+      externalDirectory = libraryDirectory </> "Search"
+      externalPath = externalDirectory </> "External.hs"
+      externalName = H2010.ModuleName ["Search", "External"]
+      mainName = H2010.ModuleName ["Main"]
+      searchPolicy = H2010ModuleGraph.RootDirectoryAndImportPathSourceSearch [libraryDirectory]
+  removeDirectoryIfPresent directory
+  createDirectoryIfMissing True rootDirectory
+  createDirectoryIfMissing True externalDirectory
+  Text.IO.writeFile mainPath "module Main where\nimport Search.External (answer)\nmain = answer\n"
+  Text.IO.writeFile externalPath "module Search.External where\nanswer = 42\n"
+  result <- H2010ModuleGraph.loadModuleGraphWithPolicy searchPolicy mainPath
+  removeDirectoryIfPresent directory
+  pure $
+    case result of
+      Right graph -> do
+        let modules = H2010ModuleGraph.loadedModules graph
+        expectEqual "search-path graph module order" [externalName, mainName] (map H2010ModuleGraph.loadedModuleName modules)
+        case modules of
+          externalModule : _ ->
+            expectEqual "search-path import path used" externalPath (H2010ModuleGraph.loadedModulePath externalModule)
+          [] ->
+            Left "search-path graph unexpectedly loaded no modules"
+      Left err ->
+        Left ("expected search-path module graph to load, got " <> show err)
 
 testHaskell2010ModuleGraphCycle :: IO (Either String ())
 testHaskell2010ModuleGraphCycle = do
@@ -4993,6 +5035,7 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.EmitLLVM (Just "out.ll")
           , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliImportPaths = []
           , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
           }
         )
@@ -5004,6 +5047,7 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.EmitAndRunLLVM Nothing
           , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliImportPaths = []
           , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
           }
         )
@@ -5015,6 +5059,7 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.BuildExecutable "program"
           , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliImportPaths = []
           , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
           }
         )
@@ -5026,6 +5071,7 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.BuildAndRunExecutable "program"
           , CompileCLI.cliUseEgglog = False
+          , CompileCLI.cliImportPaths = []
           , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
           }
         )
@@ -5040,6 +5086,7 @@ testCompileFlagsLinkOptions =
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.BuildExecutable "program"
           , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliImportPaths = ["src-hs", "vendor-hs", "generated-hs"]
           , CompileCLI.cliLinkOptions =
               CompileCLI.CompileLinkOptions
                 { CompileCLI.cliLinkObjects = ["ffi.o", "more.o"]
@@ -5053,6 +5100,10 @@ testCompileFlagsLinkOptions =
     ( CompileCLI.parseCompileFlags
         [ "-o"
         , "program"
+        , "-i"
+        , "src-hs"
+        , "-ivendor-hs"
+        , "--import-path=generated-hs"
         , "--link-object"
         , "ffi.o"
         , "--link-object"
@@ -5072,6 +5123,9 @@ testCompileFlagsRejectInvalidRunModes =
     *> assertLeftContains "native run conflicts with emit LLVM" "--run builds and runs a native executable" (CompileCLI.parseCompileFlags ["--emit-llvm", "--run"])
     *> assertLeftContains "native and LLVM run conflict" "--run and --run-llvm cannot be combined" (CompileCLI.parseCompileFlags ["--run", "--run-llvm", "-o", "program"])
     *> assertLeftContains "duplicate output rejected" "provided more than once" (CompileCLI.parseCompileFlags ["-o", "a", "--output", "b"])
+    *> assertLeftContains "missing import path rejected" "-i requires a directory path" (CompileCLI.parseCompileFlags ["-i"])
+    *> assertLeftContains "missing long import path rejected" "--import-path requires a directory path" (CompileCLI.parseCompileFlags ["--import-path"])
+    *> assertLeftContains "empty long import path rejected" "--import-path requires a directory path" (CompileCLI.parseCompileFlags ["--import-path="])
     *> assertLeftContains "missing link object path rejected" "--link-object requires a file path" (CompileCLI.parseCompileFlags ["--link-object"])
     *> assertLeftContains "missing link library name rejected" "--link-library requires a library name" (CompileCLI.parseCompileFlags ["--link-library"])
     *> assertLeftContains "missing library path rejected" "--library-path requires a directory path" (CompileCLI.parseCompileFlags ["--library-path"])

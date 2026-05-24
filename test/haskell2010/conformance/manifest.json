@@ -180,6 +180,22 @@
       "notes": "Same-directory module graph with qualified import, export list, and constructor child import."
     },
     {
+      "name": "modules.import-search-path",
+      "sourceFile": "test/haskell2010/conformance/modules/search-path-main.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "42\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "importPaths": [
+        "test/haskell2010/conformance/search-path"
+      ],
+      "notes": "Ordered source import search paths load modules outside the root module directory through repeated -i/--import-path entries."
+    },
+    {
       "name": "modules.implicit-prelude",
       "sourceFile": "test/haskell2010/conformance/modules/implicit-prelude.hs",
       "category": "modules",
@@ -1723,7 +1739,7 @@
       "expectedStatus": "unsupported-documented",
       "expectedDiagnosticCategory": "could not read",
       "requiredStage": "module-graph",
-      "notes": "Package and unimplemented library module search paths are not implemented; imports only load generated standard-library interfaces or same-directory files."
+      "notes": "Package databases and unimplemented library modules are not implemented; source imports load generated standard-library interfaces or explicit source files found through the root directory plus -i/--import-path directories."
     }
   ]
 }

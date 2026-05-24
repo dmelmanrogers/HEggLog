@@ -24,8 +24,9 @@ import Haskell2010.ModuleGraph
   ( LoadedModule (..)
   , LoadedModuleGraph (..)
   , ModuleGraphError
-  , loadModuleGraph
+  , ModuleSearchPolicy (..)
   , loadVirtualStandardModuleClosure
+  , loadModuleGraphWithPolicy
   , renderModuleGraphError
   , sourceModuleName
   , wholeProgramModule
@@ -54,6 +55,7 @@ import Text.Megaparsec (errorBundlePretty)
 data Haskell2010NativeOptions = Haskell2010NativeOptions
   { haskell2010UseEgglog :: Bool
   , haskell2010EgglogRunConfig :: Egglog.RunConfig
+  , haskell2010ImportPaths :: [FilePath]
   }
   deriving stock (Show, Eq)
 
@@ -62,6 +64,7 @@ defaultHaskell2010NativeOptions =
   Haskell2010NativeOptions
     { haskell2010UseEgglog = True
     , haskell2010EgglogRunConfig = Egglog.defaultRunConfig
+    , haskell2010ImportPaths = []
     }
 
 data Haskell2010LLVMResult = Haskell2010LLVMResult
@@ -103,7 +106,10 @@ compileHaskell2010FileToLLVMWithOptions ::
   FilePath ->
   IO (Either Haskell2010LLVMError Haskell2010LLVMResult)
 compileHaskell2010FileToLLVMWithOptions options path = do
-  graphResult <- loadModuleGraph path
+  graphResult <-
+    loadModuleGraphWithPolicy
+      (RootDirectoryAndImportPathSourceSearch (haskell2010ImportPaths options))
+      path
   pure $ do
     graph <- mapLeft Haskell2010LLVMModuleGraphError graphResult
     compileHaskell2010LoadedModulesToLLVMWithOptions options graph

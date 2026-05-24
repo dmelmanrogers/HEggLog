@@ -50,6 +50,7 @@ data ConformanceCase = ConformanceCase
   , caseCompilerModes :: [CompilerMode]
   , caseStdin :: Text
   , caseExtraObjects :: [FilePath]
+  , caseImportPaths :: [FilePath]
   , caseArgs :: [String]
   , caseEnv :: Map.Map String String
   , caseExpectedExitCode :: Maybe Int
@@ -72,6 +73,7 @@ instance FromJSON ConformanceCase where
         <*> ((object .:? "compilerModes") .!= [DefaultCompilerMode])
         <*> ((object .:? "stdin") .!= "")
         <*> ((object .:? "extraObjects") .!= [])
+        <*> ((object .:? "importPaths") .!= [])
         <*> ((object .:? "args") .!= [])
         <*> ((object .:? "env") .!= Map.empty)
         <*> object .:? "expectedExitCode"
@@ -235,7 +237,7 @@ runCompileToLLVMPassCase :: FilePath -> ConformanceCase -> Assertion
 runCompileToLLVMPassCase hegglog conformanceCase =
   withSystemTempDirectory "hegglog-haskell2010-conformance-stage-pass" $ \tmpDir -> do
     let outputPath = tmpDir </> safeCaseFileName conformanceCase <> ".ll"
-        args = ["compile", caseSourceFile conformanceCase, "--emit-llvm", "-o", outputPath]
+        args = ["compile", caseSourceFile conformanceCase, "--emit-llvm", "-o", outputPath] <> importPathArgs conformanceCase
     result <- runCommand hegglog args
     assertExitSuccess ("compile-to-llvm pass " <> showCommand hegglog args) result
     outputExists <- doesFileExist outputPath
@@ -272,8 +274,13 @@ processEnvironment extraEnv
 compileExecutableArgs :: ConformanceCase -> FilePath -> CompilerMode -> [String]
 compileExecutableArgs conformanceCase outputPath mode =
   ["compile", caseSourceFile conformanceCase, "-o", outputPath]
+    <> importPathArgs conformanceCase
     <> linkObjectArgs conformanceCase
     <> modeArgs mode
+
+importPathArgs :: ConformanceCase -> [String]
+importPathArgs conformanceCase =
+  concat [["-i", importPath] | importPath <- caseImportPaths conformanceCase]
 
 linkObjectArgs :: ConformanceCase -> [String]
 linkObjectArgs conformanceCase =

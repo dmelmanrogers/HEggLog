@@ -78,8 +78,9 @@ implemented:
   subset
 - remaining standard-library value surfaces beyond the currently generated
   partial module interfaces
-- package/module search paths and persistent interface-file separate
-  compilation beyond the current explicit whole-program source boundary
+- package databases, interface-file roots, and persistent interface-file
+  separate compilation beyond the current explicit whole-program source
+  boundary
 - Haskell source desugaring and negative fixtures beyond the current executable subset
 - remaining strict-runtime IO deviations: file-backed handle state, real seek/position state, lazy semi-closed `hGetContents`, productive `fixIO`, and effects beyond the native standard-handle text subset
 - remaining FFI closure for errno, Storable dictionaries, raw allocation, array
@@ -521,6 +522,6 @@ Already-completed typeclass expansion work, including
 superclass dictionaries, default methods, overlap rejection, public
 `Enum`/`Bounded`, derived `Enum`/`Bounded`, numeric defaulting, the supported `Monad` class surface, and
 MOD-009 instance import/export behavior should be preserved as regression
-baseline while those tasks proceed. MOD-011/MOD-012 are also complete and
-should be treated as the guardrail for future module search path, package, and
-interface-file work.
+baseline while those tasks proceed. MOD-003 source import search paths and
+MOD-011/MOD-012 are also complete and should be treated as the guardrail for
+future package-database and interface-file work.

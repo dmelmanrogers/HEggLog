@@ -1,21 +1,20 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-24 03:21:50 UTC
+Date/time: 2026-05-24 04:30:21 UTC
 
-Code hash tested: source implementation in the LIB-011 working tree before
-final commit.
+Code hash tested: source implementation in the MOD-003 import-search-path
+working tree before final commit.
 
 Primary conformance command run:
 
 ```bash
-cabal test all
+cabal test haskell2010-conformance-test
 ```
 
 Required task validation also passed:
 
 ```bash
 cabal build all
-cabal test all
 cabal check
 cabal test hegglog-test
 cabal test haskell2010-conformance-test
@@ -38,14 +37,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 154 |
-| Haskell source files in corpus | 154 |
-| HUnit test cases executed | 231 |
-| Native-success fixtures | 105 |
+| Manifest conformance fixtures | 155 |
+| Manifest source files in corpus | 155 |
+| HUnit test cases executed | 233 |
+| Native-success fixtures | 106 |
 | Native-runtime-error fixtures | 15 |
 | Compile-error fixtures | 28 |
 | Unsupported-documented fixtures | 6 |
-| Native subprocess compile/run checks | 197 |
+| Native subprocess compile/run checks | 199 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -157,8 +156,16 @@ PRELUDE-020 is now covered by native conformance and e2e fixtures.
 `Data.List`, `Data.Maybe`, `Data.Char`, `Control.Monad`, and `System.IO` with explicit
 import lists, `Functor(fmap)` and `Maybe(..)` child exports, imported fixities,
 ordinary Prelude-backed semantics, and default plus `--no-egglog` native execution. The
-unsupported package/search-path fixture now imports reserved `Data.Array` so
+unsupported package/database fixture imports unimplemented `Data.Set` so
 unimplemented standard-library modules continue to fail explicitly.
+
+MOD-003 is now covered by unit, conformance, and native e2e fixtures.
+`modules.import-search-path` compiles a root `Main` module whose dependency is
+outside the root module directory and supplied through an ordered `-i` source
+root. The native default/`--no-egglog` and emit-LLVM wet paths also pass the
+same cross-directory source import through the CLI. Package databases,
+interface-file roots, and unimplemented library modules remain documented
+separately from source import path support.
 
 LIB-002 is now covered by native conformance and e2e fixtures.
 `modules.data-list` compiles a source-backed virtual `Data.List` module through
@@ -246,11 +253,11 @@ dynamic calls, wrapper callbacks, and foreign export entrypoints.
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
-| `modules` | 26 | single-module, same-directory import, implicit/explicit/qualified Prelude import, source-instance import/export, generated standard-library module imports, source-backed `Data.List`/`Data.Maybe`/`Data.Char`/`Data.Complex`, `Data.Array`, `Data.Ix`, `Data.Bits`, `Data.Ratio`, scalar standard-library imports, fixed-width `Data.Int`/`Data.Word`, and partial runtime-error coverage exist |
+| `modules` | 32 | single-module, same-directory import, ordered `-i` source import paths, implicit/explicit/qualified Prelude import, source-instance import/export, generated standard-library module imports, source-backed `Data.List`/`Data.Maybe`/`Data.Char`/`Data.Complex`, `Data.Array`, `Data.Ix`, `Data.Bits`, `Data.Ratio`, scalar standard-library imports, fixed-width `Data.Int`/`Data.Word`, `System.Environment`/`System.Exit`, and partial runtime-error coverage exist |
 | `negative` | 28 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid default declarations, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
 | `prelude` | 19 | list functions, append, foldl, function/selector completion, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Report-shaped Read, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, list comprehensions, and floating numeric Prelude coverage covered |
 | `recursion` | 1 | top-level recursion representative native test exists |
 | `typeclasses` | 13 | user dictionary, instance context, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, derived Read, derived Enum, and derived Bounded tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |
-| `unsupported` | 8 | unsupported features documented by failing cases, including constrained expression signatures, package/module search paths, method-specific constraints, and reserved Report library modules |
+| `unsupported` | 6 | unsupported features documented by failing cases, including constrained expression signatures, package databases/unimplemented library imports, method-specific constraints, and reserved Report library modules |

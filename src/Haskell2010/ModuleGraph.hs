@@ -12,6 +12,7 @@ module Haskell2010.ModuleGraph
   , loadVirtualStandardModuleClosure
   , renderModuleGraphError
   , resolveModuleImportPath
+  , resolveModuleImportPaths
   , sourceModuleName
   , wholeProgramModule
   )
@@ -31,6 +32,7 @@ import Haskell2010.Renamed
 import qualified Haskell2010.StandardLibrary as StandardLibrary
 import Haskell2010.Syntax
 import System.FilePath ((<.>), (</>), joinPath, normalise, takeDirectory)
+import System.IO.Error (isDoesNotExistError)
 import Text.Megaparsec (errorBundlePretty)
 
 data LoadedModule = LoadedModule
@@ -53,10 +55,11 @@ data ModuleGraphError
   | ModuleNameMismatch FilePath ModuleName ModuleName
   | DuplicateModule ModuleName FilePath FilePath
   | ModuleCycle [ModuleName]
+  | ModuleNotFound ModuleName [FilePath]
   deriving stock (Show, Eq, Ord)
 
 data ModuleSearchPolicy
-  = SameDirectorySourceSearch
+  = RootDirectoryAndImportPathSourceSearch [FilePath]
   deriving stock (Show, Eq, Ord)
 
 data ModuleCompilationMode
@@ -77,7 +80,7 @@ data ModuleCompilationBoundary = ModuleCompilationBoundary
 currentModuleCompilationBoundary :: ModuleCompilationBoundary
 currentModuleCompilationBoundary =
   ModuleCompilationBoundary
-    { moduleBoundarySearchPolicy = SameDirectorySourceSearch
+    { moduleBoundarySearchPolicy = RootDirectoryAndImportPathSourceSearch []
     , moduleBoundaryCompilationMode = WholeProgramSourceCompilation
     , moduleBoundaryInterfaceFilePolicy = InterfaceFilesDeferredUntilStableSearchPaths
     }
@@ -256,13 +259,44 @@ loadImport searchPolicy rootDirectory active stateResult importDecl =
       | isBuiltinModule (importModule importDecl) ->
           pure (Right state)
       | otherwise ->
-          loadModule
+          loadModuleBySearchPath
             searchPolicy
             rootDirectory
             active
             state
-            (resolveModuleImportPath searchPolicy rootDirectory (importModule importDecl))
-            (Just (importModule importDecl))
+            (importModule importDecl)
+
+loadModuleBySearchPath ::
+  ModuleSearchPolicy ->
+  FilePath ->
+  [ModuleName] ->
+  LoadState ->
+  ModuleName ->
+  IO (Either ModuleGraphError LoadState)
+loadModuleBySearchPath searchPolicy rootDirectory active state expectedName =
+  go candidates
+ where
+  candidates =
+    resolveModuleImportPaths searchPolicy rootDirectory expectedName
+  go [] =
+    pure (Left (ModuleNotFound expectedName candidates))
+  go (path : rest) = do
+    sourceResult <- readModuleSourceCandidate path
+    case sourceResult of
+      ModuleSourceMissing ->
+        go rest
+      ModuleSourceReadError message ->
+        pure (Left (ModuleReadError path message))
+      ModuleSourceFound source -> do
+        let parsedResult =
+              mapLeft
+                (ModuleParseError path . Text.pack . errorBundlePretty)
+                (parseSourceModule path source)
+        case parsedResult of
+          Left err ->
+            pure (Left err)
+          Right parsed ->
+            pureOrContinue searchPolicy rootDirectory active state path source parsed (sourceModuleName parsed) (Just expectedName)
 
 loadVirtualStandardModule ::
   ModuleSearchPolicy ->
@@ -304,6 +338,23 @@ readModuleSource path = do
       Right source ->
         Right source
 
+data ModuleSourceCandidate
+  = ModuleSourceFound Text
+  | ModuleSourceMissing
+  | ModuleSourceReadError Text
+  deriving stock (Show, Eq, Ord)
+
+readModuleSourceCandidate :: FilePath -> IO ModuleSourceCandidate
+readModuleSourceCandidate path = do
+  result <- try (Text.IO.readFile path) :: IO (Either IOException Text)
+  pure $
+    case result of
+      Left err
+        | isDoesNotExistError err -> ModuleSourceMissing
+        | otherwise -> ModuleSourceReadError (Text.pack (show err))
+      Right source ->
+        ModuleSourceFound source
+
 sourceModuleName :: HsModule -> ModuleName
 sourceModuleName sourceModule =
   case moduleName sourceModule of
@@ -311,8 +362,28 @@ sourceModuleName sourceModule =
     Nothing -> ModuleName ["Main"]
 
 resolveModuleImportPath :: ModuleSearchPolicy -> FilePath -> ModuleName -> FilePath
-resolveModuleImportPath SameDirectorySourceSearch rootDirectory (ModuleName parts) =
-  rootDirectory </> joinPath (map Text.unpack parts) <.> "hs"
+resolveModuleImportPath searchPolicy rootDirectory moduleName =
+  case resolveModuleImportPaths searchPolicy rootDirectory moduleName of
+    path : _ -> path
+    [] -> rootDirectory </> moduleNamePath moduleName <.> "hs"
+
+resolveModuleImportPaths :: ModuleSearchPolicy -> FilePath -> ModuleName -> [FilePath]
+resolveModuleImportPaths (RootDirectoryAndImportPathSourceSearch importPaths) rootDirectory moduleName =
+  [ directory </> moduleNamePath moduleName <.> "hs"
+  | directory <- uniqueNormalisedPaths (rootDirectory : importPaths)
+  ]
+
+uniqueNormalisedPaths :: [FilePath] -> [FilePath]
+uniqueNormalisedPaths =
+  go Set.empty []
+ where
+  go _ acc [] =
+    reverse acc
+  go seen acc (path : rest) =
+    let normalized = normalise path
+     in if normalized `Set.member` seen
+          then go seen acc rest
+          else go (Set.insert normalized seen) (normalized : acc) rest
 
 isBuiltinModule :: ModuleName -> Bool
 isBuiltinModule moduleName =
@@ -376,6 +447,11 @@ renderModuleGraphError = \case
   ModuleCycle names ->
     "cyclic Haskell 2010 module imports: "
       <> Text.intercalate " -> " (map renderModuleName names)
+  ModuleNotFound name paths ->
+    "could not read Haskell 2010 module `"
+      <> renderModuleName name
+      <> "`: no source file found; searched: "
+      <> Text.intercalate ", " (map Text.pack paths)
 
 mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = \case

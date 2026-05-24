@@ -8835,7 +8835,7 @@
     {
       "id": "MOD-003",
       "title": "import search path",
-      "status": "not started",
+      "status": "complete",
       "category": "modules",
       "depends_on": [
         "REN-015",
@@ -8844,7 +8844,7 @@
       "blocks": [],
       "milestone": "M14",
       "acceptance_criteria": [
-        "import search path is implemented, completed, or explicitly documented according to status `not started`.",
+        "import search path is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -8857,7 +8857,8 @@
         "docs/haskell2010-frontend-spec.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. Haskell 2010 source import resolution is root-directory-first over the root module directory plus ordered repeated CLI -i/--import-path source roots. Missing imports report every searched path, while read, parse, module-name mismatch, duplicate-module, and cycle failures remain hard diagnostics. Unit, conformance, and native e2e fixtures cover cross-directory imports, including default and --no-egglog native execution plus emit-LLVM coverage. Package databases, interface-file roots, and unimplemented library modules remain documented outside MOD-003."
     },
     {
       "id": "MOD-004",
