@@ -1,9 +1,9 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-24 01:54:46 UTC
+Date/time: 2026-05-24 03:21:50 UTC
 
-Code hash tested: source implementation at `78928b7`; this checkpoint is a
-documentation-only audit update.
+Code hash tested: source implementation in the LIB-011 working tree before
+final commit.
 
 Primary conformance command run:
 
@@ -38,14 +38,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 151 |
-| Haskell source files in corpus | 151 |
-| HUnit test cases executed | 223 |
-| Native-success fixtures | 102 |
-| Native-runtime-error fixtures | 13 |
+| Manifest conformance fixtures | 154 |
+| Haskell source files in corpus | 154 |
+| HUnit test cases executed | 231 |
+| Native-success fixtures | 105 |
+| Native-runtime-error fixtures | 15 |
 | Compile-error fixtures | 28 |
-| Unsupported-documented fixtures | 8 |
-| Native subprocess compile/run checks | 187 |
+| Unsupported-documented fixtures | 6 |
+| Native subprocess compile/run checks | 197 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -55,12 +55,16 @@ conformance remains incomplete, and unsupported features are represented as
 explicit conformance cases rather than omitted.
 
 LIB-001 through LIB-012 audit checkpoint: the implemented library tasks
-`LIB-001` through `LIB-010` and `LIB-012` are covered by the tracker, matrix,
-manifest, validators, and the full Cabal test suite. `LIB-011` is intentionally
-not claimed complete: the Haskell 2010 `System.Environment` and `System.Exit`
-modules remain explicit unsupported-documented fixtures and reserved standard
-library rows until deterministic process argument, environment, and exit-code
-semantics are implemented end to end.
+`LIB-001` through `LIB-012` are covered by the tracker, matrix, manifest,
+validators, and the full Cabal test suite. `LIB-011` is now covered by native
+generated-module fixtures for `System.Environment` and `System.Exit`.
+`System.Environment` exposes `getArgs`, `getProgName`, and `getEnv` against
+native process arguments and environment variables, including catchable
+`DoesNotExistError` failures for missing variables. `System.Exit` exposes
+`ExitCode(ExitSuccess, ExitFailure)`, `exitWith`, `exitFailure`, and
+`exitSuccess`; valid exit actions propagate as non-catchable process termination
+with the requested process status, while the POSIX-prohibited `ExitFailure 0`
+path is a catchable illegal-operation `IOError`.
 
 LIB-012 is now covered by unit and conformance paths for the strict native
 runtime model. `System.IO` exposes the Report handle/mode/buffering/seek/text
@@ -202,10 +206,10 @@ Part II Libraries module group. The conformance validator now checks all 18
 library closure rows, verifies that each row cites manifest-backed fixtures and
 numbered remaining tracker tasks, and requires the library closure fixtures to
 stay represented in the matrix. Reserved Report modules now have explicit
-unsupported-documented fixtures for `System.Environment`, `System.Exit`,
-`Foreign.C.Error`, `Foreign.Marshal.Alloc`/array allocation, and
-`Foreign.Storable`. `Numeric` has moved from that reserved set to the
-source-backed native fixture `modules.numeric`.
+unsupported-documented fixtures for `Foreign.C.Error`,
+`Foreign.Marshal.Alloc`/array allocation, and `Foreign.Storable`.
+`System.Environment`, `System.Exit`, and `Numeric` have moved from that
+reserved set to native/generated or source-backed fixtures.
 `modules.data-complex` and `prelude.floating-numeric` now positively check
 the LIB-008 floating numeric tower and importable `Data.Complex` module in
 default and `--no-egglog` native modes.

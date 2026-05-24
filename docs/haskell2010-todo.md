@@ -14977,7 +14977,7 @@ Notes:
 ## LIB-011 — System.Environment and System.Exit report completion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -15018,7 +15018,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Created by TEST-CONF-015 to replace unnumbered System module future work.
+- Complete as a generated native process module pair. `System.Environment` imports expose `getArgs`, `getProgName`, and `getEnv` backed by C `argc`/`argv`, basename extraction, environment lookup, `[Char]`/C-string conversion, and `DoesNotExistError` failures for missing variables. `System.Exit` imports expose `ExitCode(ExitSuccess, ExitFailure)`, `exitWith`, `exitFailure`, and `exitSuccess`; `ExitCode` has built-in `Eq`/`Ord`/`Show`/`Read`, valid native `exitWith` calls propagate a distinct non-catchable IO-exit result so `System.IO.Error.catch` does not intercept process termination, and POSIX-prohibited `ExitFailure 0` surfaces as a catchable illegal-operation `IOError`. Covered by `modules.system-environment`, `modules.system-exit`, `modules.system-exit-failure`, `modules.system-exit-catch`, and `modules.system-exit-zero-catch` conformance fixtures.
 
 ## LIB-012 — System.IO report completion
 
