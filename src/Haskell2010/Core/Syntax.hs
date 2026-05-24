@@ -261,6 +261,7 @@ data CorePrimOp
   | PrimIOError
   | PrimIOCatch
   | PrimIOTry
+  | PrimIOFix
   | PrimNullPtr
   | PrimCastPtr
   | PrimIsNullPtr

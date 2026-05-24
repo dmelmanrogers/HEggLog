@@ -741,6 +741,7 @@ corePrimToANF = \case
   PrimIOError -> Nothing
   PrimIOCatch -> Nothing
   PrimIOTry -> Nothing
+  PrimIOFix -> Nothing
   PrimNullPtr -> Nothing
   PrimCastPtr -> Nothing
   PrimIsNullPtr -> Nothing

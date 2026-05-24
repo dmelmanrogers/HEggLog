@@ -82,7 +82,9 @@ implemented:
   separate compilation beyond the current explicit whole-program source
   boundary
 - Haskell source desugaring and negative fixtures beyond the current executable subset
-- remaining strict-runtime IO deviations: file-backed handle state, real seek/position state, lazy semi-closed `hGetContents`, productive `fixIO`, and effects beyond the native standard-handle text subset
+- remaining IO follow-up scope is outside the Haskell 2010 text baseline:
+  post-2010 encoding/binary IO, threaded/asynchronous IO behavior, and richer
+  terminal echo/control effects beyond the current metadata and `isatty` checks
 - remaining FFI closure for errno, Storable dictionaries, raw allocation, array
   marshalling, and C string marshalling functions
 - full Haskell 2010 conformance suite breadth beyond the current

@@ -510,6 +510,24 @@ evalPrimitive env op arguments =
           pure (STGIO chunks (STGIOExit code))
         other ->
           typeError ("expected STG IO action, got " <> renderSTGValue other)
+    (PrimIOFix, [functionAtom]) -> do
+      function <- evalAtom env functionAtom
+      case function of
+        STGFunctionValue functionAddress -> do
+          placeholder <- allocateClosure (BlackHole Nothing)
+          action <- enterFunctionAddressWithArguments ioFixFunctionName functionAddress [placeholder]
+          case action of
+            STGIO chunks (STGIOSuccess value) -> do
+              writeClosure placeholder (ValueClosure value)
+              pure (STGIO chunks (STGIOSuccess value))
+            STGIO chunks (STGIOFailure err) ->
+              pure (STGIO chunks (STGIOFailure err))
+            STGIO chunks (STGIOExit code) ->
+              pure (STGIO chunks (STGIOExit code))
+            other ->
+              typeError ("expected STG IO action from fixIO function, got " <> renderSTGValue other)
+        other ->
+          typeError ("expected STG IO fix function, got " <> renderSTGValue other)
     _ -> do
       values <- traverse (evalAtom env) arguments
       evalPrimitiveValues op values
@@ -888,13 +906,15 @@ checkedSTGIntValue = \case
   Right value -> Right (STGInt value)
   Left err -> Left (STGEvalIntError err)
 
-ioBindContinuationName, withForeignPtrContinuationName, ioCatchHandlerName :: RName
+ioBindContinuationName, withForeignPtrContinuationName, ioCatchHandlerName, ioFixFunctionName :: RName
 ioBindContinuationName =
   RName TermNamespace "$io_bind_continuation" (-3921) False
 withForeignPtrContinuationName =
   RName TermNamespace "$with_foreign_ptr_continuation" (-3922) False
 ioCatchHandlerName =
   RName TermNamespace "$io_catch_handler" (-3923) False
+ioFixFunctionName =
+  RName TermNamespace "$io_fix_function" (-3924) False
 
 stgStringText :: STGValue -> EvalM Text
 stgStringText = \case
@@ -1224,6 +1244,7 @@ renderCorePrimOpName = \case
   PrimIOError -> "ioError#"
   PrimIOCatch -> "catchIO#"
   PrimIOTry -> "tryIO#"
+  PrimIOFix -> "fixIO#"
   PrimNullPtr -> "nullPtr#"
   PrimCastPtr -> "castPtr#"
   PrimIsNullPtr -> "isNullPtr#"

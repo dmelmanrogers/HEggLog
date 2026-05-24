@@ -583,6 +583,7 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-io-printing" "test/e2e/programs/haskell2010/io-printing.hs" "ok\nanswer\n42\nTrue" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-normal-examples" "test/e2e/programs/haskell2010/io-normal-examples.hs" "hello\nbound\n\"quoted\"\n'X'\n\"plain\"\n[1,2,3]\n[True,False]" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCaseWithInput "haskell2010-io-getline" "test/e2e/programs/haskell2010/io-getline.hs" "hegg\nlog\nunused\n" "first=hegg\nsecond=log\n7" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-system-io-files" "test/haskell2010/conformance/io/system-io-files.hs" "ab\n1\n4\nbc\nFalse\nFalse\nTrue\ndef\nxyz\n11\n8\n1\n7\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nFalse\nTrue\nTrue\nrw\nQ" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-monad" "test/e2e/programs/haskell2010/monad.hs" "monad\n[11,21,12,22]\n[1,3]\n7\nmaybe fail" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-monad-explicit-fail" "test/e2e/programs/haskell2010/monad-explicit-fail.hs" "[]\nmaybe explicit fail\n7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-control-monad" "test/e2e/programs/haskell2010/control-monad.hs" "[2,3,4]\n4\n5\n[2,4]\n6\n[1,2]\n7\n8\n7\n9\n9\n10\n11\n[1,2,3]\n[3,4]\n[1,2]\n[11,12]\n[11,22]\n21\n32\n6\n13\n[2,2,2]\n14\n15\n99\n[16,17]\n[]\nwhen\nunless\n16\n33\n6\n10\n15\n34\n35" [DefaultEgglog, NoEgglog] True

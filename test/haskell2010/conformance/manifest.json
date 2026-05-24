@@ -1524,7 +1524,7 @@
       "sourceFile": "test/haskell2010/conformance/io/system-io.hs",
       "category": "io",
       "expectedStatus": "native-success",
-      "expectedStdout": "alpha-beta\nTrue\nplain-stdout\nfirst\nsecond\nTrue\n<handle>\n",
+      "expectedStdout": "alpha-beta\nTrue\nplain-stdout\nfirst\nsecond\nTrue\n<stdout>\n",
       "stdin": "first\nsecond\n",
       "requiredStage": "native",
       "compilerModes": [
@@ -1532,6 +1532,19 @@
         "no-egglog"
       ],
       "notes": "System.IO report surface imports and runs through native standard handles for buffering, text output, line input, getContents, EOF checks, hPrint, and hShow."
+    },
+    {
+      "name": "io.system-io-files",
+      "sourceFile": "test/haskell2010/conformance/io/system-io-files.hs",
+      "category": "io",
+      "expectedStatus": "native-success",
+      "expectedStdout": "ab\n1\n4\nbc\nFalse\nFalse\nTrue\ndef\nxyz\n11\n8\n1\n7\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nFalse\nTrue\nTrue\nrw\nQ\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "System.IO file-backed handles support openFile, ReadWriteMode creation, writeFile, appendFile, withFile close discipline, hGetChar, hLookAhead, hGetLine, lazy semi-closed hGetContents, semi-closed handle predicates/failures, bounded hSeek/hTell/hGetPosn/hSetPosn, hFileSize/hSetFileSize, buffering metadata, echo metadata, readiness, close state, and productive fixIO."
     },
     {
       "name": "patterns.irrefutable-pattern",

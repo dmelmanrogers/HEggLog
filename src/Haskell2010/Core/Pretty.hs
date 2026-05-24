@@ -190,6 +190,7 @@ renderCorePrimOp = \case
   PrimIOError -> "ioError#"
   PrimIOCatch -> "catchIO#"
   PrimIOTry -> "tryIO#"
+  PrimIOFix -> "fixIO#"
   PrimNullPtr -> "nullPtr#"
   PrimCastPtr -> "castPtr#"
   PrimIsNullPtr -> "isNullPtr#"

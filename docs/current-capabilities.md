@@ -87,7 +87,8 @@ class methods, plus guarded RHSs, guarded case alternatives, as-pattern
 aliases, and guard-fallthrough no-match behavior, plus the standard-handle IO
 printing/input slice for `IO`, `main :: IO ()`,
 `putStrLn`, `putStr`, `putChar`, `getLine`, `getContents`, `print`, and `System.IO`
-handle text operations, and higher-kinded `Monad` dictionaries for
+handle text operations plus file-backed handles, seek/position, semi-closed
+lazy `hGetContents`, and productive `fixIO`, and higher-kinded `Monad` dictionaries for
 `IO`, `Maybe`, and lists, including `return`, `(>>)`, `(>>=)`, `fail`, generic
 expression and bind-statement `do` sequencing, refutable do-bind failure, and
 recoverable `IOError` behavior through `ioError`, `catch`, and `try`, and
@@ -358,8 +359,9 @@ Current tests include:
 
 Future Haskell 2010 conformance work should extend this direct executable
 coverage as report-complete pattern coverage/runtime attribution, broader
-Unicode/string escape edge cases, additional string library behavior, file-backed
-handle state, true seeking, lazy semi-closed contents, and productive `fixIO` are
-implemented. Source-spanned
+Unicode/string escape edge cases, and additional string library behavior are
+implemented. Native `System.IO` coverage now includes file-backed handles, true
+seeking and position state, lazy semi-closed contents, and productive `fixIO`.
+Source-spanned
 non-exhaustive and redundant pattern warnings are already exposed through the
 Haskell 2010 typechecker, native compilation result APIs, and compile CLI.

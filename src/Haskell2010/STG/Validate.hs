@@ -340,6 +340,7 @@ validatePrimitive op arguments resultTy =
     PrimIOError -> validateIOErrorPrimitive op arguments resultTy
     PrimIOCatch -> validateIOCatchPrimitive op arguments resultTy
     PrimIOTry -> validateIOTryPrimitive op arguments resultTy
+    PrimIOFix -> validateIOFixPrimitive op arguments resultTy
     PrimNullPtr -> validateNullPtrPrimitive op arguments resultTy
     PrimCastPtr -> validateCastPtrPrimitive op arguments resultTy
     PrimIsNullPtr -> validateIsNullPtrPrimitive op arguments resultTy
@@ -654,6 +655,19 @@ validateIOTryPrimitive op arguments resultTy =
             checkPrimitiveResult op (ioTy (eitherTy ioErrorTy actionResultTy)) resultTy
         | otherwise ->
             Left [STGPrimitiveArgumentMismatch op 0 (ioTy (CTyVar unknownIOTypeVariable)) actionTy]
+      _ -> Right ()
+  ]
+
+validateIOFixPrimitive :: CorePrimOp -> [STGAtom] -> CoreType -> [Either [STGValidationError] ()]
+validateIOFixPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map stgAtomType arguments of
+      [functionTy]
+        | CTyFun inputTy outputTy <- functionTy
+        , normalizeCoreType outputTy == normalizeCoreType (ioTy inputTy) ->
+            checkPrimitiveResult op outputTy resultTy
+        | otherwise ->
+            Left [STGPrimitiveArgumentMismatch op 0 (CTyFun (CTyVar unknownIOTypeVariable) (ioTy (CTyVar unknownIOTypeVariable))) functionTy]
       _ -> Right ()
   ]
 

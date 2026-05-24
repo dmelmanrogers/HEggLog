@@ -399,8 +399,11 @@ through `System.IO.Error`, and uncaught native IO failures terminate nonzero.
 `System.IO` now exposes the Report handle/mode/text IO surface and native
 standard-handle text programs cover buffering calls, `hPutStr`/`hPutChar`/
 `hPutStrLn`, `hPrint`, `hShow`, line input, `getContents`, and EOF checks.
-File-backed handle state, real seek/position state, lazy semi-closed contents,
-and productive `fixIO` remain explicit strict-runtime deviations.
+Native `System.IO` also covers file-backed handle state, open/close,
+`readFile`, `writeFile`, `appendFile`, line and character input,
+`hLookAhead`, lazy semi-closed `hGetContents`, `hIsEOF`, file sizing and
+truncation, `hGetPosn`, `hSetPosn`, `hSeek`, `hTell`, handle predicates, and
+productive `fixIO`.
 
 Deliverables:
 

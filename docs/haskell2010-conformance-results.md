@@ -1,9 +1,9 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-24 04:30:21 UTC
+Date/time: 2026-05-24 05:44:32 UTC
 
-Code hash tested: source implementation in the MOD-003 import-search-path
-working tree before final commit.
+Code hash tested: source implementation in the System.IO runtime working tree
+before final commit.
 
 Primary conformance command run:
 
@@ -37,14 +37,14 @@ Summary:
 
 | Metric | Count |
 | --- | ---: |
-| Manifest conformance fixtures | 155 |
-| Manifest source files in corpus | 155 |
-| HUnit test cases executed | 233 |
-| Native-success fixtures | 106 |
+| Manifest conformance fixtures | 156 |
+| Manifest source files in corpus | 156 |
+| HUnit test cases executed | 235 |
+| Native-success fixtures | 107 |
 | Native-runtime-error fixtures | 15 |
 | Compile-error fixtures | 28 |
 | Unsupported-documented fixtures | 6 |
-| Native subprocess compile/run checks | 199 |
+| Native subprocess compile/run checks | 201 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -65,16 +65,17 @@ native process arguments and environment variables, including catchable
 with the requested process status, while the POSIX-prohibited `ExitFailure 0`
 path is a catchable illegal-operation `IOError`.
 
-LIB-012 is now covered by unit and conformance paths for the strict native
-runtime model. `System.IO` exposes the Report handle/mode/buffering/seek/text
-IO surface at the generated interface and typechecking boundaries; Core, STG,
-native lowering, validators, and the optimizer all recognize the expanded
-primitive set. Native conformance now includes `io.system-io`, which exercises
-standard-handle buffering calls, `hPutStr`, `hPutChar`, `hPutStrLn`, `hPrint`,
-`getLine`, `getContents`, `hIsEOF`, and `hShow` in default and `--no-egglog`
-modes. File-backed handle state, real seek/position state, lazy semi-closed
-`hGetContents`, and productive `fixIO` remain documented strict-runtime
-deviations rather than unsupported imports.
+LIB-012 is now covered by unit and conformance paths for the native Haskell
+2010 text IO runtime model. `System.IO` exposes the Report
+handle/mode/buffering/seek/text IO surface at the generated interface and
+typechecking boundaries; Core, STG, native lowering, validators, and the
+optimizer all recognize the expanded primitive set. Native conformance now
+includes `io.system-io` and `io.system-io-files`, which exercise standard
+handles, file-backed handles, open/close, `readFile`, `writeFile`,
+`appendFile`, buffering metadata, line and character input, `hLookAhead`,
+lazy semi-closed `hGetContents`, `hIsEOF`, `hFileSize`, `hSetFileSize`,
+`hGetPosn`, `hSetPosn`, `hSeek`, `hTell`, handle predicates, `hPrint`,
+`hShow`, and productive `fixIO` in default and `--no-egglog` modes.
 
 FFI-011 is now covered by the conformance/native path. Header-qualified static
 `ccall` imports preserve link metadata, C helper fixtures are linked through
@@ -249,7 +250,7 @@ dynamic calls, wrapper callbacks, and foreign export entrypoints.
 | `egglog` | 1 | optimized/unoptimized native agreement covered |
 | `expressions` | 13 | representative native tests exist, including user-defined infix operators and line-broken `where` layout |
 | `ffi` | 10 | static ccall, fixed-width scalar ccall, floating ccall, pointer/address, dynamic/wrapper, wrapper reclamation/after-free, foreign export, StablePtr/ForeignPtr ownership, and broader Foreign library surface native fixtures link C helpers and run in default and `--no-egglog` modes |
-| `io` | 6 | line-oriented stdin/stdout IO, expanded `System.IO` standard-handle text behavior, and recoverable IO-error behavior covered, including do-bind, explicit `(>>=)`, `getLine`, `getContents`, `hPutStr`/`hPutChar`/`hPutStrLn`, `hPrint`, `hShow`, explicit `fail`, `ioError`, `catch`, `try`, and System.IO.Error examples |
+| `io` | 7 | line-oriented stdin/stdout IO, expanded `System.IO` standard-handle and file-backed text behavior, and recoverable IO-error behavior covered, including do-bind, explicit `(>>=)`, `getLine`, `getContents`, `hGetChar`, `hGetLine`, `hLookAhead`, lazy semi-closed `hGetContents`, `hFileSize`, `hSetFileSize`, `hGetPosn`, `hSetPosn`, `hSeek`, `hTell`, handle predicates, `hPutStr`/`hPutChar`/`hPutStrLn`, `hPrint`, `hShow`, productive `fixIO`, explicit `fail`, `ioError`, `catch`, `try`, and System.IO.Error examples |
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |

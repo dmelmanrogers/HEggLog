@@ -563,92 +563,74 @@ emitPrim env op arguments =
     (PrimExitWith, [exitCode]) -> do
       exitCodeObject <- emitAtomAddress env exitCode
       emitExitWithResult exitCodeObject
-    (PrimStdHandle _, []) ->
-      emitMakePointer OConstNull
-    (PrimOpenFile, [_path, _mode]) -> do
-      handle <- emitMakePointer OConstNull
-      emitMakeIOSuccess handle
-    (PrimHClose, [_handle]) ->
-      emitUnitIOSuccess
-    (PrimReadFile, [_path]) -> do
-      empty <- emitMakeStringLiteral ""
-      emitMakeIOSuccess empty
-    (PrimWriteFile, [_path, _contents]) ->
-      emitUnitIOSuccess
-    (PrimAppendFile, [_path, _contents]) ->
-      emitUnitIOSuccess
-    (PrimHFileSize, [_handle]) ->
-      emitMakeInt 0 >>= emitMakeIOSuccess
-    (PrimHSetFileSize, [_handle, _size]) ->
-      emitUnitIOSuccess
-    (PrimHIsEOF, [_handle]) ->
-      emitMakeBool (OConstInt LI1 1) >>= emitMakeIOSuccess
-    (PrimHSetBuffering, [_handle, _mode]) ->
-      emitUnitIOSuccess
-    (PrimHGetBuffering, [_handle]) -> do
-      lineBuffering <- emitConstructorObject bufferModeLineDataConName bufferModeTy []
-      emitMakeIOSuccess lineBuffering
-    (PrimHFlush, [_handle]) ->
-      emitUnitIOSuccess
-    (PrimHGetPosn, [_handle]) -> do
-      posn <- emitMakePointer OConstNull
-      emitMakeIOSuccess posn
-    (PrimHSetPosn, [_posn]) ->
-      emitUnitIOSuccess
-    (PrimHSeek, [_handle, _mode, _offset]) ->
-      emitUnitIOSuccess
-    (PrimHTell, [_handle]) ->
-      emitMakeInt 0 >>= emitMakeIOSuccess
-    (PrimHIsOpen, [_handle]) ->
-      emitMakeBool (OConstInt LI1 1) >>= emitMakeIOSuccess
-    (PrimHIsClosed, [_handle]) ->
-      emitMakeBool (OConstInt LI1 0) >>= emitMakeIOSuccess
-    (PrimHIsReadable, [_handle]) ->
-      emitMakeBool (OConstInt LI1 1) >>= emitMakeIOSuccess
-    (PrimHIsWritable, [_handle]) ->
-      emitMakeBool (OConstInt LI1 1) >>= emitMakeIOSuccess
-    (PrimHIsSeekable, [_handle]) ->
-      emitMakeBool (OConstInt LI1 0) >>= emitMakeIOSuccess
-    (PrimHIsTerminalDevice, [_handle]) ->
-      emitMakeBool (OConstInt LI1 0) >>= emitMakeIOSuccess
-    (PrimHSetEcho, [_handle, _enabled]) ->
-      emitUnitIOSuccess
-    (PrimHGetEcho, [_handle]) ->
-      emitMakeBool (OConstInt LI1 0) >>= emitMakeIOSuccess
-    (PrimHShow, [_handle]) ->
-      emitMakeStringLiteral "<handle>" >>= emitMakeIOSuccess
-    (PrimHWaitForInput, [_handle, _timeout]) ->
-      emitMakeBool (OConstInt LI1 0) >>= emitMakeIOSuccess
-    (PrimHReady, [_handle]) ->
-      emitMakeBool (OConstInt LI1 0) >>= emitMakeIOSuccess
-    (PrimHGetChar, [_handle]) -> do
-      charReg <- freshRegister "getchar"
-      emit (ICall (Just charReg) LI32 (DirectCall "getchar") False [])
-      emitCharOrEOF (OLocal LI32 charReg)
-    (PrimHGetLine, [_handle]) -> do
-      resultReg <- freshRegister "hgetline"
-      emit (ICall (Just resultReg) LPtr (DirectCall getLineFunctionName) False [])
-      emitMakeIOSuccess (OLocal LPtr resultReg)
-    (PrimHLookAhead, [_handle]) -> do
-      charReg <- freshRegister "lookahead"
-      emit (ICall (Just charReg) LI32 (DirectCall "getchar") False [])
-      emitCharOrEOF (OLocal LI32 charReg)
-    (PrimHGetContents, [_handle]) -> do
-      resultReg <- freshRegister "getcontents"
-      emit (ICall (Just resultReg) LPtr (DirectCall getContentsFunctionName) False [])
-      emitMakeIOSuccess (OLocal LPtr resultReg)
-    (PrimHPutChar, [_handle, value]) -> do
-      charObject <- emitExpectAtomChar env value
-      emit (ICall Nothing LI32 (DirectCall "putchar") False [(LI32, charObject)])
-      emitUnitIOSuccess
-    (PrimHPutStr, [_handle, value]) -> do
-      valueObject <- emitAtomAddress env value
-      emit (ICall Nothing LVoid (DirectCall printCharListFunctionName) False [(LPtr, valueObject)])
-      emitUnitIOSuccess
-    (PrimHPutStrLn, [_handle, value]) -> do
-      valueObject <- emitAtomAddress env value
-      emit (ICall Nothing LVoid (DirectCall putStrLnFunctionName) False [(LPtr, valueObject)])
-      emitUnitIOSuccess
+    (PrimStdHandle handle, []) ->
+      emitStdHandle handle
+    (PrimOpenFile, [path, mode]) ->
+      emitRuntimeIOCall2 systemIOOpenFileFunctionName env path mode
+    (PrimHClose, [handle]) ->
+      emitRuntimeIOCall1 systemIOHCloseFunctionName env handle
+    (PrimReadFile, [path]) ->
+      emitRuntimeIOCall1 systemIOReadFileFunctionName env path
+    (PrimWriteFile, [path, contents]) ->
+      emitRuntimeIOCall2 systemIOWriteFileFunctionName env path contents
+    (PrimAppendFile, [path, contents]) ->
+      emitRuntimeIOCall2 systemIOAppendFileFunctionName env path contents
+    (PrimHFileSize, [handle]) ->
+      emitRuntimeIOCall1 systemIOHFileSizeFunctionName env handle
+    (PrimHSetFileSize, [handle, size]) ->
+      emitRuntimeIOCall2 systemIOHSetFileSizeFunctionName env handle size
+    (PrimHIsEOF, [handle]) ->
+      emitRuntimeIOCall1 systemIOHIsEOFFunctionName env handle
+    (PrimHSetBuffering, [handle, mode]) ->
+      emitRuntimeIOCall2 systemIOHSetBufferingFunctionName env handle mode
+    (PrimHGetBuffering, [handle]) ->
+      emitRuntimeIOCall1 systemIOHGetBufferingFunctionName env handle
+    (PrimHFlush, [handle]) ->
+      emitRuntimeIOCall1 systemIOHFlushFunctionName env handle
+    (PrimHGetPosn, [handle]) ->
+      emitRuntimeIOCall1 systemIOHGetPosnFunctionName env handle
+    (PrimHSetPosn, [posn]) ->
+      emitRuntimeIOCall1 systemIOHSetPosnFunctionName env posn
+    (PrimHSeek, [handle, mode, offset]) ->
+      emitRuntimeIOCall3 systemIOHSeekFunctionName env handle mode offset
+    (PrimHTell, [handle]) ->
+      emitRuntimeIOCall1 systemIOHTellFunctionName env handle
+    (PrimHIsOpen, [handle]) ->
+      emitRuntimeIOCall1 systemIOHIsOpenFunctionName env handle
+    (PrimHIsClosed, [handle]) ->
+      emitRuntimeIOCall1 systemIOHIsClosedFunctionName env handle
+    (PrimHIsReadable, [handle]) ->
+      emitRuntimeIOCall1 systemIOHIsReadableFunctionName env handle
+    (PrimHIsWritable, [handle]) ->
+      emitRuntimeIOCall1 systemIOHIsWritableFunctionName env handle
+    (PrimHIsSeekable, [handle]) ->
+      emitRuntimeIOCall1 systemIOHIsSeekableFunctionName env handle
+    (PrimHIsTerminalDevice, [handle]) ->
+      emitRuntimeIOCall1 systemIOHIsTerminalDeviceFunctionName env handle
+    (PrimHSetEcho, [handle, enabled]) ->
+      emitRuntimeIOCall2 systemIOHSetEchoFunctionName env handle enabled
+    (PrimHGetEcho, [handle]) ->
+      emitRuntimeIOCall1 systemIOHGetEchoFunctionName env handle
+    (PrimHShow, [handle]) ->
+      emitRuntimeIOCall1 systemIOHShowFunctionName env handle
+    (PrimHWaitForInput, [handle, timeout]) ->
+      emitRuntimeIOCall2 systemIOHWaitForInputFunctionName env handle timeout
+    (PrimHReady, [handle]) ->
+      emitRuntimeIOCall1 systemIOHReadyFunctionName env handle
+    (PrimHGetChar, [handle]) ->
+      emitRuntimeIOCall1 systemIOHGetCharFunctionName env handle
+    (PrimHGetLine, [handle]) ->
+      emitRuntimeIOCall1 systemIOHGetLineFunctionName env handle
+    (PrimHLookAhead, [handle]) ->
+      emitRuntimeIOCall1 systemIOHLookAheadFunctionName env handle
+    (PrimHGetContents, [handle]) ->
+      emitRuntimeIOCall1 systemIOHGetContentsFunctionName env handle
+    (PrimHPutChar, [handle, value]) ->
+      emitRuntimeIOCall2 systemIOHPutCharFunctionName env handle value
+    (PrimHPutStr, [handle, value]) ->
+      emitRuntimeIOCall2 systemIOHPutStrFunctionName env handle value
+    (PrimHPutStrLn, [handle, value]) ->
+      emitRuntimeIOCall2 systemIOHPutStrLnFunctionName env handle value
     (PrimIOThen, [firstAction, secondAction]) -> do
       firstObject <- emitAtomAddress env firstAction
       firstResult <- emitForce firstObject
@@ -699,6 +681,8 @@ emitPrim env op arguments =
       actionResult <- emitForce actionObject
       resultTy <- ioTryResultType action
       emitIOTryResult resultTy actionResult
+    (PrimIOFix, [function]) ->
+      emitRuntimeIOCall1 systemIOFixFunctionName env function
     (PrimNewStablePtr, [value]) -> do
       valueObject <- emitAtomAddress env value
       reg <- freshRegister "stable_ptr"
@@ -2476,6 +2460,34 @@ emitMakePointer value = do
   emit (ICall (Just reg) LPtr (DirectCall makePointerFunctionName) False [(LPtr, value)])
   pure (OLocal LPtr reg)
 
+emitStdHandle :: StdHandle -> FunctionM LLVMOperand
+emitStdHandle handle =
+  emitMakePointer (OGlobal LPtr (stdHandleGlobalName handle))
+
+emitRuntimeIOCall1 :: Text -> ValueEnv -> STGAtom -> FunctionM LLVMOperand
+emitRuntimeIOCall1 functionName env first = do
+  firstObject <- emitAtomAddress env first
+  resultReg <- freshRegister "runtime_io"
+  emit (ICall (Just resultReg) LPtr (DirectCall functionName) False [(LPtr, firstObject)])
+  pure (OLocal LPtr resultReg)
+
+emitRuntimeIOCall2 :: Text -> ValueEnv -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitRuntimeIOCall2 functionName env first second = do
+  firstObject <- emitAtomAddress env first
+  secondObject <- emitAtomAddress env second
+  resultReg <- freshRegister "runtime_io"
+  emit (ICall (Just resultReg) LPtr (DirectCall functionName) False [(LPtr, firstObject), (LPtr, secondObject)])
+  pure (OLocal LPtr resultReg)
+
+emitRuntimeIOCall3 :: Text -> ValueEnv -> STGAtom -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitRuntimeIOCall3 functionName env first second third = do
+  firstObject <- emitAtomAddress env first
+  secondObject <- emitAtomAddress env second
+  thirdObject <- emitAtomAddress env third
+  resultReg <- freshRegister "runtime_io"
+  emit (ICall (Just resultReg) LPtr (DirectCall functionName) False [(LPtr, firstObject), (LPtr, secondObject), (LPtr, thirdObject)])
+  pure (OLocal LPtr resultReg)
+
 emitMakeIOSuccess :: LLVMOperand -> FunctionM LLVMOperand
 emitMakeIOSuccess value = do
   reg <- freshRegister "io_success"
@@ -2493,11 +2505,6 @@ emitMakeIOExit code = do
   reg <- freshRegister "io_exit"
   emit (ICall (Just reg) LPtr (DirectCall makeIOExitFunctionName) False [(LI64, code)])
   pure (OLocal LPtr reg)
-
-emitUnitIOSuccess :: FunctionM LLVMOperand
-emitUnitIOSuccess = do
-  unitObject <- emitConstructorObject unitDataConName unitTy []
-  emitMakeIOSuccess unitObject
 
 emitGetEnv :: LLVMOperand -> FunctionM LLVMOperand
 emitGetEnv nameObject = do
@@ -2607,42 +2614,6 @@ emitExitWithResult exitCodeObject = do
         ]
     )
   pure (OLocal LPtr result)
-
-emitCharOrEOF :: LLVMOperand -> FunctionM LLVMOperand
-emitCharOrEOF charValue = do
-  isEOF <- freshRegister "char_is_eof"
-  emit (IIcmp isEOF ICmpEq LI32 charValue (OConstInt LI32 (-1)))
-  eofLabel <- freshBlockLabel "char_eof"
-  charLabel <- freshBlockLabel "char_success"
-  joinLabel <- freshBlockLabel "char_join"
-  terminateCurrent (TCondBr (OLocal LI1 isEOF) eofLabel charLabel)
-
-  startBlock eofLabel
-  eofResult <- emitEOFIOFailure
-  eofPredecessor <- getsCurrentLabel
-  terminateCurrent (TBr joinLabel)
-
-  startBlock charLabel
-  charI64 <- freshRegister "char_i64"
-  emit (IZext charI64 charValue LI64)
-  charObject <- emitMakeCharOperand (OLocal LI64 charI64)
-  charResult <- emitMakeIOSuccess charObject
-  charPredecessor <- getsCurrentLabel
-  terminateCurrent (TBr joinLabel)
-
-  startBlock joinLabel
-  resultRegister <- freshRegister "char_result"
-  emit (IPhi resultRegister LPtr [(eofResult, eofPredecessor), (charResult, charPredecessor)])
-  pure (OLocal LPtr resultRegister)
-
-emitEOFIOFailure :: FunctionM LLVMOperand
-emitEOFIOFailure = do
-  errorType <- emitConstructorObject ioErrorEOFTypeDataConName ioErrorTypeTy []
-  messageObject <- emitMakeStringLiteral "end of file"
-  nothingHandle <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) handleTy) []
-  nothingFile <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) stringTy) []
-  errorObject <- emitConstructorObject ioErrorDataConName ioErrorTy [errorType, messageObject, nothingHandle, nothingFile]
-  emitMakeIOFailure errorObject
 
 emitDoesNotExistIOFailure :: Text -> FunctionM LLVMOperand
 emitDoesNotExistIOFailure message = do
@@ -5065,6 +5036,10 @@ constructorRuntimeTag :: RName -> Integer
 constructorRuntimeTag =
   fromIntegral . nameUnique
 
+constructorTagLiteral :: RName -> Text
+constructorTagLiteral =
+  Text.pack . show . constructorRuntimeTag
+
 processLifetimeAllocFunctionName, allocObjectFunctionName, makeIntFunctionName, makeFloatFunctionName, makeDoubleFunctionName, makeBoolFunctionName, makeCharFunctionName, makePointerFunctionName, makeIOSuccessFunctionName, makeIOFailureFunctionName, makeIOExitFunctionName, makeStringFunctionName, makeDataFunctionName :: Text
 processLifetimeAllocFunctionName = "hegglog_hs_alloc_process_lifetime"
 allocObjectFunctionName = "hegglog_hs_alloc_object"
@@ -5110,6 +5085,48 @@ getLineFunctionName = "hegglog_hs_getline"
 getContentsFunctionName = "hegglog_hs_getcontents"
 printCharListFunctionName = "hegglog_hs_print_char_list"
 
+systemIOOpenFileFunctionName, systemIOHCloseFunctionName, systemIOReadFileFunctionName, systemIOWriteFileFunctionName, systemIOAppendFileFunctionName, systemIOHFileSizeFunctionName, systemIOHSetFileSizeFunctionName, systemIOHIsEOFFunctionName, systemIOHSetBufferingFunctionName, systemIOHGetBufferingFunctionName, systemIOHFlushFunctionName, systemIOHGetPosnFunctionName, systemIOHSetPosnFunctionName, systemIOHSeekFunctionName, systemIOHTellFunctionName, systemIOHIsOpenFunctionName, systemIOHIsClosedFunctionName, systemIOHIsReadableFunctionName, systemIOHIsWritableFunctionName, systemIOHIsSeekableFunctionName, systemIOHIsTerminalDeviceFunctionName, systemIOHSetEchoFunctionName, systemIOHGetEchoFunctionName, systemIOHShowFunctionName, systemIOHWaitForInputFunctionName, systemIOHReadyFunctionName, systemIOHGetCharFunctionName, systemIOHGetLineFunctionName, systemIOHLookAheadFunctionName, systemIOHGetContentsFunctionName, systemIOHPutCharFunctionName, systemIOHPutStrFunctionName, systemIOHPutStrLnFunctionName, systemIOFixFunctionName :: Text
+systemIOOpenFileFunctionName = "hegglog_hs_io_open_file"
+systemIOHCloseFunctionName = "hegglog_hs_io_hclose"
+systemIOReadFileFunctionName = "hegglog_hs_io_read_file"
+systemIOWriteFileFunctionName = "hegglog_hs_io_write_file"
+systemIOAppendFileFunctionName = "hegglog_hs_io_append_file"
+systemIOHFileSizeFunctionName = "hegglog_hs_io_hfilesize"
+systemIOHSetFileSizeFunctionName = "hegglog_hs_io_hsetfilesize"
+systemIOHIsEOFFunctionName = "hegglog_hs_io_hiseof"
+systemIOHSetBufferingFunctionName = "hegglog_hs_io_hsetbuffering"
+systemIOHGetBufferingFunctionName = "hegglog_hs_io_hgetbuffering"
+systemIOHFlushFunctionName = "hegglog_hs_io_hflush"
+systemIOHGetPosnFunctionName = "hegglog_hs_io_hgetposn"
+systemIOHSetPosnFunctionName = "hegglog_hs_io_hsetposn"
+systemIOHSeekFunctionName = "hegglog_hs_io_hseek"
+systemIOHTellFunctionName = "hegglog_hs_io_htell"
+systemIOHIsOpenFunctionName = "hegglog_hs_io_hisopen"
+systemIOHIsClosedFunctionName = "hegglog_hs_io_hisclosed"
+systemIOHIsReadableFunctionName = "hegglog_hs_io_hisreadable"
+systemIOHIsWritableFunctionName = "hegglog_hs_io_hiswritable"
+systemIOHIsSeekableFunctionName = "hegglog_hs_io_hisseekable"
+systemIOHIsTerminalDeviceFunctionName = "hegglog_hs_io_histerminal"
+systemIOHSetEchoFunctionName = "hegglog_hs_io_hsetecho"
+systemIOHGetEchoFunctionName = "hegglog_hs_io_hgetecho"
+systemIOHShowFunctionName = "hegglog_hs_io_hshow"
+systemIOHWaitForInputFunctionName = "hegglog_hs_io_hwaitforinput"
+systemIOHReadyFunctionName = "hegglog_hs_io_hready"
+systemIOHGetCharFunctionName = "hegglog_hs_io_hgetchar"
+systemIOHGetLineFunctionName = "hegglog_hs_io_hgetline"
+systemIOHLookAheadFunctionName = "hegglog_hs_io_hlookahead"
+systemIOHGetContentsFunctionName = "hegglog_hs_io_hgetcontents"
+systemIOHPutCharFunctionName = "hegglog_hs_io_hputchar"
+systemIOHPutStrFunctionName = "hegglog_hs_io_hputstr"
+systemIOHPutStrLnFunctionName = "hegglog_hs_io_hputstrln"
+systemIOFixFunctionName = "hegglog_hs_io_fix"
+
+stdHandleGlobalName :: StdHandle -> Text
+stdHandleGlobalName = \case
+  StdInHandle -> "hegglog_hs_stdin_handle"
+  StdOutHandle -> "hegglog_hs_stdout_handle"
+  StdErrHandle -> "hegglog_hs_stderr_handle"
+
 newStablePtrFunctionName, deRefStablePtrFunctionName, freeStablePtrFunctionName :: Text
 newStablePtrFunctionName = "hegglog_hs_new_stable_ptr"
 deRefStablePtrFunctionName = "hegglog_hs_deref_stable_ptr"
@@ -5139,6 +5156,21 @@ formatGlobals =
   , LLVMStringGlobal "haskell2010_fmt_double_raw" doubleRawFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_string_line" stringLineFormatBytes
   , LLVMStringGlobal emptyCStringGlobalName "\0"
+  , LLVMStringGlobal "haskell2010_io_mode_r" "r\0"
+  , LLVMStringGlobal "haskell2010_io_mode_w" "w\0"
+  , LLVMStringGlobal "haskell2010_io_mode_a" "a\0"
+  , LLVMStringGlobal "haskell2010_io_mode_rp" "r+\0"
+  , LLVMStringGlobal "haskell2010_io_mode_wp" "w+\0"
+  , LLVMStringGlobal "haskell2010_io_error_eof" "end of file\0"
+  , LLVMStringGlobal "haskell2010_io_error_open" "openFile failed\0"
+  , LLVMStringGlobal "haskell2010_io_error_closed" "closed handle\0"
+  , LLVMStringGlobal "haskell2010_io_error_illegal" "invalid handle operation\0"
+  , LLVMStringGlobal "haskell2010_io_error_write" "write failed\0"
+  , LLVMStringGlobal "haskell2010_io_error_seek" "seek failed\0"
+  , LLVMStringGlobal "haskell2010_io_handle_stdin" "<stdin>\0"
+  , LLVMStringGlobal "haskell2010_io_handle_stdout" "<stdout>\0"
+  , LLVMStringGlobal "haskell2010_io_handle_stderr" "<stderr>\0"
+  , LLVMStringGlobal "haskell2010_io_handle_file" "<file>\0"
   ]
 
 runtimeDeclarations :: [Text]
@@ -5177,6 +5209,1331 @@ runtimeDeclarations =
   , "declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)"
   , "declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)"
   ]
+    <> systemIORuntimeDeclarations
+
+systemIORuntimeDeclarations :: [Text]
+systemIORuntimeDeclarations =
+  [ "%hegglog_hs_handle = type { ptr, i64, i64, i64, i64, i64, i64, i64, i64, i64 }"
+  , "%hegglog_hs_handle_posn = type { ptr, i64 }"
+  , "@hegglog_hs_stdin_handle = internal global %hegglog_hs_handle { ptr null, i64 0, i64 0, i64 1, i64 0, i64 0, i64 1, i64 1, i64 0, i64 0 }"
+  , "@hegglog_hs_stdout_handle = internal global %hegglog_hs_handle { ptr null, i64 0, i64 1, i64 0, i64 1, i64 0, i64 1, i64 0, i64 0, i64 0 }"
+  , "@hegglog_hs_stderr_handle = internal global %hegglog_hs_handle { ptr null, i64 0, i64 2, i64 0, i64 1, i64 0, i64 1, i64 0, i64 0, i64 0 }"
+  , "declare ptr @fopen(ptr, ptr)"
+  , "declare i32 @fclose(ptr)"
+  , "declare i32 @fflush(ptr)"
+  , "declare i32 @fgetc(ptr)"
+  , "declare i32 @fputc(i32, ptr)"
+  , "declare i64 @fwrite(ptr, i64, i64, ptr)"
+  , "declare i64 @ftell(ptr)"
+  , "declare i32 @fseek(ptr, i64, i32)"
+  , "declare i32 @fileno(ptr)"
+  , "declare i32 @ftruncate(i32, i64)"
+  , "declare i64 @write(i32, ptr, i64)"
+  , "declare i32 @isatty(i32)"
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_unit_success() {"
+      , "entry:"
+      , "  %unit = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag unitDataConName <> ", i64 0, ptr null)"
+      , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %unit)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_bool_success(i1 %value) {"
+      , "entry:"
+      , "  %boxed = call ptr @" <> makeBoolFunctionName <> "(i1 %value)"
+      , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_int_success(i64 %value) {"
+      , "entry:"
+      , "  %boxed = call ptr @" <> makeIntFunctionName <> "(i64 %value)"
+      , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_failure(i64 %error_tag, ptr %message) {"
+      , "entry:"
+      , "  %error_type = call ptr @" <> makeDataFunctionName <> "(i64 %error_tag, i64 0, ptr null)"
+      , "  %message_obj = call ptr @" <> makeCharListFromCStringFunctionName <> "(ptr %message)"
+      , "  %nothing_handle = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag maybeNothingDataConName <> ", i64 0, ptr null)"
+      , "  %nothing_file = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag maybeNothingDataConName <> ", i64 0, ptr null)"
+      , "  %fields = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 32)"
+      , "  %field0 = getelementptr inbounds [4 x ptr], ptr %fields, i32 0, i32 0"
+      , "  store ptr %error_type, ptr %field0"
+      , "  %field1 = getelementptr inbounds [4 x ptr], ptr %fields, i32 0, i32 1"
+      , "  store ptr %message_obj, ptr %field1"
+      , "  %field2 = getelementptr inbounds [4 x ptr], ptr %fields, i32 0, i32 2"
+      , "  store ptr %nothing_handle, ptr %field2"
+      , "  %field3 = getelementptr inbounds [4 x ptr], ptr %fields, i32 0, i32 3"
+      , "  store ptr %nothing_file, ptr %field3"
+      , "  %error = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag ioErrorDataConName <> ", i64 4, ptr %fields)"
+      , "  %result = call ptr @" <> makeIOFailureFunctionName <> "(ptr %error)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_eof_failure() {"
+      , "entry:"
+      , "  %message = getelementptr inbounds [12 x i8], ptr @haskell2010_io_error_eof, i64 0, i64 0"
+      , "  %result = call ptr @hegglog_hs_io_failure(i64 " <> tag ioErrorEOFTypeDataConName <> ", ptr %message)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_closed_failure() {"
+      , "entry:"
+      , "  %message = getelementptr inbounds [14 x i8], ptr @haskell2010_io_error_closed, i64 0, i64 0"
+      , "  %result = call ptr @hegglog_hs_io_failure(i64 " <> tag ioErrorIllegalOperationTypeDataConName <> ", ptr %message)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_illegal_failure() {"
+      , "entry:"
+      , "  %message = getelementptr inbounds [25 x i8], ptr @haskell2010_io_error_illegal, i64 0, i64 0"
+      , "  %result = call ptr @hegglog_hs_io_failure(i64 " <> tag ioErrorIllegalOperationTypeDataConName <> ", ptr %message)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_open_failure() {"
+      , "entry:"
+      , "  %message = getelementptr inbounds [16 x i8], ptr @haskell2010_io_error_open, i64 0, i64 0"
+      , "  %result = call ptr @hegglog_hs_io_failure(i64 " <> tag ioErrorDoesNotExistTypeDataConName <> ", ptr %message)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_write_failure() {"
+      , "entry:"
+      , "  %message = getelementptr inbounds [13 x i8], ptr @haskell2010_io_error_write, i64 0, i64 0"
+      , "  %result = call ptr @hegglog_hs_io_failure(i64 " <> tag ioErrorIllegalOperationTypeDataConName <> ", ptr %message)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_seek_failure() {"
+      , "entry:"
+      , "  %message = getelementptr inbounds [12 x i8], ptr @haskell2010_io_error_seek, i64 0, i64 0"
+      , "  %result = call ptr @hegglog_hs_io_failure(i64 " <> tag ioErrorIllegalOperationTypeDataConName <> ", ptr %message)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_expect_handle(ptr %handle) {"
+      , "entry:"
+      , "  %record = call ptr @" <> expectPointerFunctionName <> "(ptr %handle)"
+      , "  %is_null = icmp eq ptr %record, null"
+      , "  br i1 %is_null, label %abort, label %ok"
+      , "abort:"
+      , "  call void @abort()"
+      , "  unreachable"
+      , "ok:"
+      , "  ret ptr %record"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_alloc_file_handle(ptr %file, i64 %readable, i64 %writable) {"
+      , "entry:"
+      , "  %record = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 80)"
+      , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+      , "  store ptr %file, ptr %file_slot"
+      , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+      , "  store i64 0, ptr %state_slot"
+      , "  %kind_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 2"
+      , "  store i64 3, ptr %kind_slot"
+      , "  %read_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 3"
+      , "  store i64 %readable, ptr %read_slot"
+      , "  %write_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 4"
+      , "  store i64 %writable, ptr %write_slot"
+      , "  %seek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 5"
+      , "  store i64 1, ptr %seek_slot"
+      , "  %buffer_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 6"
+      , "  store i64 1, ptr %buffer_slot"
+      , "  %echo_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 7"
+      , "  store i64 0, ptr %echo_slot"
+      , "  %peek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 8"
+      , "  store i64 0, ptr %peek_slot"
+      , "  %peek_char_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 9"
+      , "  store i64 0, ptr %peek_char_slot"
+      , "  ret ptr %record"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @" <> systemIOOpenFileFunctionName <> "(ptr %path_obj, ptr %mode_obj) {"
+      , "entry:"
+      , "  %path = call ptr @" <> charListToCStringFunctionName <> "(ptr %path_obj)"
+      , "  %mode_forced = call ptr @" <> forceFunctionName <> "(ptr %mode_obj)"
+      , "  %ctor_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %mode_forced, i32 0, i32 1"
+      , "  %ctor = load i64, ptr %ctor_slot"
+      , "  %is_read = icmp eq i64 %ctor, " <> tag ioModeReadDataConName
+      , "  br i1 %is_read, label %read, label %write_check"
+      , "read:"
+      , "  %mode_r = getelementptr inbounds [2 x i8], ptr @haskell2010_io_mode_r, i64 0, i64 0"
+      , "  br label %open"
+      , "write_check:"
+      , "  %is_write = icmp eq i64 %ctor, " <> tag ioModeWriteDataConName
+      , "  br i1 %is_write, label %write, label %append_check"
+      , "write:"
+      , "  %mode_w = getelementptr inbounds [2 x i8], ptr @haskell2010_io_mode_w, i64 0, i64 0"
+      , "  br label %open"
+      , "append_check:"
+      , "  %is_append = icmp eq i64 %ctor, " <> tag ioModeAppendDataConName
+      , "  br i1 %is_append, label %append, label %readwrite_check"
+      , "append:"
+      , "  %mode_a = getelementptr inbounds [2 x i8], ptr @haskell2010_io_mode_a, i64 0, i64 0"
+      , "  br label %open"
+      , "readwrite_check:"
+      , "  %is_readwrite = icmp eq i64 %ctor, " <> tag ioModeReadWriteDataConName
+      , "  br i1 %is_readwrite, label %readwrite, label %abort"
+      , "readwrite:"
+      , "  %mode_rp = getelementptr inbounds [3 x i8], ptr @haskell2010_io_mode_rp, i64 0, i64 0"
+      , "  br label %open"
+      , "open:"
+      , "  %mode = phi ptr [ %mode_r, %read ], [ %mode_w, %write ], [ %mode_a, %append ], [ %mode_rp, %readwrite ]"
+      , "  %readable = phi i64 [ 1, %read ], [ 0, %write ], [ 0, %append ], [ 1, %readwrite ]"
+      , "  %writable = phi i64 [ 0, %read ], [ 1, %write ], [ 1, %append ], [ 1, %readwrite ]"
+      , "  %file = call ptr @fopen(ptr %path, ptr %mode)"
+      , "  %is_null = icmp eq ptr %file, null"
+      , "  br i1 %is_null, label %open_failed, label %opened"
+      , "opened:"
+      , "  %record = call ptr @hegglog_hs_io_alloc_file_handle(ptr %file, i64 %readable, i64 %writable)"
+      , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %record)"
+      , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+      , "  ret ptr %result"
+      , "open_failed:"
+      , "  %retry_readwrite = icmp eq i64 %ctor, " <> tag ioModeReadWriteDataConName
+      , "  br i1 %retry_readwrite, label %create_readwrite, label %open_failed_final"
+      , "create_readwrite:"
+      , "  %mode_wp = getelementptr inbounds [3 x i8], ptr @haskell2010_io_mode_wp, i64 0, i64 0"
+      , "  %created_file = call ptr @fopen(ptr %path, ptr %mode_wp)"
+      , "  %created_null = icmp eq ptr %created_file, null"
+      , "  br i1 %created_null, label %open_failed_final, label %opened_created"
+      , "opened_created:"
+      , "  %created_record = call ptr @hegglog_hs_io_alloc_file_handle(ptr %created_file, i64 1, i64 1)"
+      , "  %created_boxed = call ptr @" <> makePointerFunctionName <> "(ptr %created_record)"
+      , "  %created_result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %created_boxed)"
+      , "  ret ptr %created_result"
+      , "open_failed_final:"
+      , "  %failure = call ptr @hegglog_hs_io_open_failure()"
+      , "  ret ptr %failure"
+      , "abort:"
+      , "  call void @abort()"
+      , "  unreachable"
+      , "}"
+      ]
+  , systemIOCloseAndReadText
+  , systemIOWriteText
+  , systemIOHandleQueryText
+  , systemIOReadText
+  , systemIOPositionText
+  , systemIOFixText
+  ]
+ where
+  tag =
+    Text.pack . show . constructorRuntimeTag
+
+systemIOCloseAndReadText :: Text
+systemIOCloseAndReadText =
+  Text.unlines
+    [ "define void @hegglog_hs_io_close_record(ptr %record) {"
+    , "entry:"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_closed = icmp eq i64 %state, 1"
+    , "  br i1 %is_closed, label %done, label %maybe_close_file"
+    , "maybe_close_file:"
+    , "  %kind_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 2"
+    , "  %kind = load i64, ptr %kind_slot"
+    , "  %is_file = icmp eq i64 %kind, 3"
+    , "  br i1 %is_file, label %close_file, label %mark_closed"
+    , "close_file:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %file_is_null = icmp eq ptr %file_handle, null"
+    , "  br i1 %file_is_null, label %mark_closed, label %call_close"
+    , "call_close:"
+    , "  %ignored = call i32 @fclose(ptr %file_handle)"
+    , "  store ptr null, ptr %file_slot"
+    , "  br label %mark_closed"
+    , "mark_closed:"
+    , "  store i64 1, ptr %state_slot"
+    , "  %peek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 8"
+    , "  store i64 0, ptr %peek_slot"
+    , "  br label %done"
+    , "done:"
+    , "  ret void"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHCloseFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  call void @hegglog_hs_io_close_record(ptr %record)"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_make_nil_list() {"
+    , "entry:"
+    , "  %nil = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag listNilDataConName <> ", i64 0, ptr null)"
+    , "  ret ptr %nil"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_cons_char(i32 %char, ptr %tail) {"
+    , "entry:"
+    , "  %char64 = zext i32 %char to i64"
+    , "  %head = call ptr @" <> makeCharFunctionName <> "(i64 %char64)"
+    , "  %fields = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 16)"
+    , "  %head_slot = getelementptr inbounds [2 x ptr], ptr %fields, i32 0, i32 0"
+    , "  store ptr %head, ptr %head_slot"
+    , "  %tail_slot = getelementptr inbounds [2 x ptr], ptr %fields, i32 0, i32 1"
+    , "  store ptr %tail, ptr %tail_slot"
+    , "  %cons = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag listConsDataConName <> ", i64 2, ptr %fields)"
+    , "  ret ptr %cons"
+    , "}"
+    , ""
+    , "define i32 @hegglog_hs_io_read_char_code(ptr %record) {"
+    , "entry:"
+    , "  %peek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 8"
+    , "  %has_peek = load i64, ptr %peek_slot"
+    , "  %has_peek_bool = icmp eq i64 %has_peek, 1"
+    , "  br i1 %has_peek_bool, label %from_peek, label %dispatch"
+    , "from_peek:"
+    , "  %peek_char_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 9"
+    , "  %peek_char64 = load i64, ptr %peek_char_slot"
+    , "  store i64 0, ptr %peek_slot"
+    , "  %peek_char = trunc i64 %peek_char64 to i32"
+    , "  ret i32 %peek_char"
+    , "dispatch:"
+    , "  %kind_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 2"
+    , "  %kind = load i64, ptr %kind_slot"
+    , "  %is_stdin = icmp eq i64 %kind, 0"
+    , "  br i1 %is_stdin, label %stdin, label %file_check"
+    , "stdin:"
+    , "  %stdin_char = call i32 @getchar()"
+    , "  ret i32 %stdin_char"
+    , "file_check:"
+    , "  %is_file = icmp eq i64 %kind, 3"
+    , "  br i1 %is_file, label %file, label %eof"
+    , "file:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %file_char = call i32 @fgetc(ptr %file_handle)"
+    , "  ret i32 %file_char"
+    , "eof:"
+    , "  ret i32 -1"
+    , "}"
+    , ""
+    , "define i32 @hegglog_hs_io_peek_char_code(ptr %record) {"
+    , "entry:"
+    , "  %peek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 8"
+    , "  %has_peek = load i64, ptr %peek_slot"
+    , "  %has_peek_bool = icmp eq i64 %has_peek, 1"
+    , "  br i1 %has_peek_bool, label %from_peek, label %read"
+    , "from_peek:"
+    , "  %peek_char_slot_a = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 9"
+    , "  %peek_char64_a = load i64, ptr %peek_char_slot_a"
+    , "  %peek_char_a = trunc i64 %peek_char64_a to i32"
+    , "  ret i32 %peek_char_a"
+    , "read:"
+    , "  %char = call i32 @hegglog_hs_io_read_char_code(ptr %record)"
+    , "  %is_eof = icmp eq i32 %char, -1"
+    , "  br i1 %is_eof, label %done, label %store"
+    , "store:"
+    , "  %char64 = zext i32 %char to i64"
+    , "  %peek_char_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 9"
+    , "  store i64 %char64, ptr %peek_char_slot"
+    , "  store i64 1, ptr %peek_slot"
+    , "  br label %done"
+    , "done:"
+    , "  ret i32 %char"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_hgetcontents_value(ptr %record) {"
+    , "entry:"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  store i64 2, ptr %state_slot"
+    , "  %env = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 8)"
+    , "  %slot = getelementptr inbounds [1 x ptr], ptr %env, i32 0, i32 0"
+    , "  store ptr %record, ptr %slot"
+    , "  %thunk = call ptr @" <> makeThunkFunctionName <> "(ptr @hegglog_hs_io_hgetcontents_thunk, ptr %env, i64 " <> Text.pack (show updatableCode) <> ")"
+    , "  ret ptr %thunk"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_hgetcontents_thunk(ptr %env) {"
+    , "entry:"
+    , "  %slot = getelementptr inbounds [1 x ptr], ptr %env, i32 0, i32 0"
+    , "  %record = load ptr, ptr %slot"
+    , "  %list = call ptr @hegglog_hs_io_hgetcontents_cons(ptr %record)"
+    , "  ret ptr %list"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_hgetcontents_cons(ptr %record) {"
+    , "entry:"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_closed = icmp eq i64 %state, 1"
+    , "  br i1 %is_closed, label %nil, label %read"
+    , "read:"
+    , "  %char = call i32 @hegglog_hs_io_read_char_code(ptr %record)"
+    , "  %is_eof = icmp eq i32 %char, -1"
+    , "  br i1 %is_eof, label %eof, label %cons"
+    , "eof:"
+    , "  call void @hegglog_hs_io_close_record(ptr %record)"
+    , "  br label %nil"
+    , "nil:"
+    , "  %nil_value = call ptr @hegglog_hs_io_make_nil_list()"
+    , "  ret ptr %nil_value"
+    , "cons:"
+    , "  %tail_env = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 8)"
+    , "  %tail_slot = getelementptr inbounds [1 x ptr], ptr %tail_env, i32 0, i32 0"
+    , "  store ptr %record, ptr %tail_slot"
+    , "  %tail = call ptr @" <> makeThunkFunctionName <> "(ptr @hegglog_hs_io_hgetcontents_thunk, ptr %tail_env, i64 " <> Text.pack (show updatableCode) <> ")"
+    , "  %list = call ptr @hegglog_hs_io_cons_char(i32 %char, ptr %tail)"
+    , "  ret ptr %list"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHGetContentsFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %check_read, label %closed"
+    , "check_read:"
+    , "  %read_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 3"
+    , "  %readable = load i64, ptr %read_slot"
+    , "  %can_read = icmp eq i64 %readable, 1"
+    , "  br i1 %can_read, label %ok, label %illegal"
+    , "ok:"
+    , "  %contents = call ptr @hegglog_hs_io_hgetcontents_value(ptr %record)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %contents)"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "illegal:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOReadFileFunctionName <> "(ptr %path_obj) {"
+    , "entry:"
+    , "  %path = call ptr @" <> charListToCStringFunctionName <> "(ptr %path_obj)"
+    , "  %mode = getelementptr inbounds [2 x i8], ptr @haskell2010_io_mode_r, i64 0, i64 0"
+    , "  %file = call ptr @fopen(ptr %path, ptr %mode)"
+    , "  %is_null = icmp eq ptr %file, null"
+    , "  br i1 %is_null, label %open_failed, label %opened"
+    , "opened:"
+    , "  %record = call ptr @hegglog_hs_io_alloc_file_handle(ptr %file, i64 1, i64 0)"
+    , "  %contents = call ptr @hegglog_hs_io_hgetcontents_value(ptr %record)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %contents)"
+    , "  ret ptr %result"
+    , "open_failed:"
+    , "  %failure = call ptr @hegglog_hs_io_open_failure()"
+    , "  ret ptr %failure"
+    , "}"
+    ]
+ where
+  tag =
+    constructorTagLiteral
+
+systemIOWriteText :: Text
+systemIOWriteText =
+  Text.unlines
+    [ "define i1 @hegglog_hs_io_write_buffer(ptr %record, ptr %buffer, i64 %len) {"
+    , "entry:"
+    , "  %kind_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 2"
+    , "  %kind = load i64, ptr %kind_slot"
+    , "  %is_stdout = icmp eq i64 %kind, 1"
+    , "  br i1 %is_stdout, label %stdout, label %stderr_check"
+    , "stdout:"
+    , "  %stdout_written = call i64 @write(i32 1, ptr %buffer, i64 %len)"
+    , "  %stdout_ok = icmp eq i64 %stdout_written, %len"
+    , "  ret i1 %stdout_ok"
+    , "stderr_check:"
+    , "  %is_stderr = icmp eq i64 %kind, 2"
+    , "  br i1 %is_stderr, label %stderr, label %file_check"
+    , "stderr:"
+    , "  %stderr_written = call i64 @write(i32 2, ptr %buffer, i64 %len)"
+    , "  %stderr_ok = icmp eq i64 %stderr_written, %len"
+    , "  ret i1 %stderr_ok"
+    , "file_check:"
+    , "  %is_file = icmp eq i64 %kind, 3"
+    , "  br i1 %is_file, label %file, label %failed"
+    , "file:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %file_written = call i64 @fwrite(ptr %buffer, i64 1, i64 %len, ptr %file_handle)"
+    , "  %file_ok = icmp eq i64 %file_written, %len"
+    , "  ret i1 %file_ok"
+    , "failed:"
+    , "  ret i1 false"
+    , "}"
+    , ""
+    , "define i1 @hegglog_hs_io_write_char_code(ptr %record, i32 %char) {"
+    , "entry:"
+    , "  %buffer = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 1)"
+    , "  %char8 = trunc i32 %char to i8"
+    , "  store i8 %char8, ptr %buffer"
+    , "  %ok = call i1 @hegglog_hs_io_write_buffer(ptr %record, ptr %buffer, i64 1)"
+    , "  ret i1 %ok"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_write_string_result(ptr %record, ptr %contents_obj, i1 %newline) {"
+    , "entry:"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %check_write, label %closed"
+    , "check_write:"
+    , "  %write_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 4"
+    , "  %writable = load i64, ptr %write_slot"
+    , "  %can_write = icmp eq i64 %writable, 1"
+    , "  br i1 %can_write, label %write, label %illegal"
+    , "write:"
+    , "  %len = call i64 @" <> charListLengthFunctionName <> "(ptr %contents_obj)"
+    , "  %buffer = call ptr @" <> charListToCStringFunctionName <> "(ptr %contents_obj)"
+    , "  %string_ok = call i1 @hegglog_hs_io_write_buffer(ptr %record, ptr %buffer, i64 %len)"
+    , "  br i1 %string_ok, label %maybe_newline, label %write_failed"
+    , "maybe_newline:"
+    , "  br i1 %newline, label %write_newline, label %success"
+    , "write_newline:"
+    , "  %newline_ok = call i1 @hegglog_hs_io_write_char_code(ptr %record, i32 10)"
+    , "  br i1 %newline_ok, label %success, label %write_failed"
+    , "success:"
+    , "  %success_result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %success_result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "illegal:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "write_failed:"
+    , "  %write_failure = call ptr @hegglog_hs_io_write_failure()"
+    , "  ret ptr %write_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHPutStrFunctionName <> "(ptr %handle_obj, ptr %contents_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %result = call ptr @hegglog_hs_io_write_string_result(ptr %record, ptr %contents_obj, i1 false)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHPutStrLnFunctionName <> "(ptr %handle_obj, ptr %contents_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %result = call ptr @hegglog_hs_io_write_string_result(ptr %record, ptr %contents_obj, i1 true)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHPutCharFunctionName <> "(ptr %handle_obj, ptr %char_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %check_write, label %closed"
+    , "check_write:"
+    , "  %write_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 4"
+    , "  %writable = load i64, ptr %write_slot"
+    , "  %can_write = icmp eq i64 %writable, 1"
+    , "  br i1 %can_write, label %write, label %illegal"
+    , "write:"
+    , "  %char = call i32 @" <> expectCharFunctionName <> "(ptr %char_obj)"
+    , "  %ok = call i1 @hegglog_hs_io_write_char_code(ptr %record, i32 %char)"
+    , "  br i1 %ok, label %success, label %write_failed"
+    , "success:"
+    , "  %success_result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %success_result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "illegal:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "write_failed:"
+    , "  %write_failure = call ptr @hegglog_hs_io_write_failure()"
+    , "  ret ptr %write_failure"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_write_file_with_mode(ptr %path_obj, ptr %contents_obj, ptr %mode) {"
+    , "entry:"
+    , "  %path = call ptr @" <> charListToCStringFunctionName <> "(ptr %path_obj)"
+    , "  %file = call ptr @fopen(ptr %path, ptr %mode)"
+    , "  %is_null = icmp eq ptr %file, null"
+    , "  br i1 %is_null, label %open_failed, label %opened"
+    , "opened:"
+    , "  %len = call i64 @" <> charListLengthFunctionName <> "(ptr %contents_obj)"
+    , "  %buffer = call ptr @" <> charListToCStringFunctionName <> "(ptr %contents_obj)"
+    , "  %written = call i64 @fwrite(ptr %buffer, i64 1, i64 %len, ptr %file)"
+    , "  %closed = call i32 @fclose(ptr %file)"
+    , "  %ok = icmp eq i64 %written, %len"
+    , "  br i1 %ok, label %success, label %write_failed"
+    , "success:"
+    , "  %success_result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %success_result"
+    , "open_failed:"
+    , "  %open_failure = call ptr @hegglog_hs_io_open_failure()"
+    , "  ret ptr %open_failure"
+    , "write_failed:"
+    , "  %write_failure = call ptr @hegglog_hs_io_write_failure()"
+    , "  ret ptr %write_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOWriteFileFunctionName <> "(ptr %path_obj, ptr %contents_obj) {"
+    , "entry:"
+    , "  %mode = getelementptr inbounds [2 x i8], ptr @haskell2010_io_mode_w, i64 0, i64 0"
+    , "  %result = call ptr @hegglog_hs_io_write_file_with_mode(ptr %path_obj, ptr %contents_obj, ptr %mode)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOAppendFileFunctionName <> "(ptr %path_obj, ptr %contents_obj) {"
+    , "entry:"
+    , "  %mode = getelementptr inbounds [2 x i8], ptr @haskell2010_io_mode_a, i64 0, i64 0"
+    , "  %result = call ptr @hegglog_hs_io_write_file_with_mode(ptr %path_obj, ptr %contents_obj, ptr %mode)"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+systemIOHandleQueryText :: Text
+systemIOHandleQueryText =
+  Text.unlines
+    [ "define ptr @hegglog_hs_io_handle_state_predicate(ptr %handle_obj, i64 %expected) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %ok = icmp eq i64 %state, %expected"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %ok)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHIsOpenFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %is_open)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHIsClosedFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %result = call ptr @hegglog_hs_io_handle_state_predicate(ptr %handle_obj, i64 1)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHIsReadableFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %open, label %closed"
+    , "open:"
+    , "  %slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 3"
+    , "  %value = load i64, ptr %slot"
+    , "  %bool = icmp eq i64 %value, 1"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %bool)"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %false_result = call ptr @hegglog_hs_io_bool_success(i1 false)"
+    , "  ret ptr %false_result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHIsWritableFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %open, label %closed"
+    , "open:"
+    , "  %slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 4"
+    , "  %value = load i64, ptr %slot"
+    , "  %bool = icmp eq i64 %value, 1"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %bool)"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %false_result = call ptr @hegglog_hs_io_bool_success(i1 false)"
+    , "  ret ptr %false_result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHIsSeekableFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %open, label %closed"
+    , "open:"
+    , "  %slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 5"
+    , "  %value = load i64, ptr %slot"
+    , "  %bool = icmp eq i64 %value, 1"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %bool)"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %false_result = call ptr @hegglog_hs_io_bool_success(i1 false)"
+    , "  ret ptr %false_result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHIsTerminalDeviceFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %kind_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 2"
+    , "  %kind = load i64, ptr %kind_slot"
+    , "  %is_stdin = icmp eq i64 %kind, 0"
+    , "  br i1 %is_stdin, label %stdin, label %stdout_check"
+    , "stdin:"
+    , "  %tty0 = call i32 @isatty(i32 0)"
+    , "  %ok0 = icmp ne i32 %tty0, 0"
+    , "  br label %done"
+    , "stdout_check:"
+    , "  %is_stdout = icmp eq i64 %kind, 1"
+    , "  br i1 %is_stdout, label %stdout, label %stderr_check"
+    , "stdout:"
+    , "  %tty1 = call i32 @isatty(i32 1)"
+    , "  %ok1 = icmp ne i32 %tty1, 0"
+    , "  br label %done"
+    , "stderr_check:"
+    , "  %is_stderr = icmp eq i64 %kind, 2"
+    , "  br i1 %is_stderr, label %stderr, label %file"
+    , "stderr:"
+    , "  %tty2 = call i32 @isatty(i32 2)"
+    , "  %ok2 = icmp ne i32 %tty2, 0"
+    , "  br label %done"
+    , "file:"
+    , "  %false = icmp eq i64 0, 1"
+    , "  br label %done"
+    , "done:"
+    , "  %ok = phi i1 [ %ok0, %stdin ], [ %ok1, %stdout ], [ %ok2, %stderr ], [ %false, %file ]"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %ok)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define i64 @hegglog_hs_io_decode_buffer_mode(ptr %mode_obj) {"
+    , "entry:"
+    , "  %forced = call ptr @" <> forceFunctionName <> "(ptr %mode_obj)"
+    , "  %ctor_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %forced, i32 0, i32 1"
+    , "  %ctor = load i64, ptr %ctor_slot"
+    , "  %is_no = icmp eq i64 %ctor, " <> tag bufferModeNoDataConName
+    , "  br i1 %is_no, label %no, label %line_check"
+    , "no:"
+    , "  ret i64 0"
+    , "line_check:"
+    , "  %is_line = icmp eq i64 %ctor, " <> tag bufferModeLineDataConName
+    , "  br i1 %is_line, label %line, label %block_check"
+    , "line:"
+    , "  ret i64 1"
+    , "block_check:"
+    , "  %is_block = icmp eq i64 %ctor, " <> tag bufferModeBlockDataConName
+    , "  br i1 %is_block, label %block, label %abort"
+    , "block:"
+    , "  ret i64 2"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHSetBufferingFunctionName <> "(ptr %handle_obj, ptr %mode_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %set, label %closed"
+    , "set:"
+    , "  %mode = call i64 @hegglog_hs_io_decode_buffer_mode(ptr %mode_obj)"
+    , "  %buffer_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 6"
+    , "  store i64 %mode, ptr %buffer_slot"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHGetBufferingFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %get, label %closed"
+    , "get:"
+    , "  %buffer_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 6"
+    , "  %mode = load i64, ptr %buffer_slot"
+    , "  %is_no = icmp eq i64 %mode, 0"
+    , "  br i1 %is_no, label %no, label %line_check"
+    , "no:"
+    , "  %no_obj = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag bufferModeNoDataConName <> ", i64 0, ptr null)"
+    , "  br label %success"
+    , "line_check:"
+    , "  %is_line = icmp eq i64 %mode, 1"
+    , "  br i1 %is_line, label %line, label %block"
+    , "line:"
+    , "  %line_obj = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag bufferModeLineDataConName <> ", i64 0, ptr null)"
+    , "  br label %success"
+    , "block:"
+    , "  %nothing = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag maybeNothingDataConName <> ", i64 0, ptr null)"
+    , "  %fields = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 8)"
+    , "  %field0 = getelementptr inbounds [1 x ptr], ptr %fields, i32 0, i32 0"
+    , "  store ptr %nothing, ptr %field0"
+    , "  %block_obj = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag bufferModeBlockDataConName <> ", i64 1, ptr %fields)"
+    , "  br label %success"
+    , "success:"
+    , "  %obj = phi ptr [ %no_obj, %no ], [ %line_obj, %line ], [ %block_obj, %block ]"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %obj)"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHSetEchoFunctionName <> "(ptr %handle_obj, ptr %enabled_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %set, label %closed"
+    , "set:"
+    , "  %enabled = call i1 @" <> expectBoolFunctionName <> "(ptr %enabled_obj)"
+    , "  %enabled64 = zext i1 %enabled to i64"
+    , "  %echo_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 7"
+    , "  store i64 %enabled64, ptr %echo_slot"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHGetEchoFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %get, label %closed"
+    , "get:"
+    , "  %echo_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 7"
+    , "  %echo = load i64, ptr %echo_slot"
+    , "  %enabled = icmp eq i64 %echo, 1"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %enabled)"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHShowFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %kind_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 2"
+    , "  %kind = load i64, ptr %kind_slot"
+    , "  %is_stdin = icmp eq i64 %kind, 0"
+    , "  br i1 %is_stdin, label %stdin, label %stdout_check"
+    , "stdin:"
+    , "  %stdin_name = getelementptr inbounds [8 x i8], ptr @haskell2010_io_handle_stdin, i64 0, i64 0"
+    , "  br label %make"
+    , "stdout_check:"
+    , "  %is_stdout = icmp eq i64 %kind, 1"
+    , "  br i1 %is_stdout, label %stdout, label %stderr_check"
+    , "stdout:"
+    , "  %stdout_name = getelementptr inbounds [9 x i8], ptr @haskell2010_io_handle_stdout, i64 0, i64 0"
+    , "  br label %make"
+    , "stderr_check:"
+    , "  %is_stderr = icmp eq i64 %kind, 2"
+    , "  br i1 %is_stderr, label %stderr, label %file"
+    , "stderr:"
+    , "  %stderr_name = getelementptr inbounds [9 x i8], ptr @haskell2010_io_handle_stderr, i64 0, i64 0"
+    , "  br label %make"
+    , "file:"
+    , "  %file_name = getelementptr inbounds [7 x i8], ptr @haskell2010_io_handle_file, i64 0, i64 0"
+    , "  br label %make"
+    , "make:"
+    , "  %name = phi ptr [ %stdin_name, %stdin ], [ %stdout_name, %stdout ], [ %stderr_name, %stderr ], [ %file_name, %file ]"
+    , "  %string = call ptr @" <> makeCharListFromCStringFunctionName <> "(ptr %name)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %string)"
+    , "  ret ptr %result"
+    , "}"
+    ]
+ where
+  tag =
+    constructorTagLiteral
+
+systemIOReadText :: Text
+systemIOReadText =
+  Text.unlines
+    [ "define i1 @hegglog_hs_io_can_read_open(ptr %record) {"
+    , "entry:"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %read_check, label %no"
+    , "read_check:"
+    , "  %read_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 3"
+    , "  %readable = load i64, ptr %read_slot"
+    , "  %can_read = icmp eq i64 %readable, 1"
+    , "  ret i1 %can_read"
+    , "no:"
+    , "  ret i1 false"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHGetCharFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_read = call i1 @hegglog_hs_io_can_read_open(ptr %record)"
+    , "  br i1 %can_read, label %read, label %bad_handle"
+    , "read:"
+    , "  %char = call i32 @hegglog_hs_io_read_char_code(ptr %record)"
+    , "  %is_eof = icmp eq i32 %char, -1"
+    , "  br i1 %is_eof, label %eof, label %success"
+    , "success:"
+    , "  %char64 = zext i32 %char to i64"
+    , "  %char_obj = call ptr @" <> makeCharFunctionName <> "(i64 %char64)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %char_obj)"
+    , "  ret ptr %result"
+    , "eof:"
+    , "  %eof_failure = call ptr @hegglog_hs_io_eof_failure()"
+    , "  ret ptr %eof_failure"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHLookAheadFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_read = call i1 @hegglog_hs_io_can_read_open(ptr %record)"
+    , "  br i1 %can_read, label %read, label %bad_handle"
+    , "read:"
+    , "  %char = call i32 @hegglog_hs_io_peek_char_code(ptr %record)"
+    , "  %is_eof = icmp eq i32 %char, -1"
+    , "  br i1 %is_eof, label %eof, label %success"
+    , "success:"
+    , "  %char64 = zext i32 %char to i64"
+    , "  %char_obj = call ptr @" <> makeCharFunctionName <> "(i64 %char64)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %char_obj)"
+    , "  ret ptr %result"
+    , "eof:"
+    , "  %eof_failure = call ptr @hegglog_hs_io_eof_failure()"
+    , "  ret ptr %eof_failure"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_read_line_result(ptr %record, i1 %seen) {"
+    , "entry:"
+    , "  %char = call i32 @hegglog_hs_io_read_char_code(ptr %record)"
+    , "  %is_eof = icmp eq i32 %char, -1"
+    , "  br i1 %is_eof, label %eof, label %newline_check"
+    , "newline_check:"
+    , "  %is_newline = icmp eq i32 %char, 10"
+    , "  br i1 %is_newline, label %done, label %cons"
+    , "eof:"
+    , "  br i1 %seen, label %done, label %eof_error"
+    , "done:"
+    , "  %nil = call ptr @hegglog_hs_io_make_nil_list()"
+    , "  %success = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %nil)"
+    , "  ret ptr %success"
+    , "cons:"
+    , "  %tail_result = call ptr @hegglog_hs_io_read_line_result(ptr %record, i1 true)"
+    , "  %tail_tag_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %tail_result, i32 0, i32 0"
+    , "  %tail_tag = load i64, ptr %tail_tag_slot"
+    , "  %tail_success = icmp eq i64 %tail_tag, " <> Text.pack (show tagIOSuccess)
+    , "  br i1 %tail_success, label %cons_success, label %tail_failed"
+    , "cons_success:"
+    , "  %tail_payload_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %tail_result, i32 0, i32 2"
+    , "  %tail = load ptr, ptr %tail_payload_slot"
+    , "  %list = call ptr @hegglog_hs_io_cons_char(i32 %char, ptr %tail)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %list)"
+    , "  ret ptr %result"
+    , "tail_failed:"
+    , "  ret ptr %tail_result"
+    , "eof_error:"
+    , "  %eof_failure = call ptr @hegglog_hs_io_eof_failure()"
+    , "  ret ptr %eof_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHGetLineFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_read = call i1 @hegglog_hs_io_can_read_open(ptr %record)"
+    , "  br i1 %can_read, label %read, label %bad_handle"
+    , "read:"
+    , "  %result = call ptr @hegglog_hs_io_read_line_result(ptr %record, i1 false)"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHIsEOFFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_closed = icmp eq i64 %state, 1"
+    , "  br i1 %is_closed, label %closed, label %check_read"
+    , "check_read:"
+    , "  %can_read = call i1 @hegglog_hs_io_can_read_open(ptr %record)"
+    , "  br i1 %can_read, label %peek, label %bad_handle"
+    , "peek:"
+    , "  %char = call i32 @hegglog_hs_io_peek_char_code(ptr %record)"
+    , "  %is_eof = icmp eq i32 %char, -1"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %is_eof)"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %closed_result = call ptr @hegglog_hs_io_bool_success(i1 true)"
+    , "  ret ptr %closed_result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHReadyFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_read = call i1 @hegglog_hs_io_can_read_open(ptr %record)"
+    , "  br i1 %can_read, label %peek, label %bad_handle"
+    , "peek:"
+    , "  %char = call i32 @hegglog_hs_io_peek_char_code(ptr %record)"
+    , "  %is_eof = icmp eq i32 %char, -1"
+    , "  %ready = xor i1 %is_eof, true"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %ready)"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHWaitForInputFunctionName <> "(ptr %handle_obj, ptr %timeout_obj) {"
+    , "entry:"
+    , "  %result = call ptr @" <> systemIOHReadyFunctionName <> "(ptr %handle_obj)"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+systemIOPositionText :: Text
+systemIOPositionText =
+  Text.unlines
+    [ "define i1 @hegglog_hs_io_seekable_open(ptr %record) {"
+    , "entry:"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %seek_check, label %no"
+    , "seek_check:"
+    , "  %seek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 5"
+    , "  %seekable = load i64, ptr %seek_slot"
+    , "  %can_seek = icmp eq i64 %seekable, 1"
+    , "  ret i1 %can_seek"
+    , "no:"
+    , "  ret i1 false"
+    , "}"
+    , ""
+    , "define void @hegglog_hs_io_clear_peek_for_seek(ptr %record) {"
+    , "entry:"
+    , "  %peek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 8"
+    , "  %has_peek = load i64, ptr %peek_slot"
+    , "  %has_peek_bool = icmp eq i64 %has_peek, 1"
+    , "  br i1 %has_peek_bool, label %rewind, label %done"
+    , "rewind:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %ignored = call i32 @fseek(ptr %file_handle, i64 -1, i32 1)"
+    , "  store i64 0, ptr %peek_slot"
+    , "  br label %done"
+    , "done:"
+    , "  ret void"
+    , "}"
+    , ""
+    , "define i64 @hegglog_hs_io_logical_tell(ptr %record) {"
+    , "entry:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %pos = call i64 @ftell(ptr %file_handle)"
+    , "  %peek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 8"
+    , "  %has_peek = load i64, ptr %peek_slot"
+    , "  %adjusted = sub i64 %pos, %has_peek"
+    , "  ret i64 %adjusted"
+    , "}"
+    , ""
+    , "define i64 @hegglog_hs_io_file_size_raw(ptr %record) {"
+    , "entry:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %current = call i64 @hegglog_hs_io_logical_tell(ptr %record)"
+    , "  %seek_end = call i32 @fseek(ptr %file_handle, i64 0, i32 2)"
+    , "  %end = call i64 @ftell(ptr %file_handle)"
+    , "  %restore = call i32 @fseek(ptr %file_handle, i64 %current, i32 0)"
+    , "  ret i64 %end"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHTellFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_seek = call i1 @hegglog_hs_io_seekable_open(ptr %record)"
+    , "  br i1 %can_seek, label %tell, label %bad_handle"
+    , "tell:"
+    , "  %pos = call i64 @hegglog_hs_io_logical_tell(ptr %record)"
+    , "  %bad = icmp slt i64 %pos, 0"
+    , "  br i1 %bad, label %seek_failed, label %success"
+    , "success:"
+    , "  %result = call ptr @hegglog_hs_io_int_success(i64 %pos)"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "seek_failed:"
+    , "  %seek_failure = call ptr @hegglog_hs_io_seek_failure()"
+    , "  ret ptr %seek_failure"
+    , "}"
+    , ""
+    , "define i32 @hegglog_hs_io_decode_seek_mode(ptr %mode_obj) {"
+    , "entry:"
+    , "  %forced = call ptr @" <> forceFunctionName <> "(ptr %mode_obj)"
+    , "  %ctor_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %forced, i32 0, i32 1"
+    , "  %ctor = load i64, ptr %ctor_slot"
+    , "  %is_abs = icmp eq i64 %ctor, " <> tag seekModeAbsoluteDataConName
+    , "  br i1 %is_abs, label %abs, label %rel_check"
+    , "abs:"
+    , "  ret i32 0"
+    , "rel_check:"
+    , "  %is_rel = icmp eq i64 %ctor, " <> tag seekModeRelativeDataConName
+    , "  br i1 %is_rel, label %rel, label %end_check"
+    , "rel:"
+    , "  ret i32 1"
+    , "end_check:"
+    , "  %is_end = icmp eq i64 %ctor, " <> tag seekModeFromEndDataConName
+    , "  br i1 %is_end, label %end, label %abort"
+    , "end:"
+    , "  ret i32 2"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHSeekFunctionName <> "(ptr %handle_obj, ptr %mode_obj, ptr %offset_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_seek = call i1 @hegglog_hs_io_seekable_open(ptr %record)"
+    , "  br i1 %can_seek, label %seek, label %bad_handle"
+    , "seek:"
+    , "  call void @hegglog_hs_io_clear_peek_for_seek(ptr %record)"
+    , "  %whence = call i32 @hegglog_hs_io_decode_seek_mode(ptr %mode_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %current = call i64 @hegglog_hs_io_logical_tell(ptr %record)"
+    , "  %end = call i64 @hegglog_hs_io_file_size_raw(ptr %record)"
+    , "  %is_abs = icmp eq i32 %whence, 0"
+    , "  br i1 %is_abs, label %target_abs, label %target_rel_check"
+    , "target_abs:"
+    , "  br label %target"
+    , "target_rel_check:"
+    , "  %is_rel = icmp eq i32 %whence, 1"
+    , "  br i1 %is_rel, label %target_rel, label %target_end"
+    , "target_rel:"
+    , "  %relative_target = add i64 %current, %offset"
+    , "  br label %target"
+    , "target_end:"
+    , "  %end_target = add i64 %end, %offset"
+    , "  br label %target"
+    , "target:"
+    , "  %target_pos = phi i64 [ %offset, %target_abs ], [ %relative_target, %target_rel ], [ %end_target, %target_end ]"
+    , "  %negative = icmp slt i64 %target_pos, 0"
+    , "  %past_end = icmp sgt i64 %target_pos, %end"
+    , "  %invalid = or i1 %negative, %past_end"
+    , "  br i1 %invalid, label %seek_failed, label %seek_absolute"
+    , "seek_absolute:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %code = call i32 @fseek(ptr %file_handle, i64 %target_pos, i32 0)"
+    , "  %ok = icmp eq i32 %code, 0"
+    , "  br i1 %ok, label %success, label %seek_failed"
+    , "success:"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "seek_failed:"
+    , "  %seek_failure = call ptr @hegglog_hs_io_seek_failure()"
+    , "  ret ptr %seek_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHGetPosnFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_seek = call i1 @hegglog_hs_io_seekable_open(ptr %record)"
+    , "  br i1 %can_seek, label %tell, label %bad_handle"
+    , "tell:"
+    , "  %pos = call i64 @hegglog_hs_io_logical_tell(ptr %record)"
+    , "  %posn = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 16)"
+    , "  %handle_slot = getelementptr inbounds %hegglog_hs_handle_posn, ptr %posn, i32 0, i32 0"
+    , "  store ptr %record, ptr %handle_slot"
+    , "  %pos_slot = getelementptr inbounds %hegglog_hs_handle_posn, ptr %posn, i32 0, i32 1"
+    , "  store i64 %pos, ptr %pos_slot"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %posn)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHSetPosnFunctionName <> "(ptr %posn_obj) {"
+    , "entry:"
+    , "  %posn = call ptr @" <> expectPointerFunctionName <> "(ptr %posn_obj)"
+    , "  %handle_slot = getelementptr inbounds %hegglog_hs_handle_posn, ptr %posn, i32 0, i32 0"
+    , "  %record = load ptr, ptr %handle_slot"
+    , "  %pos_slot = getelementptr inbounds %hegglog_hs_handle_posn, ptr %posn, i32 0, i32 1"
+    , "  %pos = load i64, ptr %pos_slot"
+    , "  %can_seek = call i1 @hegglog_hs_io_seekable_open(ptr %record)"
+    , "  br i1 %can_seek, label %seek, label %bad_handle"
+    , "seek:"
+    , "  call void @hegglog_hs_io_clear_peek_for_seek(ptr %record)"
+    , "  %end = call i64 @hegglog_hs_io_file_size_raw(ptr %record)"
+    , "  %negative = icmp slt i64 %pos, 0"
+    , "  %past_end = icmp sgt i64 %pos, %end"
+    , "  %invalid = or i1 %negative, %past_end"
+    , "  br i1 %invalid, label %seek_failed, label %seek_absolute"
+    , "seek_absolute:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %code = call i32 @fseek(ptr %file_handle, i64 %pos, i32 0)"
+    , "  %ok = icmp eq i32 %code, 0"
+    , "  br i1 %ok, label %success, label %seek_failed"
+    , "success:"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "seek_failed:"
+    , "  %seek_failure = call ptr @hegglog_hs_io_seek_failure()"
+    , "  ret ptr %seek_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHFileSizeFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_seek = call i1 @hegglog_hs_io_seekable_open(ptr %record)"
+    , "  br i1 %can_seek, label %measure, label %bad_handle"
+    , "measure:"
+    , "  call void @hegglog_hs_io_clear_peek_for_seek(ptr %record)"
+    , "  %end = call i64 @hegglog_hs_io_file_size_raw(ptr %record)"
+    , "  %result = call ptr @hegglog_hs_io_int_success(i64 %end)"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHSetFileSizeFunctionName <> "(ptr %handle_obj, ptr %size_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_seek = call i1 @hegglog_hs_io_seekable_open(ptr %record)"
+    , "  br i1 %can_seek, label %truncate, label %bad_handle"
+    , "truncate:"
+    , "  %size = call i64 @" <> expectIntFunctionName <> "(ptr %size_obj)"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %fd = call i32 @fileno(ptr %file_handle)"
+    , "  %code = call i32 @ftruncate(i32 %fd, i64 %size)"
+    , "  %ok = icmp eq i32 %code, 0"
+    , "  br i1 %ok, label %success, label %seek_failed"
+    , "success:"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "seek_failed:"
+    , "  %seek_failure = call ptr @hegglog_hs_io_seek_failure()"
+    , "  ret ptr %seek_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHFlushFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %flush, label %closed"
+    , "flush:"
+    , "  %kind_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 2"
+    , "  %kind = load i64, ptr %kind_slot"
+    , "  %is_file = icmp eq i64 %kind, 3"
+    , "  br i1 %is_file, label %file, label %success"
+    , "file:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %ignored = call i32 @fflush(ptr %file_handle)"
+    , "  br label %success"
+    , "success:"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "}"
+    ]
+ where
+  tag =
+    constructorTagLiteral
+
+systemIOFixText :: Text
+systemIOFixText =
+  Text.unlines
+    [ "define ptr @" <> systemIOFixFunctionName <> "(ptr %function_obj) {"
+    , "entry:"
+    , "  %env = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 16)"
+    , "  %function_slot = getelementptr inbounds [2 x ptr], ptr %env, i32 0, i32 0"
+    , "  store ptr %function_obj, ptr %function_slot"
+    , "  %placeholder = call ptr @" <> makeThunkFunctionName <> "(ptr @hegglog_hs_io_fix_thunk, ptr %env, i64 " <> Text.pack (show updatableCode) <> ")"
+    , "  %placeholder_slot = getelementptr inbounds [2 x ptr], ptr %env, i32 0, i32 1"
+    , "  store ptr %placeholder, ptr %placeholder_slot"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %placeholder)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_fix_thunk(ptr %env) {"
+    , "entry:"
+    , "  %function_slot = getelementptr inbounds [2 x ptr], ptr %env, i32 0, i32 0"
+    , "  %function_obj = load ptr, ptr %function_slot"
+    , "  %placeholder_slot = getelementptr inbounds [2 x ptr], ptr %env, i32 0, i32 1"
+    , "  %placeholder = load ptr, ptr %placeholder_slot"
+    , "  %function = call ptr @" <> expectFunctionName <> "(ptr %function_obj)"
+    , "  %code_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %function, i32 0, i32 2"
+    , "  %code = load ptr, ptr %code_slot"
+    , "  %closure_env_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %function, i32 0, i32 3"
+    , "  %closure_env = load ptr, ptr %closure_env_slot"
+    , "  %action = call ptr %code(ptr %closure_env, ptr %placeholder)"
+    , "  %io_result = call ptr @" <> forceFunctionName <> "(ptr %action)"
+    , "  %tag_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %io_result, i32 0, i32 0"
+    , "  %tag = load i64, ptr %tag_slot"
+    , "  %is_success = icmp eq i64 %tag, " <> Text.pack (show tagIOSuccess)
+    , "  br i1 %is_success, label %success, label %abort"
+    , "success:"
+    , "  %payload_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %io_result, i32 0, i32 2"
+    , "  %payload = load ptr, ptr %payload_slot"
+    , "  ret ptr %payload"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    ]
 
 intFormatBytes :: Text
 intFormatBytes =

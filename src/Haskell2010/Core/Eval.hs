@@ -383,6 +383,18 @@ evalPrimitiveExpr coreEnv env op arguments =
           Right (CoreIO chunks (CoreIOExit code))
         other ->
           Left (CoreEvalTypeError ("expected Core IO action, got " <> renderCoreValue other))
+    (PrimIOFix, [functionExpr]) -> do
+      function <- evalExpr coreEnv env functionExpr
+      case function of
+        CoreClosure closureEnv binder body ->
+          let fixedValue =
+                case evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated fixedValue) closureEnv) body of
+                  Right (CoreIO _ (CoreIOSuccess value)) -> value
+                  Right other -> error ("fixIO expected Core IO success, got " <> Text.unpack (renderCoreValue other))
+                  Left err -> error ("fixIO evaluation failed: " <> Text.unpack (renderCoreEvalError err))
+           in Right (CoreIO [] (CoreIOSuccess fixedValue))
+        other ->
+          Left (CoreEvalTypeError ("expected Core IO fix function, got " <> renderCoreValue other))
     _ ->
       traverse (evalExpr coreEnv env) arguments >>= evalPrimitive coreEnv op
 
@@ -1018,6 +1030,7 @@ renderCorePrimOpName = \case
   PrimIOError -> "ioError#"
   PrimIOCatch -> "catchIO#"
   PrimIOTry -> "tryIO#"
+  PrimIOFix -> "fixIO#"
   PrimNullPtr -> "nullPtr#"
   PrimCastPtr -> "castPtr#"
   PrimIsNullPtr -> "isNullPtr#"

@@ -15041,8 +15041,8 @@ Scope:
 
 Non-goals:
 - Do not implement asynchronous or post-2010 IO APIs.
-- Do not claim lazy/semi-closed handle semantics from the strict native runtime
-  until that runtime model exists.
+- Do not claim post-2010 encoding, binary IO, threaded IO, or richer terminal
+  control behavior from this Haskell 2010 text-IO task.
 
 Files likely touched:
 - `src/Haskell2010/StandardLibrary.hs`
@@ -15053,7 +15053,9 @@ Files likely touched:
 Acceptance criteria:
 - `System.IO` expands from the line-oriented stdin/stdout subset to the report handle, file open/close, buffering, seek, text input/output, and error behavior surface at the import/typechecking/Core/STG boundary.
 - `System.IO.Error` integration is coordinated with IO-011 and tested through recoverable and unrecoverable IO cases.
-- Native tests cover the supported standard-handle text IO subset deterministically, with remaining strict-runtime deviations documented rather than hidden behind unsupported imports.
+- Native tests cover standard handles, file-backed handles, seek/position behavior,
+  semi-closed `hGetContents`, productive `fixIO`, and report-shaped text IO
+  behavior deterministically.
 
 Required tests:
 - `System.IO` conformance fixtures
@@ -15067,17 +15069,17 @@ Documentation updates:
 
 Notes:
 - Created by TEST-CONF-015 to make the remaining IO library surface explicit.
-- Completed for the current strict native runtime model. The generated `System.IO`
+- Completed for the native Haskell 2010 text IO runtime model. The generated `System.IO`
   interface now exposes the Haskell 2010 Report names for `IOMode`,
   `BufferMode`, `SeekMode`, `Handle`, `HandlePosn`, standard handles,
   open/close, buffering, positioning, handle properties, text IO, Prelude IO
   aliases, `readIO`, and `readLn`. Core/STG/native primitives and validators
-  cover the expanded surface, and native conformance covers standard-handle
-  text IO, line input, `getContents`, EOF checks, `hPrint`, and `hShow` in
-  default and no-egglog modes. Remaining semantic deviations are explicit:
-  file-backed handle state, real seek/position state, lazy semi-closed
-  `hGetContents`, and productive `fixIO` are not implemented by the strict
-  process-lifetime native runtime.
+  cover the expanded surface, and native conformance covers standard handles,
+  file-backed handles, open/close, `readFile`, `writeFile`, `appendFile`,
+  buffering metadata, line and character input, `hLookAhead`, `getContents`,
+  semi-closed `hGetContents`, EOF checks, `hFileSize`, `hSetFileSize`,
+  `hGetPosn`, `hSetPosn`, `hSeek`, `hTell`, handle predicates, `hPrint`,
+  `hShow`, and productive `fixIO` in default and no-egglog modes.
 
 ## IO-001 — IO type representation
 
@@ -15471,7 +15473,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M13 (IO and do-notation). Completed for explicit `(>>=)`, do-bind statements, `return`-produced values, normal `putStrLn`/`print` examples over `String`, `Char`, and lists, native `getLine` over stdin, recoverable `IOError` behavior, and the supported `Monad IO` dictionary. The expanded `System.IO` surface is tracked by LIB-012, including its documented strict-runtime deviations for file-backed handles and lazy contents.
+- Milestone M13 (IO and do-notation). Completed for explicit `(>>=)`, do-bind statements, `return`-produced values, normal `putStrLn`/`print` examples over `String`, `Char`, and lists, native `getLine` over stdin, recoverable `IOError` behavior, and the supported `Monad IO` dictionary. The expanded `System.IO` surface is tracked by LIB-012, including file-backed handles, seek/position behavior, semi-closed lazy contents, and productive `fixIO`.
 
 ## IO-009 — (>>)
 

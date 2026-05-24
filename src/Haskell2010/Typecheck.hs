@@ -8499,7 +8499,7 @@ preludeCorePair name =
   a = preludeTypeVariable "a" (-1201)
   b = preludeTypeVariable "b" (-1202)
   c = preludeTypeVariable "c" (-1203)
-  r = preludeTypeVariable "r" (-1204)
+  r = preludeTypeVariable "r" (-1206)
   aTy = CTyVar a
   bTy = CTyVar b
   cTy = CTyVar c
@@ -8731,11 +8731,12 @@ preludeCorePair name =
   withFileAction = preludeTermName "$with_file_action" (-3172)
   withFileHandle = preludeTermName "$with_file_handle" (-3173)
   withFileValue = preludeTermName "$with_file_value" (-3174)
+  withFileError = preludeTermName "$with_file_error" (-3179)
   hPrintDict = preludeTermName "$hprint_dict" (-3175)
   hPrintHandle = preludeTermName "$hprint_handle" (-3176)
   hPrintX = preludeTermName "$hprint_x" (-3177)
   interactFunction = preludeTermName "$interact_function" (-3178)
-  interactInput = preludeTermName "$interact_input" (-3179)
+  interactInput = preludeTermName "$interact_input" (-3183)
   readIOValue = preludeTermName "$read_io_value" (-3180)
   readLnLine = preludeTermName "$read_ln_line" (-3181)
   fixIOFunction = preludeTermName "$fix_io_function" (-3182)
@@ -9190,7 +9191,7 @@ preludeCorePair name =
       CPrimOp PrimHPutStrLn [var hPrintHandle handleTy, shownValue] ioUnitTy
 
   fixIORhs =
-    CTypeLam [a] (lam fixIOFunction (CTyFun aTy (ioTy aTy)) (CPrimOp PrimIOFail [stringLiteralCore "fixIO is not supported by the strict native IO runtime"] (ioTy aTy))) fixIOTy
+    CTypeLam [a] (lam fixIOFunction (CTyFun aTy (ioTy aTy)) (CPrimOp PrimIOFix [var fixIOFunction (CTyFun aTy (ioTy aTy))] (ioTy aTy))) fixIOTy
 
   withFileRhs =
     CTypeLam [r] (lam withFilePath stringTy (lam withFileMode ioModeTy (lam withFileAction (CTyFun handleTy (ioTy rTy)) withOpen))) withFileTy
@@ -9202,6 +9203,16 @@ preludeCorePair name =
     userAction =
       apply (var withFileAction (CTyFun handleTy (ioTy rTy))) (var withFileHandle handleTy) (ioTy rTy)
     withBody =
+      CPrimOp
+        PrimIOCatch
+        [ successPath
+        , CLam
+            (CoreBinder withFileError ioErrorTy)
+            (CPrimOp PrimIOThen [CPrimOp PrimHClose [var withFileHandle handleTy] ioUnitTy, CPrimOp PrimIOError [var withFileError ioErrorTy] (ioTy rTy)] (ioTy rTy))
+            (CTyFun ioErrorTy (ioTy rTy))
+        ]
+        (ioTy rTy)
+    successPath =
       CPrimOp
         PrimIOBind
         [ userAction
