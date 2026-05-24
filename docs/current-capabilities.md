@@ -84,9 +84,10 @@ documented nullary-binding monomorphism/defaulting behavior, boxed `Char`
 literals and literal cases, scalar `main :: Char` output, and built-in
 `Eq Int`, `Eq Bool`, `Eq Char`, structural `Eq [a]`, `Ord Int`, `Ord Bool`, `Ord Char`, structural `Ord [a]`, executable `Num Int`, executable `Real Int`, and executable `Integral Int`
 class methods, plus guarded RHSs, guarded case alternatives, as-pattern
-aliases, and guard-fallthrough no-match behavior, plus the first IO printing/input
-slice for `IO`, `main :: IO ()`,
-`putStrLn`, `getLine`, `print`, and higher-kinded `Monad` dictionaries for
+aliases, and guard-fallthrough no-match behavior, plus the standard-handle IO
+printing/input slice for `IO`, `main :: IO ()`,
+`putStrLn`, `putStr`, `putChar`, `getLine`, `getContents`, `print`, and `System.IO`
+handle text operations, and higher-kinded `Monad` dictionaries for
 `IO`, `Maybe`, and lists, including `return`, `(>>)`, `(>>=)`, `fail`, generic
 expression and bind-statement `do` sequencing, refutable do-bind failure, and
 recoverable `IOError` behavior through `ioError`, `catch`, and `try`, and
@@ -113,7 +114,9 @@ ownership policy, boxed `Char` values, `Eq Char` primitive lowering, scalar
 `Char` root printing, source `String` literals as ordinary list-of-`Char`
 constructor values, and checked primitive aborts, then uses the existing clang
 toolchain path to produce native executables. The Haskell 2010 native path also
-executes `main :: IO ()` actions for `putStrLn`, `getLine`, and `print` using
+executes `main :: IO ()` actions for `putStrLn`, `putStr`, `putChar`, `getLine`,
+`getContents`, `print`, standard-handle `hPutStr`/`hPutChar`/`hPutStrLn`, `hPrint`,
+`hSetBuffering`, `hIsEOF`, and `hShow` using
 list-of-`Char` traversal, built-in scalar/string `Show` results represented as
 lists, generated list `Show` dictionaries, Monad-backed do-bind result values,
 explicit `(>>=)`, explicit IO success/failure wrappers, catchable `failIO#`,
@@ -344,7 +347,7 @@ Current tests include:
   programs, and built-in `Eq`/`Ord`/`Num`/`Fractional`/`Floating`/`RealFrac`/`RealFloat`/`Show`/`Enum`/`Bounded` dictionary programs, `Data.Complex` programs, numeric-defaulting and
   monomorphism/defaulting decision programs, multi-file module programs,
   implicit, explicit, and qualified Prelude import programs,
-  known-constructor optimizer programs, plus line-oriented IO
+  known-constructor optimizer programs, plus line-oriented and standard-handle IO
   printing/input and recoverable IO-error programs, and compiles selected emitted LLVM through `clang`
 - `haskell2010-conformance-test`, included in `cabal test all`, which reads the
   JSON conformance manifest, invokes the built `hegglog` executable as a
@@ -355,7 +358,8 @@ Current tests include:
 
 Future Haskell 2010 conformance work should extend this direct executable
 coverage as report-complete pattern coverage/runtime attribution, broader
-Unicode/string escape edge cases, additional string library behavior, and
-handle/file-oriented IO are implemented. Source-spanned
+Unicode/string escape edge cases, additional string library behavior, file-backed
+handle state, true seeking, lazy semi-closed contents, and productive `fixIO` are
+implemented. Source-spanned
 non-exhaustive and redundant pattern warnings are already exposed through the
 Haskell 2010 typechecker, native compilation result APIs, and compile CLI.

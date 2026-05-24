@@ -696,6 +696,40 @@ corePrimToANF = \case
   PrimShowBool -> Nothing
   PrimPutStrLn -> Nothing
   PrimGetLine -> Nothing
+  PrimStdHandle {} -> Nothing
+  PrimOpenFile -> Nothing
+  PrimHClose -> Nothing
+  PrimReadFile -> Nothing
+  PrimWriteFile -> Nothing
+  PrimAppendFile -> Nothing
+  PrimHFileSize -> Nothing
+  PrimHSetFileSize -> Nothing
+  PrimHIsEOF -> Nothing
+  PrimHSetBuffering -> Nothing
+  PrimHGetBuffering -> Nothing
+  PrimHFlush -> Nothing
+  PrimHGetPosn -> Nothing
+  PrimHSetPosn -> Nothing
+  PrimHSeek -> Nothing
+  PrimHTell -> Nothing
+  PrimHIsOpen -> Nothing
+  PrimHIsClosed -> Nothing
+  PrimHIsReadable -> Nothing
+  PrimHIsWritable -> Nothing
+  PrimHIsSeekable -> Nothing
+  PrimHIsTerminalDevice -> Nothing
+  PrimHSetEcho -> Nothing
+  PrimHGetEcho -> Nothing
+  PrimHShow -> Nothing
+  PrimHWaitForInput -> Nothing
+  PrimHReady -> Nothing
+  PrimHGetChar -> Nothing
+  PrimHGetLine -> Nothing
+  PrimHLookAhead -> Nothing
+  PrimHGetContents -> Nothing
+  PrimHPutChar -> Nothing
+  PrimHPutStr -> Nothing
+  PrimHPutStrLn -> Nothing
   PrimIOThen -> Nothing
   PrimIOBind -> Nothing
   PrimIOReturn -> Nothing

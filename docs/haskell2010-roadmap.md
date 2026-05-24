@@ -396,8 +396,11 @@ line-by-line, strips line terminators, and returns ordinary `[Char]` strings.
 Core, STG, and native IO actions now carry explicit success/failure results:
 `fail` raises a catchable user `IOError`, `ioError`, `catch`, and `try` compose
 through `System.IO.Error`, and uncaught native IO failures terminate nonzero.
-Real-world handles, files, buffering, seek, EOF-specific handle behavior, and
-broader Prelude IO remain planned.
+`System.IO` now exposes the Report handle/mode/text IO surface and native
+standard-handle text programs cover buffering calls, `hPutStr`/`hPutChar`/
+`hPutStrLn`, `hPrint`, `hShow`, line input, `getContents`, and EOF checks.
+File-backed handle state, real seek/position state, lazy semi-closed contents,
+and productive `fixIO` remain explicit strict-runtime deviations.
 
 Deliverables:
 

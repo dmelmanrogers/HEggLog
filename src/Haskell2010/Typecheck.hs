@@ -1668,6 +1668,24 @@ builtinDataConstructors =
     , (ioErrorIllegalOperationTypeDataConName, ioErrorTypeDataConstructorInfo)
     , (ioErrorPermissionTypeDataConName, ioErrorTypeDataConstructorInfo)
     , (ioErrorUserTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioModeReadDataConName, ioModeDataConstructorInfo)
+    , (ioModeWriteDataConName, ioModeDataConstructorInfo)
+    , (ioModeAppendDataConName, ioModeDataConstructorInfo)
+    , (ioModeReadWriteDataConName, ioModeDataConstructorInfo)
+    , (bufferModeNoDataConName, bufferModeNullaryDataConstructorInfo)
+    , (bufferModeLineDataConName, bufferModeNullaryDataConstructorInfo)
+    ,
+      ( bufferModeBlockDataConName
+      , positionalDataConstructorInfo
+          []
+          [TyApp (TyCon maybeTyConName) intMonoType]
+          bufferModeMonoType
+          (Scheme [] [] (TyFun (TyApp (TyCon maybeTyConName) intMonoType) bufferModeMonoType))
+          CoreDataConstructor
+      )
+    , (seekModeAbsoluteDataConName, seekModeDataConstructorInfo)
+    , (seekModeRelativeDataConName, seekModeDataConstructorInfo)
+    , (seekModeFromEndDataConName, seekModeDataConstructorInfo)
     ,
       ( ratioDataConName
       , positionalDataConstructorInfo
@@ -1691,6 +1709,12 @@ builtinDataConstructors =
   maybeFilePathMonoType = TyApp (TyCon maybeTyConName) filePathMonoType
   ioErrorTypeDataConstructorInfo =
     positionalDataConstructorInfo [] [] ioErrorTypeMonoType (Scheme [] [] ioErrorTypeMonoType) CoreDataConstructor
+  ioModeDataConstructorInfo =
+    positionalDataConstructorInfo [] [] ioModeMonoType (Scheme [] [] ioModeMonoType) CoreDataConstructor
+  bufferModeNullaryDataConstructorInfo =
+    positionalDataConstructorInfo [] [] bufferModeMonoType (Scheme [] [] bufferModeMonoType) CoreDataConstructor
+  seekModeDataConstructorInfo =
+    positionalDataConstructorInfo [] [] seekModeMonoType (Scheme [] [] seekModeMonoType) CoreDataConstructor
 
 preludeTypeVariable :: Text -> Int -> RName
 preludeTypeVariable occurrence unique =
@@ -2087,6 +2111,53 @@ supportedPreludeValueOccurrences =
   , "ioError"
   , "catch"
   , "try"
+  , "fixIO"
+  , "stdin"
+  , "stdout"
+  , "stderr"
+  , "withFile"
+  , "openFile"
+  , "hClose"
+  , "readFile"
+  , "writeFile"
+  , "appendFile"
+  , "hFileSize"
+  , "hSetFileSize"
+  , "hIsEOF"
+  , "isEOF"
+  , "hSetBuffering"
+  , "hGetBuffering"
+  , "hFlush"
+  , "hGetPosn"
+  , "hSetPosn"
+  , "hSeek"
+  , "hTell"
+  , "hIsOpen"
+  , "hIsClosed"
+  , "hIsReadable"
+  , "hIsWritable"
+  , "hIsSeekable"
+  , "hIsTerminalDevice"
+  , "hSetEcho"
+  , "hGetEcho"
+  , "hShow"
+  , "hWaitForInput"
+  , "hReady"
+  , "hGetChar"
+  , "hGetLine"
+  , "hLookAhead"
+  , "hGetContents"
+  , "hPutChar"
+  , "hPutStr"
+  , "hPutStrLn"
+  , "hPrint"
+  , "interact"
+  , "putChar"
+  , "putStr"
+  , "getChar"
+  , "getContents"
+  , "readIO"
+  , "readLn"
   , "nullPtr"
   , "castPtr"
   , "nullFunPtr"
@@ -5944,6 +6015,16 @@ preludeConstructorInfo name
         "LT" -> lookupBuiltin orderingLTDataConName
         "EQ" -> lookupBuiltin orderingEQDataConName
         "GT" -> lookupBuiltin orderingGTDataConName
+        "ReadMode" -> lookupBuiltin ioModeReadDataConName
+        "WriteMode" -> lookupBuiltin ioModeWriteDataConName
+        "AppendMode" -> lookupBuiltin ioModeAppendDataConName
+        "ReadWriteMode" -> lookupBuiltin ioModeReadWriteDataConName
+        "NoBuffering" -> lookupBuiltin bufferModeNoDataConName
+        "LineBuffering" -> lookupBuiltin bufferModeLineDataConName
+        "BlockBuffering" -> lookupBuiltin bufferModeBlockDataConName
+        "AbsoluteSeek" -> lookupBuiltin seekModeAbsoluteDataConName
+        "RelativeSeek" -> lookupBuiltin seekModeRelativeDataConName
+        "SeekFromEnd" -> lookupBuiltin seekModeFromEndDataConName
         _ -> Nothing
  where
   lookupBuiltin coreName = (coreName,) <$> Map.lookup coreName builtinDataConstructors
@@ -6035,9 +6116,56 @@ preludeValueScheme name
             "liftM4" -> Just (Scheme [m, a, b, c, d, r] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy (TyFun cTy (TyFun dTy rTy)))) (TyFun mA (TyFun mB (TyFun mC (TyFun mD mR))))))
             "liftM5" -> Just (Scheme [m, a, b, c, d, e, r] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy (TyFun cTy (TyFun dTy (TyFun eTy rTy))))) (TyFun mA (TyFun mB (TyFun mC (TyFun mD (TyFun mE mR)))))))
             "ap" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (mOf (TyFun aTy bTy)) (TyFun mA mB)))
+            "fixIO" -> Just (Scheme [a] [] (TyFun (TyFun aTy (ioMonoType aTy)) (ioMonoType aTy)))
+            "stdin" -> Just (Scheme [] [] handleMonoType)
+            "stdout" -> Just (Scheme [] [] handleMonoType)
+            "stderr" -> Just (Scheme [] [] handleMonoType)
+            "withFile" -> Just (Scheme [r] [] (TyFun filePathMonoType (TyFun ioModeMonoType (TyFun (TyFun handleMonoType (ioMonoType rTy)) (ioMonoType rTy)))))
+            "openFile" -> Just (Scheme [] [] (TyFun filePathMonoType (TyFun ioModeMonoType (ioMonoType handleMonoType))))
+            "hClose" -> Just (Scheme [] [] (TyFun handleMonoType ioUnit))
+            "readFile" -> Just (Scheme [] [] (TyFun filePathMonoType (ioMonoType stringMonoType)))
+            "writeFile" -> Just (Scheme [] [] (TyFun filePathMonoType (TyFun stringMonoType ioUnit)))
+            "appendFile" -> Just (Scheme [] [] (TyFun filePathMonoType (TyFun stringMonoType ioUnit)))
+            "hFileSize" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType intMonoType)))
+            "hSetFileSize" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun intMonoType ioUnit)))
+            "hIsEOF" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "isEOF" -> Just (Scheme [] [] (ioMonoType boolMonoType))
+            "hSetBuffering" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun bufferModeMonoType ioUnit)))
+            "hGetBuffering" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType bufferModeMonoType)))
+            "hFlush" -> Just (Scheme [] [] (TyFun handleMonoType ioUnit))
+            "hGetPosn" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType handlePosnMonoType)))
+            "hSetPosn" -> Just (Scheme [] [] (TyFun handlePosnMonoType ioUnit))
+            "hSeek" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun seekModeMonoType (TyFun intMonoType ioUnit))))
+            "hTell" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType intMonoType)))
+            "hIsOpen" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hIsClosed" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hIsReadable" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hIsWritable" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hIsSeekable" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hIsTerminalDevice" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hSetEcho" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun boolMonoType ioUnit)))
+            "hGetEcho" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hShow" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType stringMonoType)))
+            "hWaitForInput" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun intMonoType (ioMonoType boolMonoType))))
+            "hReady" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hGetChar" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType charMonoType)))
+            "hGetLine" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType stringMonoType)))
+            "hLookAhead" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType charMonoType)))
+            "hGetContents" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType stringMonoType)))
+            "hPutChar" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun charMonoType ioUnit)))
+            "hPutStr" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun stringMonoType ioUnit)))
+            "hPutStrLn" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun stringMonoType ioUnit)))
+            "hPrint" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun handleMonoType (TyFun aTy ioUnit)))
+            "interact" -> Just (Scheme [] [] (TyFun (TyFun stringMonoType stringMonoType) ioUnit))
+            "putChar" -> Just (Scheme [] [] (TyFun charMonoType ioUnit))
+            "putStr" -> Just (Scheme [] [] (TyFun stringMonoType ioUnit))
             "putStrLn" -> Just (Scheme [] [] (TyFun stringMonoType ioUnit))
+            "getChar" -> Just (Scheme [] [] (ioMonoType charMonoType))
             "getLine" -> Just (Scheme [] [] (ioMonoType stringMonoType))
+            "getContents" -> Just (Scheme [] [] (ioMonoType stringMonoType))
             "print" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun aTy ioUnit))
+            "readIO" -> Just (Scheme [a] [singleClassConstraint builtinReadClassName aTy] (TyFun stringMonoType (ioMonoType aTy)))
+            "readLn" -> Just (Scheme [a] [singleClassConstraint builtinReadClassName aTy] (ioMonoType aTy))
             "userError" -> Just (Scheme [] [] (TyFun stringMonoType ioErrorMonoType))
             "mkIOError" -> Just (Scheme [] [] (TyFun ioErrorTypeMonoType (TyFun stringMonoType (TyFun maybeHandle (TyFun maybeFilePath ioErrorMonoType)))))
             "annotateIOError" -> Just (Scheme [] [] (TyFun ioErrorMonoType (TyFun stringMonoType (TyFun maybeHandle (TyFun maybeFilePath ioErrorMonoType)))))
@@ -7545,6 +7673,10 @@ builtinTypeConstructorMonoType name =
         "IOError" -> pure ioErrorMonoType
         "IOErrorType" -> pure ioErrorTypeMonoType
         "Handle" -> pure handleMonoType
+        "HandlePosn" -> pure handlePosnMonoType
+        "IOMode" -> pure ioModeMonoType
+        "BufferMode" -> pure bufferModeMonoType
+        "SeekMode" -> pure seekModeMonoType
         "Maybe" -> pure (TyCon maybeTyConName)
         "Either" -> pure (TyCon eitherTyConName)
         "Ordering" -> pure orderingMonoType
@@ -7588,6 +7720,10 @@ builtinTypeConstructorInfo name
           "IOError" -> Just 0
           "IOErrorType" -> Just 0
           "Handle" -> Just 0
+          "HandlePosn" -> Just 0
+          "IOMode" -> Just 0
+          "BufferMode" -> Just 0
+          "SeekMode" -> Just 0
           "Maybe" -> Just 1
           "Either" -> Just 2
           "Ordering" -> Just 0
@@ -7974,6 +8110,8 @@ preludeCoreDependencies name =
   case nameOcc name of
     "lex" -> readSupportPreludeNames
     "read" -> readSupportPreludeNames
+    "readIO" -> readSupportPreludeNames
+    "readLn" -> preludeTermName "readIO" (-3185) : readSupportPreludeNames
     "readParen" -> readSupportPreludeNames
     "%" -> ratioSupportPreludeNames
     "approxRational" -> ratioSupportPreludeNames
@@ -8069,15 +8207,109 @@ preludeCorePair name =
       Just (binderFor name ratioAccessorCoreType, ratioDenominatorRhs)
     "approxRational" ->
       Just (binderFor name ratioApproxRationalCoreType, ratioApproxRationalRhs)
+    "fixIO" ->
+      Just (binderFor name fixIOTy, fixIORhs)
+    "stdin" ->
+      Just (binderFor name handleTy, CPrimOp (PrimStdHandle StdInHandle) [] handleTy)
+    "stdout" ->
+      Just (binderFor name handleTy, CPrimOp (PrimStdHandle StdOutHandle) [] handleTy)
+    "stderr" ->
+      Just (binderFor name handleTy, CPrimOp (PrimStdHandle StdErrHandle) [] handleTy)
+    "withFile" ->
+      Just (binderFor name withFileTy, withFileRhs)
+    "openFile" ->
+      Just (binderFor name openFileTy, lam ioFilePath stringTy (lam ioMode ioModeTy (CPrimOp PrimOpenFile [var ioFilePath stringTy, var ioMode ioModeTy] (ioTy handleTy))))
+    "hClose" ->
+      Just (binderFor name hCloseTy, lam ioHandle handleTy (CPrimOp PrimHClose [var ioHandle handleTy] ioUnitTy))
+    "readFile" ->
+      Just (binderFor name readFileTy, lam ioFilePath stringTy (CPrimOp PrimReadFile [var ioFilePath stringTy] (ioTy stringTy)))
+    "writeFile" ->
+      Just (binderFor name writeFileTy, lam ioFilePath stringTy (lam ioString stringTy (CPrimOp PrimWriteFile [var ioFilePath stringTy, var ioString stringTy] ioUnitTy)))
+    "appendFile" ->
+      Just (binderFor name appendFileTy, lam ioFilePath stringTy (lam ioString stringTy (CPrimOp PrimAppendFile [var ioFilePath stringTy, var ioString stringTy] ioUnitTy)))
+    "hFileSize" ->
+      Just (binderFor name hFileSizeTy, lam ioHandle handleTy (CPrimOp PrimHFileSize [var ioHandle handleTy] (ioTy intTy)))
+    "hSetFileSize" ->
+      Just (binderFor name hSetFileSizeTy, lam ioHandle handleTy (lam ioInt intTy (CPrimOp PrimHSetFileSize [var ioHandle handleTy, var ioInt intTy] ioUnitTy)))
+    "hIsEOF" ->
+      Just (binderFor name hIsEOFTy, lam ioHandle handleTy (CPrimOp PrimHIsEOF [var ioHandle handleTy] (ioTy boolTy)))
+    "isEOF" ->
+      Just (binderFor name isEOFTy, CPrimOp PrimHIsEOF [CPrimOp (PrimStdHandle StdInHandle) [] handleTy] (ioTy boolTy))
+    "hSetBuffering" ->
+      Just (binderFor name hSetBufferingTy, lam ioHandle handleTy (lam ioBufferMode bufferModeTy (CPrimOp PrimHSetBuffering [var ioHandle handleTy, var ioBufferMode bufferModeTy] ioUnitTy)))
+    "hGetBuffering" ->
+      Just (binderFor name hGetBufferingTy, lam ioHandle handleTy (CPrimOp PrimHGetBuffering [var ioHandle handleTy] (ioTy bufferModeTy)))
+    "hFlush" ->
+      Just (binderFor name hCloseTy, lam ioHandle handleTy (CPrimOp PrimHFlush [var ioHandle handleTy] ioUnitTy))
+    "hGetPosn" ->
+      Just (binderFor name hGetPosnTy, lam ioHandle handleTy (CPrimOp PrimHGetPosn [var ioHandle handleTy] (ioTy handlePosnTy)))
+    "hSetPosn" ->
+      Just (binderFor name hSetPosnTy, lam ioPosn handlePosnTy (CPrimOp PrimHSetPosn [var ioPosn handlePosnTy] ioUnitTy))
+    "hSeek" ->
+      Just (binderFor name hSeekTy, lam ioHandle handleTy (lam ioSeekMode seekModeTy (lam ioInt intTy (CPrimOp PrimHSeek [var ioHandle handleTy, var ioSeekMode seekModeTy, var ioInt intTy] ioUnitTy))))
+    "hTell" ->
+      Just (binderFor name hTellTy, lam ioHandle handleTy (CPrimOp PrimHTell [var ioHandle handleTy] (ioTy intTy)))
+    "hIsOpen" ->
+      Just (binderFor name hHandleBoolTy, lam ioHandle handleTy (CPrimOp PrimHIsOpen [var ioHandle handleTy] (ioTy boolTy)))
+    "hIsClosed" ->
+      Just (binderFor name hHandleBoolTy, lam ioHandle handleTy (CPrimOp PrimHIsClosed [var ioHandle handleTy] (ioTy boolTy)))
+    "hIsReadable" ->
+      Just (binderFor name hHandleBoolTy, lam ioHandle handleTy (CPrimOp PrimHIsReadable [var ioHandle handleTy] (ioTy boolTy)))
+    "hIsWritable" ->
+      Just (binderFor name hHandleBoolTy, lam ioHandle handleTy (CPrimOp PrimHIsWritable [var ioHandle handleTy] (ioTy boolTy)))
+    "hIsSeekable" ->
+      Just (binderFor name hHandleBoolTy, lam ioHandle handleTy (CPrimOp PrimHIsSeekable [var ioHandle handleTy] (ioTy boolTy)))
+    "hIsTerminalDevice" ->
+      Just (binderFor name hHandleBoolTy, lam ioHandle handleTy (CPrimOp PrimHIsTerminalDevice [var ioHandle handleTy] (ioTy boolTy)))
+    "hSetEcho" ->
+      Just (binderFor name hSetEchoTy, lam ioHandle handleTy (lam ioBool boolTy (CPrimOp PrimHSetEcho [var ioHandle handleTy, var ioBool boolTy] ioUnitTy)))
+    "hGetEcho" ->
+      Just (binderFor name hHandleBoolTy, lam ioHandle handleTy (CPrimOp PrimHGetEcho [var ioHandle handleTy] (ioTy boolTy)))
+    "hShow" ->
+      Just (binderFor name hShowTy, lam ioHandle handleTy (CPrimOp PrimHShow [var ioHandle handleTy] (ioTy stringTy)))
+    "hWaitForInput" ->
+      Just (binderFor name hWaitForInputTy, lam ioHandle handleTy (lam ioInt intTy (CPrimOp PrimHWaitForInput [var ioHandle handleTy, var ioInt intTy] (ioTy boolTy))))
+    "hReady" ->
+      Just (binderFor name hReadyTy, lam ioHandle handleTy (CPrimOp PrimHReady [var ioHandle handleTy] (ioTy boolTy)))
+    "hGetChar" ->
+      Just (binderFor name hGetCharTy, lam ioHandle handleTy (CPrimOp PrimHGetChar [var ioHandle handleTy] (ioTy charTy)))
+    "hGetLine" ->
+      Just (binderFor name hGetLineTy, lam ioHandle handleTy (CPrimOp PrimHGetLine [var ioHandle handleTy] (ioTy stringTy)))
+    "hLookAhead" ->
+      Just (binderFor name hGetCharTy, lam ioHandle handleTy (CPrimOp PrimHLookAhead [var ioHandle handleTy] (ioTy charTy)))
+    "hGetContents" ->
+      Just (binderFor name hGetLineTy, lam ioHandle handleTy (CPrimOp PrimHGetContents [var ioHandle handleTy] (ioTy stringTy)))
+    "hPutChar" ->
+      Just (binderFor name hPutCharTy, lam ioHandle handleTy (lam ioChar charTy (CPrimOp PrimHPutChar [var ioHandle handleTy, var ioChar charTy] ioUnitTy)))
+    "hPutStr" ->
+      Just (binderFor name hPutStrTy, lam ioHandle handleTy (lam ioString stringTy (CPrimOp PrimHPutStr [var ioHandle handleTy, var ioString stringTy] ioUnitTy)))
+    "hPutStrLn" ->
+      Just (binderFor name hPutStrTy, lam ioHandle handleTy (lam ioString stringTy (CPrimOp PrimHPutStrLn [var ioHandle handleTy, var ioString stringTy] ioUnitTy)))
+    "hPrint" ->
+      Just (binderFor name hPrintTy, hPrintRhs)
+    "interact" ->
+      Just (binderFor name interactTy, interactRhs)
+    "putChar" ->
+      Just (binderFor name putCharTy, lam ioChar charTy (CPrimOp PrimHPutChar [CPrimOp (PrimStdHandle StdOutHandle) [] handleTy, var ioChar charTy] ioUnitTy))
+    "putStr" ->
+      Just (binderFor name putStrTy, lam ioString stringTy (CPrimOp PrimHPutStr [CPrimOp (PrimStdHandle StdOutHandle) [] handleTy, var ioString stringTy] ioUnitTy))
     "putStrLn" ->
       Just
         ( binderFor name putStrLnTy
-        , lam putStrLnS stringTy (CPrimOp PrimPutStrLn [var putStrLnS stringTy] ioUnitTy)
+        , lam putStrLnS stringTy (CPrimOp PrimHPutStrLn [CPrimOp (PrimStdHandle StdOutHandle) [] handleTy, var putStrLnS stringTy] ioUnitTy)
         )
+    "getChar" ->
+      Just (binderFor name getCharTy, CPrimOp PrimHGetChar [CPrimOp (PrimStdHandle StdInHandle) [] handleTy] getCharTy)
     "getLine" ->
-      Just (binderFor name getLineTy, CPrimOp PrimGetLine [] getLineTy)
+      Just (binderFor name getLineTy, CPrimOp PrimHGetLine [CPrimOp (PrimStdHandle StdInHandle) [] handleTy] getLineTy)
+    "getContents" ->
+      Just (binderFor name getLineTy, CPrimOp PrimHGetContents [CPrimOp (PrimStdHandle StdInHandle) [] handleTy] getLineTy)
     "print" ->
       Just (binderFor name printTy, printRhs)
+    "readIO" ->
+      Just (binderFor name readIOTy, readIORhs)
+    "readLn" ->
+      Just (binderFor name readLnTy, readLnRhs)
     "userError" ->
       Just (binderFor name userErrorTy, userErrorRhs)
     "mkIOError" ->
@@ -8229,9 +8461,11 @@ preludeCorePair name =
   a = preludeTypeVariable "a" (-1201)
   b = preludeTypeVariable "b" (-1202)
   c = preludeTypeVariable "c" (-1203)
+  r = preludeTypeVariable "r" (-1204)
   aTy = CTyVar a
   bTy = CTyVar b
   cTy = CTyVar c
+  rTy = CTyVar r
   showMethodA = preludeTypeVariable "a" (-1331)
   showMethodATy = CTyVar showMethodA
   listA = CTyList aTy
@@ -8275,8 +8509,39 @@ preludeCorePair name =
   filterTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun listA listA))
   reverseTy = CTyForall [a] (CTyFun listA listA)
   appendTy = CTyForall [a] (CTyFun listA (CTyFun listA listA))
+  fixIOTy = CTyForall [a] (CTyFun (CTyFun aTy (ioTy aTy)) (ioTy aTy))
+  withFileTy = CTyForall [r] (CTyFun stringTy (CTyFun ioModeTy (CTyFun (CTyFun handleTy (ioTy rTy)) (ioTy rTy))))
+  openFileTy = CTyFun stringTy (CTyFun ioModeTy (ioTy handleTy))
+  hCloseTy = CTyFun handleTy ioUnitTy
+  readFileTy = CTyFun stringTy (ioTy stringTy)
+  writeFileTy = CTyFun stringTy (CTyFun stringTy ioUnitTy)
+  appendFileTy = writeFileTy
+  hFileSizeTy = CTyFun handleTy (ioTy intTy)
+  hSetFileSizeTy = CTyFun handleTy (CTyFun intTy ioUnitTy)
+  hIsEOFTy = CTyFun handleTy (ioTy boolTy)
+  isEOFTy = ioTy boolTy
+  hSetBufferingTy = CTyFun handleTy (CTyFun bufferModeTy ioUnitTy)
+  hGetBufferingTy = CTyFun handleTy (ioTy bufferModeTy)
+  hGetPosnTy = CTyFun handleTy (ioTy handlePosnTy)
+  hSetPosnTy = CTyFun handlePosnTy ioUnitTy
+  hSeekTy = CTyFun handleTy (CTyFun seekModeTy (CTyFun intTy ioUnitTy))
+  hTellTy = CTyFun handleTy (ioTy intTy)
+  hHandleBoolTy = CTyFun handleTy (ioTy boolTy)
+  hSetEchoTy = CTyFun handleTy (CTyFun boolTy ioUnitTy)
+  hShowTy = CTyFun handleTy (ioTy stringTy)
+  hWaitForInputTy = CTyFun handleTy (CTyFun intTy (ioTy boolTy))
+  hReadyTy = CTyFun handleTy (ioTy boolTy)
+  hGetCharTy = CTyFun handleTy (ioTy charTy)
+  hGetLineTy = CTyFun handleTy (ioTy stringTy)
+  hPutCharTy = CTyFun handleTy (CTyFun charTy ioUnitTy)
+  hPutStrTy = CTyFun handleTy (CTyFun stringTy ioUnitTy)
+  hPrintTy = CTyForall [a] (CTyFun showDictA (CTyFun handleTy (CTyFun aTy ioUnitTy)))
+  interactTy = CTyFun (CTyFun stringTy stringTy) ioUnitTy
+  putCharTy = CTyFun charTy ioUnitTy
+  putStrTy = CTyFun stringTy ioUnitTy
   putStrLnTy = CTyFun stringTy ioUnitTy
   getLineTy = ioTy stringTy
+  getCharTy = ioTy charTy
   showSTy = CTyFun stringTy stringTy
   showsPrecTy = CTyForall [showMethodA] (CTyFun showMethodDictA (CTyFun intTy (CTyFun showMethodATy showSTy)))
   showTy = CTyForall [showMethodA] (CTyFun showMethodDictA (CTyFun showMethodATy stringTy))
@@ -8289,6 +8554,8 @@ preludeCorePair name =
   lexTy = CTyFun stringTy (CTyList (CTyTuple [stringTy, stringTy]))
   readParenTy = CTyForall [a] (CTyFun boolTy (CTyFun readSTy readSTy))
   printTy = CTyForall [a] (CTyFun showDictA (CTyFun aTy ioUnitTy))
+  readIOTy = CTyForall [a] (CTyFun readDictA (CTyFun stringTy (ioTy aTy)))
+  readLnTy = CTyForall [a] (CTyFun readDictA (ioTy aTy))
   maybeHandleTy = CTyApp (CTyCon maybeTyConName) handleTy
   maybeFilePathTy = CTyApp (CTyCon maybeTyConName) stringTy
   userErrorTy = CTyFun stringTy ioErrorTy
@@ -8402,6 +8669,29 @@ preludeCorePair name =
   readsInput = preludeTermName "$reads_input" (-3084)
   readDict = preludeTermName "$read_dict" (-3085)
   readInput = preludeTermName "$read_input" (-3086)
+  ioFilePath = preludeTermName "$io_file_path" (-3160)
+  ioMode = preludeTermName "$io_mode" (-3161)
+  ioHandle = preludeTermName "$io_handle" (-3162)
+  ioString = preludeTermName "$io_string" (-3163)
+  ioInt = preludeTermName "$io_int" (-3164)
+  ioBool = preludeTermName "$io_bool" (-3165)
+  ioChar = preludeTermName "$io_char" (-3166)
+  ioBufferMode = preludeTermName "$io_buffer_mode" (-3167)
+  ioSeekMode = preludeTermName "$io_seek_mode" (-3168)
+  ioPosn = preludeTermName "$io_posn" (-3169)
+  withFilePath = preludeTermName "$with_file_path" (-3170)
+  withFileMode = preludeTermName "$with_file_mode" (-3171)
+  withFileAction = preludeTermName "$with_file_action" (-3172)
+  withFileHandle = preludeTermName "$with_file_handle" (-3173)
+  withFileValue = preludeTermName "$with_file_value" (-3174)
+  hPrintDict = preludeTermName "$hprint_dict" (-3175)
+  hPrintHandle = preludeTermName "$hprint_handle" (-3176)
+  hPrintX = preludeTermName "$hprint_x" (-3177)
+  interactFunction = preludeTermName "$interact_function" (-3178)
+  interactInput = preludeTermName "$interact_input" (-3179)
+  readIOValue = preludeTermName "$read_io_value" (-3180)
+  readLnLine = preludeTermName "$read_ln_line" (-3181)
+  fixIOFunction = preludeTermName "$fix_io_function" (-3182)
   printDict = preludeTermName "$print_dict" (-3061)
   printX = preludeTermName "$print_x" (-3062)
   userErrorMessage = preludeTermName "$user_error_message" (-3200)
@@ -8837,7 +9127,91 @@ preludeCorePair name =
     shownValue =
       apply showFunction (var printX aTy) stringTy
     printBody =
-      CPrimOp PrimPutStrLn [shownValue] ioUnitTy
+      CPrimOp PrimHPutStrLn [CPrimOp (PrimStdHandle StdOutHandle) [] handleTy, shownValue] ioUnitTy
+
+  hPrintRhs =
+    CTypeLam [a] (lam hPrintDict showDictA (lam hPrintHandle handleTy (lam hPrintX aTy hPrintBody))) hPrintTy
+   where
+    showFunction =
+      apply
+        (CTypeApp (CVar (preludeTermName "show" (-1431)) showTy) [aTy] (CTyFun showDictA (CTyFun aTy stringTy)))
+        (var hPrintDict showDictA)
+        (CTyFun aTy stringTy)
+    shownValue =
+      apply showFunction (var hPrintX aTy) stringTy
+    hPrintBody =
+      CPrimOp PrimHPutStrLn [var hPrintHandle handleTy, shownValue] ioUnitTy
+
+  fixIORhs =
+    CTypeLam [a] (lam fixIOFunction (CTyFun aTy (ioTy aTy)) (CPrimOp PrimIOFail [stringLiteralCore "fixIO is not supported by the strict native IO runtime"] (ioTy aTy))) fixIOTy
+
+  withFileRhs =
+    CTypeLam [r] (lam withFilePath stringTy (lam withFileMode ioModeTy (lam withFileAction (CTyFun handleTy (ioTy rTy)) withOpen))) withFileTy
+   where
+    openAction =
+      CPrimOp PrimOpenFile [var withFilePath stringTy, var withFileMode ioModeTy] (ioTy handleTy)
+    withOpen =
+      CPrimOp PrimIOBind [openAction, CLam (CoreBinder withFileHandle handleTy) withBody (CTyFun handleTy (ioTy rTy))] (ioTy rTy)
+    userAction =
+      apply (var withFileAction (CTyFun handleTy (ioTy rTy))) (var withFileHandle handleTy) (ioTy rTy)
+    withBody =
+      CPrimOp
+        PrimIOBind
+        [ userAction
+        , CLam
+            (CoreBinder withFileValue rTy)
+            (CPrimOp PrimIOThen [CPrimOp PrimHClose [var withFileHandle handleTy] ioUnitTy, CPrimOp PrimIOReturn [var withFileValue rTy] (ioTy rTy)] (ioTy rTy))
+            (CTyFun rTy (ioTy rTy))
+        ]
+        (ioTy rTy)
+
+  interactRhs =
+    lam interactFunction (CTyFun stringTy stringTy) $
+      CPrimOp
+        PrimIOBind
+        [ CPrimOp PrimHGetContents [CPrimOp (PrimStdHandle StdInHandle) [] handleTy] (ioTy stringTy)
+        , CLam
+            (CoreBinder interactInput stringTy)
+            ( CPrimOp
+                PrimHPutStr
+                [ CPrimOp (PrimStdHandle StdOutHandle) [] handleTy
+                , apply (var interactFunction (CTyFun stringTy stringTy)) (var interactInput stringTy) stringTy
+                ]
+                ioUnitTy
+            )
+            (CTyFun stringTy ioUnitTy)
+        ]
+        ioUnitTy
+
+  readIORhs =
+    CTypeLam [a] (lam readDict readDictA (lam readIOValue stringTy (CPrimOp PrimIOReturn [readValue] (ioTy aTy)))) readIOTy
+   where
+    readFunction =
+      apply
+        (CTypeApp (CVar (preludeTermName "read" (-1432)) readTy) [aTy] (CTyFun readDictA (CTyFun stringTy aTy)))
+        (var readDict readDictA)
+        (CTyFun stringTy aTy)
+    readValue =
+      apply readFunction (var readIOValue stringTy) aTy
+
+  readLnRhs =
+    CTypeLam [a] (lam readDict readDictA readLnBody) readLnTy
+   where
+    readIOFunction =
+      apply
+        (CTypeApp (CVar (preludeTermName "readIO" (-3185)) readIOTy) [aTy] (CTyFun readDictA (CTyFun stringTy (ioTy aTy))))
+        (var readDict readDictA)
+        (CTyFun stringTy (ioTy aTy))
+    readLnBody =
+      CPrimOp
+        PrimIOBind
+        [ CPrimOp PrimHGetLine [CPrimOp (PrimStdHandle StdInHandle) [] handleTy] (ioTy stringTy)
+        , CLam
+            (CoreBinder readLnLine stringTy)
+            (apply readIOFunction (var readLnLine stringTy) (ioTy aTy))
+            (CTyFun stringTy (ioTy aTy))
+        ]
+        (ioTy aTy)
 
   userErrorRhs =
     lam userErrorMessage stringTy $
@@ -17781,6 +18155,22 @@ ioErrorTypeMonoType =
 handleMonoType :: MonoType
 handleMonoType =
   coreTypeToMono handleTy
+
+handlePosnMonoType :: MonoType
+handlePosnMonoType =
+  coreTypeToMono handlePosnTy
+
+ioModeMonoType :: MonoType
+ioModeMonoType =
+  coreTypeToMono ioModeTy
+
+bufferModeMonoType :: MonoType
+bufferModeMonoType =
+  coreTypeToMono bufferModeTy
+
+seekModeMonoType :: MonoType
+seekModeMonoType =
+  coreTypeToMono seekModeTy
 
 rationalMonoType :: MonoType
 rationalMonoType =

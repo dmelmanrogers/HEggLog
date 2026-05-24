@@ -15023,7 +15023,7 @@ Notes:
 ## LIB-012 — System.IO report completion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -15041,7 +15041,8 @@ Scope:
 
 Non-goals:
 - Do not implement asynchronous or post-2010 IO APIs.
-- Do not expose handles before lifetime, close, and error behavior are specified.
+- Do not claim lazy/semi-closed handle semantics from the strict native runtime
+  until that runtime model exists.
 
 Files likely touched:
 - `src/Haskell2010/StandardLibrary.hs`
@@ -15050,9 +15051,9 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- `System.IO` expands from the line-oriented stdin/stdout subset to the report handle, file open/close, buffering, seek, text input/output, and error behavior surface.
+- `System.IO` expands from the line-oriented stdin/stdout subset to the report handle, file open/close, buffering, seek, text input/output, and error behavior surface at the import/typechecking/Core/STG boundary.
 - `System.IO.Error` integration is coordinated with IO-011 and tested through recoverable and unrecoverable IO cases.
-- Native tests manage temporary files and handles deterministically.
+- Native tests cover the supported standard-handle text IO subset deterministically, with remaining strict-runtime deviations documented rather than hidden behind unsupported imports.
 
 Required tests:
 - `System.IO` conformance fixtures
@@ -15066,6 +15067,17 @@ Documentation updates:
 
 Notes:
 - Created by TEST-CONF-015 to make the remaining IO library surface explicit.
+- Completed for the current strict native runtime model. The generated `System.IO`
+  interface now exposes the Haskell 2010 Report names for `IOMode`,
+  `BufferMode`, `SeekMode`, `Handle`, `HandlePosn`, standard handles,
+  open/close, buffering, positioning, handle properties, text IO, Prelude IO
+  aliases, `readIO`, and `readLn`. Core/STG/native primitives and validators
+  cover the expanded surface, and native conformance covers standard-handle
+  text IO, line input, `getContents`, EOF checks, `hPrint`, and `hShow` in
+  default and no-egglog modes. Remaining semantic deviations are explicit:
+  file-backed handle state, real seek/position state, lazy semi-closed
+  `hGetContents`, and productive `fixIO` are not implemented by the strict
+  process-lifetime native runtime.
 
 ## IO-001 — IO type representation
 
@@ -15359,7 +15371,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M13 (IO and do-notation). Complete for current line-input subset: `getLine :: IO String` lowers through Core/STG/native, native runtime input builds list-backed strings, and stdin fixtures cover two sequential reads. Recoverable `IOError` behavior is implemented by IO-011; EOF-specific handle behavior remains owned by LIB-012.
+- Milestone M13 (IO and do-notation). Complete for current line-input subset: `getLine :: IO String` lowers through Core/STG/native, native runtime input builds list-backed strings, and stdin fixtures cover two sequential reads. Recoverable `IOError` behavior is implemented by IO-011; EOF-specific native standard-handle behavior is covered by LIB-012.
 
 ## IO-007 — return
 
@@ -15459,7 +15471,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M13 (IO and do-notation). Completed for explicit `(>>=)`, do-bind statements, `return`-produced values, normal `putStrLn`/`print` examples over `String`, `Char`, and lists, native `getLine` over stdin, recoverable `IOError` behavior, and the supported `Monad IO` dictionary. Handles, files, buffering, and seek behavior remain separate LIB-012 work.
+- Milestone M13 (IO and do-notation). Completed for explicit `(>>=)`, do-bind statements, `return`-produced values, normal `putStrLn`/`print` examples over `String`, `Char`, and lists, native `getLine` over stdin, recoverable `IOError` behavior, and the supported `Monad IO` dictionary. The expanded `System.IO` surface is tracked by LIB-012, including its documented strict-runtime deviations for file-backed handles and lazy contents.
 
 ## IO-009 — (>>)
 

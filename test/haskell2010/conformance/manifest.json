@@ -1504,13 +1504,18 @@
       "notes": "Partial type-constructor use must be rejected by kind checking."
     },
     {
-      "name": "unsupported.handle-io",
-      "sourceFile": "test/haskell2010/conformance/unsupported/handle-io.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "unbound",
-      "requiredStage": "typecheck",
-      "notes": "Handle-based IO remains beyond the current line-oriented stdin/stdout IO slice."
+      "name": "io.system-io",
+      "sourceFile": "test/haskell2010/conformance/io/system-io.hs",
+      "category": "io",
+      "expectedStatus": "native-success",
+      "expectedStdout": "alpha-beta\nTrue\nplain-stdout\nfirst\nsecond\nTrue\n<handle>\n",
+      "stdin": "first\nsecond\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "System.IO report surface imports and runs through native standard handles for buffering, text output, line input, getContents, EOF checks, hPrint, and hShow."
     },
     {
       "name": "patterns.irrefutable-pattern",

@@ -1,23 +1,21 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-23 05:14:49 UTC
+Date/time: 2026-05-24 01:26:49 UTC
 
-Code hash tested: working tree for the LIB-004 update, based on `3abd3d8`.
+Code hash tested: working tree for the LIB-012 update, based on `2e12f3a`.
 
 Primary conformance command run:
 
 ```bash
-cabal test haskell2010-conformance-test --test-options='--hide-successes'
+cabal test haskell2010-conformance-test --test-options='--pattern io.system-io'
 ```
 
 Required task validation also passed:
 
 ```bash
-cabal build all
-cabal test hegglog-test --test-options='--hide-successes'
-cabal test haskell2010-conformance-test --test-options='--hide-successes'
-cabal test e2e-wet-test --test-options='--hide-successes'
-cabal check
+cabal test hegglog-test
+cabal test haskell2010-conformance-test --test-options='--pattern io.system-io'
+jq empty docs/haskell2010-todo.json test/haskell2010/conformance/manifest.json
 python3 scripts/validate-haskell2010-conformance.py
 python3 scripts/validate-haskell2010-todo.py
 git diff --check
@@ -37,12 +35,12 @@ Summary:
 | --- | ---: |
 | Manifest conformance fixtures | 151 |
 | Haskell source files in corpus | 151 |
-| HUnit test cases executed | 222 |
-| Native-success fixtures | 101 |
+| HUnit test cases executed | 223 |
+| Native-success fixtures | 102 |
 | Native-runtime-error fixtures | 13 |
 | Compile-error fixtures | 28 |
-| Unsupported-documented fixtures | 9 |
-| Native subprocess compile/run checks | 185 |
+| Unsupported-documented fixtures | 8 |
+| Native subprocess compile/run checks | 187 |
 | Failures | 0 |
 | Errors | 0 |
 
@@ -50,6 +48,17 @@ Pass/fail summary: `haskell2010-conformance-test` passed. The current compiler
 passes the documented executable-subset conformance cases. Full Haskell 2010
 conformance remains incomplete, and unsupported features are represented as
 explicit conformance cases rather than omitted.
+
+LIB-012 is now covered by unit and conformance paths for the strict native
+runtime model. `System.IO` exposes the Report handle/mode/buffering/seek/text
+IO surface at the generated interface and typechecking boundaries; Core, STG,
+native lowering, validators, and the optimizer all recognize the expanded
+primitive set. Native conformance now includes `io.system-io`, which exercises
+standard-handle buffering calls, `hPutStr`, `hPutChar`, `hPutStrLn`, `hPrint`,
+`getLine`, `getContents`, `hIsEOF`, and `hShow` in default and `--no-egglog`
+modes. File-backed handle state, real seek/position state, lazy semi-closed
+`hGetContents`, and productive `fixIO` remain documented strict-runtime
+deviations rather than unsupported imports.
 
 FFI-011 is now covered by the conformance/native path. Header-qualified static
 `ccall` imports preserve link metadata, C helper fixtures are linked through
@@ -216,11 +225,11 @@ dynamic calls, wrapper callbacks, and foreign export entrypoints.
 | `egglog` | 1 | optimized/unoptimized native agreement covered |
 | `expressions` | 13 | representative native tests exist, including user-defined infix operators and line-broken `where` layout |
 | `ffi` | 10 | static ccall, fixed-width scalar ccall, floating ccall, pointer/address, dynamic/wrapper, wrapper reclamation/after-free, foreign export, StablePtr/ForeignPtr ownership, and broader Foreign library surface native fixtures link C helpers and run in default and `--no-egglog` modes |
-| `io` | 5 | current line-oriented stdin/stdout IO slice and recoverable IO-error behavior covered, including do-bind, explicit `(>>=)`, `getLine`, explicit `fail`, `ioError`, `catch`, `try`, and System.IO.Error examples |
+| `io` | 6 | line-oriented stdin/stdout IO, expanded `System.IO` standard-handle text behavior, and recoverable IO-error behavior covered, including do-bind, explicit `(>>=)`, `getLine`, `getContents`, `hPutStr`/`hPutChar`/`hPutStrLn`, `hPrint`, `hShow`, explicit `fail`, `ioError`, `catch`, `try`, and System.IO.Error examples |
 | `laziness` | 3 | lazy success and forced runtime error covered |
 | `lexical-layout` | 3 | representative layout tests exist |
 | `lists-tuples` | 2 | representative native tests exist |
-| `modules` | 25 | single-module, same-directory import, implicit/explicit/qualified Prelude import, source-instance import/export, generated standard-library module imports, source-backed `Data.List`/`Data.Maybe`/`Data.Char`/`Data.Complex`, `Data.Array`, `Data.Ix`, `Data.Bits`, `Data.Ratio`, scalar standard-library imports, fixed-width `Data.Int`/`Data.Word`, and partial runtime-error coverage exist |
+| `modules` | 26 | single-module, same-directory import, implicit/explicit/qualified Prelude import, source-instance import/export, generated standard-library module imports, source-backed `Data.List`/`Data.Maybe`/`Data.Char`/`Data.Complex`, `Data.Array`, `Data.Ix`, `Data.Bits`, `Data.Ratio`, scalar standard-library imports, fixed-width `Data.Int`/`Data.Word`, and partial runtime-error coverage exist |
 | `negative` | 28 | compile-error diagnostics covered, including source-spanned type errors, module/import failures, Prelude visibility, malformed where layout, misindented where keywords, duplicate source binders, invalid pattern bindings, constructor-operator binding misuse, impossible case patterns, invalid record updates, invalid default declarations, invalid derived Enum and Bounded declarations, duplicate built-in instances, and FFI shape/lifetime boundary failures |
 | `patterns` | 3 | guards/as-patterns, unit/wildcard, and irrefutable/lazy pattern representative native tests exist |
 | `prelude` | 19 | list functions, append, foldl, function/selector completion, class dictionaries, native Char runtime, `String = [Char]`, string native wet cases, broadened Show, Report-shaped Read, Real/Integral numeric hierarchy, Enum/Bounded, arithmetic sequences, list comprehensions, and floating numeric Prelude coverage covered |

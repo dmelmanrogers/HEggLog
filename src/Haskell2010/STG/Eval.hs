@@ -66,6 +66,8 @@ data STGValue
   | STGChar Char
   | STGString Text
   | STGIO [Text] STGIOResult
+  | STGHandle StdHandle Bool
+  | STGHandlePosn StdHandle HInt
   | STGPointer (Maybe STGValue)
   | STGStablePtr STGValue
   | STGForeignPtr STGValue
@@ -575,6 +577,82 @@ evalPrimitiveValues op values =
       (\text -> STGIO [text <> "\n"] (STGIOSuccess (STGData unitDataConName []))) <$> stgStringText value
     (PrimGetLine, []) ->
       stringListValue "" >>= \line -> pure (STGIO [] (STGIOSuccess line))
+    (PrimStdHandle handle, []) ->
+      pure (STGHandle handle False)
+    (PrimOpenFile, [_path, _mode]) ->
+      pure (STGIO [] (STGIOSuccess (STGHandle StdInHandle False)))
+    (PrimHClose, [_handle]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimReadFile, [_path]) ->
+      stringListValue "" >>= \contents -> pure (STGIO [] (STGIOSuccess contents))
+    (PrimWriteFile, [_path, _contents]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimAppendFile, [_path, _contents]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimHFileSize, [_handle]) ->
+      pure (STGIO [] (STGIOSuccess (STGInt (expectHInt 0))))
+    (PrimHSetFileSize, [_handle, _size]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimHIsEOF, [_handle]) ->
+      pure (STGIO [] (STGIOSuccess (STGBool True)))
+    (PrimHSetBuffering, [_handle, _mode]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimHGetBuffering, [_handle]) ->
+      pure (STGIO [] (STGIOSuccess (STGData bufferModeLineDataConName [])))
+    (PrimHFlush, [_handle]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimHGetPosn, [STGHandle handle _]) ->
+      pure (STGIO [] (STGIOSuccess (STGHandlePosn handle (expectHInt 0))))
+    (PrimHSetPosn, [_posn]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimHSeek, [_handle, _mode, _offset]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimHTell, [_handle]) ->
+      pure (STGIO [] (STGIOSuccess (STGInt (expectHInt 0))))
+    (PrimHIsOpen, [_handle]) ->
+      pure (STGIO [] (STGIOSuccess (STGBool True)))
+    (PrimHIsClosed, [_handle]) ->
+      pure (STGIO [] (STGIOSuccess (STGBool False)))
+    (PrimHIsReadable, [_handle]) ->
+      pure (STGIO [] (STGIOSuccess (STGBool True)))
+    (PrimHIsWritable, [_handle]) ->
+      pure (STGIO [] (STGIOSuccess (STGBool True)))
+    (PrimHIsSeekable, [_handle]) ->
+      pure (STGIO [] (STGIOSuccess (STGBool False)))
+    (PrimHIsTerminalDevice, [_handle]) ->
+      pure (STGIO [] (STGIOSuccess (STGBool False)))
+    (PrimHSetEcho, [_handle, _enabled]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimHGetEcho, [_handle]) ->
+      pure (STGIO [] (STGIOSuccess (STGBool False)))
+    (PrimHShow, [_handle]) ->
+      stringListValue "<handle>" >>= \text -> pure (STGIO [] (STGIOSuccess text))
+    (PrimHWaitForInput, [_handle, _timeout]) ->
+      pure (STGIO [] (STGIOSuccess (STGBool False)))
+    (PrimHReady, [_handle]) ->
+      pure (STGIO [] (STGIOSuccess (STGBool False)))
+    (PrimHGetChar, [_handle]) ->
+      stgEOFIOError "end of file" >>= \err -> pure (STGIO [] (STGIOFailure err))
+    (PrimHGetLine, [STGHandle StdInHandle _]) ->
+      stringListValue "" >>= \line -> pure (STGIO [] (STGIOSuccess line))
+    (PrimHGetLine, [_handle]) ->
+      stgEOFIOError "end of file" >>= \err -> pure (STGIO [] (STGIOFailure err))
+    (PrimHLookAhead, [_handle]) ->
+      stgEOFIOError "end of file" >>= \err -> pure (STGIO [] (STGIOFailure err))
+    (PrimHGetContents, [_handle]) ->
+      stringListValue "" >>= \contents -> pure (STGIO [] (STGIOSuccess contents))
+    (PrimHPutChar, [STGHandle StdOutHandle _, STGChar char]) ->
+      pure (STGIO [Text.singleton char] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimHPutChar, [_handle, _char]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimHPutStr, [STGHandle StdOutHandle _, value]) ->
+      (\text -> STGIO [text] (STGIOSuccess (STGData unitDataConName []))) <$> stgStringText value
+    (PrimHPutStr, [_handle, _value]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimHPutStrLn, [STGHandle StdOutHandle _, value]) ->
+      (\text -> STGIO [text <> "\n"] (STGIOSuccess (STGData unitDataConName []))) <$> stgStringText value
+    (PrimHPutStrLn, [_handle, _value]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
     (PrimIOReturn, [value]) ->
       pure (STGIO [] (STGIOSuccess value))
     (PrimIOFail, [value]) -> do
@@ -632,6 +710,10 @@ evalPrimitiveValues op values =
       \case
         Right value -> Right (STGInt value)
         Left err -> Left (STGEvalIntError err)
+    expectHInt value =
+      case mkHIntLiteral value of
+        Right intValue -> intValue
+        Left err -> error ("internal HInt literal failed: " <> Text.unpack (renderIntError err))
     zero =
       case mkHIntLiteral 0 of
         Right value -> value
@@ -832,6 +914,15 @@ stgUserIOError message = do
   fileAddress <- allocateClosure (ValueClosure (constructorValue maybeNothingDataConName []))
   pure (constructorValue ioErrorDataConName [errorTypeAddress, messageAddress, handleAddress, fileAddress])
 
+stgEOFIOError :: Text -> EvalM STGValue
+stgEOFIOError message = do
+  errorTypeAddress <- allocateClosure (ValueClosure (constructorValue ioErrorEOFTypeDataConName []))
+  messageValue <- stringListValue message
+  messageAddress <- allocateClosure (ValueClosure messageValue)
+  handleAddress <- allocateClosure (ValueClosure (constructorValue maybeNothingDataConName []))
+  fileAddress <- allocateClosure (ValueClosure (constructorValue maybeNothingDataConName []))
+  pure (constructorValue ioErrorDataConName [errorTypeAddress, messageAddress, handleAddress, fileAddress])
+
 valueEquals :: STGValue -> STGValue -> Either STGEvalError Bool
 valueEquals lhs rhs =
   case (lhs, rhs) of
@@ -937,6 +1028,10 @@ renderSTGValue = \case
     Text.pack (show (Text.unpack value))
   STGIO chunks _ ->
     "<STG IO " <> Text.pack (show (Text.unpack (Text.concat chunks))) <> ">"
+  STGHandle handle closed ->
+    "<STG Handle " <> renderStdHandlePrim handle <> " closed=" <> Text.pack (show closed) <> ">"
+  STGHandlePosn handle posn ->
+    "<STG HandlePosn " <> renderStdHandlePrim handle <> " " <> renderHInt posn <> ">"
   STGPointer {} ->
     "<STG Ptr>"
   STGStablePtr {} ->
@@ -1016,6 +1111,40 @@ renderCorePrimOpName = \case
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"
   PrimGetLine -> "getLine#"
+  PrimStdHandle handle -> renderStdHandlePrim handle
+  PrimOpenFile -> "openFile#"
+  PrimHClose -> "hClose#"
+  PrimReadFile -> "readFile#"
+  PrimWriteFile -> "writeFile#"
+  PrimAppendFile -> "appendFile#"
+  PrimHFileSize -> "hFileSize#"
+  PrimHSetFileSize -> "hSetFileSize#"
+  PrimHIsEOF -> "hIsEOF#"
+  PrimHSetBuffering -> "hSetBuffering#"
+  PrimHGetBuffering -> "hGetBuffering#"
+  PrimHFlush -> "hFlush#"
+  PrimHGetPosn -> "hGetPosn#"
+  PrimHSetPosn -> "hSetPosn#"
+  PrimHSeek -> "hSeek#"
+  PrimHTell -> "hTell#"
+  PrimHIsOpen -> "hIsOpen#"
+  PrimHIsClosed -> "hIsClosed#"
+  PrimHIsReadable -> "hIsReadable#"
+  PrimHIsWritable -> "hIsWritable#"
+  PrimHIsSeekable -> "hIsSeekable#"
+  PrimHIsTerminalDevice -> "hIsTerminalDevice#"
+  PrimHSetEcho -> "hSetEcho#"
+  PrimHGetEcho -> "hGetEcho#"
+  PrimHShow -> "hShow#"
+  PrimHWaitForInput -> "hWaitForInput#"
+  PrimHReady -> "hReady#"
+  PrimHGetChar -> "hGetChar#"
+  PrimHGetLine -> "hGetLine#"
+  PrimHLookAhead -> "hLookAhead#"
+  PrimHGetContents -> "hGetContents#"
+  PrimHPutChar -> "hPutChar#"
+  PrimHPutStr -> "hPutStr#"
+  PrimHPutStrLn -> "hPutStrLn#"
   PrimIOThen -> "thenIO#"
   PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"
@@ -1043,3 +1172,9 @@ renderCorePrimOpName = \case
   PrimFixedIntegral fixed op -> fixedIntegralOccurrence fixed <> "." <> Text.pack (show op) <> "#"
   PrimFloat width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
   PrimFloatInt width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
+
+renderStdHandlePrim :: StdHandle -> Text
+renderStdHandlePrim = \case
+  StdInHandle -> "stdin#"
+  StdOutHandle -> "stdout#"
+  StdErrHandle -> "stderr#"

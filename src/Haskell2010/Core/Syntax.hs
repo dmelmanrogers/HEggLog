@@ -10,6 +10,7 @@ module Haskell2010.Core.Syntax
   , CoreForeignImport (..)
   , CoreModule (..)
   , CorePrimOp (..)
+  , StdHandle (..)
   , FloatingIntPrimOp (..)
   , FloatingPrimOp (..)
   , FloatingWidth (..)
@@ -30,9 +31,22 @@ module Haskell2010.Core.Syntax
   , funTy
   , funPtrTy
   , funPtrTyConName
+  , bufferModeBlockDataConName
+  , bufferModeLineDataConName
+  , bufferModeNoDataConName
+  , bufferModeTy
+  , bufferModeTyConName
   , handleTy
+  , handlePosnTy
+  , handlePosnTyConName
   , handleTyConName
   , intTy
+  , ioModeAppendDataConName
+  , ioModeReadDataConName
+  , ioModeReadWriteDataConName
+  , ioModeTy
+  , ioModeTyConName
+  , ioModeWriteDataConName
   , ioErrorAlreadyExistsTypeDataConName
   , ioErrorAlreadyInUseTypeDataConName
   , ioErrorDataConName
@@ -65,6 +79,11 @@ module Haskell2010.Core.Syntax
   , ratioTyConName
   , stablePtrTy
   , stablePtrTyConName
+  , seekModeAbsoluteDataConName
+  , seekModeRelativeDataConName
+  , seekModeFromEndDataConName
+  , seekModeTy
+  , seekModeTyConName
   , stringTy
   , trueDataConName
   , tupleDataConName
@@ -193,6 +212,40 @@ data CorePrimOp
   | PrimShowBool
   | PrimPutStrLn
   | PrimGetLine
+  | PrimStdHandle StdHandle
+  | PrimOpenFile
+  | PrimHClose
+  | PrimReadFile
+  | PrimWriteFile
+  | PrimAppendFile
+  | PrimHFileSize
+  | PrimHSetFileSize
+  | PrimHIsEOF
+  | PrimHSetBuffering
+  | PrimHGetBuffering
+  | PrimHFlush
+  | PrimHGetPosn
+  | PrimHSetPosn
+  | PrimHSeek
+  | PrimHTell
+  | PrimHIsOpen
+  | PrimHIsClosed
+  | PrimHIsReadable
+  | PrimHIsWritable
+  | PrimHIsSeekable
+  | PrimHIsTerminalDevice
+  | PrimHSetEcho
+  | PrimHGetEcho
+  | PrimHShow
+  | PrimHWaitForInput
+  | PrimHReady
+  | PrimHGetChar
+  | PrimHGetLine
+  | PrimHLookAhead
+  | PrimHGetContents
+  | PrimHPutChar
+  | PrimHPutStr
+  | PrimHPutStrLn
   | PrimIOThen
   | PrimIOBind
   | PrimIOReturn
@@ -220,6 +273,12 @@ data CorePrimOp
   | PrimFloat FloatingWidth FloatingPrimOp
   | PrimFloatInt FloatingWidth FloatingIntPrimOp
   | PrimFixedIntegral FixedIntegral FixedIntegralOp
+  deriving stock (Show, Eq, Ord)
+
+data StdHandle
+  = StdInHandle
+  | StdOutHandle
+  | StdErrHandle
   deriving stock (Show, Eq, Ord)
 
 data FloatingWidth
@@ -370,6 +429,38 @@ handleTy :: CoreType
 handleTy =
   CTyCon handleTyConName
 
+handlePosnTyConName :: RName
+handlePosnTyConName =
+  builtinTypeName "HandlePosn" (-25)
+
+handlePosnTy :: CoreType
+handlePosnTy =
+  CTyCon handlePosnTyConName
+
+ioModeTyConName :: RName
+ioModeTyConName =
+  builtinTypeName "IOMode" (-26)
+
+ioModeTy :: CoreType
+ioModeTy =
+  CTyCon ioModeTyConName
+
+bufferModeTyConName :: RName
+bufferModeTyConName =
+  builtinTypeName "BufferMode" (-27)
+
+bufferModeTy :: CoreType
+bufferModeTy =
+  CTyCon bufferModeTyConName
+
+seekModeTyConName :: RName
+seekModeTyConName =
+  builtinTypeName "SeekMode" (-28)
+
+seekModeTy :: CoreType
+seekModeTy =
+  CTyCon seekModeTyConName
+
 listTyConName :: RName
 listTyConName =
   builtinTypeName "[]" (-8)
@@ -501,6 +592,46 @@ ioErrorUserTypeDataConName =
 ratioDataConName :: RName
 ratioDataConName =
   builtinCon "$Ratio" (-49)
+
+ioModeReadDataConName :: RName
+ioModeReadDataConName =
+  builtinCon "ReadMode" (-50)
+
+ioModeWriteDataConName :: RName
+ioModeWriteDataConName =
+  builtinCon "WriteMode" (-51)
+
+ioModeAppendDataConName :: RName
+ioModeAppendDataConName =
+  builtinCon "AppendMode" (-52)
+
+ioModeReadWriteDataConName :: RName
+ioModeReadWriteDataConName =
+  builtinCon "ReadWriteMode" (-53)
+
+bufferModeNoDataConName :: RName
+bufferModeNoDataConName =
+  builtinCon "NoBuffering" (-54)
+
+bufferModeLineDataConName :: RName
+bufferModeLineDataConName =
+  builtinCon "LineBuffering" (-55)
+
+bufferModeBlockDataConName :: RName
+bufferModeBlockDataConName =
+  builtinCon "BlockBuffering" (-56)
+
+seekModeAbsoluteDataConName :: RName
+seekModeAbsoluteDataConName =
+  builtinCon "AbsoluteSeek" (-57)
+
+seekModeRelativeDataConName :: RName
+seekModeRelativeDataConName =
+  builtinCon "RelativeSeek" (-58)
+
+seekModeFromEndDataConName :: RName
+seekModeFromEndDataConName =
+  builtinCon "SeekFromEnd" (-59)
 
 tupleDataConName :: Int -> RName
 tupleDataConName arity =

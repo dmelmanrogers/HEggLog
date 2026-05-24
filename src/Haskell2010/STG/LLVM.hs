@@ -546,6 +546,92 @@ emitPrim env op arguments =
       resultReg <- freshRegister "getline"
       emit (ICall (Just resultReg) LPtr (DirectCall getLineFunctionName) False [])
       emitMakeIOSuccess (OLocal LPtr resultReg)
+    (PrimStdHandle _, []) ->
+      emitMakePointer OConstNull
+    (PrimOpenFile, [_path, _mode]) -> do
+      handle <- emitMakePointer OConstNull
+      emitMakeIOSuccess handle
+    (PrimHClose, [_handle]) ->
+      emitUnitIOSuccess
+    (PrimReadFile, [_path]) -> do
+      empty <- emitMakeStringLiteral ""
+      emitMakeIOSuccess empty
+    (PrimWriteFile, [_path, _contents]) ->
+      emitUnitIOSuccess
+    (PrimAppendFile, [_path, _contents]) ->
+      emitUnitIOSuccess
+    (PrimHFileSize, [_handle]) ->
+      emitMakeInt 0 >>= emitMakeIOSuccess
+    (PrimHSetFileSize, [_handle, _size]) ->
+      emitUnitIOSuccess
+    (PrimHIsEOF, [_handle]) ->
+      emitMakeBool (OConstInt LI1 1) >>= emitMakeIOSuccess
+    (PrimHSetBuffering, [_handle, _mode]) ->
+      emitUnitIOSuccess
+    (PrimHGetBuffering, [_handle]) -> do
+      lineBuffering <- emitConstructorObject bufferModeLineDataConName bufferModeTy []
+      emitMakeIOSuccess lineBuffering
+    (PrimHFlush, [_handle]) ->
+      emitUnitIOSuccess
+    (PrimHGetPosn, [_handle]) -> do
+      posn <- emitMakePointer OConstNull
+      emitMakeIOSuccess posn
+    (PrimHSetPosn, [_posn]) ->
+      emitUnitIOSuccess
+    (PrimHSeek, [_handle, _mode, _offset]) ->
+      emitUnitIOSuccess
+    (PrimHTell, [_handle]) ->
+      emitMakeInt 0 >>= emitMakeIOSuccess
+    (PrimHIsOpen, [_handle]) ->
+      emitMakeBool (OConstInt LI1 1) >>= emitMakeIOSuccess
+    (PrimHIsClosed, [_handle]) ->
+      emitMakeBool (OConstInt LI1 0) >>= emitMakeIOSuccess
+    (PrimHIsReadable, [_handle]) ->
+      emitMakeBool (OConstInt LI1 1) >>= emitMakeIOSuccess
+    (PrimHIsWritable, [_handle]) ->
+      emitMakeBool (OConstInt LI1 1) >>= emitMakeIOSuccess
+    (PrimHIsSeekable, [_handle]) ->
+      emitMakeBool (OConstInt LI1 0) >>= emitMakeIOSuccess
+    (PrimHIsTerminalDevice, [_handle]) ->
+      emitMakeBool (OConstInt LI1 0) >>= emitMakeIOSuccess
+    (PrimHSetEcho, [_handle, _enabled]) ->
+      emitUnitIOSuccess
+    (PrimHGetEcho, [_handle]) ->
+      emitMakeBool (OConstInt LI1 0) >>= emitMakeIOSuccess
+    (PrimHShow, [_handle]) ->
+      emitMakeStringLiteral "<handle>" >>= emitMakeIOSuccess
+    (PrimHWaitForInput, [_handle, _timeout]) ->
+      emitMakeBool (OConstInt LI1 0) >>= emitMakeIOSuccess
+    (PrimHReady, [_handle]) ->
+      emitMakeBool (OConstInt LI1 0) >>= emitMakeIOSuccess
+    (PrimHGetChar, [_handle]) -> do
+      charReg <- freshRegister "getchar"
+      emit (ICall (Just charReg) LI32 (DirectCall "getchar") False [])
+      emitCharOrEOF (OLocal LI32 charReg)
+    (PrimHGetLine, [_handle]) -> do
+      resultReg <- freshRegister "hgetline"
+      emit (ICall (Just resultReg) LPtr (DirectCall getLineFunctionName) False [])
+      emitMakeIOSuccess (OLocal LPtr resultReg)
+    (PrimHLookAhead, [_handle]) -> do
+      charReg <- freshRegister "lookahead"
+      emit (ICall (Just charReg) LI32 (DirectCall "getchar") False [])
+      emitCharOrEOF (OLocal LI32 charReg)
+    (PrimHGetContents, [_handle]) -> do
+      resultReg <- freshRegister "getcontents"
+      emit (ICall (Just resultReg) LPtr (DirectCall getContentsFunctionName) False [])
+      emitMakeIOSuccess (OLocal LPtr resultReg)
+    (PrimHPutChar, [_handle, value]) -> do
+      charObject <- emitExpectAtomChar env value
+      emit (ICall Nothing LI32 (DirectCall "putchar") False [(LI32, charObject)])
+      emitUnitIOSuccess
+    (PrimHPutStr, [_handle, value]) -> do
+      valueObject <- emitAtomAddress env value
+      emit (ICall Nothing LVoid (DirectCall printCharListFunctionName) False [(LPtr, valueObject)])
+      emitUnitIOSuccess
+    (PrimHPutStrLn, [_handle, value]) -> do
+      valueObject <- emitAtomAddress env value
+      emit (ICall Nothing LVoid (DirectCall putStrLnFunctionName) False [(LPtr, valueObject)])
+      emitUnitIOSuccess
     (PrimIOThen, [firstAction, secondAction]) -> do
       firstObject <- emitAtomAddress env firstAction
       firstResult <- emitForce firstObject
@@ -2395,6 +2481,47 @@ emitMakeIOFailure value = do
   emit (ICall (Just reg) LPtr (DirectCall makeIOFailureFunctionName) False [(LPtr, value)])
   pure (OLocal LPtr reg)
 
+emitUnitIOSuccess :: FunctionM LLVMOperand
+emitUnitIOSuccess = do
+  unitObject <- emitConstructorObject unitDataConName unitTy []
+  emitMakeIOSuccess unitObject
+
+emitCharOrEOF :: LLVMOperand -> FunctionM LLVMOperand
+emitCharOrEOF charValue = do
+  isEOF <- freshRegister "char_is_eof"
+  emit (IIcmp isEOF ICmpEq LI32 charValue (OConstInt LI32 (-1)))
+  eofLabel <- freshBlockLabel "char_eof"
+  charLabel <- freshBlockLabel "char_success"
+  joinLabel <- freshBlockLabel "char_join"
+  terminateCurrent (TCondBr (OLocal LI1 isEOF) eofLabel charLabel)
+
+  startBlock eofLabel
+  eofResult <- emitEOFIOFailure
+  eofPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock charLabel
+  charI64 <- freshRegister "char_i64"
+  emit (IZext charI64 charValue LI64)
+  charObject <- emitMakeCharOperand (OLocal LI64 charI64)
+  charResult <- emitMakeIOSuccess charObject
+  charPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  resultRegister <- freshRegister "char_result"
+  emit (IPhi resultRegister LPtr [(eofResult, eofPredecessor), (charResult, charPredecessor)])
+  pure (OLocal LPtr resultRegister)
+
+emitEOFIOFailure :: FunctionM LLVMOperand
+emitEOFIOFailure = do
+  errorType <- emitConstructorObject ioErrorEOFTypeDataConName ioErrorTypeTy []
+  messageObject <- emitMakeStringLiteral "end of file"
+  nothingHandle <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) handleTy) []
+  nothingFile <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) stringTy) []
+  errorObject <- emitConstructorObject ioErrorDataConName ioErrorTy [errorType, messageObject, nothingHandle, nothingFile]
+  emitMakeIOFailure errorObject
+
 emitUserIOError :: LLVMOperand -> FunctionM LLVMOperand
 emitUserIOError messageObject = do
   errorType <- emitConstructorObject ioErrorUserTypeDataConName ioErrorTypeTy []
@@ -3282,6 +3409,7 @@ runtimeFunctions =
   , showDoubleFunction
   , putStrLnFunction
   , getLineFunction
+  , getContentsFunction
   , printCharListFunction
   ]
 
@@ -4125,6 +4253,66 @@ getLineFunction =
         ]
     }
 
+getContentsFunction :: LLVMFunction
+getContentsFunction =
+  LLVMFunction
+    { functionName = getContentsFunctionName
+    , functionReturnType = LPtr
+    , functionParams = []
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "char")) LI32 (DirectCall "getchar") False []
+            , IIcmp (Register "is_eof") ICmpEq LI32 (OLocal LI32 (Register "char")) (OConstInt LI32 (-1))
+            ]
+            (TCondBr (OLocal LI1 (Register "is_eof")) "nil" "cons")
+        , LLVMBlock
+            "nil"
+            [ ICall
+                (Just (Register "nil_list"))
+                LPtr
+                (DirectCall makeDataFunctionName)
+                False
+                [ (LI64, OConstInt LI64 (constructorRuntimeTag listNilDataConName))
+                , (LI64, OConstInt LI64 0)
+                , (LPtr, OConstNull)
+                ]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "nil_list")))
+        , LLVMBlock
+            "cons"
+            [ IZext (Register "char_i64") (OLocal LI32 (Register "char")) LI64
+            , ICall
+                (Just (Register "head"))
+                LPtr
+                (DirectCall makeCharFunctionName)
+                False
+                [(LI64, OLocal LI64 (Register "char_i64"))]
+            , ICall (Just (Register "tail")) LPtr (DirectCall getContentsFunctionName) False []
+            , ICall
+                (Just (Register "fields"))
+                LPtr
+                (DirectCall processLifetimeAllocFunctionName)
+                False
+                [(LI64, OConstInt LI64 16)]
+            , IGetElementPtr (Register "head_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 0)]
+            , IStore LPtr (OLocal LPtr (Register "head")) (OLocal LPtr (Register "head_slot"))
+            , IGetElementPtr (Register "tail_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 1)]
+            , IStore LPtr (OLocal LPtr (Register "tail")) (OLocal LPtr (Register "tail_slot"))
+            , ICall
+                (Just (Register "cons_list"))
+                LPtr
+                (DirectCall makeDataFunctionName)
+                False
+                [ (LI64, OConstInt LI64 (constructorRuntimeTag listConsDataConName))
+                , (LI64, OConstInt LI64 2)
+                , (LPtr, OLocal LPtr (Register "fields"))
+                ]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "cons_list")))
+        ]
+    }
+
 printCharListFunction :: LLVMFunction
 printCharListFunction =
   LLVMFunction
@@ -4363,7 +4551,7 @@ makeFunctionFunctionName = "hegglog_hs_make_function"
 makeThunkFunctionName = "hegglog_hs_make_thunk"
 forceFunctionName = "hegglog_hs_force"
 
-expectIntFunctionName, expectFloatFunctionName, expectDoubleFunctionName, expectBoolFunctionName, expectCharFunctionName, expectPointerFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, showWordFunctionName, showDoubleFunctionName, putStrLnFunctionName, getLineFunctionName, printCharListFunctionName :: Text
+expectIntFunctionName, expectFloatFunctionName, expectDoubleFunctionName, expectBoolFunctionName, expectCharFunctionName, expectPointerFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, showWordFunctionName, showDoubleFunctionName, putStrLnFunctionName, getLineFunctionName, getContentsFunctionName, printCharListFunctionName :: Text
 expectIntFunctionName = "hegglog_hs_expect_int"
 expectFloatFunctionName = "hegglog_hs_expect_float"
 expectDoubleFunctionName = "hegglog_hs_expect_double"
@@ -4378,6 +4566,7 @@ showWordFunctionName = "hegglog_hs_show_word"
 showDoubleFunctionName = "hegglog_hs_show_double"
 putStrLnFunctionName = "hegglog_hs_putstrln"
 getLineFunctionName = "hegglog_hs_getline"
+getContentsFunctionName = "hegglog_hs_getcontents"
 printCharListFunctionName = "hegglog_hs_print_char_list"
 
 newStablePtrFunctionName, deRefStablePtrFunctionName, freeStablePtrFunctionName :: Text

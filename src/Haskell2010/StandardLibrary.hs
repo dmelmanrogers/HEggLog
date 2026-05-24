@@ -215,9 +215,19 @@ standardPreludeNames =
     , "read"
     , "lex"
     , "readParen"
+    , "readFile"
+    , "writeFile"
+    , "appendFile"
+    , "interact"
+    , "putChar"
+    , "putStr"
     , "putStrLn"
+    , "getChar"
     , "getLine"
+    , "getContents"
     , "print"
+    , "readIO"
+    , "readLn"
     , "ioError"
     , "userError"
     , "catch"
@@ -488,7 +498,14 @@ dataWordInterface =
 
 systemIOInterface :: ModuleInterface
 systemIOInterface =
-  standardLibraryInterface systemIOModuleName systemIONames
+  standardLibraryInterfaceWith
+    systemIOModuleName
+    systemIONames
+    [ ((TypeNamespace, "IOMode"), fmap (ConstructorNamespace,) ["ReadMode", "WriteMode", "AppendMode", "ReadWriteMode"])
+    , ((TypeNamespace, "BufferMode"), fmap (ConstructorNamespace,) ["NoBuffering", "LineBuffering", "BlockBuffering"])
+    , ((TypeNamespace, "SeekMode"), fmap (ConstructorNamespace,) ["AbsoluteSeek", "RelativeSeek", "SeekFromEnd"])
+    ]
+    Map.empty
 
 systemIOErrorInterface :: ModuleInterface
 systemIOErrorInterface =
@@ -943,10 +960,61 @@ fixedWidthWordNames =
 
 systemIONames :: [(Namespace, Text)]
 systemIONames =
-  (TypeNamespace, "IO")
-    : (TypeNamespace, "Handle")
-    : (TypeNamespace, "FilePath")
-    : fmap (TermNamespace,) ["putStrLn", "getLine", "print"]
+  fmap (TypeNamespace,) ["IO", "Handle", "HandlePosn", "FilePath", "IOMode", "BufferMode", "SeekMode"]
+    <> fmap (ConstructorNamespace,) ["ReadMode", "WriteMode", "AppendMode", "ReadWriteMode", "NoBuffering", "LineBuffering", "BlockBuffering", "AbsoluteSeek", "RelativeSeek", "SeekFromEnd"]
+    <> fmap
+      (TermNamespace,)
+      [ "fixIO"
+      , "stdin"
+      , "stdout"
+      , "stderr"
+      , "withFile"
+      , "openFile"
+      , "hClose"
+      , "readFile"
+      , "writeFile"
+      , "appendFile"
+      , "hFileSize"
+      , "hSetFileSize"
+      , "hIsEOF"
+      , "isEOF"
+      , "hSetBuffering"
+      , "hGetBuffering"
+      , "hFlush"
+      , "hGetPosn"
+      , "hSetPosn"
+      , "hSeek"
+      , "hTell"
+      , "hIsOpen"
+      , "hIsClosed"
+      , "hIsReadable"
+      , "hIsWritable"
+      , "hIsSeekable"
+      , "hIsTerminalDevice"
+      , "hSetEcho"
+      , "hGetEcho"
+      , "hShow"
+      , "hWaitForInput"
+      , "hReady"
+      , "hGetChar"
+      , "hGetLine"
+      , "hLookAhead"
+      , "hGetContents"
+      , "hPutChar"
+      , "hPutStr"
+      , "hPutStrLn"
+      , "hPrint"
+      , "interact"
+      , "putChar"
+      , "putStr"
+      , "putStrLn"
+      , "print"
+      , "getChar"
+      , "getLine"
+      , "getContents"
+      , "readIO"
+      , "readLn"
+      ]
 
 systemIOErrorNames :: [(Namespace, Text)]
 systemIOErrorNames =

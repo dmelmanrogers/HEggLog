@@ -81,7 +81,7 @@ implemented:
 - package/module search paths and persistent interface-file separate
   compilation beyond the current explicit whole-program source boundary
 - Haskell source desugaring and negative fixtures beyond the current executable subset
-- broader IO, including handles, files, buffering, seek, EOF-specific handle behavior, and effects beyond line-oriented stdin/stdout
+- remaining strict-runtime IO deviations: file-backed handle state, real seek/position state, lazy semi-closed `hGetContents`, productive `fixIO`, and effects beyond the native standard-handle text subset
 - remaining FFI closure for errno, Storable dictionaries, raw allocation, array
   marshalling, and C string marshalling functions
 - full Haskell 2010 conformance suite breadth beyond the current

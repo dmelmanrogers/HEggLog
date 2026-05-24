@@ -55,6 +55,8 @@ data CoreValue
   | CoreChar Char
   | CoreString Text
   | CoreIO [Text] CoreIOResult
+  | CoreHandle StdHandle Bool
+  | CoreHandlePosn StdHandle HInt
   | CorePointer (Maybe CoreValue)
   | CoreStablePtr CoreValue
   | CoreForeignPtr CoreValue
@@ -447,6 +449,84 @@ evalPrimitive coreEnv op values =
       (\text -> CoreIO [text <> "\n"] (CoreIOSuccess (CoreData unitDataConName []))) <$> coreStringText coreEnv value
     (PrimGetLine, []) ->
       Right (CoreIO [] (CoreIOSuccess (coreStringList "")))
+    (PrimStdHandle handle, []) ->
+      Right (CoreHandle handle False)
+    (PrimOpenFile, [_path, _mode]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreHandle StdInHandle False)))
+    (PrimHClose, [CoreHandle _ _]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimReadFile, [_path]) ->
+      Right (CoreIO [] (CoreIOSuccess (coreStringList "")))
+    (PrimWriteFile, [_path, _contents]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimAppendFile, [_path, _contents]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimHFileSize, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreInt (expectHInt 0))))
+    (PrimHSetFileSize, [_handle, _size]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimHIsEOF, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreBool True)))
+    (PrimHSetBuffering, [_handle, _mode]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimHGetBuffering, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData bufferModeLineDataConName [])))
+    (PrimHFlush, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimHGetPosn, [CoreHandle handle _]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreHandlePosn handle (expectHInt 0))))
+    (PrimHSetPosn, [_posn]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimHSeek, [_handle, _mode, _offset]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimHTell, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreInt (expectHInt 0))))
+    (PrimHIsOpen, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreBool True)))
+    (PrimHIsClosed, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreBool False)))
+    (PrimHIsReadable, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreBool True)))
+    (PrimHIsWritable, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreBool True)))
+    (PrimHIsSeekable, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreBool False)))
+    (PrimHIsTerminalDevice, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreBool False)))
+    (PrimHSetEcho, [_handle, _enabled]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimHGetEcho, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreBool False)))
+    (PrimHShow, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (coreStringList "<handle>")))
+    (PrimHWaitForInput, [_handle, _timeout]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreBool False)))
+    (PrimHReady, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreBool False)))
+    (PrimHGetChar, [_handle]) ->
+      Right (CoreIO [] (CoreIOFailure (coreEOFIOError "end of file")))
+    (PrimHGetLine, [CoreHandle StdInHandle _]) ->
+      Right (CoreIO [] (CoreIOSuccess (coreStringList "")))
+    (PrimHGetLine, [_handle]) ->
+      Right (CoreIO [] (CoreIOFailure (coreEOFIOError "end of file")))
+    (PrimHLookAhead, [_handle]) ->
+      Right (CoreIO [] (CoreIOFailure (coreEOFIOError "end of file")))
+    (PrimHGetContents, [_handle]) ->
+      Right (CoreIO [] (CoreIOSuccess (coreStringList "")))
+    (PrimHPutChar, [CoreHandle StdOutHandle _, CoreChar char]) ->
+      Right (CoreIO [Text.singleton char] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimHPutChar, [CoreHandle StdErrHandle _, CoreChar _char]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimHPutChar, [_handle, _char]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimHPutStr, [CoreHandle StdOutHandle _, value]) ->
+      (\text -> CoreIO [text] (CoreIOSuccess (CoreData unitDataConName []))) <$> coreStringText coreEnv value
+    (PrimHPutStr, [_handle, _value]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimHPutStrLn, [CoreHandle StdOutHandle _, value]) ->
+      (\text -> CoreIO [text <> "\n"] (CoreIOSuccess (CoreData unitDataConName []))) <$> coreStringText coreEnv value
+    (PrimHPutStrLn, [_handle, _value]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
     (PrimIOReturn, [value]) ->
       Right (CoreIO [] (CoreIOSuccess value))
     (PrimIOFail, [value]) ->
@@ -497,6 +577,11 @@ evalPrimitive coreEnv op values =
     _ ->
       Left (CoreEvalTypeError ("invalid Core primitive operands for " <> renderCorePrimOpName op))
  where
+  expectHInt value =
+    case mkHIntLiteral value of
+      Right intValue -> intValue
+      Left err -> error ("internal HInt literal failed: " <> Text.unpack (renderIntError err))
+
   checkedIntValue =
     \case
       Right value -> Right (CoreInt value)
@@ -666,6 +751,16 @@ coreUserIOError message =
     , Evaluated (CoreData maybeNothingDataConName [])
     ]
 
+coreEOFIOError :: Text -> CoreValue
+coreEOFIOError message =
+  CoreData
+    ioErrorDataConName
+    [ Evaluated (CoreData ioErrorEOFTypeDataConName [])
+    , Evaluated (coreStringList message)
+    , Evaluated (CoreData maybeNothingDataConName [])
+    , Evaluated (CoreData maybeNothingDataConName [])
+    ]
+
 coreStringText :: CoreValidate.CoreValidationEnv -> CoreValue -> Either CoreEvalError Text
 coreStringText coreEnv = \case
   CoreString value ->
@@ -731,6 +826,10 @@ renderCoreValue = \case
     Text.pack (show (Text.unpack value))
   CoreIO chunks _ ->
     "<Core IO " <> Text.pack (show (Text.unpack (Text.concat chunks))) <> ">"
+  CoreHandle handle closed ->
+    "<Core Handle " <> renderStdHandlePrim handle <> " closed=" <> Text.pack (show closed) <> ">"
+  CoreHandlePosn handle posn ->
+    "<Core HandlePosn " <> renderStdHandlePrim handle <> " " <> renderHInt posn <> ">"
   CorePointer {} ->
     "<Core Ptr>"
   CoreStablePtr {} ->
@@ -806,6 +905,40 @@ renderCorePrimOpName = \case
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"
   PrimGetLine -> "getLine#"
+  PrimStdHandle handle -> renderStdHandlePrim handle
+  PrimOpenFile -> "openFile#"
+  PrimHClose -> "hClose#"
+  PrimReadFile -> "readFile#"
+  PrimWriteFile -> "writeFile#"
+  PrimAppendFile -> "appendFile#"
+  PrimHFileSize -> "hFileSize#"
+  PrimHSetFileSize -> "hSetFileSize#"
+  PrimHIsEOF -> "hIsEOF#"
+  PrimHSetBuffering -> "hSetBuffering#"
+  PrimHGetBuffering -> "hGetBuffering#"
+  PrimHFlush -> "hFlush#"
+  PrimHGetPosn -> "hGetPosn#"
+  PrimHSetPosn -> "hSetPosn#"
+  PrimHSeek -> "hSeek#"
+  PrimHTell -> "hTell#"
+  PrimHIsOpen -> "hIsOpen#"
+  PrimHIsClosed -> "hIsClosed#"
+  PrimHIsReadable -> "hIsReadable#"
+  PrimHIsWritable -> "hIsWritable#"
+  PrimHIsSeekable -> "hIsSeekable#"
+  PrimHIsTerminalDevice -> "hIsTerminalDevice#"
+  PrimHSetEcho -> "hSetEcho#"
+  PrimHGetEcho -> "hGetEcho#"
+  PrimHShow -> "hShow#"
+  PrimHWaitForInput -> "hWaitForInput#"
+  PrimHReady -> "hReady#"
+  PrimHGetChar -> "hGetChar#"
+  PrimHGetLine -> "hGetLine#"
+  PrimHLookAhead -> "hLookAhead#"
+  PrimHGetContents -> "hGetContents#"
+  PrimHPutChar -> "hPutChar#"
+  PrimHPutStr -> "hPutStr#"
+  PrimHPutStrLn -> "hPutStrLn#"
   PrimIOThen -> "thenIO#"
   PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"
@@ -833,3 +966,9 @@ renderCorePrimOpName = \case
   PrimFixedIntegral fixed op -> fixedIntegralOccurrence fixed <> "." <> Text.pack (show op) <> "#"
   PrimFloat width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
   PrimFloatInt width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
+
+renderStdHandlePrim :: StdHandle -> Text
+renderStdHandlePrim = \case
+  StdInHandle -> "stdin#"
+  StdOutHandle -> "stdout#"
+  StdErrHandle -> "stderr#"

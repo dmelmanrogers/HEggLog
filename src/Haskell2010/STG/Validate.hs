@@ -295,6 +295,40 @@ validatePrimitive op arguments resultTy =
     PrimShowBool -> validateFixedPrimitive op [boolTy] stringTy arguments resultTy
     PrimPutStrLn -> validateFixedPrimitive op [stringTy] (ioTy unitTy) arguments resultTy
     PrimGetLine -> validateFixedPrimitive op [] (ioTy stringTy) arguments resultTy
+    PrimStdHandle {} -> validateFixedPrimitive op [] handleTy arguments resultTy
+    PrimOpenFile -> validateFixedPrimitive op [stringTy, ioModeTy] (ioTy handleTy) arguments resultTy
+    PrimHClose -> validateFixedPrimitive op [handleTy] (ioTy unitTy) arguments resultTy
+    PrimReadFile -> validateFixedPrimitive op [stringTy] (ioTy stringTy) arguments resultTy
+    PrimWriteFile -> validateFixedPrimitive op [stringTy, stringTy] (ioTy unitTy) arguments resultTy
+    PrimAppendFile -> validateFixedPrimitive op [stringTy, stringTy] (ioTy unitTy) arguments resultTy
+    PrimHFileSize -> validateFixedPrimitive op [handleTy] (ioTy intTy) arguments resultTy
+    PrimHSetFileSize -> validateFixedPrimitive op [handleTy, intTy] (ioTy unitTy) arguments resultTy
+    PrimHIsEOF -> validateFixedPrimitive op [handleTy] (ioTy boolTy) arguments resultTy
+    PrimHSetBuffering -> validateFixedPrimitive op [handleTy, bufferModeTy] (ioTy unitTy) arguments resultTy
+    PrimHGetBuffering -> validateFixedPrimitive op [handleTy] (ioTy bufferModeTy) arguments resultTy
+    PrimHFlush -> validateFixedPrimitive op [handleTy] (ioTy unitTy) arguments resultTy
+    PrimHGetPosn -> validateFixedPrimitive op [handleTy] (ioTy handlePosnTy) arguments resultTy
+    PrimHSetPosn -> validateFixedPrimitive op [handlePosnTy] (ioTy unitTy) arguments resultTy
+    PrimHSeek -> validateFixedPrimitive op [handleTy, seekModeTy, intTy] (ioTy unitTy) arguments resultTy
+    PrimHTell -> validateFixedPrimitive op [handleTy] (ioTy intTy) arguments resultTy
+    PrimHIsOpen -> validateFixedPrimitive op [handleTy] (ioTy boolTy) arguments resultTy
+    PrimHIsClosed -> validateFixedPrimitive op [handleTy] (ioTy boolTy) arguments resultTy
+    PrimHIsReadable -> validateFixedPrimitive op [handleTy] (ioTy boolTy) arguments resultTy
+    PrimHIsWritable -> validateFixedPrimitive op [handleTy] (ioTy boolTy) arguments resultTy
+    PrimHIsSeekable -> validateFixedPrimitive op [handleTy] (ioTy boolTy) arguments resultTy
+    PrimHIsTerminalDevice -> validateFixedPrimitive op [handleTy] (ioTy boolTy) arguments resultTy
+    PrimHSetEcho -> validateFixedPrimitive op [handleTy, boolTy] (ioTy unitTy) arguments resultTy
+    PrimHGetEcho -> validateFixedPrimitive op [handleTy] (ioTy boolTy) arguments resultTy
+    PrimHShow -> validateFixedPrimitive op [handleTy] (ioTy stringTy) arguments resultTy
+    PrimHWaitForInput -> validateFixedPrimitive op [handleTy, intTy] (ioTy boolTy) arguments resultTy
+    PrimHReady -> validateFixedPrimitive op [handleTy] (ioTy boolTy) arguments resultTy
+    PrimHGetChar -> validateFixedPrimitive op [handleTy] (ioTy charTy) arguments resultTy
+    PrimHGetLine -> validateFixedPrimitive op [handleTy] (ioTy stringTy) arguments resultTy
+    PrimHLookAhead -> validateFixedPrimitive op [handleTy] (ioTy charTy) arguments resultTy
+    PrimHGetContents -> validateFixedPrimitive op [handleTy] (ioTy stringTy) arguments resultTy
+    PrimHPutChar -> validateFixedPrimitive op [handleTy, charTy] (ioTy unitTy) arguments resultTy
+    PrimHPutStr -> validateFixedPrimitive op [handleTy, stringTy] (ioTy unitTy) arguments resultTy
+    PrimHPutStrLn -> validateFixedPrimitive op [handleTy, stringTy] (ioTy unitTy) arguments resultTy
     PrimIOThen -> validateIOThenPrimitive op arguments resultTy
     PrimIOBind -> validateIOBindPrimitive op arguments resultTy
     PrimIOReturn -> validateIOReturnPrimitive op arguments resultTy
