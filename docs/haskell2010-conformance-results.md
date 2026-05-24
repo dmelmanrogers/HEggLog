@@ -1,20 +1,25 @@
 # Haskell 2010 Conformance Results
 
-Date/time: 2026-05-24 01:26:49 UTC
+Date/time: 2026-05-24 01:54:46 UTC
 
-Code hash tested: working tree for the LIB-012 update, based on `2e12f3a`.
+Code hash tested: source implementation at `78928b7`; this checkpoint is a
+documentation-only audit update.
 
 Primary conformance command run:
 
 ```bash
-cabal test haskell2010-conformance-test --test-options='--pattern io.system-io'
+cabal test all
 ```
 
 Required task validation also passed:
 
 ```bash
+cabal build all
+cabal test all
+cabal check
 cabal test hegglog-test
-cabal test haskell2010-conformance-test --test-options='--pattern io.system-io'
+cabal test haskell2010-conformance-test
+cabal test e2e-wet-test
 jq empty docs/haskell2010-todo.json test/haskell2010/conformance/manifest.json
 python3 scripts/validate-haskell2010-conformance.py
 python3 scripts/validate-haskell2010-todo.py
@@ -48,6 +53,14 @@ Pass/fail summary: `haskell2010-conformance-test` passed. The current compiler
 passes the documented executable-subset conformance cases. Full Haskell 2010
 conformance remains incomplete, and unsupported features are represented as
 explicit conformance cases rather than omitted.
+
+LIB-001 through LIB-012 audit checkpoint: the implemented library tasks
+`LIB-001` through `LIB-010` and `LIB-012` are covered by the tracker, matrix,
+manifest, validators, and the full Cabal test suite. `LIB-011` is intentionally
+not claimed complete: the Haskell 2010 `System.Environment` and `System.Exit`
+modules remain explicit unsupported-documented fixtures and reserved standard
+library rows until deterministic process argument, environment, and exit-code
+semantics are implemented end to end.
 
 LIB-012 is now covered by unit and conformance paths for the strict native
 runtime model. `System.IO` exposes the Report handle/mode/buffering/seek/text
@@ -236,4 +249,4 @@ dynamic calls, wrapper callbacks, and foreign export entrypoints.
 | `recursion` | 1 | top-level recursion representative native test exists |
 | `typeclasses` | 13 | user dictionary, instance context, superclass/default method, synonym-normalized constraint, Monad IO/Maybe/list, explicit fail, derived Eq, derived Ord, derived Show, derived Read, derived Enum, and derived Bounded tests exist |
 | `types` | 4 | polymorphism/defaulting/monomorphism/synonym representative native tests exist |
-| `unsupported` | 10 | unsupported features documented by failing cases, including constrained expression signatures, handle IO, package/module search paths, kind/method-specific constraints, and reserved Report library modules |
+| `unsupported` | 8 | unsupported features documented by failing cases, including constrained expression signatures, package/module search paths, method-specific constraints, and reserved Report library modules |
