@@ -759,6 +759,25 @@ corePrimToANF = \case
   PrimTouchForeignPtr -> Nothing
   PrimUnsafeForeignPtrToPtr -> Nothing
   PrimCastForeignPtr -> Nothing
+  PrimPtrPlus -> Nothing
+  PrimPtrMinus -> Nothing
+  PrimPtrAlign -> Nothing
+  PrimMallocBytes -> Nothing
+  PrimReallocBytes -> Nothing
+  PrimFree -> Nothing
+  PrimFinalizerFree -> Nothing
+  PrimPeek {} -> Nothing
+  PrimPoke {} -> Nothing
+  PrimCopyBytes -> Nothing
+  PrimMoveBytes -> Nothing
+  PrimGetErrno -> Nothing
+  PrimResetErrno -> Nothing
+  PrimPeekCString -> Nothing
+  PrimPeekCStringLen -> Nothing
+  PrimNewCString -> Nothing
+  PrimPeekCWString -> Nothing
+  PrimPeekCWStringLen -> Nothing
+  PrimNewCWString -> Nothing
   PrimFloat {} -> Nothing
   PrimFloatInt {} -> Nothing
   PrimFixedIntegral {} -> Nothing

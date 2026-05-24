@@ -10,6 +10,7 @@ module Haskell2010.Core.Syntax
   , CoreForeignImport (..)
   , CoreModule (..)
   , CorePrimOp (..)
+  , ForeignStorableKind (..)
   , StdHandle (..)
   , FloatingIntPrimOp (..)
   , FloatingPrimOp (..)
@@ -279,9 +280,46 @@ data CorePrimOp
   | PrimTouchForeignPtr
   | PrimUnsafeForeignPtrToPtr
   | PrimCastForeignPtr
+  | PrimPtrPlus
+  | PrimPtrMinus
+  | PrimPtrAlign
+  | PrimMallocBytes
+  | PrimReallocBytes
+  | PrimFree
+  | PrimFinalizerFree
+  | PrimPeek ForeignStorableKind
+  | PrimPoke ForeignStorableKind
+  | PrimCopyBytes
+  | PrimMoveBytes
+  | PrimGetErrno
+  | PrimResetErrno
+  | PrimPeekCString
+  | PrimPeekCStringLen
+  | PrimNewCString
+  | PrimPeekCWString
+  | PrimPeekCWStringLen
+  | PrimNewCWString
   | PrimFloat FloatingWidth FloatingPrimOp
   | PrimFloatInt FloatingWidth FloatingIntPrimOp
   | PrimFixedIntegral FixedIntegral FixedIntegralOp
+  deriving stock (Show, Eq, Ord)
+
+data ForeignStorableKind
+  = StoreInt
+  | StoreBool
+  | StoreChar
+  | StoreInt8
+  | StoreWord8
+  | StoreInt16
+  | StoreWord16
+  | StoreInt32
+  | StoreWord32
+  | StoreInt64
+  | StoreWord
+  | StoreWord64
+  | StoreFloat
+  | StoreDouble
+  | StorePtr
   deriving stock (Show, Eq, Ord)
 
 data StdHandle

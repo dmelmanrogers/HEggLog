@@ -208,9 +208,46 @@ renderCorePrimOp = \case
   PrimTouchForeignPtr -> "touchForeignPtr#"
   PrimUnsafeForeignPtrToPtr -> "unsafeForeignPtrToPtr#"
   PrimCastForeignPtr -> "castForeignPtr#"
+  PrimPtrPlus -> "plusPtr#"
+  PrimPtrMinus -> "minusPtr#"
+  PrimPtrAlign -> "alignPtr#"
+  PrimMallocBytes -> "mallocBytes#"
+  PrimReallocBytes -> "reallocBytes#"
+  PrimFree -> "free#"
+  PrimFinalizerFree -> "finalizerFree#"
+  PrimPeek kind -> "peek#" <> renderForeignStorableKind kind
+  PrimPoke kind -> "poke#" <> renderForeignStorableKind kind
+  PrimCopyBytes -> "copyBytes#"
+  PrimMoveBytes -> "moveBytes#"
+  PrimGetErrno -> "getErrno#"
+  PrimResetErrno -> "resetErrno#"
+  PrimPeekCString -> "peekCString#"
+  PrimPeekCStringLen -> "peekCStringLen#"
+  PrimNewCString -> "newCString#"
+  PrimPeekCWString -> "peekCWString#"
+  PrimPeekCWStringLen -> "peekCWStringLen#"
+  PrimNewCWString -> "newCWString#"
   PrimFloat width op -> renderFloatingWidth width <> "." <> renderFloatingPrimOp op <> "#"
   PrimFloatInt width op -> renderFloatingWidth width <> "." <> renderFloatingIntPrimOp op <> "#"
   PrimFixedIntegral fixed op -> fixedIntegralOccurrence fixed <> "." <> Text.pack (show op) <> "#"
+
+renderForeignStorableKind :: ForeignStorableKind -> Text
+renderForeignStorableKind = \case
+  StoreInt -> "Int"
+  StoreBool -> "Bool"
+  StoreChar -> "Char"
+  StoreInt8 -> "Int8"
+  StoreWord8 -> "Word8"
+  StoreInt16 -> "Int16"
+  StoreWord16 -> "Word16"
+  StoreInt32 -> "Int32"
+  StoreWord32 -> "Word32"
+  StoreInt64 -> "Int64"
+  StoreWord -> "Word"
+  StoreWord64 -> "Word64"
+  StoreFloat -> "Float"
+  StoreDouble -> "Double"
+  StorePtr -> "Ptr"
 
 renderStdHandlePrim :: StdHandle -> Text
 renderStdHandlePrim = \case

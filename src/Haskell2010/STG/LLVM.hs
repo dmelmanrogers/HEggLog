@@ -676,6 +676,44 @@ emitPrim env op arguments =
             emitForce handledAction
         )
         (pure actionResult)
+    (PrimPtrPlus, [pointer, offset]) ->
+      emitRuntimeCall2 ffiPtrPlusFunctionName env pointer offset
+    (PrimPtrMinus, [left, right]) ->
+      emitRuntimeCall2 ffiPtrMinusFunctionName env left right
+    (PrimPtrAlign, [pointer, alignment]) ->
+      emitRuntimeCall2 ffiPtrAlignFunctionName env pointer alignment
+    (PrimMallocBytes, [size]) ->
+      emitRuntimeIOCall1 ffiMallocBytesFunctionName env size
+    (PrimReallocBytes, [pointer, size]) ->
+      emitRuntimeIOCall2 ffiReallocBytesFunctionName env pointer size
+    (PrimFree, [pointer]) ->
+      emitRuntimeIOCall1 ffiFreeFunctionName env pointer
+    (PrimFinalizerFree, []) ->
+      emitMakePointer (OGlobal LPtr ffiFinalizerFreeFunctionName)
+    (PrimPeek kind, [pointer, offset]) ->
+      emitRuntimeIOCall2 (ffiPeekFunctionName kind) env pointer offset
+    (PrimPoke kind, [pointer, offset, value]) ->
+      emitRuntimeIOCall3 (ffiPokeFunctionName kind) env pointer offset value
+    (PrimCopyBytes, [dest, source, size]) ->
+      emitRuntimeIOCall3 ffiCopyBytesFunctionName env dest source size
+    (PrimMoveBytes, [dest, source, size]) ->
+      emitRuntimeIOCall3 ffiMoveBytesFunctionName env dest source size
+    (PrimGetErrno, []) ->
+      emitRuntimeIOCall0 ffiGetErrnoFunctionName
+    (PrimResetErrno, []) ->
+      emitRuntimeIOCall0 ffiResetErrnoFunctionName
+    (PrimPeekCString, [pointer]) ->
+      emitRuntimeIOCall1 ffiPeekCStringFunctionName env pointer
+    (PrimPeekCStringLen, [pointer, lengthValue]) ->
+      emitRuntimeIOCall2 ffiPeekCStringLenFunctionName env pointer lengthValue
+    (PrimNewCString, [value]) ->
+      emitRuntimeIOCall1 ffiNewCStringFunctionName env value
+    (PrimPeekCWString, [pointer]) ->
+      emitRuntimeIOCall1 ffiPeekCWStringFunctionName env pointer
+    (PrimPeekCWStringLen, [pointer, lengthValue]) ->
+      emitRuntimeIOCall2 ffiPeekCWStringLenFunctionName env pointer lengthValue
+    (PrimNewCWString, [value]) ->
+      emitRuntimeIOCall1 ffiNewCWStringFunctionName env value
     (PrimIOTry, [action]) -> do
       actionObject <- emitAtomAddress env action
       actionResult <- emitForce actionObject
@@ -2463,6 +2501,20 @@ emitMakePointer value = do
 emitStdHandle :: StdHandle -> FunctionM LLVMOperand
 emitStdHandle handle =
   emitMakePointer (OGlobal LPtr (stdHandleGlobalName handle))
+
+emitRuntimeCall2 :: Text -> ValueEnv -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitRuntimeCall2 functionName env first second = do
+  firstObject <- emitAtomAddress env first
+  secondObject <- emitAtomAddress env second
+  resultReg <- freshRegister "runtime"
+  emit (ICall (Just resultReg) LPtr (DirectCall functionName) False [(LPtr, firstObject), (LPtr, secondObject)])
+  pure (OLocal LPtr resultReg)
+
+emitRuntimeIOCall0 :: Text -> FunctionM LLVMOperand
+emitRuntimeIOCall0 functionName = do
+  resultReg <- freshRegister "runtime_io"
+  emit (ICall (Just resultReg) LPtr (DirectCall functionName) False [])
+  pure (OLocal LPtr resultReg)
 
 emitRuntimeIOCall1 :: Text -> ValueEnv -> STGAtom -> FunctionM LLVMOperand
 emitRuntimeIOCall1 functionName env first = do
@@ -5139,6 +5191,56 @@ addForeignPtrFinalizerFunctionName = "hegglog_hs_add_foreign_ptr_finalizer"
 finalizeForeignPtrFunctionName = "hegglog_hs_finalize_foreign_ptr"
 touchForeignPtrFunctionName = "hegglog_hs_touch_foreign_ptr"
 
+ffiPtrPlusFunctionName, ffiPtrMinusFunctionName, ffiPtrAlignFunctionName, ffiMallocBytesFunctionName, ffiReallocBytesFunctionName, ffiFreeFunctionName, ffiFinalizerFreeFunctionName, ffiCopyBytesFunctionName, ffiMoveBytesFunctionName, ffiGetErrnoFunctionName, ffiResetErrnoFunctionName, ffiPeekCStringFunctionName, ffiPeekCStringLenFunctionName, ffiNewCStringFunctionName, ffiPeekCWStringFunctionName, ffiPeekCWStringLenFunctionName, ffiNewCWStringFunctionName, makeCharListFromCStringLenFunctionName, makeCharListFromCWStringFunctionName, makeCharListFromCWStringLenFunctionName, charListToCWStringFunctionName, writeCharListCWStringFunctionName :: Text
+ffiPtrPlusFunctionName = "hegglog_hs_ffi_ptr_plus"
+ffiPtrMinusFunctionName = "hegglog_hs_ffi_ptr_minus"
+ffiPtrAlignFunctionName = "hegglog_hs_ffi_ptr_align"
+ffiMallocBytesFunctionName = "hegglog_hs_ffi_malloc_bytes"
+ffiReallocBytesFunctionName = "hegglog_hs_ffi_realloc_bytes"
+ffiFreeFunctionName = "hegglog_hs_ffi_free"
+ffiFinalizerFreeFunctionName = "hegglog_hs_ffi_finalizer_free"
+ffiCopyBytesFunctionName = "hegglog_hs_ffi_copy_bytes"
+ffiMoveBytesFunctionName = "hegglog_hs_ffi_move_bytes"
+ffiGetErrnoFunctionName = "hegglog_hs_ffi_get_errno"
+ffiResetErrnoFunctionName = "hegglog_hs_ffi_reset_errno"
+ffiPeekCStringFunctionName = "hegglog_hs_ffi_peek_cstring"
+ffiPeekCStringLenFunctionName = "hegglog_hs_ffi_peek_cstring_len"
+ffiNewCStringFunctionName = "hegglog_hs_ffi_new_cstring"
+ffiPeekCWStringFunctionName = "hegglog_hs_ffi_peek_cwstring"
+ffiPeekCWStringLenFunctionName = "hegglog_hs_ffi_peek_cwstring_len"
+ffiNewCWStringFunctionName = "hegglog_hs_ffi_new_cwstring"
+makeCharListFromCStringLenFunctionName = "hegglog_hs_make_char_list_from_cstring_len"
+makeCharListFromCWStringFunctionName = "hegglog_hs_make_char_list_from_cwstring"
+makeCharListFromCWStringLenFunctionName = "hegglog_hs_make_char_list_from_cwstring_len"
+charListToCWStringFunctionName = "hegglog_hs_char_list_to_cwstring"
+writeCharListCWStringFunctionName = "hegglog_hs_write_char_list_cwstring"
+
+ffiPeekFunctionName :: ForeignStorableKind -> Text
+ffiPeekFunctionName kind =
+  "hegglog_hs_ffi_peek_" <> ffiStorableKindSuffix kind
+
+ffiPokeFunctionName :: ForeignStorableKind -> Text
+ffiPokeFunctionName kind =
+  "hegglog_hs_ffi_poke_" <> ffiStorableKindSuffix kind
+
+ffiStorableKindSuffix :: ForeignStorableKind -> Text
+ffiStorableKindSuffix = \case
+  StoreInt -> "i64"
+  StoreBool -> "bool"
+  StoreChar -> "char"
+  StoreInt8 -> "i8"
+  StoreWord8 -> "u8"
+  StoreInt16 -> "i16"
+  StoreWord16 -> "u16"
+  StoreInt32 -> "i32"
+  StoreWord32 -> "u32"
+  StoreInt64 -> "i64"
+  StoreWord -> "u64"
+  StoreWord64 -> "u64"
+  StoreFloat -> "float"
+  StoreDouble -> "double"
+  StorePtr -> "ptr"
+
 argcGlobalName, argvGlobalName, emptyCStringGlobalName :: Text
 argcGlobalName = "hegglog_hs_argc"
 argvGlobalName = "hegglog_hs_argv"
@@ -5209,7 +5311,580 @@ runtimeDeclarations =
   , "declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)"
   , "declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)"
   ]
+    <> foreignLibraryRuntimeDeclarations
     <> systemIORuntimeDeclarations
+
+foreignLibraryRuntimeDeclarations :: [Text]
+foreignLibraryRuntimeDeclarations =
+  [ "declare ptr @realloc(ptr, i64)"
+  , "declare void @free(ptr)"
+  , "declare ptr @memcpy(ptr, ptr, i64)"
+  , "declare ptr @memmove(ptr, ptr, i64)"
+  , "declare ptr @__error()"
+  , ffiPointerRuntimeDefinitions
+  , ffiAllocationRuntimeDefinitions
+  , ffiErrnoRuntimeDefinitions
+  , ffiCStringRuntimeDefinitions
+  , ffiCWStringRuntimeDefinitions
+  ]
+    <> concatMap
+      ( \(suffix, storageTy, loadExtension) ->
+          [ffiIntegerPeekDefinition suffix storageTy loadExtension, ffiIntegerPokeDefinition suffix storageTy]
+      )
+      [ ("i8", "i8", Just "sext")
+      , ("u8", "i8", Just "zext")
+      , ("i16", "i16", Just "sext")
+      , ("u16", "i16", Just "zext")
+      , ("i32", "i32", Just "sext")
+      , ("u32", "i32", Just "zext")
+      , ("i64", "i64", Nothing)
+      , ("u64", "i64", Nothing)
+      ]
+    <> [ ffiBoolPeekDefinition
+       , ffiBoolPokeDefinition
+       , ffiCharPeekDefinition
+       , ffiCharPokeDefinition
+       , ffiFloatPeekDefinition
+       , ffiFloatPokeDefinition
+       , ffiDoublePeekDefinition
+       , ffiDoublePokeDefinition
+       , ffiPtrPeekDefinition
+       , ffiPtrPokeDefinition
+       ]
+
+ffiPointerRuntimeDefinitions :: Text
+ffiPointerRuntimeDefinitions =
+  Text.unlines
+    [ "define ptr @" <> ffiPtrPlusFunctionName <> "(ptr %ptr_obj, ptr %offset_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %result = getelementptr i8, ptr %base, i64 %offset"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %result)"
+    , "  ret ptr %boxed"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiPtrMinusFunctionName <> "(ptr %left_obj, ptr %right_obj) {"
+    , "entry:"
+    , "  %left = call ptr @" <> expectPointerFunctionName <> "(ptr %left_obj)"
+    , "  %right = call ptr @" <> expectPointerFunctionName <> "(ptr %right_obj)"
+    , "  %left_int = ptrtoint ptr %left to i64"
+    , "  %right_int = ptrtoint ptr %right to i64"
+    , "  %diff = sub i64 %left_int, %right_int"
+    , "  %boxed = call ptr @" <> makeIntFunctionName <> "(i64 %diff)"
+    , "  ret ptr %boxed"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiPtrAlignFunctionName <> "(ptr %ptr_obj, ptr %align_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %align = call i64 @" <> expectIntFunctionName <> "(ptr %align_obj)"
+    , "  %small = icmp sle i64 %align, 1"
+    , "  br i1 %small, label %done_original, label %do_align"
+    , "do_align:"
+    , "  %addr = ptrtoint ptr %ptr to i64"
+    , "  %minus_one = sub i64 %align, 1"
+    , "  %biased = add i64 %addr, %minus_one"
+    , "  %mask = sub i64 0, %align"
+    , "  %aligned_addr = and i64 %biased, %mask"
+    , "  %aligned_ptr = inttoptr i64 %aligned_addr to ptr"
+    , "  br label %done_aligned"
+    , "done_original:"
+    , "  ret ptr %ptr_obj"
+    , "done_aligned:"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %aligned_ptr)"
+    , "  ret ptr %boxed"
+    , "}"
+    ]
+
+ffiAllocationRuntimeDefinitions :: Text
+ffiAllocationRuntimeDefinitions =
+  Text.unlines
+    [ "define ptr @" <> ffiMallocBytesFunctionName <> "(ptr %size_obj) {"
+    , "entry:"
+    , "  %size0 = call i64 @" <> expectIntFunctionName <> "(ptr %size_obj)"
+    , "  %negative = icmp slt i64 %size0, 0"
+    , "  br i1 %negative, label %abort, label %nonnegative"
+    , "nonnegative:"
+    , "  %zero = icmp eq i64 %size0, 0"
+    , "  %size = select i1 %zero, i64 1, i64 %size0"
+    , "  %mem = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 %size)"
+    , "  %is_null = icmp eq ptr %mem, null"
+    , "  br i1 %is_null, label %abort, label %ok"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "ok:"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %mem)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiReallocBytesFunctionName <> "(ptr %ptr_obj, ptr %size_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %size0 = call i64 @" <> expectIntFunctionName <> "(ptr %size_obj)"
+    , "  %negative = icmp slt i64 %size0, 0"
+    , "  br i1 %negative, label %abort, label %nonnegative"
+    , "nonnegative:"
+    , "  %zero = icmp eq i64 %size0, 0"
+    , "  %size = select i1 %zero, i64 1, i64 %size0"
+    , "  %mem = call ptr @realloc(ptr %ptr, i64 %size)"
+    , "  %is_null = icmp eq ptr %mem, null"
+    , "  br i1 %is_null, label %abort, label %ok"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "ok:"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %mem)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiFreeFunctionName <> "(ptr %ptr_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  call void @free(ptr %ptr)"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define void @" <> ffiFinalizerFreeFunctionName <> "(ptr %ptr) {"
+    , "entry:"
+    , "  call void @free(ptr %ptr)"
+    , "  ret void"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiCopyBytesFunctionName <> "(ptr %dest_obj, ptr %source_obj, ptr %size_obj) {"
+    , "entry:"
+    , "  %dest = call ptr @" <> expectPointerFunctionName <> "(ptr %dest_obj)"
+    , "  %source = call ptr @" <> expectPointerFunctionName <> "(ptr %source_obj)"
+    , "  %size = call i64 @" <> expectIntFunctionName <> "(ptr %size_obj)"
+    , "  %negative = icmp slt i64 %size, 0"
+    , "  br i1 %negative, label %abort, label %copy"
+    , "copy:"
+    , "  call ptr @memcpy(ptr %dest, ptr %source, i64 %size)"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiMoveBytesFunctionName <> "(ptr %dest_obj, ptr %source_obj, ptr %size_obj) {"
+    , "entry:"
+    , "  %dest = call ptr @" <> expectPointerFunctionName <> "(ptr %dest_obj)"
+    , "  %source = call ptr @" <> expectPointerFunctionName <> "(ptr %source_obj)"
+    , "  %size = call i64 @" <> expectIntFunctionName <> "(ptr %size_obj)"
+    , "  %negative = icmp slt i64 %size, 0"
+    , "  br i1 %negative, label %abort, label %move"
+    , "move:"
+    , "  call ptr @memmove(ptr %dest, ptr %source, i64 %size)"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    ]
+
+ffiErrnoRuntimeDefinitions :: Text
+ffiErrnoRuntimeDefinitions =
+  Text.unlines
+    [ "define ptr @" <> ffiGetErrnoFunctionName <> "() {"
+    , "entry:"
+    , "  %errno_ptr = call ptr @__error()"
+    , "  %errno32 = load i32, ptr %errno_ptr"
+    , "  %errno64 = sext i32 %errno32 to i64"
+    , "  %boxed = call ptr @" <> makeIntFunctionName <> "(i64 %errno64)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiResetErrnoFunctionName <> "() {"
+    , "entry:"
+    , "  %errno_ptr = call ptr @__error()"
+    , "  store i32 0, ptr %errno_ptr"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiCStringRuntimeDefinitions :: Text
+ffiCStringRuntimeDefinitions =
+  Text.unlines
+    [ "define ptr @" <> ffiPeekCStringFunctionName <> "(ptr %ptr_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %list = call ptr @" <> makeCharListFromCStringFunctionName <> "(ptr %ptr)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %list)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiPeekCStringLenFunctionName <> "(ptr %ptr_obj, ptr %len_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %len = call i64 @" <> expectIntFunctionName <> "(ptr %len_obj)"
+    , "  %negative = icmp slt i64 %len, 0"
+    , "  br i1 %negative, label %abort, label %ok"
+    , "ok:"
+    , "  %list = call ptr @" <> makeCharListFromCStringLenFunctionName <> "(ptr %ptr, i64 %len)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %list)"
+    , "  ret ptr %result"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiNewCStringFunctionName <> "(ptr %list_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> charListToCStringFunctionName <> "(ptr %list_obj)"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %ptr)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> makeCharListFromCStringLenFunctionName <> "(ptr %value, i64 %len) {"
+    , "entry:"
+    , "  %is_end = icmp eq i64 %len, 0"
+    , "  br i1 %is_end, label %nil, label %cons"
+    , "nil:"
+    , "  %nil_list = call ptr @" <> makeDataFunctionName <> "(i64 " <> constructorTagLiteral listNilDataConName <> ", i64 0, ptr null)"
+    , "  ret ptr %nil_list"
+    , "cons:"
+    , "  %byte = load i8, ptr %value"
+    , "  %char_i64 = zext i8 %byte to i64"
+    , "  %head = call ptr @" <> makeCharFunctionName <> "(i64 %char_i64)"
+    , "  %next_value = getelementptr i8, ptr %value, i64 1"
+    , "  %next_len = sub i64 %len, 1"
+    , "  %tail = call ptr @" <> makeCharListFromCStringLenFunctionName <> "(ptr %next_value, i64 %next_len)"
+    , "  %fields = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 16)"
+    , "  %head_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 0"
+    , "  store ptr %head, ptr %head_slot"
+    , "  %tail_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 1"
+    , "  store ptr %tail, ptr %tail_slot"
+    , "  %cons_list = call ptr @" <> makeDataFunctionName <> "(i64 " <> constructorTagLiteral listConsDataConName <> ", i64 2, ptr %fields)"
+    , "  ret ptr %cons_list"
+    , "}"
+    ]
+
+ffiCWStringRuntimeDefinitions :: Text
+ffiCWStringRuntimeDefinitions =
+  Text.unlines
+    [ "define ptr @" <> ffiPeekCWStringFunctionName <> "(ptr %ptr_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %list = call ptr @" <> makeCharListFromCWStringFunctionName <> "(ptr %ptr)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %list)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiPeekCWStringLenFunctionName <> "(ptr %ptr_obj, ptr %len_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %len = call i64 @" <> expectIntFunctionName <> "(ptr %len_obj)"
+    , "  %negative = icmp slt i64 %len, 0"
+    , "  br i1 %negative, label %abort, label %ok"
+    , "ok:"
+    , "  %list = call ptr @" <> makeCharListFromCWStringLenFunctionName <> "(ptr %ptr, i64 %len)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %list)"
+    , "  ret ptr %result"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiNewCWStringFunctionName <> "(ptr %list_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> charListToCWStringFunctionName <> "(ptr %list_obj)"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %ptr)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> makeCharListFromCWStringFunctionName <> "(ptr %value) {"
+    , "entry:"
+    , "  %code = load i32, ptr %value"
+    , "  %is_end = icmp eq i32 %code, 0"
+    , "  br i1 %is_end, label %nil, label %cons"
+    , "nil:"
+    , "  %nil_list = call ptr @" <> makeDataFunctionName <> "(i64 " <> constructorTagLiteral listNilDataConName <> ", i64 0, ptr null)"
+    , "  ret ptr %nil_list"
+    , "cons:"
+    , "  %char_i64 = zext i32 %code to i64"
+    , "  %head = call ptr @" <> makeCharFunctionName <> "(i64 %char_i64)"
+    , "  %next_value = getelementptr i32, ptr %value, i64 1"
+    , "  %tail = call ptr @" <> makeCharListFromCWStringFunctionName <> "(ptr %next_value)"
+    , "  %fields = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 16)"
+    , "  %head_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 0"
+    , "  store ptr %head, ptr %head_slot"
+    , "  %tail_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 1"
+    , "  store ptr %tail, ptr %tail_slot"
+    , "  %cons_list = call ptr @" <> makeDataFunctionName <> "(i64 " <> constructorTagLiteral listConsDataConName <> ", i64 2, ptr %fields)"
+    , "  ret ptr %cons_list"
+    , "}"
+    , ""
+    , "define ptr @" <> makeCharListFromCWStringLenFunctionName <> "(ptr %value, i64 %len) {"
+    , "entry:"
+    , "  %is_end = icmp eq i64 %len, 0"
+    , "  br i1 %is_end, label %nil, label %cons"
+    , "nil:"
+    , "  %nil_list = call ptr @" <> makeDataFunctionName <> "(i64 " <> constructorTagLiteral listNilDataConName <> ", i64 0, ptr null)"
+    , "  ret ptr %nil_list"
+    , "cons:"
+    , "  %code = load i32, ptr %value"
+    , "  %char_i64 = zext i32 %code to i64"
+    , "  %head = call ptr @" <> makeCharFunctionName <> "(i64 %char_i64)"
+    , "  %next_value = getelementptr i32, ptr %value, i64 1"
+    , "  %next_len = sub i64 %len, 1"
+    , "  %tail = call ptr @" <> makeCharListFromCWStringLenFunctionName <> "(ptr %next_value, i64 %next_len)"
+    , "  %fields = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 16)"
+    , "  %head_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 0"
+    , "  store ptr %head, ptr %head_slot"
+    , "  %tail_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 1"
+    , "  store ptr %tail, ptr %tail_slot"
+    , "  %cons_list = call ptr @" <> makeDataFunctionName <> "(i64 " <> constructorTagLiteral listConsDataConName <> ", i64 2, ptr %fields)"
+    , "  ret ptr %cons_list"
+    , "}"
+    , ""
+    , "define ptr @" <> charListToCWStringFunctionName <> "(ptr %obj) {"
+    , "entry:"
+    , "  %len = call i64 @" <> charListLengthFunctionName <> "(ptr %obj)"
+    , "  %cells = add i64 %len, 1"
+    , "  %bytes = mul i64 %cells, 4"
+    , "  %buffer = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 %bytes)"
+    , "  call void @" <> writeCharListCWStringFunctionName <> "(ptr %obj, ptr %buffer)"
+    , "  ret ptr %buffer"
+    , "}"
+    , ""
+    , "define void @" <> writeCharListCWStringFunctionName <> "(ptr %obj, ptr %buffer) {"
+    , "entry:"
+    , "  %forced = call ptr @" <> forceFunctionName <> "(ptr %obj)"
+    , "  %tag_ptr = getelementptr { i64, i64, ptr, ptr, ptr, i64 }, ptr %forced, i32 0, i32 0"
+    , "  %tag = load i64, ptr %tag_ptr"
+    , "  %is_data = icmp eq i64 %tag, " <> Text.pack (show tagData)
+    , "  br i1 %is_data, label %data, label %abort"
+    , "data:"
+    , "  %constructor_ptr = getelementptr { i64, i64, ptr, ptr, ptr, i64 }, ptr %forced, i32 0, i32 1"
+    , "  %constructor = load i64, ptr %constructor_ptr"
+    , "  %is_nil = icmp eq i64 %constructor, " <> constructorTagLiteral listNilDataConName
+    , "  br i1 %is_nil, label %nil, label %cons_check"
+    , "nil:"
+    , "  store i32 0, ptr %buffer"
+    , "  ret void"
+    , "cons_check:"
+    , "  %is_cons = icmp eq i64 %constructor, " <> constructorTagLiteral listConsDataConName
+    , "  br i1 %is_cons, label %cons, label %abort"
+    , "cons:"
+    , "  %fields_ptr = getelementptr { i64, i64, ptr, ptr, ptr, i64 }, ptr %forced, i32 0, i32 2"
+    , "  %fields = load ptr, ptr %fields_ptr"
+    , "  %head_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 0"
+    , "  %head = load ptr, ptr %head_slot"
+    , "  %tail_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 1"
+    , "  %tail = load ptr, ptr %tail_slot"
+    , "  %char_i32 = call i32 @" <> expectCharFunctionName <> "(ptr %head)"
+    , "  store i32 %char_i32, ptr %buffer"
+    , "  %next_buffer = getelementptr i32, ptr %buffer, i64 1"
+    , "  call void @" <> writeCharListCWStringFunctionName <> "(ptr %tail, ptr %next_buffer)"
+    , "  ret void"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    ]
+
+ffiIntegerPeekDefinition :: Text -> Text -> Maybe Text -> Text
+ffiIntegerPeekDefinition suffix storageTy loadExtension =
+  Text.unlines $
+    [ "define ptr @" <> ffiFunction "peek" suffix <> "(ptr %ptr_obj, ptr %offset_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  %loaded = load " <> storageTy <> ", ptr %addr"
+    ]
+      <> extendLines
+      <> [ "  %boxed = call ptr @" <> makeIntFunctionName <> "(i64 " <> wideOperand <> ")"
+         , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+         , "  ret ptr %result"
+         , "}"
+         ]
+ where
+  extendLines =
+    case loadExtension of
+      Just extension -> ["  %wide = " <> extension <> " " <> storageTy <> " %loaded to i64"]
+      Nothing -> []
+  wideOperand =
+    case loadExtension of
+      Just _ -> "%wide"
+      Nothing -> "%loaded"
+
+ffiIntegerPokeDefinition :: Text -> Text -> Text
+ffiIntegerPokeDefinition suffix storageTy =
+  Text.unlines $
+    [ "define ptr @" <> ffiFunction "poke" suffix <> "(ptr %ptr_obj, ptr %offset_obj, ptr %value_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %value64 = call i64 @" <> expectIntFunctionName <> "(ptr %value_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    ]
+      <> storeValueLines
+      <> [ "  %result = call ptr @hegglog_hs_io_unit_success()"
+         , "  ret ptr %result"
+         , "}"
+         ]
+ where
+  storeValueLines
+    | storageTy == "i64" =
+        ["  store i64 %value64, ptr %addr"]
+    | otherwise =
+        [ "  %value = trunc i64 %value64 to " <> storageTy
+        , "  store " <> storageTy <> " %value, ptr %addr"
+        ]
+
+ffiBoolPeekDefinition :: Text
+ffiBoolPeekDefinition =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "peek" "bool" <> "(ptr %ptr_obj, ptr %offset_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  %loaded = load i8, ptr %addr"
+    , "  %truth = icmp ne i8 %loaded, 0"
+    , "  %boxed = call ptr @" <> makeBoolFunctionName <> "(i1 %truth)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiBoolPokeDefinition :: Text
+ffiBoolPokeDefinition =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "poke" "bool" <> "(ptr %ptr_obj, ptr %offset_obj, ptr %value_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %truth = call i1 @" <> expectBoolFunctionName <> "(ptr %value_obj)"
+    , "  %value = zext i1 %truth to i8"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  store i8 %value, ptr %addr"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiCharPeekDefinition :: Text
+ffiCharPeekDefinition =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "peek" "char" <> "(ptr %ptr_obj, ptr %offset_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  %loaded = load i32, ptr %addr"
+    , "  %wide = zext i32 %loaded to i64"
+    , "  %boxed = call ptr @" <> makeCharFunctionName <> "(i64 %wide)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiCharPokeDefinition :: Text
+ffiCharPokeDefinition =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "poke" "char" <> "(ptr %ptr_obj, ptr %offset_obj, ptr %value_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %value = call i32 @" <> expectCharFunctionName <> "(ptr %value_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  store i32 %value, ptr %addr"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiFloatPeekDefinition :: Text
+ffiFloatPeekDefinition =
+  ffiFloatingPeekDefinition "float" "float" makeFloatFunctionName
+
+ffiFloatPokeDefinition :: Text
+ffiFloatPokeDefinition =
+  ffiFloatingPokeDefinition "float" "float" expectFloatFunctionName
+
+ffiDoublePeekDefinition :: Text
+ffiDoublePeekDefinition =
+  ffiFloatingPeekDefinition "double" "double" makeDoubleFunctionName
+
+ffiDoublePokeDefinition :: Text
+ffiDoublePokeDefinition =
+  ffiFloatingPokeDefinition "double" "double" expectDoubleFunctionName
+
+ffiFloatingPeekDefinition :: Text -> Text -> Text -> Text
+ffiFloatingPeekDefinition suffix storageTy makeFunction =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "peek" suffix <> "(ptr %ptr_obj, ptr %offset_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  %loaded = load " <> storageTy <> ", ptr %addr"
+    , "  %boxed = call ptr @" <> makeFunction <> "(" <> storageTy <> " %loaded)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiFloatingPokeDefinition :: Text -> Text -> Text -> Text
+ffiFloatingPokeDefinition suffix storageTy expectFunction =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "poke" suffix <> "(ptr %ptr_obj, ptr %offset_obj, ptr %value_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %value = call " <> storageTy <> " @" <> expectFunction <> "(ptr %value_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  store " <> storageTy <> " %value, ptr %addr"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiPtrPeekDefinition :: Text
+ffiPtrPeekDefinition =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "peek" "ptr" <> "(ptr %ptr_obj, ptr %offset_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  %loaded = load ptr, ptr %addr"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %loaded)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiPtrPokeDefinition :: Text
+ffiPtrPokeDefinition =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "poke" "ptr" <> "(ptr %ptr_obj, ptr %offset_obj, ptr %value_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %value = call ptr @" <> expectPointerFunctionName <> "(ptr %value_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  store ptr %value, ptr %addr"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiFunction :: Text -> Text -> Text
+ffiFunction operation suffix =
+  "hegglog_hs_ffi_" <> operation <> "_" <> suffix
 
 systemIORuntimeDeclarations :: [Text]
 systemIORuntimeDeclarations =

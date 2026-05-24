@@ -604,6 +604,54 @@ evalPrimitive coreEnv op values =
       Right pointer
     (PrimCastForeignPtr, [CoreForeignPtr pointer]) ->
       Right (CoreForeignPtr pointer)
+    (PrimPtrPlus, [CorePointer value, _]) ->
+      Right (CorePointer value)
+    (PrimPtrMinus, [CorePointer _, CorePointer _]) ->
+      Right (CoreInt (expectHInt 0))
+    (PrimPtrAlign, [CorePointer value, _]) ->
+      Right (CorePointer value)
+    (PrimMallocBytes, [_]) ->
+      Right (CoreIO [] (CoreIOSuccess (CorePointer Nothing)))
+    (PrimReallocBytes, [CorePointer _, _]) ->
+      Right (CoreIO [] (CoreIOSuccess (CorePointer Nothing)))
+    (PrimFree, [CorePointer _]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimFinalizerFree, []) ->
+      Right (CorePointer Nothing)
+    (PrimPeek kind, [CorePointer (Just value), _]) ->
+      Right (CoreIO [] (CoreIOSuccess (coerceStorableValue kind value)))
+    (PrimPeek kind, [CorePointer Nothing, _]) ->
+      Right (CoreIO [] (CoreIOSuccess (zeroStorableValue kind)))
+    (PrimPoke _, [CorePointer _, _, _]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimCopyBytes, [CorePointer _, CorePointer _, _]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimMoveBytes, [CorePointer _, CorePointer _, _]) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimGetErrno, []) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreInt (expectHInt 0))))
+    (PrimResetErrno, []) ->
+      Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
+    (PrimPeekCString, [CorePointer (Just value)]) ->
+      Right (CoreIO [] (CoreIOSuccess value))
+    (PrimPeekCString, [CorePointer Nothing]) ->
+      Right (CoreIO [] (CoreIOSuccess (coreStringList "")))
+    (PrimPeekCStringLen, [CorePointer (Just value), _]) ->
+      Right (CoreIO [] (CoreIOSuccess value))
+    (PrimPeekCStringLen, [CorePointer Nothing, _]) ->
+      Right (CoreIO [] (CoreIOSuccess (coreStringList "")))
+    (PrimNewCString, [value]) ->
+      Right (CoreIO [] (CoreIOSuccess (CorePointer (Just value))))
+    (PrimPeekCWString, [CorePointer (Just value)]) ->
+      Right (CoreIO [] (CoreIOSuccess value))
+    (PrimPeekCWString, [CorePointer Nothing]) ->
+      Right (CoreIO [] (CoreIOSuccess (coreStringList "")))
+    (PrimPeekCWStringLen, [CorePointer (Just value), _]) ->
+      Right (CoreIO [] (CoreIOSuccess value))
+    (PrimPeekCWStringLen, [CorePointer Nothing, _]) ->
+      Right (CoreIO [] (CoreIOSuccess (coreStringList "")))
+    (PrimNewCWString, [value]) ->
+      Right (CoreIO [] (CoreIOSuccess (CorePointer (Just value))))
     _ ->
       Left (CoreEvalTypeError ("invalid Core primitive operands for " <> renderCorePrimOpName op))
  where
@@ -620,6 +668,23 @@ evalPrimitive coreEnv op values =
     case mkHIntLiteral 0 of
       Right value -> value
       Left err -> error (Text.unpack (renderIntError err))
+
+  coerceStorableValue kind value =
+    case (kind, value) of
+      (StoreBool, CoreBool _) -> value
+      (StoreChar, CoreChar _) -> value
+      (StoreFloat, CoreFloat _) -> value
+      (StoreDouble, CoreDouble _) -> value
+      (StorePtr, CorePointer _) -> value
+      _ -> value
+
+  zeroStorableValue = \case
+    StoreBool -> CoreBool False
+    StoreChar -> CoreChar '\0'
+    StoreFloat -> CoreFloat 0
+    StoreDouble -> CoreDouble 0
+    StorePtr -> CorePointer Nothing
+    _ -> CoreInt zero
 
 evalFixedIntegralPrimitive :: FixedIntegral -> FixedIntegralOp -> [CoreValue] -> Either CoreEvalError CoreValue
 evalFixedIntegralPrimitive fixed op values =
@@ -1048,9 +1113,46 @@ renderCorePrimOpName = \case
   PrimTouchForeignPtr -> "touchForeignPtr#"
   PrimUnsafeForeignPtrToPtr -> "unsafeForeignPtrToPtr#"
   PrimCastForeignPtr -> "castForeignPtr#"
+  PrimPtrPlus -> "plusPtr#"
+  PrimPtrMinus -> "minusPtr#"
+  PrimPtrAlign -> "alignPtr#"
+  PrimMallocBytes -> "mallocBytes#"
+  PrimReallocBytes -> "reallocBytes#"
+  PrimFree -> "free#"
+  PrimFinalizerFree -> "finalizerFree#"
+  PrimPeek kind -> "peek#" <> renderForeignStorableKind kind
+  PrimPoke kind -> "poke#" <> renderForeignStorableKind kind
+  PrimCopyBytes -> "copyBytes#"
+  PrimMoveBytes -> "moveBytes#"
+  PrimGetErrno -> "getErrno#"
+  PrimResetErrno -> "resetErrno#"
+  PrimPeekCString -> "peekCString#"
+  PrimPeekCStringLen -> "peekCStringLen#"
+  PrimNewCString -> "newCString#"
+  PrimPeekCWString -> "peekCWString#"
+  PrimPeekCWStringLen -> "peekCWStringLen#"
+  PrimNewCWString -> "newCWString#"
   PrimFixedIntegral fixed op -> fixedIntegralOccurrence fixed <> "." <> Text.pack (show op) <> "#"
   PrimFloat width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
   PrimFloatInt width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
+
+renderForeignStorableKind :: ForeignStorableKind -> Text
+renderForeignStorableKind = \case
+  StoreInt -> "Int"
+  StoreBool -> "Bool"
+  StoreChar -> "Char"
+  StoreInt8 -> "Int8"
+  StoreWord8 -> "Word8"
+  StoreInt16 -> "Int16"
+  StoreWord16 -> "Word16"
+  StoreInt32 -> "Int32"
+  StoreWord32 -> "Word32"
+  StoreInt64 -> "Int64"
+  StoreWord -> "Word"
+  StoreWord64 -> "Word64"
+  StoreFloat -> "Float"
+  StoreDouble -> "Double"
+  StorePtr -> "Ptr"
 
 renderStdHandlePrim :: StdHandle -> Text
 renderStdHandlePrim = \case

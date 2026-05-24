@@ -740,6 +740,54 @@ evalPrimitiveValues op values =
       pure pointer
     (PrimCastForeignPtr, [STGForeignPtr pointer]) ->
       pure (STGForeignPtr pointer)
+    (PrimPtrPlus, [STGPointer value, _]) ->
+      pure (STGPointer value)
+    (PrimPtrMinus, [STGPointer _, STGPointer _]) ->
+      pure (STGInt (expectHInt 0))
+    (PrimPtrAlign, [STGPointer value, _]) ->
+      pure (STGPointer value)
+    (PrimMallocBytes, [_]) ->
+      pure (STGIO [] (STGIOSuccess (STGPointer Nothing)))
+    (PrimReallocBytes, [STGPointer _, _]) ->
+      pure (STGIO [] (STGIOSuccess (STGPointer Nothing)))
+    (PrimFree, [STGPointer _]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimFinalizerFree, []) ->
+      pure (STGPointer Nothing)
+    (PrimPeek kind, [STGPointer (Just value), _]) ->
+      pure (STGIO [] (STGIOSuccess (coerceStorableValue kind value)))
+    (PrimPeek kind, [STGPointer Nothing, _]) ->
+      pure (STGIO [] (STGIOSuccess (zeroStorableValue kind)))
+    (PrimPoke _, [STGPointer _, _, _]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimCopyBytes, [STGPointer _, STGPointer _, _]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimMoveBytes, [STGPointer _, STGPointer _, _]) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimGetErrno, []) ->
+      pure (STGIO [] (STGIOSuccess (STGInt (expectHInt 0))))
+    (PrimResetErrno, []) ->
+      pure (STGIO [] (STGIOSuccess (STGData unitDataConName [])))
+    (PrimPeekCString, [STGPointer (Just value)]) ->
+      pure (STGIO [] (STGIOSuccess value))
+    (PrimPeekCString, [STGPointer Nothing]) ->
+      stringListValue "" >>= \text -> pure (STGIO [] (STGIOSuccess text))
+    (PrimPeekCStringLen, [STGPointer (Just value), _]) ->
+      pure (STGIO [] (STGIOSuccess value))
+    (PrimPeekCStringLen, [STGPointer Nothing, _]) ->
+      stringListValue "" >>= \text -> pure (STGIO [] (STGIOSuccess text))
+    (PrimNewCString, [value]) ->
+      pure (STGIO [] (STGIOSuccess (STGPointer (Just value))))
+    (PrimPeekCWString, [STGPointer (Just value)]) ->
+      pure (STGIO [] (STGIOSuccess value))
+    (PrimPeekCWString, [STGPointer Nothing]) ->
+      stringListValue "" >>= \text -> pure (STGIO [] (STGIOSuccess text))
+    (PrimPeekCWStringLen, [STGPointer (Just value), _]) ->
+      pure (STGIO [] (STGIOSuccess value))
+    (PrimPeekCWStringLen, [STGPointer Nothing, _]) ->
+      stringListValue "" >>= \text -> pure (STGIO [] (STGIOSuccess text))
+    (PrimNewCWString, [value]) ->
+      pure (STGIO [] (STGIOSuccess (STGPointer (Just value))))
     _ ->
       throwEval (STGEvalTypeError ("invalid STG primitive operands for " <> renderCorePrimOpName op))
   where
@@ -755,6 +803,23 @@ evalPrimitiveValues op values =
       case mkHIntLiteral 0 of
         Right value -> value
         Left err -> error (Text.unpack (renderIntError err))
+
+    coerceStorableValue kind value =
+      case (kind, value) of
+        (StoreBool, STGBool _) -> value
+        (StoreChar, STGChar _) -> value
+        (StoreFloat, STGFloat _) -> value
+        (StoreDouble, STGDouble _) -> value
+        (StorePtr, STGPointer _) -> value
+        _ -> value
+
+    zeroStorableValue = \case
+      StoreBool -> STGBool False
+      StoreChar -> STGChar '\0'
+      StoreFloat -> STGFloat 0
+      StoreDouble -> STGDouble 0
+      StorePtr -> STGPointer Nothing
+      _ -> STGInt zero
 
 evalFixedIntegralPrimitive :: FixedIntegral -> FixedIntegralOp -> [STGValue] -> Either STGEvalError STGValue
 evalFixedIntegralPrimitive fixed op values =
@@ -1262,9 +1327,46 @@ renderCorePrimOpName = \case
   PrimTouchForeignPtr -> "touchForeignPtr#"
   PrimUnsafeForeignPtrToPtr -> "unsafeForeignPtrToPtr#"
   PrimCastForeignPtr -> "castForeignPtr#"
+  PrimPtrPlus -> "plusPtr#"
+  PrimPtrMinus -> "minusPtr#"
+  PrimPtrAlign -> "alignPtr#"
+  PrimMallocBytes -> "mallocBytes#"
+  PrimReallocBytes -> "reallocBytes#"
+  PrimFree -> "free#"
+  PrimFinalizerFree -> "finalizerFree#"
+  PrimPeek kind -> "peek#" <> renderForeignStorableKind kind
+  PrimPoke kind -> "poke#" <> renderForeignStorableKind kind
+  PrimCopyBytes -> "copyBytes#"
+  PrimMoveBytes -> "moveBytes#"
+  PrimGetErrno -> "getErrno#"
+  PrimResetErrno -> "resetErrno#"
+  PrimPeekCString -> "peekCString#"
+  PrimPeekCStringLen -> "peekCStringLen#"
+  PrimNewCString -> "newCString#"
+  PrimPeekCWString -> "peekCWString#"
+  PrimPeekCWStringLen -> "peekCWStringLen#"
+  PrimNewCWString -> "newCWString#"
   PrimFixedIntegral fixed op -> fixedIntegralOccurrence fixed <> "." <> Text.pack (show op) <> "#"
   PrimFloat width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
   PrimFloatInt width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
+
+renderForeignStorableKind :: ForeignStorableKind -> Text
+renderForeignStorableKind = \case
+  StoreInt -> "Int"
+  StoreBool -> "Bool"
+  StoreChar -> "Char"
+  StoreInt8 -> "Int8"
+  StoreWord8 -> "Word8"
+  StoreInt16 -> "Int16"
+  StoreWord16 -> "Word16"
+  StoreInt32 -> "Int32"
+  StoreWord32 -> "Word32"
+  StoreInt64 -> "Int64"
+  StoreWord -> "Word"
+  StoreWord64 -> "Word64"
+  StoreFloat -> "Float"
+  StoreDouble -> "Double"
+  StorePtr -> "Ptr"
 
 renderStdHandlePrim :: StdHandle -> Text
 renderStdHandlePrim = \case

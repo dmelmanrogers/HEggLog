@@ -400,6 +400,25 @@ validatePrimitive op arguments resultTy =
     PrimTouchForeignPtr -> validateTouchForeignPtrPrimitive op arguments resultTy
     PrimUnsafeForeignPtrToPtr -> validateUnsafeForeignPtrToPtrPrimitive op arguments resultTy
     PrimCastForeignPtr -> validateCastForeignPtrPrimitive op arguments resultTy
+    PrimPtrPlus -> validatePtrPlusPrimitive op arguments resultTy
+    PrimPtrMinus -> validatePtrMinusPrimitive op arguments resultTy
+    PrimPtrAlign -> validatePtrPlusPrimitive op arguments resultTy
+    PrimMallocBytes -> validateMallocBytesPrimitive op arguments resultTy
+    PrimReallocBytes -> validateReallocBytesPrimitive op arguments resultTy
+    PrimFree -> validateFreePrimitive op arguments resultTy
+    PrimFinalizerFree -> validateFinalizerFreePrimitive op arguments resultTy
+    PrimPeek kind -> validatePeekPrimitive op kind arguments resultTy
+    PrimPoke kind -> validatePokePrimitive op kind arguments resultTy
+    PrimCopyBytes -> validateBytesCopyPrimitive op arguments resultTy
+    PrimMoveBytes -> validateBytesCopyPrimitive op arguments resultTy
+    PrimGetErrno -> validateFixedPrimitive op [] (ioTy (fixedIntegralTy FixedInt32)) arguments resultTy
+    PrimResetErrno -> validateFixedPrimitive op [] (ioTy unitTy) arguments resultTy
+    PrimPeekCString -> validatePeekCStringPrimitive op arguments resultTy
+    PrimPeekCStringLen -> validatePeekCStringLenPrimitive op arguments resultTy
+    PrimNewCString -> validateNewCStringPrimitive op arguments resultTy
+    PrimPeekCWString -> validatePeekCStringPrimitive op arguments resultTy
+    PrimPeekCWStringLen -> validatePeekCStringLenPrimitive op arguments resultTy
+    PrimNewCWString -> validateNewCStringPrimitive op arguments resultTy
     PrimFloat width floatingOp -> validateFloatingPrimitive op width floatingOp arguments resultTy
     PrimFloatInt width floatingOp -> validateFloatingIntPrimitive op width floatingOp arguments resultTy
     PrimFixedIntegral fixed fixedOp -> validateFixedIntegralPrimitive op fixed fixedOp arguments resultTy
@@ -914,6 +933,213 @@ validateCastForeignPtrPrimitive op arguments resultTy =
             Left [CorePrimitiveArgumentMismatch op 0 (foreignPtrTy unknownForeignTypeVariableTy) foreignTy]
       _ -> Right ()
   ]
+
+validatePtrPlusPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validatePtrPlusPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 2 arguments
+  , case map exprType arguments of
+      [pointerTy, offsetTy]
+        | Just _ <- ptrPayloadType pointerTy
+        , normalizeCoreType offsetTy == normalizeCoreType intTy
+        , Just _ <- ptrPayloadType resultTy ->
+            Right ()
+        | Just _ <- ptrPayloadType pointerTy ->
+            Left [CorePrimitiveArgumentMismatch op 1 intTy offsetTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ptrTy unknownForeignTypeVariableTy) pointerTy]
+      _ -> Right ()
+  ]
+
+validatePtrMinusPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validatePtrMinusPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 2 arguments
+  , case map exprType arguments of
+      [lhsTy, rhsTy]
+        | Just _ <- ptrPayloadType lhsTy
+        , Just _ <- ptrPayloadType rhsTy ->
+            checkPrimitiveResult op intTy resultTy
+        | Just _ <- ptrPayloadType lhsTy ->
+            Left [CorePrimitiveArgumentMismatch op 1 (ptrTy unknownForeignTypeVariableTy) rhsTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ptrTy unknownForeignTypeVariableTy) lhsTy]
+      _ -> Right ()
+  ]
+
+validateMallocBytesPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateMallocBytesPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [sizeTy]
+        | normalizeCoreType sizeTy == normalizeCoreType intTy
+        , Just resultPayload <- ioResultType resultTy
+        , Just _ <- ptrPayloadType resultPayload ->
+            Right ()
+        | normalizeCoreType sizeTy == normalizeCoreType intTy ->
+            Left [CorePrimitiveResultMismatch op (ioTy (ptrTy unknownForeignTypeVariableTy)) resultTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 intTy sizeTy]
+      _ -> Right ()
+  ]
+
+validateReallocBytesPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateReallocBytesPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 2 arguments
+  , case map exprType arguments of
+      [pointerTy, sizeTy]
+        | Just _ <- ptrPayloadType pointerTy
+        , normalizeCoreType sizeTy == normalizeCoreType intTy
+        , Just resultPayload <- ioResultType resultTy
+        , Just _ <- ptrPayloadType resultPayload ->
+            Right ()
+        | Just _ <- ptrPayloadType pointerTy ->
+            Left [CorePrimitiveArgumentMismatch op 1 intTy sizeTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ptrTy unknownForeignTypeVariableTy) pointerTy]
+      _ -> Right ()
+  ]
+
+validateFreePrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateFreePrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [pointerTy]
+        | Just _ <- ptrPayloadType pointerTy ->
+            checkPrimitiveResult op (ioTy unitTy) resultTy
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ptrTy unknownForeignTypeVariableTy) pointerTy]
+      _ -> Right ()
+  ]
+
+validateFinalizerFreePrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateFinalizerFreePrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 0 arguments
+  , case funPtrPayloadType resultTy of
+      Just (CTyFun pointerTy ioUnitTy_)
+        | Just _ <- ptrPayloadType pointerTy
+        , normalizeCoreType ioUnitTy_ == normalizeCoreType (ioTy unitTy) ->
+            Right ()
+      _ -> Left [CorePrimitiveResultMismatch op (foreignFinalizerPtrTy unknownForeignTypeVariableTy) resultTy]
+  ]
+
+validatePeekPrimitive :: CorePrimOp -> ForeignStorableKind -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validatePeekPrimitive op kind arguments resultTy =
+  [ checkPrimitiveArity op 2 arguments
+  , case map exprType arguments of
+      [pointerTy, offsetTy]
+        | Just _ <- ptrPayloadType pointerTy
+        , normalizeCoreType offsetTy == normalizeCoreType intTy
+        , Just payloadTy <- ioResultType resultTy ->
+            validateStorablePayload op kind payloadTy
+        | Just _ <- ptrPayloadType pointerTy ->
+            Left [CorePrimitiveArgumentMismatch op 1 intTy offsetTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ptrTy unknownForeignTypeVariableTy) pointerTy]
+      _ -> Right ()
+  ]
+
+validatePokePrimitive :: CorePrimOp -> ForeignStorableKind -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validatePokePrimitive op kind arguments resultTy =
+  [ checkPrimitiveArity op 3 arguments
+  , case map exprType arguments of
+      [pointerTy, offsetTy, valueTy]
+        | Just _ <- ptrPayloadType pointerTy
+        , normalizeCoreType offsetTy == normalizeCoreType intTy ->
+            validateStorablePayload op kind valueTy *> checkPrimitiveResult op (ioTy unitTy) resultTy
+        | Just _ <- ptrPayloadType pointerTy ->
+            Left [CorePrimitiveArgumentMismatch op 1 intTy offsetTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ptrTy unknownForeignTypeVariableTy) pointerTy]
+      _ -> Right ()
+  ]
+
+validateBytesCopyPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateBytesCopyPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 3 arguments
+  , case map exprType arguments of
+      [destTy, srcTy, countTy]
+        | Just _ <- ptrPayloadType destTy
+        , Just _ <- ptrPayloadType srcTy
+        , normalizeCoreType countTy == normalizeCoreType intTy ->
+            checkPrimitiveResult op (ioTy unitTy) resultTy
+        | Just _ <- ptrPayloadType destTy
+        , Just _ <- ptrPayloadType srcTy ->
+            Left [CorePrimitiveArgumentMismatch op 2 intTy countTy]
+        | Just _ <- ptrPayloadType destTy ->
+            Left [CorePrimitiveArgumentMismatch op 1 (ptrTy unknownForeignTypeVariableTy) srcTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ptrTy unknownForeignTypeVariableTy) destTy]
+      _ -> Right ()
+  ]
+
+validatePeekCStringPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validatePeekCStringPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [pointerTy]
+        | Just _ <- ptrPayloadType pointerTy ->
+            checkPrimitiveResult op (ioTy stringTy) resultTy
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ptrTy unknownForeignTypeVariableTy) pointerTy]
+      _ -> Right ()
+  ]
+
+validatePeekCStringLenPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validatePeekCStringLenPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 2 arguments
+  , case map exprType arguments of
+      [pointerTy, lengthTy]
+        | Just _ <- ptrPayloadType pointerTy
+        , normalizeCoreType lengthTy == normalizeCoreType intTy ->
+            checkPrimitiveResult op (ioTy stringTy) resultTy
+        | Just _ <- ptrPayloadType pointerTy ->
+            Left [CorePrimitiveArgumentMismatch op 1 intTy lengthTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 (ptrTy unknownForeignTypeVariableTy) pointerTy]
+      _ -> Right ()
+  ]
+
+validateNewCStringPrimitive :: CorePrimOp -> [CoreExpr] -> CoreType -> [Either [CoreValidationError] ()]
+validateNewCStringPrimitive op arguments resultTy =
+  [ checkPrimitiveArity op 1 arguments
+  , case map exprType arguments of
+      [sourceTy]
+        | normalizeCoreType sourceTy == normalizeCoreType stringTy
+        , Just resultPayload <- ioResultType resultTy
+        , Just _ <- ptrPayloadType resultPayload ->
+            Right ()
+        | normalizeCoreType sourceTy == normalizeCoreType stringTy ->
+            Left [CorePrimitiveResultMismatch op (ioTy (ptrTy unknownForeignTypeVariableTy)) resultTy]
+        | otherwise ->
+            Left [CorePrimitiveArgumentMismatch op 0 stringTy sourceTy]
+      _ -> Right ()
+  ]
+
+validateStorablePayload :: CorePrimOp -> ForeignStorableKind -> CoreType -> Either [CoreValidationError] ()
+validateStorablePayload op kind actualTy =
+  case kind of
+    StorePtr
+      | Just _ <- ptrPayloadType actualTy -> Right ()
+      | otherwise -> Left [CorePrimitiveResultMismatch op (ptrTy unknownForeignTypeVariableTy) actualTy]
+    _ ->
+      checkPrimitiveResult op (foreignStorableKindCoreType kind) actualTy
+
+foreignStorableKindCoreType :: ForeignStorableKind -> CoreType
+foreignStorableKindCoreType = \case
+  StoreInt -> intTy
+  StoreBool -> boolTy
+  StoreChar -> charTy
+  StoreInt8 -> fixedIntegralTy FixedInt8
+  StoreWord8 -> fixedIntegralTy FixedWord8
+  StoreInt16 -> fixedIntegralTy FixedInt16
+  StoreWord16 -> fixedIntegralTy FixedWord16
+  StoreInt32 -> fixedIntegralTy FixedInt32
+  StoreWord32 -> fixedIntegralTy FixedWord32
+  StoreInt64 -> fixedIntegralTy FixedInt64
+  StoreWord -> fixedIntegralTy FixedWord
+  StoreWord64 -> fixedIntegralTy FixedWord64
+  StoreFloat -> floatTy
+  StoreDouble -> doubleTy
+  StorePtr -> ptrTy unknownForeignTypeVariableTy
 
 ptrPayloadType :: CoreType -> Maybe CoreType
 ptrPayloadType = \case
