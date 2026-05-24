@@ -143,6 +143,11 @@ LIBRARY_CLOSURE_REQUIRED_FIXTURES = {
     "test/haskell2010/conformance/modules/numeric.hs",
     "test/haskell2010/conformance/modules/data-ratio.hs",
     "test/haskell2010/conformance/modules/data-ratio-zero-denominator-partial.hs",
+    "test/haskell2010/conformance/modules/system-environment.hs",
+    "test/haskell2010/conformance/modules/system-exit.hs",
+    "test/haskell2010/conformance/modules/system-exit-catch.hs",
+    "test/haskell2010/conformance/modules/system-exit-failure.hs",
+    "test/haskell2010/conformance/modules/system-exit-zero-catch.hs",
     "test/haskell2010/conformance/prelude/append.hs",
     "test/haskell2010/conformance/prelude/broad-show.hs",
     "test/haskell2010/conformance/prelude/char-runtime.hs",
@@ -164,8 +169,6 @@ LIBRARY_CLOSURE_REQUIRED_FIXTURES = {
     "test/haskell2010/conformance/unsupported/library-foreign-c-error.hs",
     "test/haskell2010/conformance/unsupported/library-foreign-marshal.hs",
     "test/haskell2010/conformance/unsupported/library-foreign-storable.hs",
-    "test/haskell2010/conformance/unsupported/library-system-environment.hs",
-    "test/haskell2010/conformance/unsupported/library-system-exit.hs",
 }
 
 FIXTURE_PATH_RE = re.compile(r"`(test/haskell2010/conformance/[^`]+\.hs)`")

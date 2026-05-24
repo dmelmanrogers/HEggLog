@@ -14,11 +14,11 @@ import System.Directory
   , findExecutable
   , getPermissions
   )
-import System.Environment (lookupEnv)
+import System.Environment (getEnvironment, lookupEnv)
 import System.Exit (ExitCode (..), exitFailure)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
-import System.Process (readProcessWithExitCode)
+import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
 import Test.HUnit
 
 manifestPath :: FilePath
@@ -50,6 +50,9 @@ data ConformanceCase = ConformanceCase
   , caseCompilerModes :: [CompilerMode]
   , caseStdin :: Text
   , caseExtraObjects :: [FilePath]
+  , caseArgs :: [String]
+  , caseEnv :: Map.Map String String
+  , caseExpectedExitCode :: Maybe Int
   }
   deriving stock (Show, Eq)
 
@@ -69,6 +72,9 @@ instance FromJSON ConformanceCase where
         <*> ((object .:? "compilerModes") .!= [DefaultCompilerMode])
         <*> ((object .:? "stdin") .!= "")
         <*> ((object .:? "extraObjects") .!= [])
+        <*> ((object .:? "args") .!= [])
+        <*> ((object .:? "env") .!= Map.empty)
+        <*> object .:? "expectedExitCode"
 
 data ExpectedStatus
   = ParsePass
@@ -170,7 +176,7 @@ runNativeSuccessCase hegglog conformanceCase mode =
     expectedStdout <- requiredExpectedStdout conformanceCase
     outputPath <- buildNativeCase hegglog conformanceCase mode tmpDir
     assertExecutableExists outputPath
-    runResult <- runCommandWithInput outputPath [] (caseStdin conformanceCase)
+    runResult <- runCommandWithInput outputPath (caseArgs conformanceCase) (caseStdin conformanceCase) (caseEnv conformanceCase)
     assertExitSuccess ("native run " <> outputPath) runResult
     assertEqual "native stdout" (Text.unpack expectedStdout) (resultStdout runResult)
     assertEqual "native stderr" "" (resultStderr runResult)
@@ -180,8 +186,13 @@ runNativeRuntimeErrorCase hegglog conformanceCase mode =
   withSystemTempDirectory "hegglog-haskell2010-conformance-runtime-error" $ \tmpDir -> do
     outputPath <- buildNativeCase hegglog conformanceCase mode tmpDir
     assertExecutableExists outputPath
-    runResult <- runCommand outputPath []
-    assertNonZeroExit ("runtime-error run " <> outputPath) runResult
+    runResult <- runCommandWithInput outputPath (caseArgs conformanceCase) (caseStdin conformanceCase) (caseEnv conformanceCase)
+    case caseExpectedExitCode conformanceCase of
+      Just expectedExitCode -> assertExitFailureCode ("runtime-error run " <> outputPath) expectedExitCode runResult
+      Nothing -> assertNonZeroExit ("runtime-error run " <> outputPath) runResult
+    case caseExpectedStdout conformanceCase of
+      Just expectedStdout -> assertEqual "runtime-error native stdout" (Text.unpack expectedStdout) (resultStdout runResult)
+      Nothing -> pure ()
 
 buildNativeCase :: FilePath -> ConformanceCase -> CompilerMode -> FilePath -> IO FilePath
 buildNativeCase hegglog conformanceCase mode tmpDir = do
@@ -232,17 +243,31 @@ runCompileToLLVMPassCase hegglog conformanceCase =
 
 runCommand :: FilePath -> [String] -> IO CommandResult
 runCommand command args =
-  runCommandWithInput command args ""
+  runCommandWithInput command args "" Map.empty
 
-runCommandWithInput :: FilePath -> [String] -> Text -> IO CommandResult
-runCommandWithInput command args stdinText = do
-  (code, stdoutText, stderrText) <- readProcessWithExitCode command args (Text.unpack stdinText)
+runCommandWithInput :: FilePath -> [String] -> Text -> Map.Map String String -> IO CommandResult
+runCommandWithInput command args stdinText extraEnv = do
+  environment <- processEnvironment extraEnv
+  let createProcess = (proc command args) {env = environment}
+  (code, stdoutText, stderrText) <- readCreateProcessWithExitCode createProcess (Text.unpack stdinText)
   pure
     CommandResult
       { resultExitCode = code
       , resultStdout = stdoutText
       , resultStderr = stderrText
       }
+
+processEnvironment :: Map.Map String String -> IO (Maybe [(String, String)])
+processEnvironment extraEnv
+  | Map.null extraEnv = pure Nothing
+  | otherwise = do
+      baseEnv <- getEnvironment
+      let mergedEnv =
+            Map.toAscList $
+              Map.union
+                extraEnv
+                (Map.fromList baseEnv)
+      pure (Just mergedEnv)
 
 compileExecutableArgs :: ConformanceCase -> FilePath -> CompilerMode -> [String]
 compileExecutableArgs conformanceCase outputPath mode =
@@ -286,6 +311,14 @@ assertNonZeroExit label result =
     ExitSuccess ->
       assertFailure (label <> " unexpectedly succeeded" <> renderCapturedOutput result)
     ExitFailure {} -> pure ()
+
+assertExitFailureCode :: String -> Int -> CommandResult -> Assertion
+assertExitFailureCode label expected result =
+  case resultExitCode result of
+    ExitSuccess ->
+      assertFailure (label <> " unexpectedly succeeded" <> renderCapturedOutput result)
+    ExitFailure actual ->
+      assertEqual (label <> " exit code") expected actual
 
 assertExecutableExists :: FilePath -> Assertion
 assertExecutableExists path = do

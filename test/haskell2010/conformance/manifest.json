@@ -1643,22 +1643,78 @@
       "notes": "Numeric is importable and source-backed, including integral bases, signed reads/shows, floating formatting/parsing, floatToDigits, and fromRat over the current supported numeric tower."
     },
     {
-      "name": "unsupported.library-system-environment",
-      "sourceFile": "test/haskell2010/conformance/unsupported/library-system-environment.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
-      "requiredStage": "module-graph",
-      "notes": "System.Environment remains reserved until process environment APIs are implemented under LIB-011."
+      "name": "modules.system-environment",
+      "sourceFile": "test/haskell2010/conformance/modules/system-environment.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "[\"alpha\",\"beta\"]\nprog\nenv-value\nTrue\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "args": [
+        "alpha",
+        "beta"
+      ],
+      "env": {
+        "HEGGLOG_LIB011_ENV": "env-value"
+      },
+      "notes": "System.Environment exposes getArgs, getProgName, and getEnv through native process argv/envp behavior; missing variables surface as catchable does-not-exist IOErrors."
     },
     {
-      "name": "unsupported.library-system-exit",
-      "sourceFile": "test/haskell2010/conformance/unsupported/library-system-exit.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
-      "requiredStage": "module-graph",
-      "notes": "System.Exit remains reserved until ExitCode and exit actions are implemented under LIB-011."
+      "name": "modules.system-exit",
+      "sourceFile": "test/haskell2010/conformance/modules/system-exit.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "True\nTrue\nTrue\nTrue\nTrue\nbefore\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "System.Exit exports ExitCode with Eq, Ord, Show, Read, and exitSuccess process behavior."
+    },
+    {
+      "name": "modules.system-exit-failure",
+      "sourceFile": "test/haskell2010/conformance/modules/system-exit-failure.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "expectedStdout": "before\n",
+      "expectedExitCode": 7,
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "exitWith (ExitFailure n) terminates the native executable with the requested process status after preserving prior effects."
+    },
+    {
+      "name": "modules.system-exit-catch",
+      "sourceFile": "test/haskell2010/conformance/modules/system-exit-catch.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "expectedStdout": "",
+      "expectedExitCode": 9,
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "exitWith bypasses System.IO.Error.catch; this follows the Libraries Report distinction between process exit and IOError failure."
+    },
+    {
+      "name": "modules.system-exit-zero-catch",
+      "sourceFile": "test/haskell2010/conformance/modules/system-exit-zero-catch.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "caught\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "On the native POSIX target, ExitFailure 0 is prohibited and surfaces as a catchable illegal-operation IOError rather than a successful process exit."
     },
     {
       "name": "unsupported.package-module-search-path",
