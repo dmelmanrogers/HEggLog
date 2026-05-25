@@ -21,7 +21,7 @@ import Haskell2010.FixedWidth
 import Haskell2010.Names (RName, nameOcc, nameUnique, renderRName)
 import Haskell2010.STG.Syntax
 import qualified Haskell2010.STG.Validate as STGValidate
-import Haskell2010.Syntax (Literal (LChar, LInt, LString))
+import Haskell2010.Syntax (Literal (LChar, LInt, LInteger, LString))
 import qualified Haskell2010.Syntax as S
 import Backend.LLVM.IR
 import Backend.LLVM.Validate
@@ -209,6 +209,10 @@ printableMainValue ty value
       reg <- freshRegister "main_int"
       emit (ICall (Just reg) LI64 (DirectCall expectIntFunctionName) False [(LPtr, value)])
       pure (OLocal LI64 reg)
+  | ty == integerTy = do
+      reg <- freshRegister "main_integer"
+      emit (ICall (Just reg) LI64 (DirectCall expectIntFunctionName) False [(LPtr, value)])
+      pure (OLocal LI64 reg)
   | ty == boolTy = do
       boolReg <- freshRegister "main_bool"
       emit (ICall (Just boolReg) LI1 (DirectCall expectBoolFunctionName) False [(LPtr, value)])
@@ -232,7 +236,7 @@ printableMainValue ty value
   | Just fixed <- fixedIntegralTypeByCoreType ty =
       emitExpectObjectInt value >>= emitNormalizeFixed fixed
   | otherwise =
-      throwSTGLLVM (STGLLVMUnsupported ("native Haskell 2010 main must be Int, fixed-width integral, Bool, Char, Float, or Double, got " <> renderCoreType ty))
+      throwSTGLLVM (STGLLVMUnsupported ("native Haskell 2010 main must be Int, Integer, fixed-width integral, Bool, Char, Float, or Double, got " <> renderCoreType ty))
 
 formatPointer :: CoreType -> FunctionM LLVMOperand
 formatPointer ty = do
@@ -407,6 +411,10 @@ emitLiteral = \case
     case mkHIntLiteral value of
       Right intValue -> emitMakeInt (hintToInteger intValue)
       Left err -> throwSTGLLVM (STGLLVMUnsupported ("native Int literal is out of range: " <> renderIntError err))
+  LInteger value ->
+    case mkHIntLiteral value of
+      Right intValue -> emitMakeInt (hintToInteger intValue)
+      Left err -> throwSTGLLVM (STGLLVMUnsupported ("native Integer literal is outside the current native i64 payload path: " <> renderIntError err))
   S.LFloat value ->
     doubleToFloating FloatWidth (OConstFloat LDouble (Text.pack (show (realToFrac value :: Double)))) >>= emitMakeFloat
   S.LDouble value ->
@@ -516,6 +524,57 @@ emitPrim env op arguments =
       emitAbortIfNegativeBitCount "test_bit" amountOperand
       bitSet <- emitTestBitValue valueOperand amountOperand
       emitMakeBool bitSet
+    (PrimIntegerAdd, [lhs, rhs]) -> emitIntBinary env "llvm.sadd.with.overflow.i64" lhs rhs >>= emitMakeIntOperand
+    (PrimIntegerSub, [lhs, rhs]) -> emitIntBinary env "llvm.ssub.with.overflow.i64" lhs rhs >>= emitMakeIntOperand
+    (PrimIntegerMul, [lhs, rhs]) -> emitIntBinary env "llvm.smul.with.overflow.i64" lhs rhs >>= emitMakeIntOperand
+    (PrimIntegerQuot, [lhs, rhs]) -> emitCheckedDiv env lhs rhs >>= emitMakeIntOperand
+    (PrimIntegerRem, [lhs, rhs]) -> emitCheckedRem env lhs rhs >>= emitMakeIntOperand
+    (PrimIntegerEq, [lhs, rhs]) -> do
+      lhsValue <- emitExpectAtomInt env lhs
+      rhsValue <- emitExpectAtomInt env rhs
+      reg <- freshRegister "integer_eq"
+      emit (IIcmp reg ICmpEq LI64 lhsValue rhsValue)
+      emitMakeBool (OLocal LI1 reg)
+    (PrimIntegerLt, [lhs, rhs]) -> do
+      lhsValue <- emitExpectAtomInt env lhs
+      rhsValue <- emitExpectAtomInt env rhs
+      reg <- freshRegister "integer_lt"
+      emit (IIcmp reg ICmpSlt LI64 lhsValue rhsValue)
+      emitMakeBool (OLocal LI1 reg)
+    (PrimIntegerNegate, [value]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      emitCheckedSub (OConstInt LI64 0) valueOperand >>= emitMakeIntOperand
+    (PrimIntegerAbs, [value]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      negativeReg <- freshRegister "integer_abs_negative"
+      emit (IIcmp negativeReg ICmpSlt LI64 valueOperand (OConstInt LI64 0))
+      result <- emitValueIf "integer_abs" LI64 (OLocal LI1 negativeReg) (emitCheckedSub (OConstInt LI64 0) valueOperand) (pure valueOperand)
+      emitMakeIntOperand result
+    (PrimIntegerSignum, [value]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      zeroReg <- freshRegister "integer_signum_zero"
+      negativeReg <- freshRegister "integer_signum_negative"
+      emit (IIcmp zeroReg ICmpEq LI64 valueOperand (OConstInt LI64 0))
+      emit (IIcmp negativeReg ICmpSlt LI64 valueOperand (OConstInt LI64 0))
+      nonZero <- emitValueIf "integer_signum_nonzero" LI64 (OLocal LI1 negativeReg) (pure (OConstInt LI64 (-1))) (pure (OConstInt LI64 1))
+      emitValueIf "integer_signum" LI64 (OLocal LI1 zeroReg) (pure (OConstInt LI64 0)) (pure nonZero) >>= emitMakeIntOperand
+    (PrimIntegerToInt, [value]) ->
+      emitAtomValue env value
+    (PrimIntToInteger, [value]) ->
+      emitAtomValue env value
+    (PrimIntegerToFloat width, [value]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      let targetTy = floatingLLVMType width
+      reg <- freshRegister "integer_to_float"
+      emit (ISIToFP reg valueOperand targetTy)
+      case width of
+        FloatWidth -> emitMakeFloat (OLocal LFloat reg)
+        DoubleWidth -> emitMakeDouble (OLocal LDouble reg)
+    (PrimShowInteger, [value]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      resultReg <- freshRegister "show_integer"
+      emit (ICall (Just resultReg) LPtr (DirectCall showIntFunctionName) False [(LI64, valueOperand)])
+      pure (OLocal LPtr resultReg)
     (PrimCharToInt, [value]) -> do
       valueOperand <- emitExpectAtomChar env value
       extendedReg <- freshRegister "char_i64"
@@ -2410,6 +2469,14 @@ literalMatchCondition tagValue = \case
     reg <- freshRegister "case_char_match"
     emit (IIcmp reg ICmpEq LI64 tagValue (OConstInt LI64 (fromIntegral (ord expected))))
     pure (OLocal LI1 reg)
+  LInteger value ->
+    case mkHIntLiteral value of
+      Right intValue -> do
+        reg <- freshRegister "case_integer_match"
+        emit (IIcmp reg ICmpEq LI64 tagValue (OConstInt LI64 (hintToInteger intValue)))
+        pure (OLocal LI1 reg)
+      Left err ->
+        throwSTGLLVM (STGLLVMUnsupported ("native Integer case literal is outside the current native i64 payload path: " <> renderIntError err))
   LString {} ->
     throwSTGLLVM (STGLLVMUnsupported "native String case alternatives are not implemented for Core-0")
   S.LFloat {} ->

@@ -49,6 +49,7 @@ import Runtime.Int
 
 data CoreValue
   = CoreInt HInt
+  | CoreInteger Integer
   | CoreFloat Float
   | CoreDouble Double
   | CoreBool Bool
@@ -217,6 +218,8 @@ evalLiteral = \case
     case mkHIntLiteral value of
       Right intValue -> Right (CoreInt intValue)
       Left err -> Left (CoreEvalIntError err)
+  LInteger value ->
+    Right (CoreInteger value)
   LFloat value ->
     Right (CoreFloat value)
   LDouble value ->
@@ -298,6 +301,8 @@ alternativeFields altCon value =
       Just []
     (LiteralAlt (LInt expected), CoreInt actual) ->
       if hintToInteger actual == expected then Just [] else Nothing
+    (LiteralAlt (LInteger expected), CoreInteger actual) ->
+      if actual == expected then Just [] else Nothing
     (LiteralAlt (LChar expected), CoreChar actual) ->
       if actual == expected then Just [] else Nothing
     (LiteralAlt (LString expected), CoreString actual) ->
@@ -447,6 +452,40 @@ evalPrimitive coreEnv op values =
       checkedIntValue (bitHInt amount)
     (PrimTestBit, [CoreInt value, CoreInt amount]) ->
       either (Left . CoreEvalIntError) (Right . CoreBool) (testBitHInt value amount)
+    (PrimIntegerAdd, [CoreInteger lhs, CoreInteger rhs]) ->
+      Right (CoreInteger (lhs + rhs))
+    (PrimIntegerSub, [CoreInteger lhs, CoreInteger rhs]) ->
+      Right (CoreInteger (lhs - rhs))
+    (PrimIntegerMul, [CoreInteger lhs, CoreInteger rhs]) ->
+      Right (CoreInteger (lhs * rhs))
+    (PrimIntegerQuot, [CoreInteger _, CoreInteger 0]) ->
+      Left CoreEvalDivisionByZero
+    (PrimIntegerQuot, [CoreInteger lhs, CoreInteger rhs]) ->
+      Right (CoreInteger (lhs `quot` rhs))
+    (PrimIntegerRem, [CoreInteger _, CoreInteger 0]) ->
+      Left CoreEvalDivisionByZero
+    (PrimIntegerRem, [CoreInteger lhs, CoreInteger rhs]) ->
+      Right (CoreInteger (lhs `rem` rhs))
+    (PrimIntegerEq, [CoreInteger lhs, CoreInteger rhs]) ->
+      Right (CoreBool (lhs == rhs))
+    (PrimIntegerLt, [CoreInteger lhs, CoreInteger rhs]) ->
+      Right (CoreBool (lhs < rhs))
+    (PrimIntegerNegate, [CoreInteger value]) ->
+      Right (CoreInteger (negate value))
+    (PrimIntegerAbs, [CoreInteger value]) ->
+      Right (CoreInteger (abs value))
+    (PrimIntegerSignum, [CoreInteger value]) ->
+      Right (CoreInteger (signum value))
+    (PrimIntegerToInt, [CoreInteger value]) ->
+      checkedIntValue (mkHIntLiteral value)
+    (PrimIntToInteger, [CoreInt value]) ->
+      Right (CoreInteger (hintToInteger value))
+    (PrimIntegerToFloat FloatWidth, [CoreInteger value]) ->
+      Right (CoreFloat (fromInteger value))
+    (PrimIntegerToFloat DoubleWidth, [CoreInteger value]) ->
+      Right (CoreDouble (fromInteger value))
+    (PrimShowInteger, [CoreInteger value]) ->
+      Right (coreStringList (Text.pack (show value)))
     (PrimCharToInt, [CoreChar value]) ->
       checkedIntValue (mkHIntLiteral (fromIntegral (ord value)))
     (PrimIntToChar, [CoreInt value]) ->
@@ -703,8 +742,8 @@ evalFixedIntegralPrimitive fixed op values =
     (FixedNegate, [CoreInt value]) -> fixedValue (negate (fixedInput value))
     (FixedAbs, [CoreInt value]) -> fixedValue (abs (fixedInput value))
     (FixedSignum, [CoreInt value]) -> fixedValue (signum (fixedInput value))
-    (FixedFromInteger, [CoreInt value]) -> fixedValue (hintToInteger value)
-    (FixedToInteger, [CoreInt value]) -> checkedCoreIntValue (mkHIntLiteral (fixedInput value))
+    (FixedFromInteger, [CoreInteger value]) -> fixedValue value
+    (FixedToInteger, [CoreInt value]) -> Right (CoreInteger (fixedInput value))
     (FixedShow, [CoreInt value]) -> Right (coreStringList (fixedIntegralRender fixed (fixedInput value)))
     (FixedBitAnd, [CoreInt lhs, CoreInt rhs]) -> fixedBitsValue ((Bits..&.) (fixedInputBits lhs) (fixedInputBits rhs))
     (FixedBitOr, [CoreInt lhs, CoreInt rhs]) -> fixedBitsValue ((Bits..|.) (fixedInputBits lhs) (fixedInputBits rhs))
@@ -937,6 +976,8 @@ valueEquals lhs rhs =
   case (lhs, rhs) of
     (CoreInt lhsInt, CoreInt rhsInt) ->
       Right (eqHInt lhsInt rhsInt)
+    (CoreInteger lhsInteger, CoreInteger rhsInteger) ->
+      Right (lhsInteger == rhsInteger)
     (CoreFloat lhsFloat, CoreFloat rhsFloat) ->
       Right (lhsFloat == rhsFloat)
     (CoreDouble lhsDouble, CoreDouble rhsDouble) ->
@@ -957,6 +998,8 @@ renderCoreValue :: CoreValue -> Text
 renderCoreValue = \case
   CoreInt value ->
     renderHInt value
+  CoreInteger value ->
+    Text.pack (show value)
   CoreFloat value ->
     Text.pack (show value)
   CoreDouble value ->
@@ -1044,6 +1087,20 @@ renderCorePrimOpName = \case
   PrimRotateR -> "rotateR#"
   PrimBit -> "bit#"
   PrimTestBit -> "testBit#"
+  PrimIntegerAdd -> "integerAdd#"
+  PrimIntegerSub -> "integerSub#"
+  PrimIntegerMul -> "integerMul#"
+  PrimIntegerQuot -> "integerQuot#"
+  PrimIntegerRem -> "integerRem#"
+  PrimIntegerEq -> "integerEq#"
+  PrimIntegerLt -> "integerLt#"
+  PrimIntegerNegate -> "integerNegate#"
+  PrimIntegerAbs -> "integerAbs#"
+  PrimIntegerSignum -> "integerSignum#"
+  PrimIntegerToInt -> "integerToInt#"
+  PrimIntToInteger -> "intToInteger#"
+  PrimIntegerToFloat width -> renderEvalFloatingWidth width <> ".fromInteger#"
+  PrimShowInteger -> "showInteger#"
   PrimCharToInt -> "charToInt#"
   PrimIntToChar -> "intToChar#"
   PrimShowInt -> "showInt#"
@@ -1135,6 +1192,11 @@ renderCorePrimOpName = \case
   PrimFixedIntegral fixed op -> fixedIntegralOccurrence fixed <> "." <> Text.pack (show op) <> "#"
   PrimFloat width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
   PrimFloatInt width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
+
+renderEvalFloatingWidth :: FloatingWidth -> Text
+renderEvalFloatingWidth = \case
+  FloatWidth -> "Float"
+  DoubleWidth -> "Double"
 
 renderForeignStorableKind :: ForeignStorableKind -> Text
 renderForeignStorableKind = \case

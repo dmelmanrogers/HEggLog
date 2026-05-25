@@ -380,7 +380,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
               , recordSelectorTypeEnv selectors
               , foreignEnv
               ]
-      (bindings, env) <- inferBindingGroup classEnv sourceDecls
+      (bindings, env) <- inferBindingGroup TopLevelBindingGroup classEnv sourceDecls
       explicitInstances <- inferInstanceDictionaries env sourceDecls
       derivedInstances <- inferDerivedInstanceDictionaries env sourceDecls explicitInstances
       validateForeignExportsAgainstEnv env sourceDecls
@@ -580,7 +580,7 @@ runInfer initialTypeConstructors action =
           , dataConstructors = Map.empty
           , recordSelectors = Map.empty
           , classInfos = Map.empty
-          , defaultTypes = [intMonoType, doubleMonoType]
+          , defaultTypes = [integerMonoType, doubleMonoType]
           , typecheckSpanStack = []
           , typecheckWarnings = []
           }
@@ -1172,7 +1172,7 @@ builtinClassInfos =
       , ("negate", -1424, TyFun numATy numATy)
       , ("abs", -1425, TyFun numATy numATy)
       , ("signum", -1426, TyFun numATy numATy)
-      , ("fromInteger", -1427, TyFun intMonoType numATy)
+      , ("fromInteger", -1427, TyFun integerMonoType numATy)
       ]
 
   realA = preludeTypeVariable "a" (-1371)
@@ -1202,7 +1202,7 @@ builtinClassInfos =
       , ("mod", -1484, TyFun integralATy (TyFun integralATy integralATy))
       , ("quotRem", -1485, TyFun integralATy (TyFun integralATy integralPairTy))
       , ("divMod", -1486, TyFun integralATy (TyFun integralATy integralPairTy))
-      , ("toInteger", -1487, TyFun integralATy intMonoType)
+      , ("toInteger", -1487, TyFun integralATy integerMonoType)
       ]
 
   fractionalA = preludeTypeVariable "a" (-1388)
@@ -2588,17 +2588,17 @@ validErrnoValues :: [Integer]
 validErrnoValues =
   List.nub [value | (_, value) <- errnoConstantValues, value >= 0]
 
-inferBindingGroup :: TypeEnv -> [RDecl] -> InferM ([TypedBinding], TypeEnv)
-inferBindingGroup outerEnv decls = do
+inferBindingGroup :: BindingGroupContext -> TypeEnv -> [RDecl] -> InferM ([TypedBinding], TypeEnv)
+inferBindingGroup context outerEnv decls = do
   signatures <- collectSignatures decls
   sourceBindings <- collectValueBindings decls
   let bindingNames = map sourceBindingName sourceBindings
   mapM_ (ensureSignatureHasBinding bindingNames) (Map.keys signatures)
   prepared <- traverse (prepareBinding signatures) sourceBindings
-  inferPreparedComponents outerEnv signatures prepared
+  inferPreparedComponents context outerEnv signatures prepared
 
-inferPreparedComponents :: TypeEnv -> Map.Map RName Scheme -> [PreparedBinding] -> InferM ([TypedBinding], TypeEnv)
-inferPreparedComponents outerEnv signatures prepared =
+inferPreparedComponents :: BindingGroupContext -> TypeEnv -> Map.Map RName Scheme -> [PreparedBinding] -> InferM ([TypedBinding], TypeEnv)
+inferPreparedComponents context outerEnv signatures prepared =
   foldM inferComponent ([], outerEnv) (preparedBindingComponents prepared)
  where
   inferComponent (bindingsAcc, env) component = do
@@ -2607,8 +2607,9 @@ inferPreparedComponents outerEnv signatures prepared =
             (Map.fromList [(preparedName binding, preparedScheme binding) | binding <- component])
             env
     inferred <- traverse (inferPreparedBinding recursiveEnv) component
-    defaultBindingGroupConstraints inferred
-    finalized <- traverse (finalizeBinding env signatures) inferred
+    when (context == TopLevelBindingGroup) $
+      defaultBindingGroupConstraints inferred
+    finalized <- traverse (finalizeBinding context env signatures) inferred
     subst <- substitution <$> get
     let groupSchemes = Map.fromList [(typedBindingName binding, typedBindingScheme binding) | binding <- finalized]
         finalizedWithRecursiveSchemes = map (refreshBindingReferences subst groupSchemes) finalized
@@ -2757,8 +2758,8 @@ typedExprDefaultingConstraints = \case
     typedExprDefaultingConstraints body
   TApp fn arg _ ->
     typedExprDefaultingConstraints fn <> typedExprDefaultingConstraints arg
-  TLet _ body _ ->
-    typedExprDefaultingConstraints body
+  TLet bindings body _ ->
+    concatMap typedBindingDefaultingConstraints bindings <> typedExprDefaultingConstraints body
   TCase scrutinee _ alternatives _ ->
     typedExprDefaultingConstraints scrutinee <> concatMap typedAltDefaultingConstraints alternatives
   TCoerce expression _ ->
@@ -2769,6 +2770,14 @@ typedExprDefaultingConstraints = \case
 typedAltDefaultingConstraints :: TypedAlt -> [ClassConstraint]
 typedAltDefaultingConstraints (TypedAlt _ _ body) =
   typedExprDefaultingConstraints body
+
+typedBindingDefaultingConstraints :: TypedBinding -> [ClassConstraint]
+typedBindingDefaultingConstraints binding =
+  case typedBindingScheme binding of
+    Scheme [] [] _ ->
+      typedExprDefaultingConstraints (typedBindingRhs binding)
+    _ ->
+      []
 
 -- TYPE-019 policy: the executable subset treats unsigned nullary bindings as
 -- eligible for standard-class defaulting before generalization. Signed bindings
@@ -3009,6 +3018,11 @@ data PreparedBinding = PreparedBinding
   }
   deriving stock (Show, Eq, Ord)
 
+data BindingGroupContext
+  = TopLevelBindingGroup
+  | LocalBindingGroup
+  deriving stock (Show, Eq, Ord)
+
 data InferredBinding = InferredBinding PreparedBinding TypedExpr
   deriving stock (Show, Eq, Ord)
 
@@ -3047,7 +3061,7 @@ collectDefaultTypes :: [RDecl] -> InferM [MonoType]
 collectDefaultTypes decls =
   case [types | RDefaultDecl types <- decls] of
     [] ->
-      pure [intMonoType, doubleMonoType]
+      pure [integerMonoType, doubleMonoType]
     [types] ->
       traverse defaultTypeMonoType types
     _ ->
@@ -3059,7 +3073,7 @@ defaultTypeMonoType sourceType = do
   case sourceTypeWithoutParens expanded of
     RTyCon name
       | nameOcc name == "Int" -> pure intMonoType
-      | nameOcc name == "Integer" -> pure intMonoType
+      | nameOcc name == "Integer" -> pure integerMonoType
       | nameOcc name == "Float" -> pure floatMonoType
       | nameOcc name == "Double" -> pure doubleMonoType
     other ->
@@ -3562,8 +3576,8 @@ inferPreparedBinding env prepared =
     unify (preparedExpected prepared) (typedExprType expr)
     pure (InferredBinding prepared expr)
 
-finalizeBinding :: TypeEnv -> Map.Map RName Scheme -> InferredBinding -> InferM TypedBinding
-finalizeBinding outerEnv signatures (InferredBinding prepared rhs) =
+finalizeBinding :: BindingGroupContext -> TypeEnv -> Map.Map RName Scheme -> InferredBinding -> InferM TypedBinding
+finalizeBinding context outerEnv signatures (InferredBinding prepared rhs) =
   if preparedHasSignature prepared
     then do
       let scheme = signatures Map.! preparedName prepared
@@ -3575,14 +3589,26 @@ finalizeBinding outerEnv signatures (InferredBinding prepared rhs) =
           , typedBindingRhs = rhs
           }
     else do
-      generalized <- generalize outerEnv (typedExprDefaultingConstraints rhs) (typedExprType rhs)
-      pure
-        TypedBinding
-          { typedBindingName = preparedName prepared
-          , typedBindingScheme = generalizedScheme generalized
-          , typedBindingGeneralizedMetas = generalizedMetas generalized
-          , typedBindingRhs = rhs
-          }
+      case context of
+        LocalBindingGroup
+          | canDefaultBindingResult prepared -> do
+              ty <- applyCurrent (typedExprType rhs)
+              pure
+                TypedBinding
+                  { typedBindingName = preparedName prepared
+                  , typedBindingScheme = Scheme [] [] ty
+                  , typedBindingGeneralizedMetas = Map.empty
+                  , typedBindingRhs = rhs
+                  }
+        _ -> do
+          generalized <- generalize outerEnv (typedExprDefaultingConstraints rhs) (typedExprType rhs)
+          pure
+            TypedBinding
+              { typedBindingName = preparedName prepared
+              , typedBindingScheme = generalizedScheme generalized
+              , typedBindingGeneralizedMetas = generalizedMetas generalized
+              , typedBindingRhs = rhs
+              }
 
 inferInstanceDictionaries :: TypeEnv -> [RDecl] -> InferM [TypedInstanceDictionary]
 inferInstanceDictionaries env =
@@ -5407,7 +5433,7 @@ inferRhs env rhs whereDecls =
     (whereBindings, rhsEnv) <-
       if null whereDecls
         then pure ([], env)
-        else inferBindingGroup env whereDecls
+        else inferBindingGroup LocalBindingGroup env whereDecls
     body <-
       case rhs of
         RUnguarded expr ->
@@ -5496,7 +5522,7 @@ inferExpr env expr =
       RLambda patterns body ->
         inferLambda env patterns body
       RLet decls body -> do
-        (bindings, env') <- inferBindingGroup env decls
+        (bindings, env') <- inferBindingGroup LocalBindingGroup env decls
         typedBody <- inferExpr env' body
         pure (TLet bindings typedBody (typedExprType typedBody))
       RIf condition thenBranch elseBranch -> do
@@ -5652,7 +5678,7 @@ inferListCompWithTail env elementTy body (statement : rest) tailExpr =
               (typedExprType tailExpr)
           )
       RLetStmt decls -> do
-        (bindings, env') <- inferBindingGroup env decls
+        (bindings, env') <- inferBindingGroup LocalBindingGroup env decls
         restExpr <- inferListCompWithTail env' elementTy body rest tailExpr
         pure (TLet bindings restExpr (typedExprType restExpr))
       RBindStmt pat sourceExpr -> do
@@ -5940,7 +5966,7 @@ inferDo env (statement@(RExprStmt expr) : rest) =
     applyTypedExpr thenFirst restExpr
 inferDo env (statement@(RLetStmt decls) : rest) =
   withTypecheckSpan (rStmtSpan statement) $ do
-    (bindings, env') <- inferBindingGroup env decls
+    (bindings, env') <- inferBindingGroup LocalBindingGroup env decls
     body <- inferDo env' rest
     pure (TLet bindings body (typedExprType body))
 inferDo env (statement@(RBindStmt pat expr) : rest) =
@@ -6303,7 +6329,7 @@ inferIntegerLiteral value = do
           (Map.singleton classVariable resultTy)
           (schemeBody methodScheme)
       methodExpr = TVar (classMethodName method) methodScheme [resultTy] methodTy
-      literalExpr = TLit (LInt value) intMonoType
+      literalExpr = TLit (LInteger value) integerMonoType
   case methodTy of
     TyFun _ result ->
       pure (TApp methodExpr literalExpr result)
@@ -6341,17 +6367,17 @@ inferFractionalLiteral value = do
 
 rationalLiteralTypedExpr :: Integer -> Integer -> TypedExpr
 rationalLiteralTypedExpr numeratorValue denominatorValue =
-  TApp (TApp conExpr numeratorExpr (TyFun intMonoType rationalMonoType)) denominatorExpr rationalMonoType
+  TApp (TApp conExpr numeratorExpr (TyFun integerMonoType rationalMonoType)) denominatorExpr rationalMonoType
  where
   conScheme = dataConstructorScheme (builtinDataConstructors Map.! ratioDataConName)
   conExpr =
     TCon
       ratioDataConName
       conScheme
-      [intMonoType]
-      (TyFun intMonoType (TyFun intMonoType rationalMonoType))
-  numeratorExpr = TLit (LInt numeratorValue) intMonoType
-  denominatorExpr = TLit (LInt denominatorValue) intMonoType
+      [integerMonoType]
+      (TyFun integerMonoType (TyFun integerMonoType rationalMonoType))
+  numeratorExpr = TLit (LInteger numeratorValue) integerMonoType
+  denominatorExpr = TLit (LInteger denominatorValue) integerMonoType
 
 preludeValueCoreName :: RName -> RName
 preludeValueCoreName name =
@@ -6435,9 +6461,9 @@ preludeValueScheme name
             "read" -> Just (Scheme [a] [singleClassConstraint builtinReadClassName aTy] (TyFun stringMonoType aTy))
             "lex" -> Just (Scheme [] [] (TyFun stringMonoType (TyList (TyTuple [stringMonoType, stringMonoType]))))
             "readParen" -> Just (Scheme [a] [] (TyFun boolMonoType (TyFun readSA readSA)))
-            "%" -> Just (Scheme [] [] (TyFun intMonoType (TyFun intMonoType rationalMonoType)))
-            "numerator" -> Just (Scheme [] [] (TyFun rationalMonoType intMonoType))
-            "denominator" -> Just (Scheme [] [] (TyFun rationalMonoType intMonoType))
+            "%" -> Just (Scheme [] [] (TyFun integerMonoType (TyFun integerMonoType rationalMonoType)))
+            "numerator" -> Just (Scheme [] [] (TyFun rationalMonoType integerMonoType))
+            "denominator" -> Just (Scheme [] [] (TyFun rationalMonoType integerMonoType))
             "approxRational" -> Just (Scheme [] [] (TyFun rationalMonoType (TyFun rationalMonoType rationalMonoType)))
             "$read_append" -> Just (Scheme [a] [] (TyFun listA (TyFun listA listA)))
             "$read_exact" -> Just (Scheme [] [] (TyFun stringMonoType (TyFun stringMonoType (TyList (TyTuple [unitMonoType, stringMonoType])))))
@@ -6448,6 +6474,7 @@ preludeValueScheme name
             "$read_bool" -> Just (Scheme [] [] boolReadS)
             "$read_char" -> Just (Scheme [] [] charReadS)
             "$read_string" -> Just (Scheme [] [] stringReadS)
+            "$read_integer" -> Just (Scheme [] [] integerReadS)
             "mapM" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (TyFun aTy mB) (TyFun listA (mList bTy))))
             "mapM_" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (TyFun aTy mB) (TyFun listA mUnit)))
             "forM" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun listA (TyFun (TyFun aTy mB) (mList bTy))))
@@ -6725,6 +6752,7 @@ preludeValueScheme name
   readSA = TyFun stringMonoType (TyList (TyTuple [aTy, stringMonoType]))
   readListSA = TyFun stringMonoType (TyList (TyTuple [listA, stringMonoType]))
   intReadS = TyFun stringMonoType (TyList (TyTuple [intMonoType, stringMonoType]))
+  integerReadS = TyFun stringMonoType (TyList (TyTuple [integerMonoType, stringMonoType]))
   boolReadS = TyFun stringMonoType (TyList (TyTuple [boolMonoType, stringMonoType]))
   charReadS = TyFun stringMonoType (TyList (TyTuple [charMonoType, stringMonoType]))
   stringReadS = TyFun stringMonoType (TyList (TyTuple [stringMonoType, stringMonoType]))
@@ -8122,7 +8150,7 @@ builtinTypeConstructorMonoType name =
     Just _ ->
       case nameOcc name of
         "Int" -> pure intMonoType
-        "Integer" -> pure intMonoType
+        "Integer" -> pure integerMonoType
         "Float" -> pure floatMonoType
         "Double" -> pure doubleMonoType
         "Bool" -> pure boolMonoType
@@ -9099,17 +9127,17 @@ preludeCorePair name =
     "charIsRepresentable" ->
       Just (binderFor name charIsRepresentableTy, lam cStringChar charTy (ioReturn boolTy (CCon trueDataConName boolTy)))
     "castCharToCChar" ->
-      Just (binderFor name castCharToCCharTy, lam cStringChar charTy (CPrimOp (PrimFixedIntegral FixedInt8 FixedFromInteger) [CPrimOp PrimCharToInt [var cStringChar charTy] intTy] cCharTy))
+      Just (binderFor name castCharToCCharTy, lam cStringChar charTy (CPrimOp (PrimFixedIntegral FixedInt8 FixedFromInteger) [CPrimOp PrimIntToInteger [CPrimOp PrimCharToInt [var cStringChar charTy] intTy] integerTy] cCharTy))
     "castCCharToChar" ->
-      Just (binderFor name castCCharToCharTy, lam cStringCChar cCharTy (CPrimOp PrimIntToChar [CPrimOp (PrimFixedIntegral FixedInt8 FixedToInteger) [var cStringCChar cCharTy] intTy] charTy))
+      Just (binderFor name castCCharToCharTy, lam cStringCChar cCharTy (CPrimOp PrimIntToChar [CPrimOp PrimIntegerToInt [CPrimOp (PrimFixedIntegral FixedInt8 FixedToInteger) [var cStringCChar cCharTy] integerTy] intTy] charTy))
     "castCharToCUChar" ->
-      Just (binderFor name castCharToCUCharTy, lam cStringChar charTy (CPrimOp (PrimFixedIntegral FixedWord8 FixedFromInteger) [CPrimOp PrimCharToInt [var cStringChar charTy] intTy] cUCharTy))
+      Just (binderFor name castCharToCUCharTy, lam cStringChar charTy (CPrimOp (PrimFixedIntegral FixedWord8 FixedFromInteger) [CPrimOp PrimIntToInteger [CPrimOp PrimCharToInt [var cStringChar charTy] intTy] integerTy] cUCharTy))
     "castCUCharToChar" ->
-      Just (binderFor name castCUCharToCharTy, lam cStringCUChar cUCharTy (CPrimOp PrimIntToChar [CPrimOp (PrimFixedIntegral FixedWord8 FixedToInteger) [var cStringCUChar cUCharTy] intTy] charTy))
+      Just (binderFor name castCUCharToCharTy, lam cStringCUChar cUCharTy (CPrimOp PrimIntToChar [CPrimOp PrimIntegerToInt [CPrimOp (PrimFixedIntegral FixedWord8 FixedToInteger) [var cStringCUChar cUCharTy] integerTy] intTy] charTy))
     "castCharToCSChar" ->
-      Just (binderFor name castCharToCCharTy, lam cStringChar charTy (CPrimOp (PrimFixedIntegral FixedInt8 FixedFromInteger) [CPrimOp PrimCharToInt [var cStringChar charTy] intTy] cCharTy))
+      Just (binderFor name castCharToCCharTy, lam cStringChar charTy (CPrimOp (PrimFixedIntegral FixedInt8 FixedFromInteger) [CPrimOp PrimIntToInteger [CPrimOp PrimCharToInt [var cStringChar charTy] intTy] integerTy] cCharTy))
     "castCSCharToChar" ->
-      Just (binderFor name castCCharToCharTy, lam cStringCChar cCharTy (CPrimOp PrimIntToChar [CPrimOp (PrimFixedIntegral FixedInt8 FixedToInteger) [var cStringCChar cCharTy] intTy] charTy))
+      Just (binderFor name castCCharToCharTy, lam cStringCChar cCharTy (CPrimOp PrimIntToChar [CPrimOp PrimIntegerToInt [CPrimOp (PrimFixedIntegral FixedInt8 FixedToInteger) [var cStringCChar cCharTy] integerTy] intTy] charTy))
     "getErrno" ->
       Just (binderFor name getErrnoTy, CPrimOp PrimGetErrno [] getErrnoTy)
     "resetErrno" ->
@@ -9646,6 +9674,8 @@ preludeCorePair name =
     CApp fn arg resultTy
   intLiteral value =
     CLit (LInt value) intTy
+  integerLiteral value =
+    CLit (LInteger value) integerTy
   nil elementTy =
     constructorApp listNilDataConName [elementTy] [] (CTyList elementTy)
   cons elementTy headExpr tailExpr =
@@ -10917,7 +10947,7 @@ preludeCorePair name =
   errnoEq value intValue =
     CPrimOp (PrimFixedIntegral FixedInt32 FixedEq) [value, errnoLiteral intValue] boolTy
   errnoLiteral value =
-    CPrimOp (PrimFixedIntegral FixedInt32 FixedFromInteger) [intLiteral value] errnoTy
+    CPrimOp (PrimFixedIntegral FixedInt32 FixedFromInteger) [integerLiteral value] errnoTy
 
   throwErrnoRhs =
     CTypeLam [a] (lam throwErrnoLocation stringTy (throwErrnoWithFile aTy (var throwErrnoLocation stringTy) (maybeNothing stringTy))) throwErrnoTy
@@ -11019,10 +11049,10 @@ preludeCorePair name =
         (CTyFun resultTy boolTy))
       ( apply
           (apply
-            (specialize (preludeTermName "fromInteger" (-1427)) fromIntegerSelectorTy [resultTy] (CTyFun numDictResult (CTyFun intTy resultTy)))
+            (specialize (preludeTermName "fromInteger" (-1427)) fromIntegerSelectorTy [resultTy] (CTyFun numDictResult (CTyFun integerTy resultTy)))
             (var throwErrnoDictNum numDictA)
-            (CTyFun intTy resultTy))
-          (intLiteral (-1))
+            (CTyFun integerTy resultTy))
+          (integerLiteral (-1))
           resultTy
       )
       boolTy
@@ -11034,7 +11064,7 @@ preludeCorePair name =
     numClassA = preludeTypeVariable "a" (-1321)
     numClassATy = CTyVar numClassA
     numClassDictA = CTyApp (CTyCon (classDictionaryTypeName builtinNumClassName)) numClassATy
-    fromIntegerSelectorTy = CTyForall [numClassA] (CTyFun numClassDictA (CTyFun intTy numClassATy))
+    fromIntegerSelectorTy = CTyForall [numClassA] (CTyFun numClassDictA (CTyFun integerTy numClassATy))
     eqDictResult = CTyApp (CTyCon (classDictionaryTypeName builtinEqClassName)) resultTy
     numDictResult = CTyApp (CTyCon (classDictionaryTypeName builtinNumClassName)) resultTy
 
@@ -12246,6 +12276,9 @@ readSupportPreludeNames =
   , readCharBodyName
   , readStringName
   , readStringCharsName
+  , readIntegerName
+  , readIntegerStartName
+  , readIntegerDigitsName
   ]
 
 readAppendName, readBindName, readDropSpacesName, readExactName, readExactRawName, readExactGoName, readEndName, readCompleteName :: RName
@@ -12278,6 +12311,11 @@ readCharBodyName = preludeTermName "$read_char_body" (-2521)
 readStringName = preludeTermName "$read_string" (-2522)
 readStringCharsName = preludeTermName "$read_string_chars" (-2523)
 
+readIntegerName, readIntegerStartName, readIntegerDigitsName :: RName
+readIntegerName = preludeTermName "$read_integer" (-2524)
+readIntegerStartName = preludeTermName "$read_integer_start" (-2525)
+readIntegerDigitsName = preludeTermName "$read_integer_digits" (-2526)
+
 ratioSupportPreludeNames :: [RName]
 ratioSupportPreludeNames =
   [ ratioReduceName
@@ -12306,11 +12344,11 @@ ratioPreludeCorePair name =
 
 ratioPercentCoreType :: CoreType
 ratioPercentCoreType =
-  CTyFun intTy (CTyFun intTy rationalCoreType)
+  CTyFun integerTy (CTyFun integerTy rationalCoreType)
 
 ratioAccessorCoreType :: CoreType
 ratioAccessorCoreType =
-  CTyFun rationalCoreType intTy
+  CTyFun rationalCoreType integerTy
 
 ratioApproxRationalCoreType :: CoreType
 ratioApproxRationalCoreType =
@@ -12338,7 +12376,7 @@ ratioSimplestPositiveCorePair =
 
 ratioGcdCoreType :: CoreType
 ratioGcdCoreType =
-  CTyFun intTy (CTyFun intTy intTy)
+  CTyFun integerTy (CTyFun integerTy integerTy)
 
 ratioSimplestCoreType :: CoreType
 ratioSimplestCoreType =
@@ -12346,22 +12384,22 @@ ratioSimplestCoreType =
 
 ratioSimplestPositiveCoreType :: CoreType
 ratioSimplestPositiveCoreType =
-  CTyFun intTy (CTyFun intTy (CTyFun intTy (CTyFun intTy rationalCoreType)))
+  CTyFun integerTy (CTyFun integerTy (CTyFun integerTy (CTyFun integerTy rationalCoreType)))
 
 ratioReduceRhs :: CoreExpr
 ratioReduceRhs =
-  coreLam xName intTy $
-    coreLam yName intTy $
+  coreLam xName integerTy $
+    coreLam yName integerTy $
       boolCaseCore
         "$ratio_reduce_zero"
         (-4010)
-        (CPrimOp PrimEq [y, zeroInt] boolTy)
+        (CPrimOp PrimIntegerEq [y, zeroInteger] boolTy)
         rationalCoreType
         (bottomCore "$ratio_reduce_zero_denominator" (-4011) rationalCoreType)
-        ( letCore signedName intTy (intMul x (intSignumCore y)) $
-            letCore positiveDenName intTy (intAbsCore y) $
-              letCore gcdName intTy (ratioGcdCall signed positiveDen) $
-                ratioIntCore (intQuot signed gcdValue) (intQuot positiveDen gcdValue)
+        ( letCore signedName integerTy (integerMul x (integerSignumCore y)) $
+            letCore positiveDenName integerTy (integerAbsCore y) $
+              letCore gcdName integerTy (ratioGcdCall signed positiveDen) $
+                ratioIntegerCore (integerQuot signed gcdValue) (integerQuot positiveDen gcdValue)
         )
  where
   xName = builtinLocalTermName "$ratio_reduce_x" (-4012)
@@ -12369,47 +12407,47 @@ ratioReduceRhs =
   signedName = builtinLocalTermName "$ratio_reduce_signed" (-4014)
   positiveDenName = builtinLocalTermName "$ratio_reduce_den" (-4015)
   gcdName = builtinLocalTermName "$ratio_reduce_gcd" (-4016)
-  x = CVar xName intTy
-  y = CVar yName intTy
-  signed = CVar signedName intTy
-  positiveDen = CVar positiveDenName intTy
-  gcdValue = CVar gcdName intTy
+  x = CVar xName integerTy
+  y = CVar yName integerTy
+  signed = CVar signedName integerTy
+  positiveDen = CVar positiveDenName integerTy
+  gcdValue = CVar gcdName integerTy
 
 ratioGcdRhs :: CoreExpr
 ratioGcdRhs =
-  coreLam xName intTy $
-    coreLam yName intTy $
-      ratioGcdGoCall (intAbsCore x) (intAbsCore y)
+  coreLam xName integerTy $
+    coreLam yName integerTy $
+      ratioGcdGoCall (integerAbsCore x) (integerAbsCore y)
  where
   xName = builtinLocalTermName "$ratio_gcd_x" (-4020)
   yName = builtinLocalTermName "$ratio_gcd_y" (-4021)
-  x = CVar xName intTy
-  y = CVar yName intTy
+  x = CVar xName integerTy
+  y = CVar yName integerTy
 
 ratioGcdGoRhs :: CoreExpr
 ratioGcdGoRhs =
-  coreLam xName intTy $
-    coreLam yName intTy $
+  coreLam xName integerTy $
+    coreLam yName integerTy $
       boolCaseCore
         "$ratio_gcd_go_zero"
         (-4030)
-        (CPrimOp PrimEq [y, zeroInt] boolTy)
-        intTy
+        (CPrimOp PrimIntegerEq [y, zeroInteger] boolTy)
+        integerTy
         x
-        (ratioGcdGoCall y (intRem x y))
+        (ratioGcdGoCall y (integerRem x y))
  where
   xName = builtinLocalTermName "$ratio_gcd_go_x" (-4031)
   yName = builtinLocalTermName "$ratio_gcd_go_y" (-4032)
-  x = CVar xName intTy
-  y = CVar yName intTy
+  x = CVar xName integerTy
+  y = CVar yName integerTy
 
 ratioGcdCall :: CoreExpr -> CoreExpr -> CoreExpr
 ratioGcdCall lhs rhs =
-  applyCore (applyCore (CVar ratioGcdName ratioGcdCoreType) lhs (CTyFun intTy intTy)) rhs intTy
+  applyCore (applyCore (CVar ratioGcdName ratioGcdCoreType) lhs (CTyFun integerTy integerTy)) rhs integerTy
 
 ratioGcdGoCall :: CoreExpr -> CoreExpr -> CoreExpr
 ratioGcdGoCall lhs rhs =
-  applyCore (applyCore (CVar ratioGcdGoName ratioGcdCoreType) lhs (CTyFun intTy intTy)) rhs intTy
+  applyCore (applyCore (CVar ratioGcdGoName ratioGcdCoreType) lhs (CTyFun integerTy integerTy)) rhs integerTy
 
 ratioSimplestRhs :: CoreExpr
 ratioSimplestRhs =
@@ -12439,7 +12477,7 @@ ratioSimplestRhs =
                     (ratioLtCore y zeroRatio)
                     rationalCoreType
                     (ratioZipCore "$ratio_simplest_negative_fields" (-4080) x y rationalCoreType $ \xN xD yN yD ->
-                      ratioNegateCore (ratioSimplestPositiveCall (CPrimOp PrimNegate [yN] intTy) yD (CPrimOp PrimNegate [xN] intTy) xD)
+                      ratioNegateCore (ratioSimplestPositiveCall (CPrimOp PrimIntegerNegate [yN] integerTy) yD (CPrimOp PrimIntegerNegate [xN] integerTy) xD)
                     )
                     zeroRatio
                 )
@@ -12450,30 +12488,30 @@ ratioSimplestRhs =
   yName = builtinLocalTermName "$ratio_simplest_y" (-4087)
   x = CVar xName rationalCoreType
   y = CVar yName rationalCoreType
-  zeroRatio = ratioIntCore zeroInt oneInt
+  zeroRatio = ratioIntegerCore zeroInteger oneInteger
 
 ratioSimplestPositiveRhs :: CoreExpr
 ratioSimplestPositiveRhs =
-  coreLam nName intTy $
-    coreLam dName intTy $
-      coreLam nPrimeName intTy $
-        coreLam dPrimeName intTy $
-          letCore qName intTy (intQuot n d) $
-            letCore rName intTy (intRem n d) $
+  coreLam nName integerTy $
+    coreLam dName integerTy $
+      coreLam nPrimeName integerTy $
+        coreLam dPrimeName integerTy $
+          letCore qName integerTy (integerQuot n d) $
+            letCore rName integerTy (integerRem n d) $
               boolCaseCore
                 "$ratio_simplest_positive_exact"
                 (-4090)
-                (CPrimOp PrimEq [r, zeroInt] boolTy)
+                (CPrimOp PrimIntegerEq [r, zeroInteger] boolTy)
                 rationalCoreType
-                (ratioIntCore q oneInt)
-                ( letCore qPrimeName intTy (intQuot nPrime dPrime) $
-                    letCore rPrimeName intTy (intRem nPrime dPrime) $
+                (ratioIntegerCore q oneInteger)
+                ( letCore qPrimeName integerTy (integerQuot nPrime dPrime) $
+                    letCore rPrimeName integerTy (integerRem nPrime dPrime) $
                       boolCaseCore
                         "$ratio_simplest_positive_step"
                         (-4091)
-                        (boolNotCore "$ratio_simplest_positive_q_ne" (-4092) (CPrimOp PrimEq [q, qPrime] boolTy))
+                        (boolNotCore "$ratio_simplest_positive_q_ne" (-4092) (CPrimOp PrimIntegerEq [q, qPrime] boolTy))
                         rationalCoreType
-                        (ratioIntCore (intAdd q oneInt) oneInt)
+                        (ratioIntegerCore (integerAdd q oneInteger) oneInteger)
                         ( ratioCaseCore
                             "$ratio_simplest_positive_recurse"
                             (-4093)
@@ -12481,7 +12519,7 @@ ratioSimplestPositiveRhs =
                             rationalCoreType
                             (-4094)
                             (-4095)
-                            (\nextN nextD -> ratioIntCore (intAdd (intMul q nextN) nextD) nextN)
+                            (\nextN nextD -> ratioIntegerCore (integerAdd (integerMul q nextN) nextD) nextN)
                         )
                 )
  where
@@ -12493,14 +12531,14 @@ ratioSimplestPositiveRhs =
   rName = builtinLocalTermName "$ratio_simplest_positive_r" (-4101)
   qPrimeName = builtinLocalTermName "$ratio_simplest_positive_q_prime" (-4102)
   rPrimeName = builtinLocalTermName "$ratio_simplest_positive_r_prime" (-4103)
-  n = CVar nName intTy
-  d = CVar dName intTy
-  nPrime = CVar nPrimeName intTy
-  dPrime = CVar dPrimeName intTy
-  q = CVar qName intTy
-  r = CVar rName intTy
-  qPrime = CVar qPrimeName intTy
-  rPrime = CVar rPrimeName intTy
+  n = CVar nName integerTy
+  d = CVar dName integerTy
+  nPrime = CVar nPrimeName integerTy
+  dPrime = CVar dPrimeName integerTy
+  q = CVar qName integerTy
+  r = CVar rName integerTy
+  qPrime = CVar qPrimeName integerTy
+  rPrime = CVar rPrimeName integerTy
 
 ratioSimplestCall :: CoreExpr -> CoreExpr -> CoreExpr
 ratioSimplestCall lhs rhs =
@@ -12511,12 +12549,12 @@ ratioSimplestPositiveCall n d nPrime dPrime =
   applyCore
     ( applyCore
         ( applyCore
-            (applyCore (CVar ratioSimplestPositiveName ratioSimplestPositiveCoreType) n (CTyFun intTy (CTyFun intTy (CTyFun intTy rationalCoreType))))
+            (applyCore (CVar ratioSimplestPositiveName ratioSimplestPositiveCoreType) n (CTyFun integerTy (CTyFun integerTy (CTyFun integerTy rationalCoreType))))
             d
-            (CTyFun intTy (CTyFun intTy rationalCoreType))
+            (CTyFun integerTy (CTyFun integerTy rationalCoreType))
         )
         nPrime
-        (CTyFun intTy rationalCoreType)
+        (CTyFun integerTy rationalCoreType)
     )
     dPrime
     rationalCoreType
@@ -12536,7 +12574,7 @@ ratioAccessorRhs occurrence unique selectField =
       (occurrence <> "_case")
       (unique - 1)
       (CVar valueName rationalCoreType)
-      intTy
+      integerTy
       (unique - 2)
       (unique - 3)
       selectField
@@ -12561,8 +12599,8 @@ ratioCaseCore occurrence caseUnique scrutinee resultTy numeratorUnique denominat
     (CoreBinder (builtinLocalTermName occurrence caseUnique) rationalCoreType)
     [ CoreAlt
         (ConstructorAlt ratioDataConName)
-        [CoreBinder numeratorName intTy, CoreBinder denominatorName intTy]
-        (body (CVar numeratorName intTy) (CVar denominatorName intTy))
+        [CoreBinder numeratorName integerTy, CoreBinder denominatorName integerTy]
+        (body (CVar numeratorName integerTy) (CVar denominatorName integerTy))
     ]
     resultTy
  where
@@ -12596,6 +12634,9 @@ readPreludeCorePair name =
     "$read_char_body" -> Just readCharBodyCorePair
     "$read_string" -> Just readStringCorePair
     "$read_string_chars" -> Just readStringCharsCorePair
+    "$read_integer" -> Just readIntegerCorePair
+    "$read_integer_start" -> Just readIntegerStartCorePair
+    "$read_integer_digits" -> Just readIntegerDigitsCorePair
     _ -> Nothing
 
 readResultCoreType :: CoreType -> CoreType
@@ -12665,8 +12706,9 @@ readLexIdentTailCoreType = readLexCoreType
 readLexDigitTailCoreType = readLexCoreType
 readLexSymbolTailCoreType = readLexCoreType
 
-readIntCoreType, readBoolCoreType, readEscapeCoreType, readCharCoreType, readCharBodyCoreType, readStringCoreType, readStringCharsCoreType :: CoreType
+readIntCoreType, readIntegerCoreType, readBoolCoreType, readEscapeCoreType, readCharCoreType, readCharBodyCoreType, readStringCoreType, readStringCharsCoreType :: CoreType
 readIntCoreType = readSCoreType intTy
+readIntegerCoreType = readSCoreType integerTy
 readBoolCoreType = readSCoreType boolTy
 readEscapeCoreType = readSCoreType charTy
 readCharCoreType = readSCoreType charTy
@@ -12677,6 +12719,10 @@ readStringCharsCoreType = readSCoreType stringTy
 readIntStartCoreType, readIntDigitsCoreType :: CoreType
 readIntStartCoreType = CTyFun intTy readIntCoreType
 readIntDigitsCoreType = CTyFun intTy (CTyFun intTy readIntCoreType)
+
+readIntegerStartCoreType, readIntegerDigitsCoreType :: CoreType
+readIntegerStartCoreType = CTyFun integerTy readIntegerCoreType
+readIntegerDigitsCoreType = CTyFun integerTy (CTyFun integerTy readIntegerCoreType)
 
 readAppendCorePair :: (CoreBinder, CoreExpr)
 readAppendCorePair =
@@ -13184,6 +13230,115 @@ readIntDigitsCorePair =
       cName
       csName
       (boolCaseCore "$read_int_digits_digit" (-2635) (readIsDigitCore (CVar cName charTy)) (readResultsCoreType intTy) recursive (done originalRest))
+
+readIntegerCorePair :: (CoreBinder, CoreExpr)
+readIntegerCorePair =
+  (CoreBinder readIntegerName readIntegerCoreType, lam inputName stringTy body)
+ where
+  inputName = builtinLocalTermName "$read_integer_input" (-26300)
+  cName = builtinLocalTermName "$read_integer_c" (-26301)
+  csName = builtinLocalTermName "$read_integer_cs" (-26302)
+  caseName = builtinLocalTermName "$read_integer_case" (-26303)
+  lam = coreLam
+  stripped = applyCore (CVar readDropSpacesName (CTyFun stringTy stringTy)) (CVar inputName stringTy) stringTy
+  positive =
+    applyCore
+      (applyCore (CVar readIntegerStartName readIntegerStartCoreType) oneInteger (CTyFun stringTy (readResultsCoreType integerTy)))
+      stripped
+      (readResultsCoreType integerTy)
+  negative =
+    applyCore
+      ( applyCore
+          (CVar readIntegerStartName readIntegerStartCoreType)
+          (CLit (LInteger (-1)) integerTy)
+          (CTyFun stringTy (readResultsCoreType integerTy))
+      )
+      (CVar csName stringTy)
+      (readResultsCoreType integerTy)
+  consBranch =
+    CCase
+      (CVar cName charTy)
+      (CoreBinder (builtinLocalTermName "$read_integer_sign_case" (-26304)) charTy)
+      [ CoreAlt (LiteralAlt (LChar '-')) [] negative
+      , CoreAlt DefaultAlt [] positive
+      ]
+      (readResultsCoreType integerTy)
+  body =
+    listCaseCore
+      stripped
+      caseName
+      charTy
+      (readResultsCoreType integerTy)
+      (nilCore (readResultCoreType integerTy))
+      cName
+      csName
+      consBranch
+
+readIntegerStartCorePair :: (CoreBinder, CoreExpr)
+readIntegerStartCorePair =
+  (CoreBinder readIntegerStartName readIntegerStartCoreType, lam signName integerTy (lam inputName stringTy body))
+ where
+  signName = builtinLocalTermName "$read_integer_start_sign" (-26305)
+  inputName = builtinLocalTermName "$read_integer_start_input" (-26306)
+  cName = builtinLocalTermName "$read_integer_start_c" (-26307)
+  csName = builtinLocalTermName "$read_integer_start_cs" (-26308)
+  caseName = builtinLocalTermName "$read_integer_start_case" (-26309)
+  lam = coreLam
+  digit = intToIntegerCore (readDigitValueCore (CVar cName charTy))
+  digits =
+    applyCore
+      ( applyCore
+          (applyCore (CVar readIntegerDigitsName readIntegerDigitsCoreType) (CVar signName integerTy) (CTyFun integerTy readIntegerCoreType))
+          digit
+          readIntegerCoreType
+      )
+      (CVar csName stringTy)
+      (readResultsCoreType integerTy)
+  body =
+    listCaseCore
+      (CVar inputName stringTy)
+      caseName
+      charTy
+      (readResultsCoreType integerTy)
+      (nilCore (readResultCoreType integerTy))
+      cName
+      csName
+      (boolCaseCore "$read_integer_start_digit" (-26310) (readIsDigitCore (CVar cName charTy)) (readResultsCoreType integerTy) digits (nilCore (readResultCoreType integerTy)))
+
+readIntegerDigitsCorePair :: (CoreBinder, CoreExpr)
+readIntegerDigitsCorePair =
+  (CoreBinder readIntegerDigitsName readIntegerDigitsCoreType, lam signName integerTy (lam accName integerTy (lam inputName stringTy body)))
+ where
+  signName = builtinLocalTermName "$read_integer_digits_sign" (-26311)
+  accName = builtinLocalTermName "$read_integer_digits_acc" (-26312)
+  inputName = builtinLocalTermName "$read_integer_digits_input" (-26313)
+  cName = builtinLocalTermName "$read_integer_digits_c" (-26314)
+  csName = builtinLocalTermName "$read_integer_digits_cs" (-26315)
+  caseName = builtinLocalTermName "$read_integer_digits_case" (-26316)
+  lam = coreLam
+  signed = integerMul (CVar signName integerTy) (CVar accName integerTy)
+  done rest = readSingleResultCore integerTy signed rest
+  advanced = integerAdd (integerMul (CVar accName integerTy) (CLit (LInteger 10) integerTy)) (intToIntegerCore (readDigitValueCore (CVar cName charTy)))
+  recursive =
+    applyCore
+      ( applyCore
+          (applyCore (CVar readIntegerDigitsName readIntegerDigitsCoreType) (CVar signName integerTy) (CTyFun integerTy readIntegerCoreType))
+          advanced
+          readIntegerCoreType
+      )
+      (CVar csName stringTy)
+      (readResultsCoreType integerTy)
+  originalRest = consCharExprCore (CVar cName charTy) (CVar csName stringTy)
+  body =
+    listCaseCore
+      (CVar inputName stringTy)
+      caseName
+      charTy
+      (readResultsCoreType integerTy)
+      (done emptyStringCore)
+      cName
+      csName
+      (boolCaseCore "$read_integer_digits_digit" (-26317) (readIsDigitCore (CVar cName charTy)) (readResultsCoreType integerTy) recursive (done originalRest))
 
 readBoolCorePair :: (CoreBinder, CoreExpr)
 readBoolCorePair =
@@ -14034,32 +14189,33 @@ intRem lhs rhs =
 intLt lhs rhs =
   CPrimOp PrimLt [lhs, rhs] boolTy
 
-intAbsCore :: CoreExpr -> CoreExpr
-intAbsCore value =
-  boolCaseCore
-    "$abs_int_core"
-    (-11230)
-    (intLt value zeroInt)
-    intTy
-    (CPrimOp PrimNegate [value] intTy)
-    value
+integerAdd, integerSub, integerMul, integerQuot, integerRem, integerLt :: CoreExpr -> CoreExpr -> CoreExpr
+integerAdd lhs rhs =
+  CPrimOp PrimIntegerAdd [lhs, rhs] integerTy
+integerSub lhs rhs =
+  CPrimOp PrimIntegerSub [lhs, rhs] integerTy
+integerMul lhs rhs =
+  CPrimOp PrimIntegerMul [lhs, rhs] integerTy
+integerQuot lhs rhs =
+  CPrimOp PrimIntegerQuot [lhs, rhs] integerTy
+integerRem lhs rhs =
+  CPrimOp PrimIntegerRem [lhs, rhs] integerTy
+integerLt lhs rhs =
+  CPrimOp PrimIntegerLt [lhs, rhs] boolTy
 
-intSignumCore :: CoreExpr -> CoreExpr
-intSignumCore value =
-  boolCaseCore
-    "$signum_int_core_neg"
-    (-11231)
-    (intLt value zeroInt)
-    intTy
-    (CLit (LInt (-1)) intTy)
-    ( boolCaseCore
-        "$signum_int_core_zero"
-        (-11232)
-        (CPrimOp PrimEq [value, zeroInt] boolTy)
-        intTy
-        zeroInt
-        oneInt
-    )
+integerAbsCore :: CoreExpr -> CoreExpr
+integerAbsCore value =
+  CPrimOp PrimIntegerAbs [value] integerTy
+
+integerSignumCore :: CoreExpr -> CoreExpr
+integerSignumCore value =
+  CPrimOp PrimIntegerSignum [value] integerTy
+
+intToIntegerCore, integerToIntCore :: CoreExpr -> CoreExpr
+intToIntegerCore value =
+  CPrimOp PrimIntToInteger [value] integerTy
+integerToIntCore value =
+  CPrimOp PrimIntegerToInt [value] intTy
 
 charToIntCore, intToCharCore :: CoreExpr -> CoreExpr
 charToIntCore value =
@@ -14070,6 +14226,10 @@ intToCharCore value =
 zeroInt, oneInt :: CoreExpr
 zeroInt = CLit (LInt 0) intTy
 oneInt = CLit (LInt 1) intTy
+
+zeroInteger, oneInteger :: CoreExpr
+zeroInteger = CLit (LInteger 0) integerTy
+oneInteger = CLit (LInteger 1) integerTy
 
 nilCore :: CoreType -> CoreExpr
 nilCore elementTy =
@@ -15152,6 +15312,11 @@ builtinInstanceDictionaries classes =
         [intEqMethod, intNotEqMethod]
     , BuiltinInstanceDictionary
         (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fEqInteger" (-15010))
+        [integerEqMethod, integerNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
         boolMonoType
         (preludeTermName "$fEqBool" (-1502))
         [boolEqMethod, boolNotEqMethod]
@@ -15210,6 +15375,18 @@ builtinInstanceDictionaries classes =
         , intGeMethod
         , intMaxMethod
         , intMinMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fOrdInteger" (-15110))
+        [ integerCompareMethod
+        , integerLtMethod
+        , integerLeMethod
+        , integerGtMethod
+        , integerGeMethod
+        , integerMaxMethod
+        , integerMinMethod
         ]
     , BuiltinInstanceDictionary
         (classInfoName info)
@@ -15325,6 +15502,18 @@ builtinInstanceDictionaries classes =
         ]
     , BuiltinInstanceDictionary
         (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fNumInteger" (-15210))
+        [ integerAddMethod
+        , integerSubMethod
+        , integerMulMethod
+        , integerNegateMethod
+        , integerAbsMethod
+        , integerSignumMethod
+        , integerFromIntegerMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
         rationalMonoType
         (preludeTermName "$fNumRatioInt" (-1522))
         [ ratioAddMethod
@@ -15370,6 +15559,11 @@ builtinInstanceDictionaries classes =
         [intToRationalMethod]
     , BuiltinInstanceDictionary
         (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fRealInteger" (-15710))
+        [integerToRationalMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
         rationalMonoType
         (preludeTermName "$fRealRatioInt" (-1572))
         [ratioToRationalMethod]
@@ -15398,6 +15592,18 @@ builtinInstanceDictionaries classes =
         , intQuotRemMethod
         , intDivModMethod
         , intToIntegerMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fIntegralInteger" (-15810))
+        [ integerQuotMethod
+        , integerRemMethod
+        , integerDivMethod
+        , integerModMethod
+        , integerQuotRemMethod
+        , integerDivModMethod
+        , integerToIntegerMethod
         ]
     ]
       <> fixedIntegralBuiltinInstances info "Integral" (-6480) fixedIntegralMethods
@@ -15490,6 +15696,11 @@ builtinInstanceDictionaries classes =
         [intShowsPrecMethod, intShowMethod, intShowListMethod]
     , BuiltinInstanceDictionary
         (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fShowInteger" (-15310))
+        [integerShowsPrecMethod, integerShowMethod, integerShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
         boolMonoType
         (preludeTermName "$fShowBool" (-1532))
         [boolShowsPrecMethod, boolShowMethod, boolShowListMethod]
@@ -15549,6 +15760,11 @@ builtinInstanceDictionaries classes =
         [intReadsPrecMethod, intReadListMethod]
     , BuiltinInstanceDictionary
         (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fReadInteger" (-17010))
+        [integerReadsPrecMethod, integerReadListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
         boolMonoType
         (preludeTermName "$fReadBool" (-1702))
         [boolReadsPrecMethod, boolReadListMethod]
@@ -15593,6 +15809,19 @@ builtinInstanceDictionaries classes =
         , intEnumFromThenMethod
         , intEnumFromToMethod
         , intEnumFromThenToMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fEnumInteger" (-15410))
+        [ integerSuccMethod
+        , integerPredMethod
+        , integerToEnumMethod
+        , integerFromEnumMethod
+        , integerEnumFromMethod
+        , integerEnumFromThenMethod
+        , integerEnumFromToMethod
+        , integerEnumFromThenToMethod
         ]
     , BuiltinInstanceDictionary
         (classInfoName info)
@@ -16685,12 +16914,12 @@ intSignumMethod =
 
 intFromIntegerMethod :: CoreExpr
 intFromIntegerMethod =
-  unaryMethod "$fromInteger_int" (-1861) intTy intTy id
+  unaryMethod "$fromInteger_int" (-1861) integerTy intTy integerToIntCore
 
 intToRationalMethod :: CoreExpr
 intToRationalMethod =
   unaryMethod "$toRational_int" (-1862) intTy rationalCoreType $ \value ->
-    ratioIntCore value oneInt
+    ratioIntegerCore (intToIntegerCore value) oneInteger
 
 intQuotMethod :: CoreExpr
 intQuotMethod =
@@ -16727,7 +16956,137 @@ intDivModMethod =
 
 intToIntegerMethod :: CoreExpr
 intToIntegerMethod =
-  unaryMethod "$toInteger_int" (-1869) intTy intTy id
+  unaryMethod "$toInteger_int" (-1869) intTy integerTy intToIntegerCore
+
+integerEqMethod :: CoreExpr
+integerEqMethod =
+  binaryPrimMethod "$eq_integer" (-18930) integerTy boolTy PrimIntegerEq
+
+integerNotEqMethod :: CoreExpr
+integerNotEqMethod =
+  binaryBoolMethod "$neq_integer" (-18931) integerTy (\lhs rhs -> boolNotCore "$neq_integer_not" (-18932) (CPrimOp PrimIntegerEq [lhs, rhs] boolTy))
+
+integerCompareMethod :: CoreExpr
+integerCompareMethod =
+  binaryMethod "$compare_integer" (-18933) integerTy orderingTy $ \lhs rhs ->
+    boolCaseCore
+      "$compare_integer_lt"
+      (-18934)
+      (integerLt lhs rhs)
+      orderingTy
+      (CCon orderingLTDataConName orderingTy)
+      ( boolCaseCore
+          "$compare_integer_gt"
+          (-18935)
+          (integerLt rhs lhs)
+          orderingTy
+          (CCon orderingGTDataConName orderingTy)
+          (CCon orderingEQDataConName orderingTy)
+      )
+
+integerLtMethod :: CoreExpr
+integerLtMethod =
+  binaryPrimMethod "$lt_integer" (-18936) integerTy boolTy PrimIntegerLt
+
+integerLeMethod :: CoreExpr
+integerLeMethod =
+  binaryBoolMethod "$le_integer" (-18937) integerTy (\lhs rhs -> boolNotCore "$le_integer_not" (-18938) (integerLt rhs lhs))
+
+integerGtMethod :: CoreExpr
+integerGtMethod =
+  binaryBoolMethod "$gt_integer" (-18939) integerTy (\lhs rhs -> integerLt rhs lhs)
+
+integerGeMethod :: CoreExpr
+integerGeMethod =
+  binaryBoolMethod "$ge_integer" (-18940) integerTy (\lhs rhs -> boolNotCore "$ge_integer_not" (-18941) (integerLt lhs rhs))
+
+integerMaxMethod :: CoreExpr
+integerMaxMethod =
+  binaryMethod "$max_integer" (-18942) integerTy integerTy $ \lhs rhs ->
+    boolCaseCore "$max_integer_case" (-18943) (integerLt lhs rhs) integerTy rhs lhs
+
+integerMinMethod :: CoreExpr
+integerMinMethod =
+  binaryMethod "$min_integer" (-18944) integerTy integerTy $ \lhs rhs ->
+    boolCaseCore "$min_integer_case" (-18945) (integerLt lhs rhs) integerTy lhs rhs
+
+integerAddMethod :: CoreExpr
+integerAddMethod =
+  binaryPrimMethod "$add_integer" (-18946) integerTy integerTy PrimIntegerAdd
+
+integerSubMethod :: CoreExpr
+integerSubMethod =
+  binaryPrimMethod "$sub_integer" (-18947) integerTy integerTy PrimIntegerSub
+
+integerMulMethod :: CoreExpr
+integerMulMethod =
+  binaryPrimMethod "$mul_integer" (-18948) integerTy integerTy PrimIntegerMul
+
+integerNegateMethod :: CoreExpr
+integerNegateMethod =
+  unaryPrimMethod "$negate_integer" (-18949) integerTy integerTy PrimIntegerNegate
+
+integerAbsMethod :: CoreExpr
+integerAbsMethod =
+  unaryPrimMethod "$abs_integer" (-18950) integerTy integerTy PrimIntegerAbs
+
+integerSignumMethod :: CoreExpr
+integerSignumMethod =
+  unaryPrimMethod "$signum_integer" (-18951) integerTy integerTy PrimIntegerSignum
+
+integerFromIntegerMethod :: CoreExpr
+integerFromIntegerMethod =
+  unaryMethod "$fromInteger_integer" (-18952) integerTy integerTy id
+
+integerToRationalMethod :: CoreExpr
+integerToRationalMethod =
+  unaryMethod "$toRational_integer" (-18953) integerTy rationalCoreType $ \value ->
+    ratioIntegerCore value oneInteger
+
+integerQuotMethod :: CoreExpr
+integerQuotMethod =
+  binaryPrimMethod "$quot_integer" (-18954) integerTy integerTy PrimIntegerQuot
+
+integerRemMethod :: CoreExpr
+integerRemMethod =
+  binaryPrimMethod "$rem_integer" (-18955) integerTy integerTy PrimIntegerRem
+
+integerDivMethod :: CoreExpr
+integerDivMethod =
+  binaryMethod "$div_integer" (-18956) integerTy integerTy (integerDivCoreWith "$div_integer" (-18957))
+
+integerModMethod :: CoreExpr
+integerModMethod =
+  binaryMethod "$mod_integer" (-18958) integerTy integerTy (integerModCoreWith "$mod_integer" (-18959))
+
+integerQuotRemMethod :: CoreExpr
+integerQuotRemMethod =
+  binaryMethod "$quotRem_integer" (-18960) integerTy integerPairCoreType $ \lhs rhs ->
+    tuple2IntegerCore (integerQuot lhs rhs) (integerRem lhs rhs)
+
+integerDivModMethod :: CoreExpr
+integerDivModMethod =
+  binaryMethod "$divMod_integer" (-18961) integerTy integerPairCoreType $ \lhs rhs ->
+    letCore dName integerTy (integerDivCoreWith "$divMod_integer" (-18962) lhs rhs) $
+      letCore mName integerTy (integerSub lhs (integerMul dVar rhs)) $
+        tuple2IntegerCore dVar mVar
+ where
+  dName = builtinLocalTermName "$divMod_integer_d" (-18963)
+  mName = builtinLocalTermName "$divMod_integer_m" (-18964)
+  dVar = CVar dName integerTy
+  mVar = CVar mName integerTy
+
+integerToIntegerMethod :: CoreExpr
+integerToIntegerMethod =
+  unaryMethod "$toInteger_integer" (-18965) integerTy integerTy id
+
+integerShowsPrecMethod, integerShowMethod, integerShowListMethod :: CoreExpr
+integerShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_integer" (-18966) integerTy (\value -> CPrimOp PrimShowInteger [value] stringTy)
+integerShowMethod =
+  unaryPrimMethod "$show_integer" (-18967) integerTy stringTy PrimShowInteger
+integerShowListMethod =
+  showListFromShowsMethod integerTy integerShowsPrecMethod
 
 ratioEqMethod :: CoreExpr
 ratioEqMethod =
@@ -16797,24 +17156,24 @@ ratioNegateMethod :: CoreExpr
 ratioNegateMethod =
   unaryMethod "$negate_ratio_int" (-18820) rationalCoreType rationalCoreType $ \value ->
     ratioCaseCore "$negate_ratio_int_case" (-18822) value rationalCoreType (-18823) (-18824) $ \n d ->
-      ratioIntCore (CPrimOp PrimNegate [n] intTy) d
+      ratioIntegerCore (CPrimOp PrimIntegerNegate [n] integerTy) d
 
 ratioAbsMethod :: CoreExpr
 ratioAbsMethod =
   unaryMethod "$abs_ratio_int" (-18830) rationalCoreType rationalCoreType $ \value ->
     ratioCaseCore "$abs_ratio_int_case" (-18832) value rationalCoreType (-18833) (-18834) $ \n d ->
-      ratioIntCore (intAbsCore n) d
+      ratioIntegerCore (integerAbsCore n) d
 
 ratioSignumMethod :: CoreExpr
 ratioSignumMethod =
   unaryMethod "$signum_ratio_int" (-18840) rationalCoreType rationalCoreType $ \value ->
     ratioCaseCore "$signum_ratio_int_case" (-18842) value rationalCoreType (-18843) (-18844) $ \n _ ->
-      ratioIntCore (intSignumCore n) oneInt
+      ratioIntegerCore (integerSignumCore n) oneInteger
 
 ratioFromIntegerMethod :: CoreExpr
 ratioFromIntegerMethod =
-  unaryMethod "$fromInteger_ratio_int" (-18850) intTy rationalCoreType $ \value ->
-    ratioIntCore value oneInt
+  unaryMethod "$fromInteger_ratio_int" (-18850) integerTy rationalCoreType $ \value ->
+    ratioIntegerCore value oneInteger
 
 ratioToRationalMethod :: CoreExpr
 ratioToRationalMethod =
@@ -16984,12 +17343,12 @@ floatingUnaryPrimMethod width ty op occurrence unique =
 
 floatingFromIntegerMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
 floatingFromIntegerMethod width ty occurrence unique =
-  unaryMethod occurrence unique intTy ty (\value -> CPrimOp (PrimFloat width FloatFromInt) [value] ty)
+  unaryMethod occurrence unique integerTy ty (\value -> CPrimOp (PrimIntegerToFloat width) [value] ty)
 
 floatingToRationalMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
 floatingToRationalMethod width ty occurrence unique =
   unaryMethod occurrence unique ty rationalCoreType $ \value ->
-    ratioIntCore (CPrimOp (PrimFloatInt width FloatRound) [value] intTy) oneInt
+    ratioIntegerCore (intToIntegerCore (CPrimOp (PrimFloatInt width FloatRound) [value] intTy)) oneInteger
 
 floatingRecipMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
 floatingRecipMethod width ty occurrence unique =
@@ -17001,8 +17360,8 @@ floatingFromRationalMethod width ty occurrence unique =
     ratioCaseCore (occurrence <> "_case") (unique - 1) value ty (unique - 2) (unique - 3) $ \numerator denominator ->
       CPrimOp
         (PrimFloat width FloatDiv)
-        [ CPrimOp (PrimFloat width FloatFromInt) [numerator] ty
-        , CPrimOp (PrimFloat width FloatFromInt) [denominator] ty
+        [ CPrimOp (PrimIntegerToFloat width) [numerator] ty
+        , CPrimOp (PrimIntegerToFloat width) [denominator] ty
         ]
         ty
 
@@ -17172,37 +17531,37 @@ ratioEqCore lhs rhs =
     boolAndCore
       "$ratio_eq_and"
       (-18875)
-      (CPrimOp PrimEq [lhsN, rhsN] boolTy)
-      (CPrimOp PrimEq [lhsD, rhsD] boolTy)
+      (CPrimOp PrimIntegerEq [lhsN, rhsN] boolTy)
+      (CPrimOp PrimIntegerEq [lhsD, rhsD] boolTy)
 
 ratioLtCore :: CoreExpr -> CoreExpr -> CoreExpr
 ratioLtCore lhs rhs =
   ratioZipCore "$ratio_lt" (-18880) lhs rhs boolTy $ \lhsN lhsD rhsN rhsD ->
-    intLt (intMul lhsN rhsD) (intMul rhsN lhsD)
+    integerLt (integerMul lhsN rhsD) (integerMul rhsN lhsD)
 
 ratioAddCore :: CoreExpr -> CoreExpr -> CoreExpr
 ratioAddCore lhs rhs =
   ratioZipCore "$ratio_add" (-18890) lhs rhs rationalCoreType $ \lhsN lhsD rhsN rhsD ->
-    ratioReduceCall (intAdd (intMul lhsN rhsD) (intMul rhsN lhsD)) (intMul lhsD rhsD)
+    ratioReduceCall (integerAdd (integerMul lhsN rhsD) (integerMul rhsN lhsD)) (integerMul lhsD rhsD)
 
 ratioSubCore :: CoreExpr -> CoreExpr -> CoreExpr
 ratioSubCore lhs rhs =
   ratioZipCore "$ratio_sub" (-18900) lhs rhs rationalCoreType $ \lhsN lhsD rhsN rhsD ->
-    ratioReduceCall (intSub (intMul lhsN rhsD) (intMul rhsN lhsD)) (intMul lhsD rhsD)
+    ratioReduceCall (integerSub (integerMul lhsN rhsD) (integerMul rhsN lhsD)) (integerMul lhsD rhsD)
 
 ratioMulCore :: CoreExpr -> CoreExpr -> CoreExpr
 ratioMulCore lhs rhs =
   ratioZipCore "$ratio_mul" (-18910) lhs rhs rationalCoreType $ \lhsN lhsD rhsN rhsD ->
-    ratioReduceCall (intMul lhsN rhsN) (intMul lhsD rhsD)
+    ratioReduceCall (integerMul lhsN rhsN) (integerMul lhsD rhsD)
 
 ratioNegateCore :: CoreExpr -> CoreExpr
 ratioNegateCore value =
   ratioCaseCore "$ratio_negate_core" (-18920) value rationalCoreType (-18921) (-18922) $ \n d ->
-    ratioIntCore (CPrimOp PrimNegate [n] intTy) d
+    ratioIntegerCore (CPrimOp PrimIntegerNegate [n] integerTy) d
 
 ratioReduceCall :: CoreExpr -> CoreExpr -> CoreExpr
 ratioReduceCall numeratorExpr denominatorExpr =
-  applyCore (applyCore (CVar ratioReduceName ratioPercentCoreType) numeratorExpr (CTyFun intTy rationalCoreType)) denominatorExpr rationalCoreType
+  applyCore (applyCore (CVar ratioReduceName ratioPercentCoreType) numeratorExpr (CTyFun integerTy rationalCoreType)) denominatorExpr rationalCoreType
 
 ratioZipCore :: Text -> Int -> CoreExpr -> CoreExpr -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
 ratioZipCore occurrence unique lhs rhs resultTy body =
@@ -17328,7 +17687,7 @@ fixedNumMethods fixed =
   , fixedUnaryPrimMethod fixed FixedNegate "negate" (-8034) fixedTy
   , fixedUnaryPrimMethod fixed FixedAbs "abs" (-8035) fixedTy
   , fixedUnaryPrimMethod fixed FixedSignum "signum" (-8036) fixedTy
-  , unaryMethod ("$fromInteger_" <> fixedOccurrence) (-8037) intTy fixedTy (\value -> fixedPrim fixed FixedFromInteger [value] fixedTy)
+  , unaryMethod ("$fromInteger_" <> fixedOccurrence) (-8037) integerTy fixedTy (\value -> fixedPrim fixed FixedFromInteger [value] fixedTy)
   ]
  where
   fixedTy = fixedIntegralTy fixed
@@ -17337,7 +17696,7 @@ fixedNumMethods fixed =
 fixedRealMethods :: FixedIntegral -> [CoreExpr]
 fixedRealMethods fixed =
   [ unaryMethod ("$toRational_" <> fixedIntegralOccurrence fixed) (-8041) fixedTy rationalCoreType $ \value ->
-      ratioIntCore (fixedPrim fixed FixedToInteger [value] intTy) oneInt
+      ratioIntegerCore (fixedPrim fixed FixedToInteger [value] integerTy) oneInteger
   ]
  where
   fixedTy = fixedIntegralTy fixed
@@ -17352,7 +17711,7 @@ fixedIntegralMethods fixed =
   , fixedBinaryMethod fixed "divMod" (-8056) fixedPairTy $ \lhs rhs ->
       letCore dName fixedTy (fixedDivCore fixed lhs rhs) $
         fixedTuple2 fixed dVar (fixedSub fixed lhs (fixedMul fixed dVar rhs))
-  , fixedUnaryPrimMethod fixed FixedToInteger "toInteger" (-8057) intTy
+  , fixedUnaryPrimMethod fixed FixedToInteger "toInteger" (-8057) integerTy
   ]
  where
   fixedTy = fixedIntegralTy fixed
@@ -17404,12 +17763,12 @@ fixedReadParserCore :: FixedIntegral -> CoreExpr
 fixedReadParserCore fixed =
   coreLam inputName stringTy $
     readBindCallCore
-      intTy
+      integerTy
       fixedTy
-      (applyCore (CVar readIntName readIntCoreType) (CVar inputName stringTy) (readResultsCoreType intTy))
-      ( coreLam valueName intTy $
+      (applyCore (CVar readIntegerName readIntegerCoreType) (CVar inputName stringTy) (readResultsCoreType integerTy))
+      ( coreLam valueName integerTy $
           coreLam restName stringTy $
-            readSingleResultCore fixedTy (fixedPrim fixed FixedFromInteger [CVar valueName intTy] fixedTy) (CVar restName stringTy)
+            readSingleResultCore fixedTy (fixedPrim fixed FixedFromInteger [CVar valueName integerTy] fixedTy) (CVar restName stringTy)
       )
  where
   fixedTy = fixedIntegralTy fixed
@@ -17421,8 +17780,8 @@ fixedEnumMethods :: FixedIntegral -> [CoreExpr]
 fixedEnumMethods fixed =
   [ fixedUnaryMethod fixed "succ" (-8131) fixedTy (\value -> fixedAdd fixed value fixedOne)
   , fixedUnaryMethod fixed "pred" (-8132) fixedTy (\value -> fixedSub fixed value fixedOne)
-  , unaryMethod ("$toEnum_" <> fixedIntegralOccurrence fixed) (-8133) intTy fixedTy (\value -> fixedPrim fixed FixedFromInteger [value] fixedTy)
-  , fixedUnaryPrimMethod fixed FixedToInteger "fromEnum" (-8134) intTy
+  , unaryMethod ("$toEnum_" <> fixedIntegralOccurrence fixed) (-8133) intTy fixedTy (\value -> fixedPrim fixed FixedFromInteger [intToIntegerCore value] fixedTy)
+  , fixedUnaryMethod fixed "fromEnum" (-8134) intTy (\value -> integerToIntCore (fixedPrim fixed FixedToInteger [value] integerTy))
   , fixedUnaryMethod fixed "enum_from" (-8135) listTy (\current -> fixedEnumFromToList fixed current (fixedMaxBound fixed))
   , fixedBinaryMethod fixed "enum_from_then" (-8136) listTy $ \current next ->
       boolCaseCore "$enum_fixed_from_then_desc" (-8137) (fixedLt fixed next current) listTy (fixedEnumFromThenToList fixed current next (fixedMinBound fixed)) (fixedEnumFromThenToList fixed current next (fixedMaxBound fixed))
@@ -17432,7 +17791,7 @@ fixedEnumMethods fixed =
  where
   fixedTy = fixedIntegralTy fixed
   listTy = CTyList fixedTy
-  fixedOne = fixedPrim fixed FixedFromInteger [oneInt] fixedTy
+  fixedOne = fixedPrim fixed FixedFromInteger [oneInteger] fixedTy
 
 fixedBoundedMethods :: FixedIntegral -> [CoreExpr]
 fixedBoundedMethods fixed =
@@ -17548,7 +17907,7 @@ fixedToInt value =
   case exprType value of
     ty
       | Just fixed <- fixedIntegralTypeByCoreType ty ->
-          fixedPrim fixed FixedToInteger [value] intTy
+          integerToIntCore (fixedPrim fixed FixedToInteger [value] integerTy)
     _ ->
       value
 
@@ -17574,8 +17933,8 @@ fixedDivCore fixed lhs rhs =
   rName = builtinLocalTermName ("$div_" <> fixedIntegralOccurrence fixed <> "_r") (unique - 2)
   qVar = CVar qName fixedTy
   rVar = CVar rName fixedTy
-  fixedZero = fixedPrim fixed FixedFromInteger [zeroInt] fixedTy
-  fixedOne = fixedPrim fixed FixedFromInteger [oneInt] fixedTy
+  fixedZero = fixedPrim fixed FixedFromInteger [zeroInteger] fixedTy
+  fixedOne = fixedPrim fixed FixedFromInteger [oneInteger] fixedTy
   remainderNonZero = boolNotCore "$fixed_div_rem_nonzero" (unique - 4) (fixedPrim fixed FixedEq [rVar, fixedZero] boolTy)
   signsDiffer = boolXorCore "$fixed_div_signs_differ" (unique - 5) (fixedLt fixed lhs fixedZero) (fixedLt fixed rhs fixedZero)
   needsAdjust = boolAndCore "$fixed_div_needs_adjust" (unique - 6) remainderNonZero signsDiffer
@@ -17613,7 +17972,7 @@ fixedMapIntList fixed intList =
   fromIntFunction =
     CLam
       (CoreBinder argumentName intTy)
-      (fixedPrim fixed FixedFromInteger [CVar argumentName intTy] fixedTy)
+      (fixedPrim fixed FixedFromInteger [intToIntegerCore (CVar argumentName intTy)] fixedTy)
       (CTyFun intTy fixedTy)
   mapFunction =
     CTypeApp
@@ -17656,9 +18015,39 @@ intDivFromQuotRem occurrence unique lhs rhs quotient remainder =
   needsAdjust =
     boolAndCore (occurrence <> "_needs_adjust") (unique - 4) remainderNonZero signsDiffer
 
+integerDivCoreWith :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
+integerDivCoreWith occurrence unique lhs rhs =
+  letCore qName integerTy (integerQuot lhs rhs) $
+    letCore rName integerTy (integerRem lhs rhs) $
+      integerDivFromQuotRem occurrence (unique - 3) lhs rhs qVar rVar
+ where
+  qName = builtinLocalTermName (occurrence <> "_q") (unique - 1)
+  rName = builtinLocalTermName (occurrence <> "_r") (unique - 2)
+  qVar = CVar qName integerTy
+  rVar = CVar rName integerTy
+
+integerModCoreWith :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
+integerModCoreWith occurrence unique lhs rhs =
+  letCore dName integerTy (integerDivCoreWith occurrence (unique - 10) lhs rhs) $
+    integerSub lhs (integerMul dVar rhs)
+ where
+  dName = builtinLocalTermName (occurrence <> "_d") (unique - 1)
+  dVar = CVar dName integerTy
+
+integerDivFromQuotRem :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+integerDivFromQuotRem occurrence unique lhs rhs quotient remainder =
+  boolCaseCore (occurrence <> "_adjust") unique needsAdjust integerTy (integerSub quotient oneInteger) quotient
+ where
+  remainderNonZero =
+    boolNotCore (occurrence <> "_rem_nonzero") (unique - 1) (CPrimOp PrimIntegerEq [remainder, zeroInteger] boolTy)
+  signsDiffer =
+    boolXorCore (occurrence <> "_signs_differ") (unique - 2) (integerLt lhs zeroInteger) (integerLt rhs zeroInteger)
+  needsAdjust =
+    boolAndCore (occurrence <> "_needs_adjust") (unique - 4) remainderNonZero signsDiffer
+
 rationalCoreType :: CoreType
 rationalCoreType =
-  ratioTy intTy
+  ratioTy integerTy
 
 intPairCoreType :: CoreType
 intPairCoreType =
@@ -17668,9 +18057,17 @@ tuple2IntCore :: CoreExpr -> CoreExpr -> CoreExpr
 tuple2IntCore lhs rhs =
   constructorApp (tupleDataConName 2) [intTy, intTy] [lhs, rhs] intPairCoreType
 
-ratioIntCore :: CoreExpr -> CoreExpr -> CoreExpr
-ratioIntCore numeratorExpr denominatorExpr =
-  constructorApp ratioDataConName [intTy] [numeratorExpr, denominatorExpr] rationalCoreType
+integerPairCoreType :: CoreType
+integerPairCoreType =
+  CTyTuple [integerTy, integerTy]
+
+tuple2IntegerCore :: CoreExpr -> CoreExpr -> CoreExpr
+tuple2IntegerCore lhs rhs =
+  constructorApp (tupleDataConName 2) [integerTy, integerTy] [lhs, rhs] integerPairCoreType
+
+ratioIntegerCore :: CoreExpr -> CoreExpr -> CoreExpr
+ratioIntegerCore numeratorExpr denominatorExpr =
+  constructorApp ratioDataConName [integerTy] [numeratorExpr, denominatorExpr] rationalCoreType
 
 letCore :: RName -> CoreType -> CoreExpr -> CoreExpr -> CoreExpr
 letCore name ty rhs body =
@@ -17707,6 +18104,84 @@ intEnumFromToMethod =
 intEnumFromThenToMethod :: CoreExpr
 intEnumFromThenToMethod =
   CVar enumFromThenToIntName enumFromThenToIntCoreType
+
+integerSuccMethod :: CoreExpr
+integerSuccMethod =
+  unaryMethod "$succ_integer" (-19710) integerTy integerTy (`integerAdd` oneInteger)
+
+integerPredMethod :: CoreExpr
+integerPredMethod =
+  unaryMethod "$pred_integer" (-19711) integerTy integerTy (`integerSub` oneInteger)
+
+integerToEnumMethod :: CoreExpr
+integerToEnumMethod =
+  unaryMethod "$toEnum_integer" (-19712) intTy integerTy intToIntegerCore
+
+integerFromEnumMethod :: CoreExpr
+integerFromEnumMethod =
+  unaryMethod "$fromEnum_integer" (-19713) integerTy intTy integerToIntCore
+
+integerEnumFromMethod :: CoreExpr
+integerEnumFromMethod =
+  unaryMethod "$enum_from_integer" (-19714) integerTy integerListCoreType $ \current ->
+    integerMapIntList (applyCore (CVar enumFromIntName enumFromIntCoreType) (integerToIntCore current) intListCoreType)
+
+integerEnumFromThenMethod :: CoreExpr
+integerEnumFromThenMethod =
+  binaryMethod "$enum_from_then_integer" (-19715) integerTy integerListCoreType $ \current next ->
+    integerMapIntList
+      ( applyCore
+          (applyCore (CVar enumFromThenIntName enumFromThenIntCoreType) (integerToIntCore current) (CTyFun intTy intListCoreType))
+          (integerToIntCore next)
+          intListCoreType
+      )
+
+integerEnumFromToMethod :: CoreExpr
+integerEnumFromToMethod =
+  binaryMethod "$enum_from_to_integer" (-19716) integerTy integerListCoreType $ \current end ->
+    integerMapIntList
+      ( applyCore
+          (applyCore (CVar enumFromToIntName enumFromToIntCoreType) (integerToIntCore current) (CTyFun intTy intListCoreType))
+          (integerToIntCore end)
+          intListCoreType
+      )
+
+integerEnumFromThenToMethod :: CoreExpr
+integerEnumFromThenToMethod =
+  ternaryMethod "$enum_from_then_to_integer" (-19717) integerTy integerListCoreType $ \current next end ->
+    integerMapIntList
+      ( applyCore
+          ( applyCore
+              (applyCore (CVar enumFromThenToIntName enumFromThenToIntCoreType) (integerToIntCore current) (CTyFun intTy (CTyFun intTy intListCoreType)))
+              (integerToIntCore next)
+              (CTyFun intTy intListCoreType)
+          )
+          (integerToIntCore end)
+          intListCoreType
+      )
+
+integerListCoreType :: CoreType
+integerListCoreType =
+  CTyList integerTy
+
+integerMapIntList :: CoreExpr -> CoreExpr
+integerMapIntList intList =
+  applyCore
+    (applyCore mapFunction fromIntFunction (CTyFun intListCoreType integerListCoreType))
+    intList
+    integerListCoreType
+ where
+  argumentName = builtinLocalTermName "$map_integer_int" (-19718)
+  fromIntFunction =
+    CLam
+      (CoreBinder argumentName intTy)
+      (intToIntegerCore (CVar argumentName intTy))
+      (CTyFun intTy integerTy)
+  mapFunction =
+    CTypeApp
+      (CVar derivedMapName mapPreludeCoreType)
+      [intTy, integerTy]
+      (CTyFun (CTyFun intTy integerTy) (CTyFun intListCoreType integerListCoreType))
 
 charSuccMethod :: CoreExpr
 charSuccMethod =
@@ -17941,7 +18416,7 @@ ratioShowListMethod =
 ratioShowBodyCore :: CoreExpr -> CoreExpr
 ratioShowBodyCore value =
   ratioCaseCore "$show_ratio_int_case" (-2865) value stringTy (-2866) (-2867) $ \n d ->
-    appendStringCore (CPrimOp PrimShowInt [n] stringTy) (appendStringCore (stringLiteralCore " % ") (CPrimOp PrimShowInt [d] stringTy))
+    appendStringCore (CPrimOp PrimShowInteger [n] stringTy) (appendStringCore (stringLiteralCore " % ") (CPrimOp PrimShowInteger [d] stringTy))
 
 floatShowsPrecMethod, floatShowMethod, floatShowListMethod :: CoreExpr
 floatShowsPrecMethod =
@@ -17959,9 +18434,11 @@ doubleShowMethod =
 doubleShowListMethod =
   showListFromShowsMethod doubleTy doubleShowsPrecMethod
 
-intReadsPrecMethod, boolReadsPrecMethod, charReadsPrecMethod, orderingReadsPrecMethod, exitCodeReadsPrecMethod, unitReadsPrecMethod, ratioReadsPrecMethod :: CoreExpr
+intReadsPrecMethod, integerReadsPrecMethod, boolReadsPrecMethod, charReadsPrecMethod, orderingReadsPrecMethod, exitCodeReadsPrecMethod, unitReadsPrecMethod, ratioReadsPrecMethod :: CoreExpr
 intReadsPrecMethod =
   readsPrecFromParserMethod "$reads_prec_int" (-2707) intTy (CVar readIntName readIntCoreType)
+integerReadsPrecMethod =
+  readsPrecFromParserMethod "$reads_prec_integer" (-27070) integerTy (CVar readIntegerName readIntegerCoreType)
 boolReadsPrecMethod =
   readsPrecFromParserMethod "$reads_prec_bool" (-2708) boolTy (CVar readBoolName readBoolCoreType)
 charReadsPrecMethod =
@@ -17997,9 +18474,11 @@ ratioReadsPrecMethod =
   precName = builtinLocalTermName "$reads_prec_ratio_int_prec" (-2714)
   ratioParserTy = readSCoreType rationalCoreType
 
-intReadListMethod, boolReadListMethod, charReadListMethod, orderingReadListMethod, exitCodeReadListMethod, unitReadListMethod, ratioReadListMethod :: CoreExpr
+intReadListMethod, integerReadListMethod, boolReadListMethod, charReadListMethod, orderingReadListMethod, exitCodeReadListMethod, unitReadListMethod, ratioReadListMethod :: CoreExpr
 intReadListMethod =
   readListFromParserMethod intTy (CVar readIntName readIntCoreType)
+integerReadListMethod =
+  readListFromParserMethod integerTy (CVar readIntegerName readIntegerCoreType)
 boolReadListMethod =
   readListFromParserMethod boolTy (CVar readBoolName readBoolCoreType)
 charReadListMethod =
@@ -18084,10 +18563,10 @@ ratioReadParserCore :: CoreExpr
 ratioReadParserCore =
   coreLam inputName stringTy $
     readBindCallCore
-      intTy
+      integerTy
       rationalCoreType
-      (applyCore (CVar readIntName readIntCoreType) (CVar inputName stringTy) (readResultsCoreType intTy))
-      ( coreLam numeratorName intTy $
+      (applyCore (CVar readIntegerName readIntegerCoreType) (CVar inputName stringTy) (readResultsCoreType integerTy))
+      ( coreLam numeratorName integerTy $
           coreLam afterNumeratorName stringTy $
             readBindCallCore
               unitTy
@@ -18096,14 +18575,14 @@ ratioReadParserCore =
               ( coreLam percentName unitTy $
                   coreLam afterPercentName stringTy $
                     readBindCallCore
-                      intTy
+                      integerTy
                       rationalCoreType
-                      (applyCore (CVar readIntName readIntCoreType) (CVar afterPercentName stringTy) (readResultsCoreType intTy))
-                      ( coreLam denominatorName intTy $
+                      (applyCore (CVar readIntegerName readIntegerCoreType) (CVar afterPercentName stringTy) (readResultsCoreType integerTy))
+                      ( coreLam denominatorName integerTy $
                           coreLam restName stringTy $
                             readSingleResultCore
                               rationalCoreType
-                              (ratioReduceCall (CVar numeratorName intTy) (CVar denominatorName intTy))
+                              (ratioReduceCall (CVar numeratorName integerTy) (CVar denominatorName integerTy))
                               (CVar restName stringTy)
                       )
               )
@@ -18569,6 +19048,18 @@ binaryMethod occurrence unique argumentTy resultTy body =
   lhs = CVar lhsName argumentTy
   rhs = CVar rhsName argumentTy
   methodBody = body lhs rhs
+
+ternaryMethod :: Text -> Int -> CoreType -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+ternaryMethod occurrence unique argumentTy resultTy body =
+  CLam firstBinder (CLam secondBinder (CLam thirdBinder methodBody (CTyFun argumentTy resultTy)) (CTyFun argumentTy (CTyFun argumentTy resultTy))) (CTyFun argumentTy (CTyFun argumentTy (CTyFun argumentTy resultTy)))
+ where
+  firstName = builtinLocalTermName (occurrence <> "_first") unique
+  secondName = builtinLocalTermName (occurrence <> "_second") (unique - 1)
+  thirdName = builtinLocalTermName (occurrence <> "_third") (unique - 2)
+  firstBinder = CoreBinder firstName argumentTy
+  secondBinder = CoreBinder secondName argumentTy
+  thirdBinder = CoreBinder thirdName argumentTy
+  methodBody = body (CVar firstName argumentTy) (CVar secondName argumentTy) (CVar thirdName argumentTy)
 
 unaryPrimMethod :: Text -> Int -> CoreType -> CoreType -> CorePrimOp -> CoreExpr
 unaryPrimMethod occurrence unique argumentTy resultTy prim =
@@ -20364,6 +20855,7 @@ freshTermBinder occurrence ty =
 literalMonoType :: Literal -> MonoType
 literalMonoType = \case
   LInt {} -> intMonoType
+  LInteger {} -> integerMonoType
   LFloat {} -> floatMonoType
   LDouble {} -> doubleMonoType
   LChar {} -> charMonoType
@@ -20380,6 +20872,10 @@ stringLiteralPattern value =
 intMonoType :: MonoType
 intMonoType =
   coreTypeToMono intTy
+
+integerMonoType :: MonoType
+integerMonoType =
+  coreTypeToMono integerTy
 
 floatMonoType :: MonoType
 floatMonoType =
@@ -20447,7 +20943,7 @@ exitCodeMonoType =
 
 rationalMonoType :: MonoType
 rationalMonoType =
-  TyApp (TyCon ratioTyConName) intMonoType
+  TyApp (TyCon ratioTyConName) integerMonoType
 
 ioMonoType :: MonoType -> MonoType
 ioMonoType resultTy =

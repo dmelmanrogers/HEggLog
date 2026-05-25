@@ -4,5 +4,5 @@ import Data.Ratio ((%))
 
 main :: IO ()
 main = do
-  print ((1 :: Int) % (0 :: Int))
+  print ((1 :: Integer) % (0 :: Integer))
   return ()

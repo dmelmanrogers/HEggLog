@@ -60,6 +60,7 @@ newtype STGHeapAddress = STGHeapAddress Int
 
 data STGValue
   = STGInt HInt
+  | STGInteger Integer
   | STGFloat Float
   | STGDouble Double
   | STGBool Bool
@@ -236,6 +237,8 @@ evalLiteral = \case
     case mkHIntLiteral value of
       Right intValue -> Right (STGInt intValue)
       Left err -> Left (STGEvalIntError err)
+  LInteger value ->
+    Right (STGInteger value)
   LFloat value ->
     Right (STGFloat value)
   LDouble value ->
@@ -421,6 +424,8 @@ alternativeFields altCon value =
       Just []
     (LiteralAlt (LInt expected), STGInt actual)
       | hintToInteger actual == expected -> Just []
+    (LiteralAlt (LInteger expected), STGInteger actual)
+      | actual == expected -> Just []
     (LiteralAlt (LChar expected), STGChar actual)
       | actual == expected -> Just []
     (LiteralAlt (LString expected), STGString actual)
@@ -581,6 +586,40 @@ evalPrimitiveValues op values =
       liftEither (checkedIntValue (bitHInt amount))
     (PrimTestBit, [STGInt value, STGInt amount]) ->
       liftEither (either (Left . STGEvalIntError) (Right . STGBool) (testBitHInt value amount))
+    (PrimIntegerAdd, [STGInteger lhs, STGInteger rhs]) ->
+      pure (STGInteger (lhs + rhs))
+    (PrimIntegerSub, [STGInteger lhs, STGInteger rhs]) ->
+      pure (STGInteger (lhs - rhs))
+    (PrimIntegerMul, [STGInteger lhs, STGInteger rhs]) ->
+      pure (STGInteger (lhs * rhs))
+    (PrimIntegerQuot, [STGInteger _, STGInteger 0]) ->
+      throwEval STGEvalDivisionByZero
+    (PrimIntegerQuot, [STGInteger lhs, STGInteger rhs]) ->
+      pure (STGInteger (lhs `quot` rhs))
+    (PrimIntegerRem, [STGInteger _, STGInteger 0]) ->
+      throwEval STGEvalDivisionByZero
+    (PrimIntegerRem, [STGInteger lhs, STGInteger rhs]) ->
+      pure (STGInteger (lhs `rem` rhs))
+    (PrimIntegerEq, [STGInteger lhs, STGInteger rhs]) ->
+      pure (STGBool (lhs == rhs))
+    (PrimIntegerLt, [STGInteger lhs, STGInteger rhs]) ->
+      pure (STGBool (lhs < rhs))
+    (PrimIntegerNegate, [STGInteger value]) ->
+      pure (STGInteger (negate value))
+    (PrimIntegerAbs, [STGInteger value]) ->
+      pure (STGInteger (abs value))
+    (PrimIntegerSignum, [STGInteger value]) ->
+      pure (STGInteger (signum value))
+    (PrimIntegerToInt, [STGInteger value]) ->
+      liftEither (checkedIntValue (mkHIntLiteral value))
+    (PrimIntToInteger, [STGInt value]) ->
+      pure (STGInteger (hintToInteger value))
+    (PrimIntegerToFloat FloatWidth, [STGInteger value]) ->
+      pure (STGFloat (fromInteger value))
+    (PrimIntegerToFloat DoubleWidth, [STGInteger value]) ->
+      pure (STGDouble (fromInteger value))
+    (PrimShowInteger, [STGInteger value]) ->
+      stringListValue (Text.pack (show value))
     (PrimCharToInt, [STGChar value]) ->
       liftEither (checkedIntValue (mkHIntLiteral (fromIntegral (ord value))))
     (PrimIntToChar, [STGInt value]) ->
@@ -838,8 +877,8 @@ evalFixedIntegralPrimitive fixed op values =
     (FixedNegate, [STGInt value]) -> fixedValue (negate (fixedInput value))
     (FixedAbs, [STGInt value]) -> fixedValue (abs (fixedInput value))
     (FixedSignum, [STGInt value]) -> fixedValue (signum (fixedInput value))
-    (FixedFromInteger, [STGInt value]) -> fixedValue (hintToInteger value)
-    (FixedToInteger, [STGInt value]) -> checkedSTGIntValue (mkHIntLiteral (fixedInput value))
+    (FixedFromInteger, [STGInteger value]) -> fixedValue value
+    (FixedToInteger, [STGInt value]) -> Right (STGInteger (fixedInput value))
     (FixedShow, [STGInt value]) -> Right (STGString (fixedIntegralRender fixed (fixedInput value)))
     (FixedBitAnd, [STGInt lhs, STGInt rhs]) -> fixedBitsValue ((Bits..&.) (fixedInputBits lhs) (fixedInputBits rhs))
     (FixedBitOr, [STGInt lhs, STGInt rhs]) -> fixedBitsValue ((Bits..|.) (fixedInputBits lhs) (fixedInputBits rhs))
@@ -1081,6 +1120,8 @@ valueEquals lhs rhs =
   case (lhs, rhs) of
     (STGInt lhsInt, STGInt rhsInt) ->
       Right (eqHInt lhsInt rhsInt)
+    (STGInteger lhsInteger, STGInteger rhsInteger) ->
+      Right (lhsInteger == rhsInteger)
     (STGFloat lhsFloat, STGFloat rhsFloat) ->
       Right (lhsFloat == rhsFloat)
     (STGDouble lhsDouble, STGDouble rhsDouble) ->
@@ -1167,6 +1208,8 @@ renderSTGValue :: STGValue -> Text
 renderSTGValue = \case
   STGInt value ->
     renderHInt value
+  STGInteger value ->
+    Text.pack (show value)
   STGFloat value ->
     Text.pack (show value)
   STGDouble value ->
@@ -1258,6 +1301,20 @@ renderCorePrimOpName = \case
   PrimRotateR -> "rotateR#"
   PrimBit -> "bit#"
   PrimTestBit -> "testBit#"
+  PrimIntegerAdd -> "integerAdd#"
+  PrimIntegerSub -> "integerSub#"
+  PrimIntegerMul -> "integerMul#"
+  PrimIntegerQuot -> "integerQuot#"
+  PrimIntegerRem -> "integerRem#"
+  PrimIntegerEq -> "integerEq#"
+  PrimIntegerLt -> "integerLt#"
+  PrimIntegerNegate -> "integerNegate#"
+  PrimIntegerAbs -> "integerAbs#"
+  PrimIntegerSignum -> "integerSignum#"
+  PrimIntegerToInt -> "integerToInt#"
+  PrimIntToInteger -> "intToInteger#"
+  PrimIntegerToFloat width -> renderEvalFloatingWidth width <> ".fromInteger#"
+  PrimShowInteger -> "showInteger#"
   PrimCharToInt -> "charToInt#"
   PrimIntToChar -> "intToChar#"
   PrimShowInt -> "showInt#"
@@ -1349,6 +1406,11 @@ renderCorePrimOpName = \case
   PrimFixedIntegral fixed op -> fixedIntegralOccurrence fixed <> "." <> Text.pack (show op) <> "#"
   PrimFloat width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
   PrimFloatInt width op -> Text.pack (show width) <> "." <> Text.pack (show op) <> "#"
+
+renderEvalFloatingWidth :: FloatingWidth -> Text
+renderEvalFloatingWidth = \case
+  FloatWidth -> "Float"
+  DoubleWidth -> "Double"
 
 renderForeignStorableKind :: ForeignStorableKind -> Text
 renderForeignStorableKind = \case

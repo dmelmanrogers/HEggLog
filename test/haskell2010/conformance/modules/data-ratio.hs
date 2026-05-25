@@ -2,8 +2,8 @@ module Main where
 
 import Data.Ratio (Ratio, Rational, (%), approxRational, denominator, numerator)
 
-typedRatio :: Ratio Int
-typedRatio = (9 :: Int) % (6 :: Int)
+typedRatio :: Ratio Integer
+typedRatio = (9 :: Integer) % (6 :: Integer)
 
 typedRational :: Rational
 typedRational = toRational (7 :: Int)
@@ -19,10 +19,10 @@ readRatioList = read "[3 % 2,-3 % 2]"
 
 main :: IO ()
 main = do
-  let positive = (12 :: Int) % (8 :: Int)
-  let negative = (12 :: Int) % (negate (8 :: Int))
-  let quarter = (1 :: Int) % (4 :: Int)
-  let zero = (0 :: Int) % (5 :: Int)
+  let positive = (12 :: Integer) % (8 :: Integer)
+  let negative = (12 :: Integer) % (negate (8 :: Integer))
+  let quarter = (1 :: Integer) % (4 :: Integer)
+  let zero = (0 :: Integer) % (5 :: Integer)
   print (numerator positive)
   print (denominator positive)
   print (numerator negative)
@@ -30,8 +30,8 @@ main = do
   print (numerator zero)
   print (denominator zero)
   print positive
-  print (positive == ((3 :: Int) % (2 :: Int)))
-  print (positive < ((2 :: Int) % (1 :: Int)))
+  print (positive == ((3 :: Integer) % (2 :: Integer)))
+  print (positive < ((2 :: Integer) % (1 :: Integer)))
   print (positive + quarter)
   print (positive - quarter)
   print (positive * quarter)
@@ -42,8 +42,8 @@ main = do
   print (numerator typedRational)
   print (denominator typedRational)
   print [positive, negative]
-  print (approxRational ((1 :: Int) % (10 :: Int)) ((1 :: Int) % (5 :: Int)))
-  print (approxRational ((3 :: Int) % (10 :: Int)) ((1 :: Int) % (100 :: Int)))
+  print (approxRational ((1 :: Integer) % (10 :: Integer)) ((1 :: Integer) % (5 :: Integer)))
+  print (approxRational ((3 :: Integer) % (10 :: Integer)) ((1 :: Integer) % (100 :: Integer)))
   print readRatio
   print (fst (head readParenRatio))
   putStrLn (snd (head readParenRatio))

@@ -439,6 +439,20 @@ validatePrimitive op arguments resultTy =
     PrimRotateR -> validateFixedPrimitive op [intTy, intTy] intTy arguments resultTy
     PrimBit -> validateFixedPrimitive op [intTy] intTy arguments resultTy
     PrimTestBit -> validateFixedPrimitive op [intTy, intTy] boolTy arguments resultTy
+    PrimIntegerAdd -> validateFixedPrimitive op [integerTy, integerTy] integerTy arguments resultTy
+    PrimIntegerSub -> validateFixedPrimitive op [integerTy, integerTy] integerTy arguments resultTy
+    PrimIntegerMul -> validateFixedPrimitive op [integerTy, integerTy] integerTy arguments resultTy
+    PrimIntegerQuot -> validateFixedPrimitive op [integerTy, integerTy] integerTy arguments resultTy
+    PrimIntegerRem -> validateFixedPrimitive op [integerTy, integerTy] integerTy arguments resultTy
+    PrimIntegerEq -> validateFixedPrimitive op [integerTy, integerTy] boolTy arguments resultTy
+    PrimIntegerLt -> validateFixedPrimitive op [integerTy, integerTy] boolTy arguments resultTy
+    PrimIntegerNegate -> validateFixedPrimitive op [integerTy] integerTy arguments resultTy
+    PrimIntegerAbs -> validateFixedPrimitive op [integerTy] integerTy arguments resultTy
+    PrimIntegerSignum -> validateFixedPrimitive op [integerTy] integerTy arguments resultTy
+    PrimIntegerToInt -> validateFixedPrimitive op [integerTy] intTy arguments resultTy
+    PrimIntToInteger -> validateFixedPrimitive op [intTy] integerTy arguments resultTy
+    PrimIntegerToFloat width -> validateFixedPrimitive op [integerTy] (floatingWidthType width) arguments resultTy
+    PrimShowInteger -> validateFixedPrimitive op [integerTy] stringTy arguments resultTy
 
 validateFixedIntegralPrimitive ::
   CorePrimOp ->
@@ -459,8 +473,8 @@ validateFixedIntegralPrimitive op fixed fixedOp arguments resultTy =
     FixedNegate -> unaryValue
     FixedAbs -> unaryValue
     FixedSignum -> unaryValue
-    FixedFromInteger -> validateFixedPrimitive op [intTy] valueTy arguments resultTy
-    FixedToInteger -> validateFixedPrimitive op [valueTy] intTy arguments resultTy
+    FixedFromInteger -> validateFixedPrimitive op [integerTy] valueTy arguments resultTy
+    FixedToInteger -> validateFixedPrimitive op [valueTy] integerTy arguments resultTy
     FixedShow -> validateFixedPrimitive op [valueTy] stringTy arguments resultTy
     FixedBitAnd -> binaryValue
     FixedBitOr -> binaryValue
@@ -1197,6 +1211,7 @@ unknownIOTypeVariable =
 literalType :: Literal -> CoreType
 literalType = \case
   LInt {} -> intTy
+  LInteger {} -> integerTy
   LFloat {} -> floatTy
   LDouble {} -> doubleTy
   LChar {} -> charTy

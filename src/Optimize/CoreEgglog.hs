@@ -690,6 +690,20 @@ corePrimToANF = \case
   PrimRotateR -> Nothing
   PrimBit -> Nothing
   PrimTestBit -> Nothing
+  PrimIntegerAdd -> Nothing
+  PrimIntegerSub -> Nothing
+  PrimIntegerMul -> Nothing
+  PrimIntegerQuot -> Nothing
+  PrimIntegerRem -> Nothing
+  PrimIntegerEq -> Nothing
+  PrimIntegerLt -> Nothing
+  PrimIntegerNegate -> Nothing
+  PrimIntegerAbs -> Nothing
+  PrimIntegerSignum -> Nothing
+  PrimIntegerToInt -> Nothing
+  PrimIntToInteger -> Nothing
+  PrimIntegerToFloat {} -> Nothing
+  PrimShowInteger -> Nothing
   PrimCharToInt -> Nothing
   PrimIntToChar -> Nothing
   PrimShowInt -> Nothing

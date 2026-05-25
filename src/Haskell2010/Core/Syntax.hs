@@ -45,6 +45,7 @@ module Haskell2010.Core.Syntax
   , handlePosnTy
   , handlePosnTyConName
   , handleTyConName
+  , integerTy
   , intTy
   , ioModeAppendDataConName
   , ioModeReadDataConName
@@ -211,6 +212,20 @@ data CorePrimOp
   | PrimRotateR
   | PrimBit
   | PrimTestBit
+  | PrimIntegerAdd
+  | PrimIntegerSub
+  | PrimIntegerMul
+  | PrimIntegerQuot
+  | PrimIntegerRem
+  | PrimIntegerEq
+  | PrimIntegerLt
+  | PrimIntegerNegate
+  | PrimIntegerAbs
+  | PrimIntegerSignum
+  | PrimIntegerToInt
+  | PrimIntToInteger
+  | PrimIntegerToFloat FloatingWidth
+  | PrimShowInteger
   | PrimCharToInt
   | PrimIntToChar
   | PrimShowInt
@@ -403,6 +418,10 @@ funTy =
 intTy :: CoreType
 intTy =
   builtinType "Int" (-1)
+
+integerTy :: CoreType
+integerTy =
+  builtinType "Integer" (-34)
 
 boolTy :: CoreType
 boolTy =

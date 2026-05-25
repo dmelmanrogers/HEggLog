@@ -198,6 +198,7 @@ testGroups =
       , pureTest "typechecks Prelude foldl" testHaskell2010Core0Foldl
       , pureTest "typechecks Prelude function completion" testHaskell2010Core0PreludeFunctions
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
+      , pureTest "typechecks arbitrary-precision Integer arithmetic" testHaskell2010Core0ArbitraryInteger
       , pureTest "typechecks Real and Integral numeric methods" testHaskell2010Core0NumericHierarchy
       , pureTest "typechecks Numeric module helpers" testHaskell2010Core0NumericModule
       , pureTest "documents monomorphism restriction defaulting policy" testHaskell2010MonomorphismRestrictionDefaulting
@@ -258,6 +259,7 @@ testGroups =
       , pureTest "evaluates Prelude function completion" testHaskell2010Core0EvalPreludeFunctions
       , pureTest "evaluates standard library module imports" testHaskell2010Core0EvalStandardLibraryModules
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
+      , pureTest "evaluates arbitrary-precision Integer arithmetic" testHaskell2010Core0EvalArbitraryInteger
       , pureTest "evaluates Real and Integral numeric methods" testHaskell2010Core0EvalNumericHierarchy
       , pureTest "evaluates Numeric module helpers" testHaskell2010Core0EvalNumericModule
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
@@ -320,6 +322,7 @@ testGroups =
       , pureTest "preserves Prelude function completion semantics" testHaskell2010CoreToSTGPreludeFunctions
       , pureTest "preserves standard library module import semantics" testHaskell2010CoreToSTGStandardLibraryModules
       , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
+      , pureTest "preserves arbitrary-precision Integer arithmetic" testHaskell2010CoreToSTGArbitraryInteger
       , pureTest "preserves Real and Integral numeric methods" testHaskell2010CoreToSTGNumericHierarchy
       , pureTest "preserves Numeric module helper semantics" testHaskell2010CoreToSTGNumericModule
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
@@ -1914,7 +1917,7 @@ testHaskell2010Core0PolymorphicLet = do
       \  id x = x\n\
       \in if id True then id 1 else id 2\n"
   (binder, rhs) <- lookupCoreBindingOccurrence "use" coreModule
-  expectEqual "polymorphic let result type" H2010Core.intTy (H2010Core.coreBinderType binder)
+  expectEqual "polymorphic let result type" H2010Core.integerTy (H2010Core.coreBinderType binder)
   assertBool "polymorphic let emits type applications" (countTypeApps rhs >= 3)
   assertBool "polymorphic let emits generalized local binding" (containsTypeLambda rhs)
   expectEqual
@@ -2396,10 +2399,18 @@ testHaskell2010Core0NumericDefaulting :: Either String ()
 testHaskell2010Core0NumericDefaulting = do
   coreModule <- typecheckHaskell2010 haskell2010NumericDefaultingSource
   assertBool "Prelude Num dictionary constructor is recorded" (containsConstructorOccurrence "$MkNumDict" coreModule)
-  assertBool "Prelude Num Int instance dictionary is emitted" (containsBindingOccurrence "$fNumInt" coreModule)
+  assertBool "Prelude Num Integer instance dictionary is emitted" (containsBindingOccurrence "$fNumInteger" coreModule)
   assertBool "Prelude fromInteger selector is emitted" (containsBindingOccurrence "fromInteger" coreModule)
-  assertBool "Prelude Show Int instance dictionary is emitted" (containsBindingOccurrence "$fShowInt" coreModule)
+  assertBool "Prelude Show Integer instance dictionary is emitted" (containsBindingOccurrence "$fShowInteger" coreModule)
   expectCoreEvalIO "numeric defaulting Core oracle" "7\n47\n" =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0ArbitraryInteger :: Either String ()
+testHaskell2010Core0ArbitraryInteger = do
+  coreModule <- typecheckHaskell2010 haskell2010ArbitraryIntegerSource
+  (binder, _) <- lookupCoreBindingOccurrence "main" coreModule
+  expectEqual "arbitrary Integer result type" H2010Core.integerTy (H2010Core.coreBinderType binder)
+  assertBool "Prelude Num Integer instance dictionary is emitted" (containsBindingOccurrence "$fNumInteger" coreModule)
+  expectCoreEvalInt "arbitrary Integer Core oracle" arbitraryIntegerExpected =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
 testHaskell2010Core0NumericHierarchy :: Either String ()
 testHaskell2010Core0NumericHierarchy = do
@@ -2423,8 +2434,8 @@ testHaskell2010Core0NumericModule = do
 testHaskell2010MonomorphismRestrictionDefaulting :: Either String ()
 testHaskell2010MonomorphismRestrictionDefaulting = do
   coreModule <- typecheckHaskell2010 haskell2010MonomorphismRestrictionSource
-  assertBool "MR defaulting emits Num Int dictionary" (containsBindingOccurrence "$fNumInt" coreModule)
-  assertBool "MR defaulting emits Eq Int dictionary" (containsBindingOccurrence "$fEqInt" coreModule)
+  assertBool "MR defaulting emits Num Integer dictionary" (containsBindingOccurrence "$fNumInteger" coreModule)
+  assertBool "MR defaulting emits Eq Integer dictionary" (containsBindingOccurrence "$fEqInteger" coreModule)
   expectCoreEvalInt "monomorphism restriction defaulting oracle" 1 =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
 testHaskell2010Core0MultiModuleImports :: Either String ()
@@ -2737,6 +2748,7 @@ testHaskell2010ForeignTypechecking = do
     "module Core0 where\n\
     \import Foreign.C.Types (CInt)\n\
     \foreign import ccall \"abs\" c_abs :: CInt -> IO CInt\n\
+    \main :: Int\n\
     \main = 1\n"
     "declare i32 @abs(i32)"
   expectForeignImportDeclaration
@@ -2744,6 +2756,7 @@ testHaskell2010ForeignTypechecking = do
     "module Core0 where\n\
     \import Foreign.C.Types (CUInt)\n\
     \foreign import ccall \"hegglog_ffi_identity_u32\" c_id_u32 :: CUInt -> IO CUInt\n\
+    \main :: Int\n\
     \main = 1\n"
     "declare i32 @hegglog_ffi_identity_u32(i32)"
   expectForeignImportDeclaration
@@ -2751,6 +2764,7 @@ testHaskell2010ForeignTypechecking = do
     "module Core0 where\n\
     \import Foreign.C.Types (CFloat)\n\
     \foreign import ccall \"hegglog_ffi_identity_float\" c_id_float :: CFloat -> IO CFloat\n\
+    \main :: Int\n\
     \main = 1\n"
     "declare float @hegglog_ffi_identity_float(float)"
   expectForeignImportDeclaration
@@ -2758,12 +2772,14 @@ testHaskell2010ForeignTypechecking = do
     "module Core0 where\n\
     \import Foreign.C.Types (CDouble)\n\
     \foreign import ccall \"hegglog_ffi_identity_double\" c_id_double :: CDouble -> IO CDouble\n\
+    \main :: Int\n\
     \main = 1\n"
     "declare double @hegglog_ffi_identity_double(double)"
   expectForeignImportDeclaration
     "static import over Haskell Float and Double"
     "module Core0 where\n\
     \foreign import ccall \"hegglog_ffi_mix_float_double\" c_mix :: Float -> Double -> IO Int\n\
+    \main :: Int\n\
     \main = 1\n"
     "declare i64 @hegglog_ffi_mix_float_double(float, double)"
   expectForeignImportCoreSTG
@@ -2773,6 +2789,7 @@ testHaskell2010ForeignTypechecking = do
     \import Foreign (FunPtr)\n\
     \import Foreign.C.Types (CInt)\n\
     \foreign import ccall \"dynamic\" mkFun :: FunPtr (CInt -> IO CInt) -> CInt -> IO CInt\n\
+    \main :: Int\n\
     \main = 1\n"
   expectForeignImportCoreSTG
     "wrapper import shape"
@@ -2781,6 +2798,7 @@ testHaskell2010ForeignTypechecking = do
     \import Foreign (FunPtr)\n\
     \import Foreign.C.Types (CInt)\n\
     \foreign import ccall \"wrapper\" wrapFun :: (CInt -> IO CInt) -> IO (FunPtr (CInt -> IO CInt))\n\
+    \main :: Int\n\
     \main = 1\n"
   expectForeignImportCoreSTG
     "dynamic floating import shape"
@@ -2789,6 +2807,7 @@ testHaskell2010ForeignTypechecking = do
     \import Foreign (FunPtr)\n\
     \import Foreign.C.Types (CDouble)\n\
     \foreign import ccall \"dynamic\" mkFun :: FunPtr (CDouble -> IO CDouble) -> CDouble -> IO CDouble\n\
+    \main :: Int\n\
     \main = 1\n"
   expectForeignImportCoreSTG
     "wrapper floating import shape"
@@ -2797,6 +2816,7 @@ testHaskell2010ForeignTypechecking = do
     \import Foreign (FunPtr)\n\
     \import Foreign.C.Types (CDouble)\n\
     \foreign import ccall \"wrapper\" wrapFun :: (CDouble -> IO CDouble) -> IO (FunPtr (CDouble -> IO CDouble))\n\
+    \main :: Int\n\
     \main = 1\n"
   expectForeignImportCoreSTG
     "address import shape"
@@ -2805,12 +2825,14 @@ testHaskell2010ForeignTypechecking = do
     \import Foreign (Ptr)\n\
     \import Foreign.C.Types (CInt)\n\
     \foreign import ccall \"&errno\" c_errno :: Ptr CInt\n\
+    \main :: Int\n\
     \main = 1\n"
   expectForeignImportValueDeclaration
     "address import native declaration"
     "module Core0 where\n\
     \import Foreign (Ptr)\n\
     \foreign import ccall \"&hegglog_ffi_global_i64\" c_global :: Ptr Int\n\
+    \main :: Int\n\
     \main = 1\n"
     "@hegglog_ffi_global_i64 = external global i8"
   expectForeignImportCoreSTG
@@ -2820,6 +2842,7 @@ testHaskell2010ForeignTypechecking = do
     \import Foreign (Ptr)\n\
     \import Foreign.C.Types (CFile)\n\
     \foreign import ccall \"&stdin\" c_stdin :: Ptr CFile\n\
+    \main :: Int\n\
     \main = 1\n"
   expectForeignImportCoreSTG
     "type synonym expansion and local newtype validation"
@@ -2829,6 +2852,7 @@ testHaskell2010ForeignTypechecking = do
     \type MyCInt = CInt\n\
     \newtype FD = FD MyCInt\n\
     \foreign import ccall \"fd\" c_fd :: FD -> IO MyCInt\n\
+    \main :: Int\n\
     \main = 1\n"
   expectForeignExportCoreSTG
     "foreign export metadata and native entrypoint"
@@ -2836,6 +2860,7 @@ testHaskell2010ForeignTypechecking = do
     \identity :: Int -> Int\n\
     \identity x = x\n\
     \foreign export ccall \"hs_identity\" identity :: Int -> Int\n\
+    \main :: Int\n\
     \main = 1\n"
     "hs_identity"
  where
@@ -2957,6 +2982,7 @@ testHaskell2010ForeignTypechecking = do
         ( typecheckHaskell2010Raw
             "module Core0 where\n\
             \foreign import ccall \"abs\" c_abs :: Int -> IO Int\n\
+            \bad :: Int\n\
             \bad = div 1 0\n\
             \main = c_abs bad\n"
         )
@@ -3476,6 +3502,13 @@ testHaskell2010Core0EvalNumericDefaulting =
     "7\n47\n"
     =<< evalHaskell2010Binding "main" haskell2010NumericDefaultingSource
 
+testHaskell2010Core0EvalArbitraryInteger :: Either String ()
+testHaskell2010Core0EvalArbitraryInteger =
+  expectCoreEvalInt
+    "Core-0 arbitrary Integer evaluation"
+    arbitraryIntegerExpected
+    =<< evalHaskell2010Binding "main" haskell2010ArbitraryIntegerSource
+
 testHaskell2010Core0EvalNumericHierarchy :: Either String ()
 testHaskell2010Core0EvalNumericHierarchy =
   expectCoreEvalIO
@@ -3913,6 +3946,10 @@ testHaskell2010CoreToSTGStandardLibraryModules =
 testHaskell2010CoreToSTGNumericDefaulting :: Either String ()
 testHaskell2010CoreToSTGNumericDefaulting =
   checkCoreToSTGIO "Core-to-STG numeric defaulting" "7\n47\n" haskell2010NumericDefaultingSource
+
+testHaskell2010CoreToSTGArbitraryInteger :: Either String ()
+testHaskell2010CoreToSTGArbitraryInteger =
+  checkCoreToSTGInt "Core-to-STG arbitrary Integer" arbitraryIntegerExpected haskell2010ArbitraryIntegerSource
 
 testHaskell2010CoreToSTGNumericHierarchy :: Either String ()
 testHaskell2010CoreToSTGNumericHierarchy =
@@ -7549,6 +7586,7 @@ haskell2010InferenceProgramSource expectedType expression =
   Text.unlines
     [ "module Main where"
     , "idp x = x"
+    , "value :: " <> renderHaskell2010PropType expectedType
     , "value = " <> generatedHaskell2010ExprText expression
     , "main :: " <> renderHaskell2010PropType expectedType
     , "main = idp value"
@@ -7564,7 +7602,9 @@ haskell2010DictionaryInferenceProgramSource lhs rhs =
     , "  same x y = x == y"
     , "instance Same Bool where"
     , "  same x y = x == y"
+    , "left :: " <> renderHaskell2010PropType (generatedHaskell2010ExprType lhs)
     , "left = " <> generatedHaskell2010ExprText lhs
+    , "right :: " <> renderHaskell2010PropType (generatedHaskell2010ExprType rhs)
     , "right = " <> generatedHaskell2010ExprText rhs
     , "main :: Bool"
     , "main = same left right"
@@ -7941,10 +7981,12 @@ expectCoreEvalInt :: String -> Integer -> H2010CoreEval.CoreValue -> Either Stri
 expectCoreEvalInt label expected = \case
   H2010CoreEval.CoreInt actual ->
     expectEqual label expected (hintToInteger actual)
+  H2010CoreEval.CoreInteger actual ->
+    expectEqual label expected actual
   actual ->
     Left
       ( label
-          <> ": expected Core Int "
+          <> ": expected Core integral value "
           <> show expected
           <> ", got "
           <> Text.unpack (H2010CoreEval.renderCoreValue actual)
@@ -9199,13 +9241,24 @@ haskell2010NumericDefaultingSource =
   "module Main where\n\
   \twice x = x + x\n\
   \defaulted = 6\n\
-  \viaFromInteger :: Int\n\
+  \viaFromInteger :: Integer\n\
   \viaFromInteger = fromInteger 35\n\
   \main :: IO ()\n\
   \main = do\n\
   \  print (1 + 2 * 3)\n\
   \  print (twice defaulted + viaFromInteger)\n\
   \  return ()\n"
+
+arbitraryIntegerExpected :: Integer
+arbitraryIntegerExpected =
+  170141183460469231731687303715884105859
+
+haskell2010ArbitraryIntegerSource :: Text
+haskell2010ArbitraryIntegerSource =
+  "module Main where\n\
+  \huge :: Integer\n\
+  \huge = 170141183460469231731687303715884105727\n\
+  \main = huge + 132\n"
 
 haskell2010NumericHierarchySource :: Text
 haskell2010NumericHierarchySource =
@@ -9655,10 +9708,12 @@ expectSTGInt :: String -> Integer -> H2010STGEval.STGValue -> Either String ()
 expectSTGInt label expected = \case
   H2010STGEval.STGInt actual ->
     expectEqual label expected (hintToInteger actual)
+  H2010STGEval.STGInteger actual ->
+    expectEqual label expected actual
   actual ->
     Left
       ( label
-          <> ": expected STG Int "
+          <> ": expected STG integral value "
           <> show expected
           <> ", got "
           <> Text.unpack (H2010STGEval.renderSTGValue actual)

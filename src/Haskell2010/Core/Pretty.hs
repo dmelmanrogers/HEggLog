@@ -139,6 +139,20 @@ renderCorePrimOp = \case
   PrimRotateR -> "rotateR#"
   PrimBit -> "bit#"
   PrimTestBit -> "testBit#"
+  PrimIntegerAdd -> "integerAdd#"
+  PrimIntegerSub -> "integerSub#"
+  PrimIntegerMul -> "integerMul#"
+  PrimIntegerQuot -> "integerQuot#"
+  PrimIntegerRem -> "integerRem#"
+  PrimIntegerEq -> "integerEq#"
+  PrimIntegerLt -> "integerLt#"
+  PrimIntegerNegate -> "integerNegate#"
+  PrimIntegerAbs -> "integerAbs#"
+  PrimIntegerSignum -> "integerSignum#"
+  PrimIntegerToInt -> "integerToInt#"
+  PrimIntToInteger -> "intToInteger#"
+  PrimIntegerToFloat width -> renderFloatingWidth width <> ".fromInteger#"
+  PrimShowInteger -> "showInteger#"
   PrimCharToInt -> "charToInt#"
   PrimIntToChar -> "intToChar#"
   PrimShowInt -> "showInt#"
@@ -400,6 +414,7 @@ withType expression ty =
 renderLiteral :: Literal -> Text
 renderLiteral = \case
   LInt n -> Text.pack (show n)
+  LInteger n -> Text.pack (show n) <> "i"
   LFloat n -> Text.pack (show n) <> "f"
   LDouble n -> Text.pack (show n)
   LChar c -> Text.pack (show c)
