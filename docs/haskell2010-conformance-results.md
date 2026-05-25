@@ -203,7 +203,7 @@ locks directional negative bit counts as native runtime errors.
 LIB-007 is now covered by native conformance and e2e fixtures.
 `modules.data-ratio` checks the generated `Data.Ratio` module, `Ratio` and
 `Rational` imports, normalized `(%)`, `numerator`, `denominator`,
-`approxRational`, Prelude `toRational`, and built-in `Ratio Int`
+`approxRational`, Prelude `toRational`, and built-in `Ratio Integer`
 `Eq`/`Ord`/`Num`/`Real`/`Show`/`Read` behavior in default, `--no-egglog`, and
 emit-LLVM modes. `modules.data-ratio-zero-denominator-partial` locks zero
 denominator handling as a native runtime-error case.

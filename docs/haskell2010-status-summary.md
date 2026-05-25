@@ -72,10 +72,9 @@ implemented:
   current executable-subset diagnostics
 - remaining source-surface implementation closure
 - instance contexts
-- arbitrary-precision `Integer`, generic `Ratio a` behavior beyond the
-  current `Ratio Int`/`Rational` surface, fixed-width numeric runtime
-  completion, exact floating lexical helpers, and broader Prelude/library
-  subset
+- generic `Ratio a` behavior beyond the current `Ratio Integer`/`Rational`
+  surface, native out-of-i64 `Integer` payloads, exact shortest-roundtrip
+  floating lexical helpers, and broader Prelude/library subset
 - remaining standard-library value surfaces beyond the currently generated
   partial module interfaces
 - package databases, interface-file roots, and persistent interface-file

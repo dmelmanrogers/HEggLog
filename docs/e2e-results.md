@@ -34,7 +34,7 @@ Summary:
 
 This update adds dedicated Haskell 2010 native cases for LIB-007:
 `haskell2010-data-ratio` exercises the report-shaped `Data.Ratio` import
-surface and current `Rational = Ratio Int` runtime representation, including
+surface and current `Rational = Ratio Integer` runtime representation, including
 normalization, zero sign handling, `numerator`, `denominator`, `toRational`,
 `approxRational`, `Eq`, `Ord`, `Num`, `Real`, `Show`, `Read`, and list
 Show/Read. The paired partial case verifies that zero denominators fail as

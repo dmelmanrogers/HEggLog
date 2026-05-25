@@ -36,7 +36,7 @@ graph path until that module has an implemented surface.
 | `Data.Ix` | generated class interface plus native dictionaries | `Ix(range, index, inRange, rangeSize)`, scalar instances for `Int`, `Char`, `Bool`, `Ordering`, and `()`, structural tuple instances, and derived `Ix` for supported enumeration and single-constructor product data types |
 | `Data.List` | source-backed native module | Haskell 2010 Report list API: shared Prelude list functions plus transformations, folds/scans, map accumulators, infinite-list producers, sublists, predicates, searches, indexing, zips/unzips, text helpers, set-like list operations, ordered-list helpers, `By` variants, and generic functions; `(++)`, `(!!)`, and `(\\)` fixities are imported |
 | `Data.Maybe` | source-backed native module | `Maybe(..)`, `maybe`, `isJust`, `isNothing`, `fromJust`, `fromMaybe`, `listToMaybe`, `maybeToList`, `catMaybes`, and `mapMaybe` |
-| `Data.Ratio` | generated interface plus native `Ratio Int` representation | `Ratio`, `Rational`, `(%)`, `numerator`, `denominator`, `approxRational`, `%` fixity, normalized `Rational = Ratio Int` over the current `Integer`-as-`Int` runtime, and built-in `Eq`/`Ord`/`Num`/`Real`/`Show`/`Read` dictionaries for that representation |
+| `Data.Ratio` | generated interface plus native `Ratio Integer` representation | `Ratio`, `Rational`, `(%)`, `numerator`, `denominator`, `approxRational`, `%` fixity, normalized `Rational = Ratio Integer`, and built-in `Eq`/`Ord`/`Num`/`Real`/`Show`/`Read` dictionaries for that representation |
 | `Numeric` | source-backed native module | `showSigned`, `showIntAtBase`, `showInt`, `showHex`, `showOct`, `showEFloat`, `showFFloat`, `showGFloat`, `showFloat`, `floatToDigits`, `readSigned`, `readInt`, `readDec`, `readOct`, `readHex`, `readFloat`, `lexDigits`, and `fromRat`; native coverage exercises integral bases, signed parses/renders, finite `Double` float parsing/formatting, `floatToDigits`, and `Rational` conversion over the current executable numeric tower |
 | `Data.Word` | generated native fixed-width module | `Word`, `Word8`, `Word16`, `Word32`, and `Word64` have real unsigned modulo representations, `Eq`/`Ord`/`Num`/`Real`/`Integral`/`Enum`/`Bounded`/`Ix`/`Bits`/`Show`/`Read` dictionaries, unsigned `Word64` rendering, native scalar FFI marshalling for `Word8`/`Word16`/`Word32`/`Word64`, and generated `Storable` support under `FFI-013`; plain `Word` remains deliberately outside Haskell 2010 basic FFI type validation even though it has a native memory representation |
 | `System.Environment` | generated native process module | `getArgs`, `getProgName`, and `getEnv`; native executables store C `argc`/`argv`, convert argument and environment strings to `[Char]`, expose basename-style program names, and report missing variables as catchable `DoesNotExistError` `IOError`s |
@@ -100,9 +100,10 @@ validated as ordinary standard-library code rather than as fake import names.
 
 `LIB-007` moved `Data.Ratio` out of the reserved set. The module is importable
 through a generated interface and its runtime representation is a real
-`Ratio Int` constructor, not the old executable pair encoding. The boundary is
-still explicit: generic `Ratio a`, arbitrary-precision `Integer`, and
-floating/fractional integration remain in later numeric-library tasks.
+`Ratio Integer` constructor, not the old executable pair encoding. The boundary
+is still explicit: generic `Ratio a` dictionaries beyond
+`Rational = Ratio Integer` and native out-of-i64 `Integer` payloads remain in
+later numeric-runtime tasks.
 
 `TEST-CONF-015` completed the Report-wide reconciliation for this table. Each
 reserved module and each partial generated interface now points to implemented

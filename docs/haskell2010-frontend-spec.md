@@ -179,8 +179,8 @@ Current initial Haskell 2010 class capabilities:
 Remaining planned Haskell 2010 capabilities:
 
 - instance contexts, method-specific constraints, and remaining deriving classes
-- Fractional/Floating, generic Ratio numeric behavior beyond the current
-  `Ratio Int`/`Rational` surface, and fuller Prelude hierarchy
+- generic Ratio numeric behavior beyond the current `Ratio Integer`/`Rational`
+  surface, native out-of-i64 `Integer` payloads, and fuller Prelude hierarchy
 - kind checking for type constructors and classes
 
 The typechecker emits typed Core or rejects the program. It must not accept a

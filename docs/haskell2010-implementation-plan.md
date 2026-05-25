@@ -132,9 +132,9 @@ is built alongside them.
     dictionary failures,
     documented executable-subset monomorphism/defaulting behavior,
     Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
-    Instance contexts, arbitrary-precision `Integer`, generic `Ratio a`
-    behavior, fixed-width numeric completion, and exact floating lexical helper
-    polish remain planned.
+    Instance contexts, generic `Ratio a` dictionaries beyond
+    `Rational = Ratio Integer`, native out-of-i64 `Integer` payloads, and exact
+    shortest-roundtrip floating lexical polish remain planned.
 15. Guarded RHS/case alternatives and as-pattern aliases. Completed for
     multi-branch guards, guarded case alternatives, as-pattern alias binding,
     Core/STG/native no-match behavior for guard fallthrough, and wet-tested

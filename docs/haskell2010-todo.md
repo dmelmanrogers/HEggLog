@@ -13408,13 +13408,14 @@ Notes:
   `quotRem`, `divMod`, and `toInteger`, with Core/STG/native lowering for a
   checked remainder primitive and Haskell 2010 `quot`/`rem` versus `div`/`mod`
   semantics. Defaulting recognizes `Real` and `Integral` constraints in the
-  supported standard-class numeric universe, `Integer` defaults continue to
-  map to the checked executable `Int` representation, and invalid default
-  declarations remain explicit compile errors. Fractional, floating, and
-  arbitrary-precision `Integer` behavior remain tracked as future
-  library/runtime work rather than being silently claimed; `LIB-007` now
-  supplies the current `Ratio Int`/`Rational` representation used by
-  `toRational`.
+  supported standard-class numeric universe, `Integer` defaults now select the
+  distinct `Integer` type, and invalid default declarations remain explicit
+  compile errors. Core and STG execution carry arbitrary-precision `Integer`
+  values through host `Integer` semantics; native LLVM still uses the existing
+  i64 boxed payload path for `Integer` values and rejects out-of-payload
+  literals explicitly instead of silently truncating them. Fractional and
+  floating behavior are covered by `LIB-008`/`LIB-010`; `LIB-007` now supplies
+  the current `Ratio Integer`/`Rational` representation used by `toRational`.
 
 ## PRELUDE-001 — Prelude module strategy
 
@@ -14805,18 +14806,19 @@ Documentation updates:
 
 Notes:
 - Created by TEST-CONF-015 to make the Rational gap explicit.
-- Complete. `Data.Ratio` is importable and exports `Ratio`, `Rational`, `(%)`,
-  `numerator`, `denominator`, and `approxRational`. The executable runtime now
-  represents `Rational` as `Ratio Int` over the compiler's current
-  `Integer`-as-`Int` representation, normalizes signs and common divisors,
-  rejects zero denominators at runtime, and backs `toRational` with the same
-  constructor instead of the old `(Int, Int)` pair. Built-in `Ratio Int`
+- Complete for the current `Rational` surface. `Data.Ratio` is importable and
+  exports `Ratio`, `Rational`, `(%)`, `numerator`, `denominator`, and
+  `approxRational`. The executable runtime now represents `Rational` as
+  normalized `Ratio Integer`, normalizes signs and common divisors, rejects
+  zero denominators at runtime, and backs `toRational` with the same
+  constructor instead of the old `(Int, Int)` pair. Built-in `Ratio Integer`
   dictionaries cover `Eq`, `Ord`, `Num`, `Real`, `Show`, and `Read`, including
   precedence-aware `show`/`read` round trips and list `Read`/`Show`.
   `approxRational` implements the Report simplest-rational algorithm for the
-  currently supported `Rational` input type. Generic `Ratio a` and arbitrary
-  precision `Integer` remain separate broader numeric gaps; floating/fractional
-  integration is covered by `LIB-008`.
+  currently supported `Rational` input type. Generic `Ratio a` dictionaries
+  beyond the standard `Rational = Ratio Integer` path remain a broader
+  typeclass/library generality task; floating/fractional integration is covered
+  by `LIB-008`.
 
 ## LIB-008 — Data.Complex and floating numeric tower
 
@@ -14869,7 +14871,7 @@ Notes:
   executable `Eq`, `Ord`, `Num`, `Real`, `Fractional`, `Floating`,
   `RealFrac`, `RealFloat`, and `Show` dictionaries. Floating primitives cover
   arithmetic, comparisons, conversion from integer/rational input in the
-  supported `Ratio Int` representation, elementary and hyperbolic functions,
+  supported `Ratio Integer` representation, elementary and hyperbolic functions,
   power/atan2, integral conversions, and IEEE predicates used by the Prelude
   classes. `Data.Complex` is now an importable source-backed standard module
   exporting `Complex((:+))`, rectangular accessors, conjugation, polar
@@ -14925,7 +14927,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Complete for the fixed-width `Data.Int`/`Data.Word` surface owned by this task. `Data.Int` and `Data.Word` now use shared fixed-width runtime representations for `Int8`, `Int16`, `Int32`, `Int64`, `Word`, `Word8`, `Word16`, `Word32`, and `Word64`, with Core/STG/native primitives for modulo arithmetic, signed and unsigned comparisons, quotient/remainder, bounds, `Show`, `Read` through the current integer lexer, `Enum`, `Ix`, and `Bits`. Native conformance covers overflow, bounds, unsigned `Word64` rendering, signed shift edge cases, fixed-width list/range behavior, and static FFI scalar marshalling for `Int8`, `Word8`, and `Word64`. Plain `Word` remains intentionally rejected as a Haskell 2010 basic FFI type; the Report basic FFI word types are `Word8`/`Word16`/`Word32`/`Word64`. `FFI-013` adds generated `Storable` support for the fixed-width and pointer-shaped runtime representations. Arbitrary-precision `Integer` is still represented by the existing checked-`Int` runtime subset, so `Integral` conversions are complete for values representable by that project-wide `Integer` representation; true arbitrary-precision `Integer` remains a separate conformance gap.
+- Complete for the fixed-width `Data.Int`/`Data.Word` surface owned by this task. `Data.Int` and `Data.Word` now use shared fixed-width runtime representations for `Int8`, `Int16`, `Int32`, `Int64`, `Word`, `Word8`, `Word16`, `Word32`, and `Word64`, with Core/STG/native primitives for modulo arithmetic, signed and unsigned comparisons, quotient/remainder, bounds, `Show`, `Read` through the arbitrary `Integer` lexer, `Enum`, `Ix`, and `Bits`. Native conformance covers overflow, bounds, unsigned `Word64` rendering, signed shift edge cases, fixed-width list/range behavior, and static FFI scalar marshalling for `Int8`, `Word8`, and `Word64`. Plain `Word` remains intentionally rejected as a Haskell 2010 basic FFI type; the Report basic FFI word types are `Word8`/`Word16`/`Word32`/`Word64`. `FFI-013` adds generated `Storable` support for the fixed-width and pointer-shaped runtime representations. Core/STG fixed-width conversions consume arbitrary `Integer` values and normalize modulo the target width; the native path remains bounded by the current i64 `Integer` payload representation.
 
 ## LIB-010 — Numeric report completion
 
@@ -14972,7 +14974,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Complete for the current executable Haskell 2010 numeric tower. `Numeric` is now an importable source-backed virtual module with report-named exports for integral bases, signed reads/shows, finite floating renders/parses, `floatToDigits`, `lexDigits`, and `fromRat`. The implementation is covered through Core typechecking/evaluation, Core-to-STG preservation, LLVM emission, a native wet fixture, and the conformance manifest. Floating parser coverage currently targets the supported `Double` execution path and the existing checked-`Int` backed `Integer`/`Rational` representation; true arbitrary-precision `Integer` remains outside this task.
+- Complete for the current executable Haskell 2010 numeric tower. `Numeric` is now an importable source-backed virtual module with report-named exports for integral bases, signed reads/shows, finite floating renders/parses, `floatToDigits`, `lexDigits`, and `fromRat`. The implementation is covered through Core typechecking/evaluation, Core-to-STG preservation, LLVM emission, a native wet fixture, and the conformance manifest. Floating parser coverage targets the supported `Double` execution path and the current `Integer`/`Ratio Integer` representation; exact shortest-roundtrip floating lexical polish beyond the finite helper surface remains tracked separately from this module-level closure.
 
 ## LIB-011 — System.Environment and System.Exit report completion
 

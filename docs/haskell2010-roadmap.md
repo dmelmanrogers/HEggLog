@@ -360,9 +360,9 @@ constraints before generalization; signed bindings and functions with value
 parameters are protected. `/` is now the Haskell 2010 `Fractional` method;
 checked integer division is expressed through `quot`/`rem`/`div`/`mod`.
 Remaining Phase 12 work includes instance contexts, method-specific
-constraints/type variables, coherence diagnostics, arbitrary-precision
-`Integer`, generic `Ratio a` behavior beyond the current `Ratio Int`/`Rational`
-representation, fixed-width numeric completion, and exact floating lexical
+constraints/type variables, coherence diagnostics, generic `Ratio a` behavior
+beyond the current `Ratio Integer`/`Rational` representation, native
+out-of-i64 `Integer` payloads, and exact shortest-roundtrip floating lexical
 helper polish. Derived `Read` moved to complete with TC-030.
 
 Deliverables:

@@ -847,7 +847,7 @@
         "default",
         "no-egglog"
       ],
-      "notes": "Executable Real Int and Integral Int dictionaries cover quot/rem/div/mod, pair-returning quotient methods, toInteger, integer-rational conversion, and Integer default declarations."
+      "notes": "Executable Real Int/Integer and Integral Int/Integer dictionaries cover quot/rem/div/mod, pair-returning quotient methods, toInteger, integer-rational conversion, and Integer default declarations."
     },
     {
       "name": "prelude.floating-numeric",
@@ -1659,7 +1659,7 @@
         "default",
         "no-egglog"
       ],
-      "notes": "Data.Ratio exports Ratio/Rational and validates normalization, positive denominators, numerator/denominator accessors, Prelude toRational integration, and supported Ratio Int Eq/Ord/Num/Show behavior."
+      "notes": "Data.Ratio exports Ratio/Rational and validates normalization, positive denominators, numerator/denominator accessors, Prelude toRational integration, and supported Ratio Integer Eq/Ord/Num/Show behavior."
     },
     {
       "name": "modules.data-ratio-zero-denominator-partial",
