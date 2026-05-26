@@ -18477,7 +18477,7 @@ Notes:
 ## DIAG-008 — class/instance diagnostics
 
 Status:
-- in progress
+- complete
 
 Category:
 - diagnostics
