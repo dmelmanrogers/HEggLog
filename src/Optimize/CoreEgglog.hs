@@ -139,6 +139,8 @@ optimizeExpr config validationEnv env expression = do
         pure expression
       CCon {} ->
         pure expression
+      CSpanned sourceRange inner ->
+        CSpanned sourceRange <$> optimizeExpr config validationEnv env inner
       CLam binder body ty ->
         CLam binder <$> optimizeExpr config validationEnv (Map.insert (coreBinderName binder) (coreBinderType binder) env) body <*> pure ty
       CApp fn arg ty ->
@@ -873,6 +875,8 @@ expressionCost = \case
   CVar {} -> 1
   CLit {} -> 1
   CCon {} -> 1
+  CSpanned _ expression ->
+    expressionCost expression
   CLam _ body _ -> 1 + expressionCost body
   CApp fn arg _ -> 1 + expressionCost fn + expressionCost arg
   CTypeLam _ body _ -> expressionCost body
@@ -907,6 +911,8 @@ uniquesInExpr = \case
   CVar name _ -> [nameUnique name]
   CLit {} -> []
   CCon name _ -> [nameUnique name]
+  CSpanned _ expression ->
+    uniquesInExpr expression
   CLam binder body _ -> nameUnique (coreBinderName binder) : uniquesInExpr body
   CApp fn arg _ -> uniquesInExpr fn <> uniquesInExpr arg
   CTypeLam variables body _ -> map nameUnique variables <> uniquesInExpr body

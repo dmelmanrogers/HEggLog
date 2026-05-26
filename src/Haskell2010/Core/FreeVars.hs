@@ -28,6 +28,8 @@ freeVarsExpr = \case
     Set.empty
   CCon {} ->
     Set.empty
+  CSpanned _ expression ->
+    freeVarsExpr expression
   CLam binder body _ ->
     Set.delete (coreBinderName binder) (freeVarsExpr body)
   CApp fn arg _ ->

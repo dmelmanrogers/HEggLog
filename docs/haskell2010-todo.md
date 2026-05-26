@@ -18578,8 +18578,9 @@ Notes:
   source-spanned warnings with missing witnesses where finite constructor
   coverage can identify them, supported duplicate/unreachable alternatives emit
   redundant-pattern warnings, native compile results preserve warnings, and the
-  compile CLI renders warnings to stderr. Broader report-complete coverage and
-  nested runtime subexpression spans remain tracked outside this task.
+  compile CLI renders warnings to stderr. Broader report-complete coverage
+  remains tracked outside this task; nested runtime subexpression attribution is
+  covered by DIAG-014.
 
 ## DIAG-010 — module/import diagnostics
 
@@ -18788,12 +18789,12 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M17 (Diagnostics). Completed by threading top-level binding spans through typed bindings, Core modules, STG programs, and interpreter runtime closures. DIAG-014 remains responsible for nested expression spans inside a source binding.
+- Milestone M17 (Diagnostics). Completed by threading top-level binding spans through typed bindings, Core modules, STG programs, and interpreter runtime closures. DIAG-014 now extends this with nested expression spans inside source bindings.
 
 ## DIAG-014 — nested runtime spans
 
 Status:
-- not started
+- complete
 
 Category:
 - diagnostics
@@ -18806,7 +18807,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver nested runtime spans for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver nested runtime spans for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Source expression spans now survive typed elaboration, Core, Core optimization, STG lowering, lazy STG thunk allocation, and partial-application thunks so Core/STG interpreter failures report the innermost surviving source expression.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -18816,26 +18817,31 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Syntax/Span.hs`
-- `src/Haskell2010/Parser.hs`
-- `src/Haskell2010/Renamer.hs`
 - `src/Haskell2010/Typecheck.hs`
-- `src/CLI/Report.hs`
-- `test/golden/`
+- `src/Haskell2010/Core/Syntax.hs`
+- `src/Haskell2010/Core/Eval.hs`
+- `src/Haskell2010/STG/Syntax.hs`
+- `src/Haskell2010/STG/Eval.hs`
+- `src/Haskell2010/STG/Lower.hs`
+- `test/Main.hs`
 
 Acceptance criteria:
-- nested runtime spans is implemented, completed, or explicitly documented according to status `not started`.
+- nested runtime spans are implemented for Core and STG interpreter runtime errors, including delayed failures through lazy thunks and lowered partial-application chains.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
+- Core evaluator nested runtime attribution unit tests
+- Core-to-STG nested runtime attribution unit tests
 - negative conformance tests
-- CLI rendering tests
 
 Documentation updates:
 - `docs/diagnostics-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
+
+Notes:
+- Milestone M17 (Diagnostics). Completed by adding source span wrappers to typed/Core/STG expressions, preserving them through substitution, validation, optimization, STG lowering, evaluator execution, and test-side structural walkers. Core and STG nested runtime attribution now point at source expressions such as `div` in `main = 10 + div 1 0` rather than only the containing binding or outer arithmetic expression.
 
 Notes:
 - Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.

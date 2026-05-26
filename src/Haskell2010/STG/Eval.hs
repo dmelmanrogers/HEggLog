@@ -211,6 +211,8 @@ initialState =
 
 evalExpr :: Maybe SourceSpan -> RuntimeEnv -> STGExpr -> EvalM STGValue
 evalExpr sourceRange env = \case
+  STGSpanned sourceRange' expression ->
+    withSTGRuntimeSpan (Just sourceRange') (evalExpr (Just sourceRange') env expression)
   STGAtom atom ->
     evalAtom env atom
   STGApp callee arguments _ ->
@@ -297,14 +299,27 @@ allocateBindWithSpans runtimeSpans fallbackSource env = \case
       Nothing -> fallbackSource
 
 rhsToClosure :: Maybe SourceSpan -> Maybe RName -> RuntimeEnv -> STGRhs -> EvalM RuntimeClosure
-rhsToClosure sourceRange origin env = \case
-  STGFunction binders body ->
-    pure (FunctionClosure sourceRange env binders body)
-  STGThunk updateFlag body ->
-    pure (ThunkClosure sourceRange origin updateFlag env body)
-  STGConstructor name fields _ -> do
-    fieldAddresses <- traverse (atomAddress env) fields
-    pure (ValueClosure (constructorValue name fieldAddresses))
+rhsToClosure sourceRange origin env rhs =
+  case rhs of
+    STGFunction binders body ->
+      pure (FunctionClosure sourceRange' env binders body)
+    STGThunk updateFlag body ->
+      pure (ThunkClosure sourceRange' origin updateFlag env body)
+    STGConstructor name fields _ -> do
+      fieldAddresses <- traverse (atomAddress env) fields
+      pure (ValueClosure (constructorValue name fieldAddresses))
+ where
+  sourceRange' =
+    rhsLeadingSource sourceRange rhs
+
+rhsLeadingSource :: Maybe SourceSpan -> STGRhs -> Maybe SourceSpan
+rhsLeadingSource fallback = \case
+  STGFunction _ (STGSpanned sourceRange _) ->
+    Just sourceRange
+  STGThunk _ (STGSpanned sourceRange _) ->
+    Just sourceRange
+  _ ->
+    fallback
 
 atomAddress :: RuntimeEnv -> STGAtom -> EvalM STGHeapAddress
 atomAddress env = \case

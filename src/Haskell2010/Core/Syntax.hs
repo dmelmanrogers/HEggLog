@@ -172,6 +172,7 @@ data CoreExpr
   = CVar RName CoreType
   | CLit Literal CoreType
   | CCon RName CoreType
+  | CSpanned SourceSpan CoreExpr
   | CLam CoreBinder CoreExpr CoreType
   | CApp CoreExpr CoreExpr CoreType
   | CTypeLam [RName] CoreExpr CoreType
@@ -397,6 +398,7 @@ exprType = \case
   CVar _ ty -> ty
   CLit _ ty -> ty
   CCon _ ty -> ty
+  CSpanned _ expression -> exprType expression
   CLam _ _ ty -> ty
   CApp _ _ ty -> ty
   CTypeLam _ _ ty -> ty

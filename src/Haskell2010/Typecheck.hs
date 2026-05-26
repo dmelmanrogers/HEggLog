@@ -312,6 +312,7 @@ data TypedExpr
   | TLit Literal MonoType
   | TCon RName Scheme [MonoType] MonoType
   | TNewtypeCon RName Scheme [MonoType] MonoType TypedBinder
+  | TSpanned SourceSpan TypedExpr
   | TTuple [TypedExpr] MonoType
   | TList [TypedExpr] MonoType
   | TLam TypedBinder TypedExpr MonoType
@@ -1886,6 +1887,8 @@ typedExprClassConstraints = \case
     instantiateSchemeConstraints scheme typeArguments
   TNewtypeCon _ scheme typeArguments _ _ ->
     instantiateSchemeConstraints scheme typeArguments
+  TSpanned _ expression ->
+    typedExprClassConstraints expression
   TTuple fields _ ->
     concatMap typedExprClassConstraints fields
   TList elements _ ->
@@ -2812,6 +2815,8 @@ typedExprDefaultingConstraints = \case
     instantiateSchemeConstraints scheme typeArguments
   TNewtypeCon _ scheme typeArguments _ _ ->
     instantiateSchemeConstraints scheme typeArguments
+  TSpanned _ expression ->
+    typedExprDefaultingConstraints expression
   TTuple fields _ ->
     concatMap typedExprDefaultingConstraints fields
   TList elements _ ->
@@ -2967,6 +2972,8 @@ refreshExprReferences subst schemes = \case
     TCon name scheme typeArguments ty
   TNewtypeCon name scheme typeArguments ty binder ->
     TNewtypeCon name scheme typeArguments ty binder
+  TSpanned sourceRange expression ->
+    TSpanned sourceRange (refreshExprReferences subst schemes expression)
   TTuple fields ty ->
     TTuple (map (refreshExprReferences subst schemes) fields) ty
   TList elements ty ->
@@ -5554,8 +5561,16 @@ patternMatchFailureExpr resultTy = do
 
 inferExpr :: TypeEnv -> RExpr -> InferM TypedExpr
 inferExpr env expr =
-  withTypecheckSpan (rExprSpan expr) $
-    case expr of
+  withTypecheckSpan (rExprSpan expr) $ do
+    typed <- inferExprUnspanned env expr
+    pure $
+      case rExprSpan expr of
+        Nothing -> typed
+        Just sourceRange -> TSpanned sourceRange typed
+
+inferExprUnspanned :: TypeEnv -> RExpr -> InferM TypedExpr
+inferExprUnspanned env expr =
+  case expr of
       RVar name ->
         case Map.lookup name env of
           Nothing ->
@@ -14419,6 +14434,8 @@ bindingIsSelfRecursive binding =
   typedBindingName binding `Set.member` typedExprFreeTermNames (typedBindingRhs binding)
 
 exprToCore :: CoreElabEnv -> TypedExpr -> Either TypecheckError CoreExpr
+exprToCore env (TSpanned sourceRange expression) =
+  CSpanned sourceRange <$> exprToCore env expression
 exprToCore env expression =
   case newtypeApplicationToCore env expression of
     Just converted -> converted
@@ -14426,6 +14443,8 @@ exprToCore env expression =
 
 exprToCoreDefault :: CoreElabEnv -> TypedExpr -> Either TypecheckError CoreExpr
 exprToCoreDefault env = \case
+  TSpanned sourceRange expression ->
+    CSpanned sourceRange <$> exprToCore env expression
   TVar name scheme typeArguments ty -> do
     let subst = coreElabSubst env
         metas = coreElabMetas env
@@ -14551,6 +14570,8 @@ collectTypedValueApps =
   go arguments = \case
     TApp fn argument _ ->
       go (argument : arguments) fn
+    TSpanned _ expression ->
+      go arguments expression
     other ->
       (other, arguments)
 
@@ -20388,6 +20409,8 @@ uniquifyCoreExpr env = \case
     pure (CLit literal ty)
   CCon name ty ->
     pure (CCon name ty)
+  CSpanned sourceRange expression ->
+    CSpanned sourceRange <$> uniquifyCoreExpr env expression
   CLam binder body ty -> do
     newBinder <- freshCoreLocalBinder binder
     body' <- uniquifyCoreExpr (Map.insert (coreBinderName binder) (coreBinderName newBinder) env) body
@@ -20795,6 +20818,7 @@ typedExprType = \case
   TLit _ ty -> ty
   TCon _ _ _ ty -> ty
   TNewtypeCon _ _ _ ty _ -> ty
+  TSpanned _ expression -> typedExprType expression
   TTuple _ ty -> ty
   TList _ ty -> ty
   TLam _ _ ty -> ty
@@ -20817,6 +20841,8 @@ typedExprMetaVars expression =
         freeMetaVarsScheme scheme
           <> Set.unions (map freeMetaVars typeArguments)
           <> freeMetaVars (typedBinderType binder)
+      TSpanned _ inner ->
+        typedExprMetaVars inner
       TTuple fields _ ->
         Set.unions (map typedExprMetaVars fields)
       TList elements _ ->
@@ -20855,6 +20881,8 @@ typedExprFreeTermNames = \case
     Set.empty
   TNewtypeCon _ _ _ _ _ ->
     Set.empty
+  TSpanned _ expression ->
+    typedExprFreeTermNames expression
   TTuple fields _ ->
     Set.unions (map typedExprFreeTermNames fields)
   TList elements _ ->

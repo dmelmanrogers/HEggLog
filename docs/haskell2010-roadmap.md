@@ -254,9 +254,9 @@ Irrefutable/lazy pattern semantics are implemented for the executable subset;
 source-spanned non-exhaustive and redundant pattern-match warnings are exposed
 by the typechecker, native API, and compile CLI for the supported finite
 constructor/literal/list/tuple executable subset. Core/STG interpreter runtime
-failures carry source-defined top-level binding attribution; broader
-report-complete pattern coverage and nested runtime subexpression spans remain
-later work.
+failures carry source-defined expression attribution, including nested
+subexpression spans that survive lazy thunk allocation and partial application;
+broader report-complete pattern coverage remains later work.
 
 Deliverables:
 

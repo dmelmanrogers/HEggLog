@@ -153,6 +153,9 @@ evalExpr coreEnv env = \case
         Right (CoreBool False)
     | otherwise ->
         evalDataConstructor coreEnv name []
+  CSpanned sourceRange expression ->
+    withCoreRuntimeSpan (Just sourceRange) $
+      attachCoreValueRuntimeSpan (Just sourceRange) <$> evalExpr coreEnv env expression
   CLam binder body _ ->
     Right (CoreClosure Nothing env binder body)
   CApp function argument _ -> do

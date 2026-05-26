@@ -10432,7 +10432,7 @@
     {
       "id": "DIAG-014",
       "title": "nested runtime spans",
-      "status": "not started",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -10441,14 +10441,15 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "nested runtime spans is implemented, completed, or explicitly documented according to status `not started`.",
+        "nested runtime spans are implemented for Core and STG interpreter runtime errors, including delayed failures through lazy thunks and lowered partial-application chains.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
         "diagnostic golden tests",
-        "negative conformance tests",
-        "CLI rendering tests"
+        "Core evaluator nested runtime attribution unit tests",
+        "Core-to-STG nested runtime attribution unit tests",
+        "negative conformance tests"
       ],
       "docs": [
         "docs/diagnostics-spec.md",

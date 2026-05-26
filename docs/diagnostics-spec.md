@@ -136,21 +136,19 @@ Main.hs:2:1-29: module/import error: module `Prelude` does not export term name 
 ## Runtime Diagnostics
 
 Haskell 2010 Core and STG interpreter diagnostics preserve source attribution
-for source-defined top-level runtime closures. When a forced top-level binding
-fails through a helper binding, the runtime error is reported at the helper
-binding's declaration rather than only at the requested entry point. The
-attribution uses the same one-line `runtime error` diagnostic shape as the rest
-of the compiler.
+for source-defined runtime closures and nested source expressions. When a
+forced top-level binding fails through a helper binding, the runtime error is
+reported at the helper expression rather than only at the requested entry point.
+Expression spans survive typed elaboration, Core optimization, STG lowering,
+lazy thunk allocation, and partial-application thunks so delayed failures use
+the innermost surviving source span. The attribution uses the same one-line
+`runtime error` diagnostic shape as the rest of the compiler.
 
 Example:
 
 ```text
-<haskell2010-renamer-test>:2:1-15: runtime error: division by zero
+<haskell2010-renamer-test>:2:9-16: runtime error: division by zero
 ```
-
-DIAG-014 remains responsible for nested expression spans inside lowered Core
-and STG bodies, such as pointing directly at the primitive operation inside a
-larger source binding.
 
 ## LLVM Diagnostics
 
@@ -216,7 +214,7 @@ constructor witnesses such as `False` or `Nothing` where the checker can
 identify them. It also emits source-spanned redundant-alternative warnings for
 supported unreachable alternatives. Native compilation carries those warnings
 through `Haskell2010LLVMResult`, and the CLI renders them to stderr before
-emit/build/run output. Nested runtime subexpression spans through lazy
-evaluation remain tracked by DIAG-014. The existing located `.hg`
-parser/typechecker and LLVM unsupported-source diagnostics are the carry-forward
-baseline.
+emit/build/run output. Core and STG runtime diagnostics now retain nested
+source-expression spans through lazy evaluation and partial application. The
+existing located `.hg` parser/typechecker and LLVM unsupported-source
+diagnostics are the carry-forward baseline.

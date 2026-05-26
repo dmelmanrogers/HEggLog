@@ -17,6 +17,7 @@ import qualified Haskell2010.Core.Validate as CoreValidate
 import Haskell2010.Names (Namespace (..), RName (..))
 import Haskell2010.STG.Syntax
 import qualified Haskell2010.STG.Validate as STGValidate
+import Syntax.Span (SourceSpan)
 
 data STGLowerError
   = STGLowerInvalidCore [CoreValidate.CoreValidationError]
@@ -27,6 +28,7 @@ data STGLowerError
 data LowerState = LowerState
   { lowerNextUnique :: Int
   , lowerValidationEnv :: CoreValidate.CoreValidationEnv
+  , lowerCurrentSource :: Maybe SourceSpan
   }
   deriving stock (Show, Eq)
 
@@ -83,6 +85,7 @@ runLowerWith validationEnv names action =
     LowerState
       { lowerNextUnique = maximum (1000000 : map nameUnique names) + 1
       , lowerValidationEnv = validationEnv
+      , lowerCurrentSource = Nothing
       }
 
 lowerBind :: CoreBind -> LowerM STGBind
@@ -99,6 +102,8 @@ lowerBind = \case
     pure (stgBinder, loweredRhs)
 
 lowerRhs :: CoreExpr -> LowerM STGRhs
+lowerRhs (CSpanned sourceRange expression) =
+  withLowerSource sourceRange (addRhsSourceSpan sourceRange <$> lowerRhs expression)
 lowerRhs expression =
   case collectConstructorApplication expression of
     Just (name, fields, resultTy) ->
@@ -115,6 +120,15 @@ lowerNonConstructorRhs expression =
       STGConstructor name [] <$> runtimeType ty
     other ->
       STGThunk (updateFlagForThunkType (exprType other)) <$> lowerExpr other
+
+addRhsSourceSpan :: SourceSpan -> STGRhs -> STGRhs
+addRhsSourceSpan sourceRange = \case
+  STGFunction binders body ->
+    STGFunction binders (STGSpanned sourceRange body)
+  STGThunk updateFlag body ->
+    STGThunk updateFlag (STGSpanned sourceRange body)
+  constructor@STGConstructor {} ->
+    constructor
 
 lowerConstructorRhs :: RName -> [CoreExpr] -> CoreType -> LowerM STGRhs
 lowerConstructorRhs name fields resultTy = do
@@ -138,6 +152,8 @@ lowerExpr expression =
           STGAtom . STGLit literal <$> runtimeType ty
         CCon name ty ->
           STGAtom . STGCon name <$> runtimeType ty
+        CSpanned sourceRange inner ->
+          withLowerSource sourceRange (STGSpanned sourceRange <$> lowerExpr inner)
         CLam {} ->
           lowerLambdaValue expression
         CApp {} ->
@@ -173,7 +189,11 @@ lowerApplication :: CoreExpr -> LowerM STGExpr
 lowerApplication expression = do
   let (calleeExpr, valueApps) = collectValueApps expression
   (calleeBinds, calleeName) <- atomizeCallee calleeExpr
-  lowerApplicationChain calleeBinds calleeName valueApps
+  case applicationCalleeSource expression of
+    Nothing ->
+      lowerApplicationChain calleeBinds calleeName valueApps
+    Just sourceRange ->
+      withLowerSource sourceRange (STGSpanned sourceRange <$> lowerApplicationChain calleeBinds calleeName valueApps)
 
 lowerApplicationChain :: [STGBind] -> RName -> [ValueApp] -> LowerM STGExpr
 lowerApplicationChain prefixBinds calleeName = \case
@@ -187,10 +207,11 @@ lowerApplicationChain prefixBinds calleeName = \case
     (argumentBinds, argumentAtom) <- atomizeExpr argument
     resultRuntimeTy <- runtimeType resultTy
     tmpBinder <- freshBinder resultRuntimeTy
+    partialBody <- withCurrentSource (STGApp calleeName [argumentAtom] resultRuntimeTy)
     let partialBind =
           STGNonRec
             tmpBinder
-            (STGThunk SingleEntry (STGApp calleeName [argumentAtom] resultRuntimeTy))
+            (STGThunk SingleEntry partialBody)
     lowerApplicationChain
       (prefixBinds <> argumentBinds <> [partialBind])
       (stgBinderName tmpBinder)
@@ -240,6 +261,8 @@ atomFromExpr expression =
       Just . STGLit literal <$> runtimeType ty
     CCon name ty ->
       Just . STGCon name <$> runtimeType ty
+    CSpanned _ inner ->
+      atomFromExpr inner
     CTypeApp fn _ ty -> do
       ty' <- runtimeType ty
       fmap (retagAtom ty') <$> atomFromExpr fn
@@ -288,6 +311,22 @@ freshBinder ty = do
       , stgBinderType = ty
       }
 
+withLowerSource :: SourceSpan -> LowerM a -> LowerM a
+withLowerSource sourceRange action = do
+  previous <- lowerCurrentSource <$> get
+  modify $ \state -> state {lowerCurrentSource = Just sourceRange}
+  result <- action
+  modify $ \state -> state {lowerCurrentSource = previous}
+  pure result
+
+withCurrentSource :: STGExpr -> LowerM STGExpr
+withCurrentSource expression = do
+  maybeSource <- lowerCurrentSource <$> get
+  pure $
+    case maybeSource of
+      Nothing -> expression
+      Just sourceRange -> STGSpanned sourceRange expression
+
 collectValueApps :: CoreExpr -> (CoreExpr, [ValueApp])
 collectValueApps =
   go []
@@ -295,10 +334,25 @@ collectValueApps =
   go apps = \case
     CApp fn argument resultTy ->
       go (ValueApp argument resultTy : apps) fn
+    CSpanned _ inner ->
+      go apps inner
     CTypeApp fn _ _ ->
       go apps fn
     other ->
       (other, apps)
+
+applicationCalleeSource :: CoreExpr -> Maybe SourceSpan
+applicationCalleeSource = \case
+  CSpanned sourceRange _ ->
+    Just sourceRange
+  CApp fn _ _ ->
+    applicationCalleeSource fn
+  CTypeApp fn _ _ ->
+    applicationCalleeSource fn
+  CCoerce expression _ ->
+    applicationCalleeSource expression
+  _ ->
+    Nothing
 
 collectConstructorApplication :: CoreExpr -> Maybe (RName, [CoreExpr], CoreType)
 collectConstructorApplication expression =
@@ -314,16 +368,20 @@ collectConstructorApplication expression =
 
 stripTypeLambdas :: CoreExpr -> CoreExpr
 stripTypeLambdas = \case
+  CSpanned _ expression -> stripTypeLambdas expression
   CTypeLam _ body _ -> stripTypeLambdas body
   other -> other
 
 stripTypeApplications :: CoreExpr -> CoreExpr
 stripTypeApplications = \case
+  CSpanned _ expression -> stripTypeApplications expression
   CTypeApp fn _ _ -> stripTypeApplications fn
   other -> other
 
 runtimeExprType :: CoreExpr -> LowerM CoreType
 runtimeExprType = \case
+  CSpanned _ expression ->
+    runtimeExprType expression
   CTypeLam _ body _ ->
     runtimeExprType body
   CTypeApp _ _ ty ->
@@ -338,6 +396,8 @@ runtimeType ty = do
 
 retagExpr :: CoreType -> STGExpr -> STGExpr
 retagExpr ty = \case
+  STGSpanned sourceRange expression ->
+    STGSpanned sourceRange (retagExpr ty expression)
   STGAtom atom ->
     STGAtom (retagAtom ty atom)
   STGApp callee arguments _ ->
@@ -387,6 +447,8 @@ namesInExpr = \case
     namesInType ty
   CCon name ty ->
     name : namesInType ty
+  CSpanned _ expression ->
+    namesInExpr expression
   CLam binder body ty ->
     namesInBinder binder <> namesInExpr body <> namesInType ty
   CApp fn argument ty ->

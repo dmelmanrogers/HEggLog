@@ -52,6 +52,7 @@ data STGUpdateFlag
 
 data STGExpr
   = STGAtom STGAtom
+  | STGSpanned SourceSpan STGExpr
   | STGApp RName [STGAtom] CoreType
   | STGLet STGBind STGExpr CoreType
   | STGCase STGExpr STGBinder [STGAlt] CoreType
@@ -72,6 +73,7 @@ data STGAlt = STGAlt CoreAltCon [STGBinder] STGExpr
 stgExprType :: STGExpr -> CoreType
 stgExprType = \case
   STGAtom atom -> stgAtomType atom
+  STGSpanned _ expression -> stgExprType expression
   STGApp _ _ ty -> ty
   STGLet _ _ ty -> ty
   STGCase _ _ _ ty -> ty

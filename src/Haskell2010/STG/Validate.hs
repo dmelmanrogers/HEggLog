@@ -119,6 +119,8 @@ validateScopedExpr ::
   STGExpr ->
   Either [STGValidationError] ()
 validateScopedExpr env scope = \case
+  STGSpanned _ expression ->
+    validateScopedExpr env scope expression
   STGAtom atom ->
     validateAtom env scope atom
   STGApp callee arguments resultTy ->

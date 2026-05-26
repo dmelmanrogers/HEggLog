@@ -186,6 +186,8 @@ validateScopedExpr env scope = \case
         Left [CoreUnknownConstructor name]
       Just info ->
         checkType (constructorFunctionType info) ty
+  CSpanned _ expression ->
+    validateScopedExpr env scope expression
   CLam binder body ty ->
     collectValidations
       [ validateBinder binder
@@ -1383,6 +1385,8 @@ exprBinderNames = \case
   CVar {} -> []
   CLit {} -> []
   CCon {} -> []
+  CSpanned _ expression ->
+    exprBinderNames expression
   CLam binder body _ ->
     coreBinderName binder : exprBinderNames body
   CApp fn arg _ ->

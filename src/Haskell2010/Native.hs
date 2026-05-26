@@ -237,6 +237,8 @@ foreignImportsInRhs = \case
 
 foreignImportsInExpr :: STGExpr -> [CoreForeignImport]
 foreignImportsInExpr = \case
+  STGSpanned _ expression ->
+    foreignImportsInExpr expression
   STGAtom {} ->
     []
   STGApp {} ->

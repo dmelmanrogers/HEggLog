@@ -68,8 +68,8 @@ warnings in `Haskell2010LLVMResult`, and the compile CLI renders them to stderr.
 The following Haskell 2010 requirements are planned but not
 implemented:
 
-- report-complete pattern coverage and nested runtime subexpression spans beyond
-  the current executable-subset diagnostics
+- report-complete pattern coverage beyond the current executable-subset
+  diagnostics
 - remaining source-surface implementation closure
 - instance contexts
 - generic `Ratio a` behavior beyond the current `Ratio Integer`/`Rational`

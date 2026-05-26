@@ -47,6 +47,8 @@ renderCoreExpr = \case
     withType (renderLiteral literal) ty
   CCon name ty ->
     withType (renderRName name) ty
+  CSpanned _ expression ->
+    renderCoreExpr expression
   CLam binder body ty ->
     withType ("(\\" <> renderCoreBinder binder <> " -> " <> renderCoreExpr body <> ")") ty
   CApp fn arg ty ->

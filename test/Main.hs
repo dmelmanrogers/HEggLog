@@ -290,7 +290,8 @@ testGroups =
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
       , pureTest "reports forced division by zero" testHaskell2010Core0EvalDivisionByZero
-      , pureTest "attributes Core runtime failures to source bindings" testHaskell2010Core0EvalRuntimeSourceSpan
+      , pureTest "attributes Core runtime failures to source expressions" testHaskell2010Core0EvalRuntimeSourceSpan
+      , pureTest "attributes Core runtime failures to nested source expressions" testHaskell2010Core0EvalNestedRuntimeSourceSpan
       , pureTest "reports guard fallthrough as no matching alternative" testHaskell2010Core0EvalGuardFallthrough
       ]
   , TestGroup
@@ -350,6 +351,7 @@ testGroups =
       , pureTest "preserves list comprehension semantics" testHaskell2010CoreToSTGListComprehensions
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
       , pureTest "preserves runtime source attribution" testHaskell2010CoreToSTGRuntimeSourceSpan
+      , pureTest "preserves nested runtime source attribution" testHaskell2010CoreToSTGNestedRuntimeSourceSpan
       , pureTest "preserves guard fallthrough errors" testHaskell2010CoreToSTGGuardFallthrough
       , pureTest "preserves curried partial application" testHaskell2010CoreToSTGPartialApplication
       , pureTest "rejects invalid Core before lowering" testHaskell2010CoreToSTGRejectsInvalidCore
@@ -2006,7 +2008,7 @@ testHaskell2010Core0Identity = do
       "module Core0 where\n\
       \id :: a -> a\n\
       \id x = x\n"
-  case H2010Core.coreModuleBinds coreModule of
+  case map stripCoreBindSpans (H2010Core.coreModuleBinds coreModule) of
     [H2010Core.CoreNonRec binder (H2010Core.CTypeLam [_] (H2010Core.CLam param (H2010Core.CVar bodyName _) _) binderTy)] -> do
       expectEqual "id Core binder type" binderTy (H2010Core.coreBinderType binder)
       expectEqual "id body returns lambda parameter" (H2010Core.coreBinderName param) bodyName
@@ -2020,7 +2022,7 @@ testHaskell2010Core0Const = do
       "module Core0 where\n\
       \const :: a -> b -> a\n\
       \const x y = x\n"
-  case H2010Core.coreModuleBinds coreModule of
+  case map stripCoreBindSpans (H2010Core.coreModuleBinds coreModule) of
     [H2010Core.CoreNonRec binder (H2010Core.CTypeLam variables (H2010Core.CLam xBinder (H2010Core.CLam _ (H2010Core.CVar bodyName _) _) _) binderTy)] -> do
       expectEqual "const quantifier count" 2 (length variables)
       expectEqual "const body returns first parameter" (H2010Core.coreBinderName xBinder) bodyName
@@ -3263,6 +3265,8 @@ coreBindHasForeignIR expected = \case
 
 coreExprHasForeignIR :: ForeignIRExpectation -> H2010Core.CoreExpr -> Bool
 coreExprHasForeignIR expected = \case
+  H2010Core.CSpanned _ expression ->
+    coreExprHasForeignIR expected expression
   H2010Core.CForeignCall {} ->
     case expected of
       ForeignCallIR {} -> True
@@ -3309,6 +3313,8 @@ coreBindHasPrim expected = \case
 
 coreExprHasPrim :: H2010Core.CorePrimOp -> H2010Core.CoreExpr -> Bool
 coreExprHasPrim expected = \case
+  H2010Core.CSpanned _ expression ->
+    coreExprHasPrim expected expression
   H2010Core.CPrimOp op arguments _ ->
     op == expected || any (coreExprHasPrim expected) arguments
   H2010Core.CLam _ body _ ->
@@ -3358,6 +3364,8 @@ stgRhsHasForeignIR expected = \case
 
 stgExprHasForeignIR :: ForeignIRExpectation -> H2010STG.STGExpr -> Bool
 stgExprHasForeignIR expected = \case
+  H2010STG.STGSpanned _ expression ->
+    stgExprHasForeignIR expected expression
   H2010STG.STGForeignCall {} ->
     case expected of
       ForeignCallIR {} -> True
@@ -3401,6 +3409,8 @@ stgRhsHasPrim expected = \case
 
 stgExprHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGExpr -> Bool
 stgExprHasPrim expected = \case
+  H2010STG.STGSpanned _ expression ->
+    stgExprHasPrim expected expression
   H2010STG.STGPrim op _ _ ->
     op == expected
   H2010STG.STGLet bind body _ ->
@@ -3910,12 +3920,24 @@ testHaskell2010Core0EvalRuntimeSourceSpan =
   case evalHaskell2010BindingRaw "main" haskell2010RuntimeSourceAttributionSource of
     Left err@(H2010CoreEval.CoreEvalErrorAt sourceRange _)
       | H2010CoreEval.CoreEvalDivisionByZero <- haskell2010CoreEvalErrorDetail err -> do
-          expectSourceSpanStart "Core runtime source binding line" 2 1 sourceRange
+          expectSourceSpanStart "Core runtime source expression line" 2 9 sourceRange
           assertBool
             "Core runtime diagnostic includes severity and detail"
             ("runtime error: division by zero" `Text.isInfixOf` H2010CoreEval.renderCoreEvalError err)
     Left err -> Left ("expected spanned Core runtime division by zero, got: " <> show err)
     Right value -> Left ("spanned runtime source evaluated unexpectedly: " <> show value)
+
+testHaskell2010Core0EvalNestedRuntimeSourceSpan :: Either String ()
+testHaskell2010Core0EvalNestedRuntimeSourceSpan =
+  case evalHaskell2010BindingRaw "main" haskell2010NestedRuntimeSourceAttributionSource of
+    Left err@(H2010CoreEval.CoreEvalErrorAt sourceRange _)
+      | H2010CoreEval.CoreEvalDivisionByZero <- haskell2010CoreEvalErrorDetail err -> do
+          expectSourceSpanStart "Core nested runtime source expression line" 2 13 sourceRange
+          assertBool
+            "Core nested runtime diagnostic includes severity and detail"
+            ("runtime error: division by zero" `Text.isInfixOf` H2010CoreEval.renderCoreEvalError err)
+    Left err -> Left ("expected nested spanned Core runtime division by zero, got: " <> show err)
+    Right value -> Left ("nested spanned runtime source evaluated unexpectedly: " <> show value)
 
 testHaskell2010Core0EvalGuardFallthrough :: Either String ()
 testHaskell2010Core0EvalGuardFallthrough =
@@ -4266,12 +4288,24 @@ testHaskell2010CoreToSTGRuntimeSourceSpan =
   case lowerAndEvalHaskell2010BindingRaw "main" haskell2010RuntimeSourceAttributionSource of
     Left (Right err@(H2010STGEval.STGEvalErrorAt sourceRange _))
       | H2010STGEval.STGEvalDivisionByZero <- haskell2010STGEvalErrorDetail err -> do
-          expectSourceSpanStart "STG runtime source binding line" 2 1 sourceRange
+          expectSourceSpanStart "STG runtime source expression line" 2 9 sourceRange
           assertBool
             "STG runtime diagnostic includes severity and detail"
             ("runtime error: division by zero" `Text.isInfixOf` H2010STGEval.renderSTGEvalError err)
     Left err -> Left ("expected lowered STG runtime source span, got: " <> show err)
     Right value -> Left ("lowered spanned runtime source evaluated unexpectedly: " <> show value)
+
+testHaskell2010CoreToSTGNestedRuntimeSourceSpan :: Either String ()
+testHaskell2010CoreToSTGNestedRuntimeSourceSpan =
+  case lowerAndEvalHaskell2010BindingRaw "main" haskell2010NestedRuntimeSourceAttributionSource of
+    Left (Right err@(H2010STGEval.STGEvalErrorAt sourceRange _))
+      | H2010STGEval.STGEvalDivisionByZero <- haskell2010STGEvalErrorDetail err -> do
+          expectSourceSpanStart "STG nested runtime source expression line" 2 13 sourceRange
+          assertBool
+            "STG nested runtime diagnostic includes severity and detail"
+            ("runtime error: division by zero" `Text.isInfixOf` H2010STGEval.renderSTGEvalError err)
+    Left err -> Left ("expected lowered STG nested runtime source span, got: " <> show err)
+    Right value -> Left ("lowered nested spanned runtime source evaluated unexpectedly: " <> show value)
 
 testHaskell2010CoreToSTGGuardFallthrough :: Either String ()
 testHaskell2010CoreToSTGGuardFallthrough =
@@ -9890,6 +9924,11 @@ haskell2010RuntimeSourceAttributionSource =
   \bad x = div x 0\n\
   \main = bad 1\n"
 
+haskell2010NestedRuntimeSourceAttributionSource :: Text
+haskell2010NestedRuntimeSourceAttributionSource =
+  "module Main where\n\
+  \main = 10 + div 1 0\n"
+
 haskell2010IrrefutablePatternSource :: Text
 haskell2010IrrefutablePatternSource =
   "module Main where\n\
@@ -10133,8 +10172,51 @@ isForallType = \case
   H2010Core.CTyForall {} -> True
   _ -> False
 
+stripCoreBindSpans :: H2010Core.CoreBind -> H2010Core.CoreBind
+stripCoreBindSpans = \case
+  H2010Core.CoreNonRec binder rhs ->
+    H2010Core.CoreNonRec binder (stripCoreExprSpans rhs)
+  H2010Core.CoreRec pairs ->
+    H2010Core.CoreRec [(binder, stripCoreExprSpans rhs) | (binder, rhs) <- pairs]
+
+stripCoreExprSpans :: H2010Core.CoreExpr -> H2010Core.CoreExpr
+stripCoreExprSpans = \case
+  H2010Core.CSpanned _ expression ->
+    stripCoreExprSpans expression
+  H2010Core.CLam binder body ty ->
+    H2010Core.CLam binder (stripCoreExprSpans body) ty
+  H2010Core.CApp callee argument ty ->
+    H2010Core.CApp (stripCoreExprSpans callee) (stripCoreExprSpans argument) ty
+  H2010Core.CTypeLam variables body ty ->
+    H2010Core.CTypeLam variables (stripCoreExprSpans body) ty
+  H2010Core.CTypeApp callee arguments ty ->
+    H2010Core.CTypeApp (stripCoreExprSpans callee) arguments ty
+  H2010Core.CLet bind body ty ->
+    H2010Core.CLet (stripCoreBindSpans bind) (stripCoreExprSpans body) ty
+  H2010Core.CCase scrutinee binder alternatives ty ->
+    H2010Core.CCase (stripCoreExprSpans scrutinee) binder (map stripCoreAltSpans alternatives) ty
+  H2010Core.CCoerce expression ty ->
+    H2010Core.CCoerce (stripCoreExprSpans expression) ty
+  H2010Core.CPrimOp op arguments ty ->
+    H2010Core.CPrimOp op (map stripCoreExprSpans arguments) ty
+  H2010Core.CForeignCall foreignImport arguments ty ->
+    H2010Core.CForeignCall foreignImport (map stripCoreExprSpans arguments) ty
+  expression@H2010Core.CVar {} ->
+    expression
+  expression@H2010Core.CLit {} ->
+    expression
+  expression@H2010Core.CCon {} ->
+    expression
+  expression@H2010Core.CForeignImportValue {} ->
+    expression
+
+stripCoreAltSpans :: H2010Core.CoreAlt -> H2010Core.CoreAlt
+stripCoreAltSpans (H2010Core.CoreAlt altCon binders body) =
+  H2010Core.CoreAlt altCon binders (stripCoreExprSpans body)
+
 containsTypeLambda :: H2010Core.CoreExpr -> Bool
 containsTypeLambda = \case
+  H2010Core.CSpanned _ expression -> containsTypeLambda expression
   H2010Core.CTypeLam {} -> True
   H2010Core.CLam _ body _ -> containsTypeLambda body
   H2010Core.CApp callee arg _ -> containsTypeLambda callee || containsTypeLambda arg
@@ -10148,6 +10230,7 @@ containsTypeLambda = \case
 
 containsTermLambda :: H2010Core.CoreExpr -> Bool
 containsTermLambda = \case
+  H2010Core.CSpanned _ expression -> containsTermLambda expression
   H2010Core.CLam {} -> True
   H2010Core.CApp callee arg _ -> containsTermLambda callee || containsTermLambda arg
   H2010Core.CTypeLam _ body _ -> containsTermLambda body
@@ -10179,6 +10262,7 @@ altContainsTermLambda (H2010Core.CoreAlt _ _ body) =
 
 containsCase :: H2010Core.CoreExpr -> Bool
 containsCase = \case
+  H2010Core.CSpanned _ expression -> containsCase expression
   H2010Core.CCase {} -> True
   H2010Core.CLam _ body _ -> containsCase body
   H2010Core.CApp callee arg _ -> containsCase callee || containsCase arg
@@ -10196,6 +10280,7 @@ bindContainsCase = \case
 
 countCases :: H2010Core.CoreExpr -> Int
 countCases = \case
+  H2010Core.CSpanned _ expression -> countCases expression
   H2010Core.CCase scrutinee _ alternatives _ ->
     1 + countCases scrutinee + sum (map altCountCases alternatives)
   H2010Core.CLam _ body _ -> countCases body
@@ -10222,6 +10307,7 @@ altCountCases (H2010Core.CoreAlt _ _ body) =
 
 containsConstructorAlt :: Text -> H2010Core.CoreExpr -> Bool
 containsConstructorAlt occurrence = \case
+  H2010Core.CSpanned _ expression -> containsConstructorAlt occurrence expression
   H2010Core.CCase scrutinee _ alternatives _ ->
     containsConstructorAlt occurrence scrutinee
       || any (altContainsConstructorAlt occurrence) alternatives
@@ -10236,6 +10322,8 @@ containsConstructorAlt occurrence = \case
 
 containsConstructorExpr :: Text -> H2010Core.CoreExpr -> Bool
 containsConstructorExpr occurrence = \case
+  H2010Core.CSpanned _ expression ->
+    containsConstructorExpr occurrence expression
   H2010Core.CCon name _ ->
     H2010Names.nameOcc name == occurrence
   H2010Core.CLam _ body _ -> containsConstructorExpr occurrence body
@@ -10269,6 +10357,8 @@ bindContainsStringLiteral = \case
 
 containsStringLiteral :: H2010Core.CoreExpr -> Bool
 containsStringLiteral = \case
+  H2010Core.CSpanned _ expression ->
+    containsStringLiteral expression
   H2010Core.CLit (H2010.LString {}) _ ->
     True
   H2010Core.CLam _ body _ ->
@@ -10296,6 +10386,7 @@ altContainsStringLiteral (H2010Core.CoreAlt _ _ body) =
 
 containsCoerce :: H2010Core.CoreExpr -> Bool
 containsCoerce = \case
+  H2010Core.CSpanned _ expression -> containsCoerce expression
   H2010Core.CCoerce _ _ -> True
   H2010Core.CLam _ body _ -> containsCoerce body
   H2010Core.CApp callee arg _ -> containsCoerce callee || containsCoerce arg
@@ -10366,6 +10457,8 @@ containsBindingPrefix prefix coreModule =
 
 containsVarOccurrence :: Text -> H2010Core.CoreExpr -> Bool
 containsVarOccurrence occurrence = \case
+  H2010Core.CSpanned _ expression ->
+    containsVarOccurrence occurrence expression
   H2010Core.CVar name _ ->
     H2010Names.nameOcc name == occurrence
   H2010Core.CLam binder body _ ->
@@ -10409,6 +10502,7 @@ altContainsVarOccurrence occurrence (H2010Core.CoreAlt _ binders body) =
 
 countTypeApps :: H2010Core.CoreExpr -> Int
 countTypeApps = \case
+  H2010Core.CSpanned _ expression -> countTypeApps expression
   H2010Core.CTypeApp callee _ _ -> 1 + countTypeApps callee
   H2010Core.CLam _ body _ -> countTypeApps body
   H2010Core.CApp callee arg _ -> countTypeApps callee + countTypeApps arg

@@ -260,6 +260,8 @@ formatPointer ty = do
 
 emitExpr :: ValueEnv -> STGExpr -> FunctionM LLVMOperand
 emitExpr env = \case
+  STGSpanned _ expression ->
+    emitExpr env expression
   STGAtom atom ->
     emitAtomValue env atom
   STGApp callee arguments _ -> do
@@ -3190,6 +3192,8 @@ freeVarsRhs = \case
 
 freeVarsExpr :: STGExpr -> Set.Set RName
 freeVarsExpr = \case
+  STGSpanned _ expression ->
+    freeVarsExpr expression
   STGAtom atom ->
     freeVarsAtom atom
   STGApp callee arguments _ ->
@@ -3279,6 +3283,8 @@ foreignImportsInRhs = \case
 
 foreignImportsInExpr :: STGExpr -> [CoreForeignImport]
 foreignImportsInExpr = \case
+  STGSpanned _ expression ->
+    foreignImportsInExpr expression
   STGAtom {} ->
     []
   STGApp {} ->
