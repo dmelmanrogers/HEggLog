@@ -10405,7 +10405,7 @@
     {
       "id": "DIAG-013",
       "title": "runtime source attribution",
-      "status": "not started",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -10414,14 +10414,15 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "runtime source attribution is implemented, completed, or explicitly documented according to status `not started`.",
+        "runtime source attribution is implemented for source-defined top-level Core and STG runtime closures and renders through the standard `runtime error` source diagnostic.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
         "diagnostic golden tests",
-        "negative conformance tests",
-        "CLI rendering tests"
+        "Core evaluator runtime attribution unit tests",
+        "Core-to-STG runtime attribution unit tests",
+        "negative conformance tests"
       ],
       "docs": [
         "docs/diagnostics-spec.md",

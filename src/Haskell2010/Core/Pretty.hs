@@ -18,7 +18,7 @@ import qualified Haskell2010.Syntax as S
 import Haskell2010.Syntax (Literal (..), ModuleName (..))
 
 renderCoreModule :: CoreModule -> Text
-renderCoreModule (CoreModule maybeName _ binds foreignExports) =
+renderCoreModule (CoreModule maybeName _ binds foreignExports _) =
   Text.unlines $
     header <> map renderCoreBind binds <> map renderForeignExport foreignExports
  where

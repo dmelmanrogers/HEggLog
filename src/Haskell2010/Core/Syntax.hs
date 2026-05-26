@@ -106,12 +106,14 @@ import qualified Data.Text as Text
 import Haskell2010.FixedWidth (FixedIntegral (..), FixedIntegralOp (..), fixedIntegralTypeName)
 import Haskell2010.Names (Namespace (..), RName (..))
 import Haskell2010.Syntax (ForeignCallConv, ForeignExportEntity, ForeignImportEntity, ForeignSafety, Literal, ModuleName)
+import Syntax.Span (SourceSpan)
 
 data CoreModule = CoreModule
   { coreModuleName :: Maybe ModuleName
   , coreModuleConstructors :: Map.Map RName CoreConstructorInfo
   , coreModuleBinds :: [CoreBind]
   , coreModuleForeignExports :: [CoreForeignExport]
+  , coreModuleRuntimeSpans :: Map.Map RName SourceSpan
   }
   deriving stock (Show, Eq, Ord)
 

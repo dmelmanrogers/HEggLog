@@ -126,7 +126,7 @@ moduleValidationEnv coreModule =
     }
 
 validateModule :: CoreValidationEnv -> CoreModule -> Either [CoreValidationError] ()
-validateModule env (CoreModule _ _ binds exports) =
+validateModule env (CoreModule _ _ binds exports _) =
   collectValidations
     [ failWith duplicateErrors
     , collectValidations (map (validateScopedBind env moduleScope) binds)

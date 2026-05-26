@@ -149,14 +149,14 @@ initialModuleState program =
     }
 
 findMain :: Text -> STGProgram -> Either STGLLVMError STGBinder
-findMain occurrence (STGProgram _ binds _foreignExports) =
+findMain occurrence (STGProgram _ binds _foreignExports _runtimeSpans) =
   case [binder | bind <- binds, binder <- stgBindersOf bind, nameOcc (stgBinderName binder) == occurrence] of
     [] -> Left (STGLLVMUnknownMain occurrence)
     [binder] -> Right binder
     binders -> Left (STGLLVMAmbiguousMain occurrence (map stgBinderName binders))
 
 lowerMainFunction :: STGProgram -> STGBinder -> ModuleM LLVMFunction
-lowerMainFunction (STGProgram _ binds _foreignExports) mainBinder =
+lowerMainFunction (STGProgram _ binds _foreignExports _runtimeSpans) mainBinder =
   runFunction "main" LI32 [(LI32, Register "argc"), (LPtr, Register "argv")] $ do
     emit (IStore LI32 (OLocal LI32 (Register "argc")) (OGlobal LPtr argcGlobalName))
     emit (IStore LPtr (OLocal LPtr (Register "argv")) (OGlobal LPtr argvGlobalName))
@@ -3246,7 +3246,7 @@ foreignImportDeclarations program =
             Left (STGLLVMUnsupported ("foreign symbol `" <> symbol <> "` is imported with incompatible native ABI signatures"))
 
 foreignImportsInProgram :: STGProgram -> [CoreForeignImport]
-foreignImportsInProgram (STGProgram _ binds _foreignExports) =
+foreignImportsInProgram (STGProgram _ binds _foreignExports _runtimeSpans) =
   concatMap foreignImportsInBind binds
 
 wrapperImportsInProgram :: STGProgram -> [CoreForeignImport]

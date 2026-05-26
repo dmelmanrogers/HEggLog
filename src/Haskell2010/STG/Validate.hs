@@ -50,7 +50,7 @@ validateProgram program =
   validateProgramWith (programValidationEnv program) program
 
 validateProgramWith :: CoreValidate.CoreValidationEnv -> STGProgram -> Either [STGValidationError] ()
-validateProgramWith env (STGProgram _ binds _foreignExports) =
+validateProgramWith env (STGProgram _ binds _foreignExports _runtimeSpans) =
   collectValidations
     [ failWith duplicateErrors
     , collectValidations (map (validateScopedBind env moduleScope) binds)

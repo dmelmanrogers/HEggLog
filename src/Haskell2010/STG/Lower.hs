@@ -47,6 +47,7 @@ lowerCoreModule coreModule =
           ( STGProgram (coreModuleConstructors coreModule)
               <$> traverse lowerBind (coreModuleBinds coreModule)
               <*> traverse runtimeForeignExport (coreModuleForeignExports coreModule)
+              <*> pure (coreModuleRuntimeSpans coreModule)
           )
       case STGValidate.validateProgram program of
         Left errors -> Left (STGLowerInvalidSTG errors)
@@ -366,7 +367,7 @@ wrapLets binds body =
   foldr (\bind expr -> STGLet bind expr (stgExprType expr)) body binds
 
 namesInModule :: CoreModule -> [RName]
-namesInModule (CoreModule _ constructors binds exports) =
+namesInModule (CoreModule _ constructors binds exports _) =
   concatMap namesInConstructorInfo (Map.elems constructors)
     <> concatMap namesInBind binds
     <> map coreForeignExportName exports

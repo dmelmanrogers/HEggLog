@@ -15,7 +15,7 @@ module Haskell2010.STG.Eval
 where
 
 import Control.Monad (foldM, zipWithM_)
-import Control.Monad.State.Strict (StateT, get, lift, modify, runStateT)
+import Control.Monad.State.Strict (StateT (..), get, lift, modify, runStateT)
 import qualified Data.Bits as Bits
 import Data.Char (chr, ord)
 import qualified Data.Map.Strict as Map
@@ -54,6 +54,7 @@ import Runtime.Int
   , testBitHInt
   , xorHInt
   )
+import Syntax.Span (SourceSpan, renderSourceDiagnostic)
 
 newtype STGHeapAddress = STGHeapAddress Int
   deriving stock (Show, Eq, Ord)
@@ -89,6 +90,7 @@ data STGEvalStats = STGEvalStats
 
 data STGEvalError
   = STGEvalInvalid [STGValidate.STGValidationError]
+  | STGEvalErrorAt SourceSpan STGEvalError
   | STGEvalUnknownVariable RName
   | STGEvalUnknownBinding RName
   | STGEvalUnknownBindingOccurrence Text
@@ -107,9 +109,9 @@ type RuntimeEnv = Map.Map RName STGHeapAddress
 
 data RuntimeClosure
   = ValueClosure STGValue
-  | FunctionClosure RuntimeEnv [STGBinder] STGExpr
-  | ThunkClosure (Maybe RName) STGUpdateFlag RuntimeEnv STGExpr
-  | BlackHole (Maybe RName)
+  | FunctionClosure (Maybe SourceSpan) RuntimeEnv [STGBinder] STGExpr
+  | ThunkClosure (Maybe SourceSpan) (Maybe RName) STGUpdateFlag RuntimeEnv STGExpr
+  | BlackHole (Maybe SourceSpan) (Maybe RName)
   deriving stock (Show, Eq)
 
 data EvalState = EvalState
@@ -129,7 +131,7 @@ evalSTGExprWithStats :: STGExpr -> Either STGEvalError (STGValue, STGEvalStats)
 evalSTGExprWithStats expression =
   case STGValidate.validateExpr expression of
     Left errors -> Left (STGEvalInvalid errors)
-    Right () -> runEval (evalExpr Map.empty expression)
+    Right () -> runEval (evalExpr Nothing Map.empty expression)
 
 evalSTGProgramBinding :: RName -> STGProgram -> Either STGEvalError STGValue
 evalSTGProgramBinding name program =
@@ -186,6 +188,19 @@ runEval action = do
   (value, finalState) <- runStateT action initialState
   Right (value, evalStats finalState)
 
+withSTGRuntimeSpan :: Maybe SourceSpan -> EvalM a -> EvalM a
+withSTGRuntimeSpan Nothing action =
+  action
+withSTGRuntimeSpan (Just sourceRange) action =
+  StateT $ \state ->
+    case runStateT action state of
+      Left err@STGEvalErrorAt {} ->
+        Left err
+      Left err ->
+        Left (STGEvalErrorAt sourceRange err)
+      Right result ->
+        Right result
+
 initialState :: EvalState
 initialState =
   EvalState
@@ -194,18 +209,18 @@ initialState =
     , evalStats = STGEvalStats {stgThunkEvaluations = Map.empty}
     }
 
-evalExpr :: RuntimeEnv -> STGExpr -> EvalM STGValue
-evalExpr env = \case
+evalExpr :: Maybe SourceSpan -> RuntimeEnv -> STGExpr -> EvalM STGValue
+evalExpr sourceRange env = \case
   STGAtom atom ->
     evalAtom env atom
   STGApp callee arguments _ ->
     enterNamedFunction env callee arguments
   STGLet bind body _ -> do
-    env' <- allocateBind env bind
-    evalExpr env' body
+    env' <- allocateBindWithSource sourceRange env bind
+    evalExpr sourceRange env' body
   STGCase scrutinee binder alternatives _ -> do
-    scrutineeValue <- evalExpr env scrutinee
-    evalCaseAlternative env binder alternatives scrutineeValue
+    scrutineeValue <- evalExpr sourceRange env scrutinee
+    evalCaseAlternative sourceRange env binder alternatives scrutineeValue
   STGPrim op arguments _ ->
     evalPrimitive env op arguments
   STGForeignCall foreignImport arguments _ -> do
@@ -249,19 +264,23 @@ evalLiteral = \case
     Right (STGString value)
 
 allocateProgramEnv :: STGProgram -> EvalM RuntimeEnv
-allocateProgramEnv (STGProgram _ binds _foreignExports) =
-  foldM allocateBind Map.empty binds
+allocateProgramEnv (STGProgram _ binds _foreignExports runtimeSpans) =
+  foldM (allocateBindWithSpans runtimeSpans Nothing) Map.empty binds
 
-allocateBind :: RuntimeEnv -> STGBind -> EvalM RuntimeEnv
-allocateBind env = \case
+allocateBindWithSource :: Maybe SourceSpan -> RuntimeEnv -> STGBind -> EvalM RuntimeEnv
+allocateBindWithSource =
+  allocateBindWithSpans Map.empty
+
+allocateBindWithSpans :: Map.Map RName SourceSpan -> Maybe SourceSpan -> RuntimeEnv -> STGBind -> EvalM RuntimeEnv
+allocateBindWithSpans runtimeSpans fallbackSource env = \case
   STGNonRec binder rhs -> do
-    closure <- rhsToClosure (Just (stgBinderName binder)) env rhs
+    closure <- rhsToClosure (bindingSource binder) (Just (stgBinderName binder)) env rhs
     address <- allocateClosure closure
     pure (Map.insert (stgBinderName binder) address env)
   STGRec pairs -> do
     addresses <-
       traverse
-        (\(binder, _) -> allocateClosure (BlackHole (Just (stgBinderName binder))))
+        (\(binder, _) -> allocateClosure (BlackHole (bindingSource binder) (Just (stgBinderName binder))))
         pairs
     let binderAddresses = zip (map (stgBinderName . fst) pairs) addresses
         recEnv = Map.union (Map.fromList binderAddresses) env
@@ -269,15 +288,20 @@ allocateBind env = \case
     pure recEnv
  where
   writeRecClosure recEnv (binder, rhs) address = do
-    closure <- rhsToClosure (Just (stgBinderName binder)) recEnv rhs
+    closure <- rhsToClosure (bindingSource binder) (Just (stgBinderName binder)) recEnv rhs
     writeClosure address closure
 
-rhsToClosure :: Maybe RName -> RuntimeEnv -> STGRhs -> EvalM RuntimeClosure
-rhsToClosure origin env = \case
+  bindingSource binder =
+    case Map.lookup (stgBinderName binder) runtimeSpans of
+      Just sourceRange -> Just sourceRange
+      Nothing -> fallbackSource
+
+rhsToClosure :: Maybe SourceSpan -> Maybe RName -> RuntimeEnv -> STGRhs -> EvalM RuntimeClosure
+rhsToClosure sourceRange origin env = \case
   STGFunction binders body ->
-    pure (FunctionClosure env binders body)
+    pure (FunctionClosure sourceRange env binders body)
   STGThunk updateFlag body ->
-    pure (ThunkClosure origin updateFlag env body)
+    pure (ThunkClosure sourceRange origin updateFlag env body)
   STGConstructor name fields _ -> do
     fieldAddresses <- traverse (atomAddress env) fields
     pure (ValueClosure (constructorValue name fieldAddresses))
@@ -301,8 +325,8 @@ enterNamedFunction callerEnv callee arguments =
 enterFunctionAddress :: RuntimeEnv -> RName -> STGHeapAddress -> [STGAtom] -> EvalM STGValue
 enterFunctionAddress callerEnv callee address arguments =
   lookupClosure address >>= \case
-    FunctionClosure closureEnv binders body ->
-      applyFunction callerEnv callee closureEnv binders body arguments
+    FunctionClosure sourceRange closureEnv binders body ->
+      withSTGRuntimeSpan sourceRange (applyFunction callerEnv callee sourceRange closureEnv binders body arguments)
     ThunkClosure {} -> do
       value <- forceAddress address
       case value of
@@ -314,34 +338,36 @@ enterFunctionAddress callerEnv callee address arguments =
       enterFunctionAddress callerEnv callee functionAddress arguments
     ValueClosure other ->
       typeError ("expected STG function, got " <> renderSTGValue other)
-    BlackHole origin ->
-      throwEval (STGEvalBlackHole origin)
+    BlackHole sourceRange origin ->
+      withSTGRuntimeSpan sourceRange (throwEval (STGEvalBlackHole origin))
 
 applyFunction ::
   RuntimeEnv ->
   RName ->
+  Maybe SourceSpan ->
   RuntimeEnv ->
   [STGBinder] ->
   STGExpr ->
   [STGAtom] ->
   EvalM STGValue
-applyFunction callerEnv callee closureEnv binders body arguments =
-  traverse (atomAddress callerEnv) arguments >>= applyFunctionAddresses callee closureEnv binders body
+applyFunction callerEnv callee sourceRange closureEnv binders body arguments =
+  traverse (atomAddress callerEnv) arguments >>= applyFunctionAddresses callee sourceRange closureEnv binders body
 
 applyFunctionAddresses ::
   RName ->
+  Maybe SourceSpan ->
   RuntimeEnv ->
   [STGBinder] ->
   STGExpr ->
   [STGHeapAddress] ->
   EvalM STGValue
-applyFunctionAddresses callee closureEnv binders body argumentAddresses
+applyFunctionAddresses callee sourceRange closureEnv binders body argumentAddresses
   | expectedArity /= actualArity =
       throwEval (STGEvalArityMismatch callee expectedArity actualArity)
   | otherwise = do
       let parameterEnv =
             Map.fromList (zip (map stgBinderName binders) argumentAddresses)
-      evalExpr (Map.union parameterEnv closureEnv) body
+      evalExpr sourceRange (Map.union parameterEnv closureEnv) body
  where
   expectedArity =
     length binders
@@ -351,8 +377,8 @@ applyFunctionAddresses callee closureEnv binders body argumentAddresses
 enterFunctionAddressWithArguments :: RName -> STGHeapAddress -> [STGHeapAddress] -> EvalM STGValue
 enterFunctionAddressWithArguments callee address argumentAddresses =
   lookupClosure address >>= \case
-    FunctionClosure closureEnv binders body ->
-      applyFunctionAddresses callee closureEnv binders body argumentAddresses
+    FunctionClosure sourceRange closureEnv binders body ->
+      withSTGRuntimeSpan sourceRange (applyFunctionAddresses callee sourceRange closureEnv binders body argumentAddresses)
     ThunkClosure {} -> do
       value <- forceAddress address
       case value of
@@ -364,8 +390,8 @@ enterFunctionAddressWithArguments callee address argumentAddresses =
       enterFunctionAddressWithArguments callee functionAddress argumentAddresses
     ValueClosure other ->
       typeError ("expected STG function, got " <> renderSTGValue other)
-    BlackHole origin ->
-      throwEval (STGEvalBlackHole origin)
+    BlackHole sourceRange origin ->
+      withSTGRuntimeSpan sourceRange (throwEval (STGEvalBlackHole origin))
 
 forceAddress :: STGHeapAddress -> EvalM STGValue
 forceAddress address =
@@ -374,26 +400,28 @@ forceAddress address =
       pure value
     FunctionClosure {} ->
       pure (STGFunctionValue address)
-    ThunkClosure origin updateFlag closureEnv body -> do
-      bumpThunkEvaluation origin
-      writeClosure address (BlackHole origin)
-      value <- evalExpr closureEnv body
-      case updateFlag of
-        Updatable ->
-          writeClosure address (ValueClosure value)
-        SingleEntry ->
-          writeClosure address (ThunkClosure origin updateFlag closureEnv body)
-      pure value
-    BlackHole origin ->
-      throwEval (STGEvalBlackHole origin)
+    ThunkClosure sourceRange origin updateFlag closureEnv body ->
+      withSTGRuntimeSpan sourceRange $ do
+        bumpThunkEvaluation origin
+        writeClosure address (BlackHole sourceRange origin)
+        value <- evalExpr sourceRange closureEnv body
+        case updateFlag of
+          Updatable ->
+            writeClosure address (ValueClosure value)
+          SingleEntry ->
+            writeClosure address (ThunkClosure sourceRange origin updateFlag closureEnv body)
+        pure value
+    BlackHole sourceRange origin ->
+      withSTGRuntimeSpan sourceRange (throwEval (STGEvalBlackHole origin))
 
 evalCaseAlternative ::
+  Maybe SourceSpan ->
   RuntimeEnv ->
   STGBinder ->
   [STGAlt] ->
   STGValue ->
   EvalM STGValue
-evalCaseAlternative env binder alternatives scrutineeValue =
+evalCaseAlternative sourceRange env binder alternatives scrutineeValue =
   case firstMatching alternatives of
     Nothing ->
       throwEval (STGEvalNoMatchingAlternative scrutineeValue)
@@ -401,7 +429,7 @@ evalCaseAlternative env binder alternatives scrutineeValue =
       caseAddress <- allocateClosure (ValueClosure scrutineeValue)
       let caseEnv = Map.insert (stgBinderName binder) caseAddress env
       fieldEnv <- bindAlternativeFields altBinders fieldAddresses
-      evalExpr (Map.union fieldEnv caseEnv) body
+      evalExpr sourceRange (Map.union fieldEnv caseEnv) body
  where
   firstMatching [] =
     Nothing
@@ -519,7 +547,7 @@ evalPrimitive env op arguments =
       function <- evalAtom env functionAtom
       case function of
         STGFunctionValue functionAddress -> do
-          placeholder <- allocateClosure (BlackHole Nothing)
+          placeholder <- allocateClosure (BlackHole Nothing Nothing)
           action <- enterFunctionAddressWithArguments ioFixFunctionName functionAddress [placeholder]
           case action of
             STGIO chunks (STGIOSuccess value) -> do
@@ -1240,10 +1268,20 @@ renderSTGValue = \case
     "<STG function " <> Text.pack (show address) <> ">"
 
 renderSTGEvalError :: STGEvalError -> Text
-renderSTGEvalError = \case
+renderSTGEvalError err =
+  case err of
+    STGEvalErrorAt sourceRange nested ->
+      renderSourceDiagnostic sourceRange "runtime error" (renderSTGEvalErrorDetail nested)
+    _ ->
+      renderSTGEvalErrorDetail err
+
+renderSTGEvalErrorDetail :: STGEvalError -> Text
+renderSTGEvalErrorDetail = \case
   STGEvalInvalid errors ->
     "invalid STG before evaluation: "
       <> Text.intercalate "; " (map STGValidate.renderSTGValidationError errors)
+  STGEvalErrorAt _ err ->
+    renderSTGEvalErrorDetail err
   STGEvalUnknownVariable name ->
     "unknown STG variable `" <> renderRName name <> "`"
   STGEvalUnknownBinding name ->

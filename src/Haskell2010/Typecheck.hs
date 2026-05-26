@@ -210,6 +210,7 @@ data TypedBinder = TypedBinder RName MonoType
 
 data TypedBinding = TypedBinding
   { typedBindingName :: RName
+  , typedBindingSpan :: Maybe SourceSpan
   , typedBindingScheme :: Scheme
   , typedBindingGeneralizedMetas :: Map.Map Int RName
   , typedBindingRhs :: TypedExpr
@@ -443,6 +444,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
                 [one] -> [one]
                 many -> [CoreRec (concatMap bindPairs many)]
           , coreModuleForeignExports = foreignCoreExports
+          , coreModuleRuntimeSpans = typedBindingRuntimeSpans typedBindings
           }
   case CoreValidate.validateModule (CoreValidate.moduleValidationEnv coreModule) coreModule of
     Right () ->
@@ -1865,6 +1867,14 @@ usedClassInfos classes subst bindings instances =
 typedBindingClassConstraints :: TypedBinding -> [ClassConstraint]
 typedBindingClassConstraints binding =
   schemeConstraints (typedBindingScheme binding) <> typedExprClassConstraints (typedBindingRhs binding)
+
+typedBindingRuntimeSpans :: [TypedBinding] -> Map.Map RName SourceSpan
+typedBindingRuntimeSpans bindings =
+  Map.fromList
+    [ (typedBindingName binding, sourceRange)
+    | binding <- bindings
+    , Just sourceRange <- [typedBindingSpan binding]
+    ]
 
 typedExprClassConstraints :: TypedExpr -> [ClassConstraint]
 typedExprClassConstraints = \case
@@ -3636,6 +3646,7 @@ finalizeBinding context outerEnv signatures (InferredBinding prepared rhs) =
       pure
         TypedBinding
           { typedBindingName = preparedName prepared
+          , typedBindingSpan = preparedSpan prepared
           , typedBindingScheme = scheme
           , typedBindingGeneralizedMetas = Map.empty
           , typedBindingRhs = rhs
@@ -3648,6 +3659,7 @@ finalizeBinding context outerEnv signatures (InferredBinding prepared rhs) =
               pure
                 TypedBinding
                   { typedBindingName = preparedName prepared
+                  , typedBindingSpan = preparedSpan prepared
                   , typedBindingScheme = Scheme [] [] ty
                   , typedBindingGeneralizedMetas = Map.empty
                   , typedBindingRhs = rhs
@@ -3657,6 +3669,7 @@ finalizeBinding context outerEnv signatures (InferredBinding prepared rhs) =
           pure
             TypedBinding
               { typedBindingName = preparedName prepared
+              , typedBindingSpan = preparedSpan prepared
               , typedBindingScheme = generalizedScheme generalized
               , typedBindingGeneralizedMetas = generalizedMetas generalized
               , typedBindingRhs = rhs
@@ -5395,6 +5408,7 @@ aliasPatternBinder name ty scrutinee body =
       TLet
         [ TypedBinding
             { typedBindingName = name
+            , typedBindingSpan = Nothing
             , typedBindingScheme = Scheme [] [] ty
             , typedBindingGeneralizedMetas = Map.empty
             , typedBindingRhs = scrutinee
@@ -5784,6 +5798,7 @@ inferListCompWithTail env elementTy body (statement : rest) tailExpr =
             goBinding =
               TypedBinding
                 { typedBindingName = typedBinderName goBinder
+                , typedBindingSpan = Nothing
                 , typedBindingScheme = Scheme [] [] goTy
                 , typedBindingGeneralizedMetas = Map.empty
                 , typedBindingRhs = goRhs
@@ -7472,6 +7487,7 @@ singleLazyBinding :: RName -> MonoType -> TypedExpr -> ([TypedBinding], TypeEnv)
 singleLazyBinding name ty scrutinee =
   ( [ TypedBinding
         { typedBindingName = name
+        , typedBindingSpan = Nothing
         , typedBindingScheme = Scheme [] [] ty
         , typedBindingGeneralizedMetas = Map.empty
         , typedBindingRhs = scrutinee

@@ -860,7 +860,7 @@ scopeFromBind bind =
   Map.fromList [(coreBinderName binder, coreBinderType binder) | binder <- bindersOf bind]
 
 moduleCost :: CoreModule -> Int
-moduleCost (CoreModule _ _ binds _foreignExports) =
+moduleCost (CoreModule _ _ binds _foreignExports _) =
   sum (map bindCost binds)
 
 bindCost :: CoreBind -> Int
@@ -890,7 +890,7 @@ expressionCost = \case
     2
 
 nextUniqueAfterModule :: CoreModule -> Int
-nextUniqueAfterModule (CoreModule _ _ binds foreignExports) =
+nextUniqueAfterModule (CoreModule _ _ binds foreignExports _) =
   maximum (1000000 : concatMap uniquesInBind binds <> map (nameUnique . coreForeignExportName) foreignExports) + 1
 
 nextUniqueAfterExpr :: CoreExpr -> Int

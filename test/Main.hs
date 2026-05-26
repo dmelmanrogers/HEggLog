@@ -290,6 +290,7 @@ testGroups =
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
       , pureTest "reports forced division by zero" testHaskell2010Core0EvalDivisionByZero
+      , pureTest "attributes Core runtime failures to source bindings" testHaskell2010Core0EvalRuntimeSourceSpan
       , pureTest "reports guard fallthrough as no matching alternative" testHaskell2010Core0EvalGuardFallthrough
       ]
   , TestGroup
@@ -348,6 +349,7 @@ testGroups =
       , pureTest "preserves derived Bounded semantics" testHaskell2010CoreToSTGDerivedBounded
       , pureTest "preserves list comprehension semantics" testHaskell2010CoreToSTGListComprehensions
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
+      , pureTest "preserves runtime source attribution" testHaskell2010CoreToSTGRuntimeSourceSpan
       , pureTest "preserves guard fallthrough errors" testHaskell2010CoreToSTGGuardFallthrough
       , pureTest "preserves curried partial application" testHaskell2010CoreToSTGPartialApplication
       , pureTest "rejects invalid Core before lowering" testHaskell2010CoreToSTGRejectsInvalidCore
@@ -2252,7 +2254,8 @@ testHaskell2010IrrefutablePatterns = do
 testHaskell2010IrrefutablePatternDemand :: Either String ()
 testHaskell2010IrrefutablePatternDemand =
   case evalHaskell2010BindingRaw "main" haskell2010IrrefutablePatternDemandSource of
-    Left H2010CoreEval.CoreEvalNoMatchingAlternative {} -> Right ()
+    Left err
+      | H2010CoreEval.CoreEvalNoMatchingAlternative {} <- haskell2010CoreEvalErrorDetail err -> Right ()
     Left err -> Left ("expected demanded lazy pattern mismatch, got: " <> show err)
     Right value -> Left ("demanded lazy pattern mismatch evaluated unexpectedly: " <> show value)
 
@@ -3184,7 +3187,8 @@ testHaskell2010ForeignTypechecking = do
             \main = c_abs bad\n"
         )
     case H2010CoreEval.evalCoreModuleBindingByOccurrence "main" coreModule of
-      Left H2010CoreEval.CoreEvalDivisionByZero ->
+      Left err
+        | H2010CoreEval.CoreEvalDivisionByZero <- haskell2010CoreEvalErrorDetail err ->
         Right ()
       Left err ->
         Left ("foreign call Core argument strictness: expected division by zero, got " <> Text.unpack (H2010CoreEval.renderCoreEvalError err))
@@ -3195,7 +3199,8 @@ testHaskell2010ForeignTypechecking = do
         (Text.unpack . H2010STGLower.renderSTGLowerError)
         (H2010STGLower.lowerCoreModule coreModule)
     case H2010STGEval.evalSTGProgramBindingByOccurrence "main" stgProgram of
-      Left H2010STGEval.STGEvalDivisionByZero ->
+      Left err
+        | H2010STGEval.STGEvalDivisionByZero <- haskell2010STGEvalErrorDetail err ->
         Right ()
       Left err ->
         Left ("foreign call STG argument strictness: expected division by zero, got " <> Text.unpack (H2010STGEval.renderSTGEvalError err))
@@ -3246,7 +3251,7 @@ data ForeignIRExpectation
   deriving stock (Show, Eq)
 
 coreModuleHasForeignIR :: ForeignIRExpectation -> H2010Core.CoreModule -> Bool
-coreModuleHasForeignIR expected (H2010Core.CoreModule _ _ binds _foreignExports) =
+coreModuleHasForeignIR expected (H2010Core.CoreModule _ _ binds _foreignExports _runtimeSpans) =
   any (coreBindHasForeignIR expected) binds
 
 coreBindHasForeignIR :: ForeignIRExpectation -> H2010Core.CoreBind -> Bool
@@ -3292,7 +3297,7 @@ coreAltHasForeignIR expected (H2010Core.CoreAlt _ _ body) =
   coreExprHasForeignIR expected body
 
 coreModuleHasPrim :: H2010Core.CorePrimOp -> H2010Core.CoreModule -> Bool
-coreModuleHasPrim expected (H2010Core.CoreModule _ _ binds _foreignExports) =
+coreModuleHasPrim expected (H2010Core.CoreModule _ _ binds _foreignExports _runtimeSpans) =
   any (coreBindHasPrim expected) binds
 
 coreBindHasPrim :: H2010Core.CorePrimOp -> H2010Core.CoreBind -> Bool
@@ -3332,7 +3337,7 @@ coreAltHasPrim expected (H2010Core.CoreAlt _ _ body) =
   coreExprHasPrim expected body
 
 stgProgramHasForeignIR :: ForeignIRExpectation -> H2010STG.STGProgram -> Bool
-stgProgramHasForeignIR expected (H2010STG.STGProgram _ binds _foreignExports) =
+stgProgramHasForeignIR expected (H2010STG.STGProgram _ binds _foreignExports _runtimeSpans) =
   any (stgBindHasForeignIR expected) binds
 
 stgBindHasForeignIR :: ForeignIRExpectation -> H2010STG.STGBind -> Bool
@@ -3375,7 +3380,7 @@ stgAltHasForeignIR expected (H2010STG.STGAlt _ _ body) =
   stgExprHasForeignIR expected body
 
 stgProgramHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGProgram -> Bool
-stgProgramHasPrim expected (H2010STG.STGProgram _ binds _foreignExports) =
+stgProgramHasPrim expected (H2010STG.STGProgram _ binds _foreignExports _runtimeSpans) =
   any (stgBindHasPrim expected) binds
 
 stgBindHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGBind -> Bool
@@ -3844,7 +3849,8 @@ testHaskell2010Core0EvalDerivedEnum =
 testHaskell2010Core0EvalDerivedEnumRuntimeError :: Either String ()
 testHaskell2010Core0EvalDerivedEnumRuntimeError =
   case evalHaskell2010BindingRaw "main" haskell2010DerivedEnumRuntimeErrorSource of
-    Left (H2010CoreEval.CoreEvalNoMatchingAlternative _) -> Right ()
+    Left err
+      | H2010CoreEval.CoreEvalNoMatchingAlternative {} <- haskell2010CoreEvalErrorDetail err -> Right ()
     Left err -> Left ("expected derived Enum bounds runtime error, got: " <> show err)
     Right value -> Left ("derived Enum bounds error unexpectedly returned: " <> show value)
 
@@ -3894,14 +3900,28 @@ testHaskell2010Core0EvalDivisionByZero =
       "module Eval where\n\
       \main = div 1 0\n"
     of
-      Left H2010CoreEval.CoreEvalDivisionByZero -> Right ()
+      Left err
+        | H2010CoreEval.CoreEvalDivisionByZero <- haskell2010CoreEvalErrorDetail err -> Right ()
       Left err -> Left ("expected Core-0 division by zero, got: " <> show err)
       Right value -> Left ("division by zero evaluated unexpectedly: " <> show value)
+
+testHaskell2010Core0EvalRuntimeSourceSpan :: Either String ()
+testHaskell2010Core0EvalRuntimeSourceSpan =
+  case evalHaskell2010BindingRaw "main" haskell2010RuntimeSourceAttributionSource of
+    Left err@(H2010CoreEval.CoreEvalErrorAt sourceRange _)
+      | H2010CoreEval.CoreEvalDivisionByZero <- haskell2010CoreEvalErrorDetail err -> do
+          expectSourceSpanStart "Core runtime source binding line" 2 1 sourceRange
+          assertBool
+            "Core runtime diagnostic includes severity and detail"
+            ("runtime error: division by zero" `Text.isInfixOf` H2010CoreEval.renderCoreEvalError err)
+    Left err -> Left ("expected spanned Core runtime division by zero, got: " <> show err)
+    Right value -> Left ("spanned runtime source evaluated unexpectedly: " <> show value)
 
 testHaskell2010Core0EvalGuardFallthrough :: Either String ()
 testHaskell2010Core0EvalGuardFallthrough =
   case evalHaskell2010BindingRaw "main" haskell2010GuardFallthroughSource of
-    Left H2010CoreEval.CoreEvalNoMatchingAlternative {} -> Right ()
+    Left err
+      | H2010CoreEval.CoreEvalNoMatchingAlternative {} <- haskell2010CoreEvalErrorDetail err -> Right ()
     Left err -> Left ("expected Core-0 guard fallthrough, got: " <> show err)
     Right value -> Left ("guard fallthrough evaluated unexpectedly: " <> show value)
 
@@ -3948,7 +3968,8 @@ testHaskell2010STGCaseForcesScrutinee =
           )
       )
     of
-      Left H2010STGEval.STGEvalDivisionByZero -> Right ()
+      Left err
+        | H2010STGEval.STGEvalDivisionByZero <- haskell2010STGEvalErrorDetail err -> Right ()
       Left err -> Left ("expected STG division by zero, got: " <> show err)
       Right value -> Left ("STG case scrutinee evaluated unexpectedly: " <> show value)
 
@@ -4235,14 +4256,28 @@ testHaskell2010CoreToSTGDivisionByZero =
       "module Lower where\n\
       \main = div 1 0\n"
     of
-      Left (Right H2010STGEval.STGEvalDivisionByZero) -> Right ()
+      Left (Right err)
+        | H2010STGEval.STGEvalDivisionByZero <- haskell2010STGEvalErrorDetail err -> Right ()
       Left err -> Left ("expected lowered STG division by zero, got: " <> show err)
       Right value -> Left ("lowered division by zero evaluated unexpectedly: " <> show value)
+
+testHaskell2010CoreToSTGRuntimeSourceSpan :: Either String ()
+testHaskell2010CoreToSTGRuntimeSourceSpan =
+  case lowerAndEvalHaskell2010BindingRaw "main" haskell2010RuntimeSourceAttributionSource of
+    Left (Right err@(H2010STGEval.STGEvalErrorAt sourceRange _))
+      | H2010STGEval.STGEvalDivisionByZero <- haskell2010STGEvalErrorDetail err -> do
+          expectSourceSpanStart "STG runtime source binding line" 2 1 sourceRange
+          assertBool
+            "STG runtime diagnostic includes severity and detail"
+            ("runtime error: division by zero" `Text.isInfixOf` H2010STGEval.renderSTGEvalError err)
+    Left err -> Left ("expected lowered STG runtime source span, got: " <> show err)
+    Right value -> Left ("lowered spanned runtime source evaluated unexpectedly: " <> show value)
 
 testHaskell2010CoreToSTGGuardFallthrough :: Either String ()
 testHaskell2010CoreToSTGGuardFallthrough =
   case lowerAndEvalHaskell2010BindingRaw "main" haskell2010GuardFallthroughSource of
-    Left (Right H2010STGEval.STGEvalNoMatchingAlternative {}) -> Right ()
+    Left (Right err)
+      | H2010STGEval.STGEvalNoMatchingAlternative {} <- haskell2010STGEvalErrorDetail err -> Right ()
     Left err -> Left ("expected lowered STG guard fallthrough, got: " <> show err)
     Right value -> Left ("lowered guard fallthrough evaluated unexpectedly: " <> show value)
 
@@ -4977,7 +5012,8 @@ testHaskell2010CoreEgglogPreservesKnownConstructorLaziness = do
 
   forcedFieldResult <- optimizeHaskell2010Core haskell2010KnownConstructorForcedFieldSource
   case evalHaskell2010CoreModuleBindingRaw "main" (H2010CoreEgglog.coreEgglogOptimizedModule forcedFieldResult) of
-    Left H2010CoreEval.CoreEvalDivisionByZero -> Right ()
+    Left err
+      | H2010CoreEval.CoreEvalDivisionByZero <- haskell2010CoreEvalErrorDetail err -> Right ()
     Left err ->
       Left ("expected optimized known-constructor projection to preserve forced division by zero, got: " <> show err)
     Right value ->
@@ -5004,7 +5040,8 @@ testHaskell2010CoreEgglogPreservesStrictBottom = do
       \f x = x * 0\n\
       \main = f (div 1 0)\n"
   case evalHaskell2010CoreModuleBindingRaw "main" (H2010CoreEgglog.coreEgglogOptimizedModule result) of
-    Left H2010CoreEval.CoreEvalDivisionByZero -> Right ()
+    Left err
+      | H2010CoreEval.CoreEvalDivisionByZero <- haskell2010CoreEvalErrorDetail err -> Right ()
     Left err ->
       Left ("expected optimized Core to preserve forced division by zero, got: " <> show err)
     Right value ->
@@ -8139,6 +8176,25 @@ haskell2010TypecheckErrorDetail = \case
   err ->
     err
 
+haskell2010CoreEvalErrorDetail :: H2010CoreEval.CoreEvalError -> H2010CoreEval.CoreEvalError
+haskell2010CoreEvalErrorDetail = \case
+  H2010CoreEval.CoreEvalErrorAt _ err ->
+    haskell2010CoreEvalErrorDetail err
+  err ->
+    err
+
+haskell2010STGEvalErrorDetail :: H2010STGEval.STGEvalError -> H2010STGEval.STGEvalError
+haskell2010STGEvalErrorDetail = \case
+  H2010STGEval.STGEvalErrorAt _ err ->
+    haskell2010STGEvalErrorDetail err
+  err ->
+    err
+
+expectSourceSpanStart :: String -> Int -> Int -> SourceSpan -> Either String ()
+expectSourceSpanStart label expectedLine expectedColumn sourceRange =
+  expectEqual (label <> " line") expectedLine (spanStartLine sourceRange)
+    *> expectEqual (label <> " column") expectedColumn (spanStartColumn sourceRange)
+
 typecheckHaskell2010Modules :: [(FilePath, Text)] -> Either String H2010Core.CoreModule
 typecheckHaskell2010Modules sources = do
   renamed <- mapLeft (Text.unpack . H2010Renamer.renderRenameError) (renameHaskell2010ModulesRaw sources)
@@ -8608,6 +8664,7 @@ haskell2010PrimitiveArithmeticCoreModule =
             )
         ]
     , H2010Core.coreModuleForeignExports = []
+    , H2010Core.coreModuleRuntimeSpans = Map.empty
     }
 
 haskell2010KnownBoolCaseCoreModule :: H2010Core.CoreModule
@@ -8628,6 +8685,7 @@ haskell2010KnownBoolCaseCoreModule =
             )
         ]
     , H2010Core.coreModuleForeignExports = []
+    , H2010Core.coreModuleRuntimeSpans = Map.empty
     }
 
 haskell2010PolymorphicIdentitySource :: Text
@@ -9826,6 +9884,12 @@ haskell2010GuardFallthroughSource =
   "module Main where\n\
   \main | False = 1\n"
 
+haskell2010RuntimeSourceAttributionSource :: Text
+haskell2010RuntimeSourceAttributionSource =
+  "module Main where\n\
+  \bad x = div x 0\n\
+  \main = bad 1\n"
+
 haskell2010IrrefutablePatternSource :: Text
 haskell2010IrrefutablePatternSource =
   "module Main where\n\
@@ -9978,7 +10042,7 @@ stgThunkBinding binder updateFlag expression =
 
 stgMainProgram :: H2010STG.STGExpr -> H2010STG.STGProgram
 stgMainProgram expression =
-  H2010STG.STGProgram Map.empty [stgThunkBinding stgMainBinder H2010STG.Updatable expression] []
+  H2010STG.STGProgram Map.empty [stgThunkBinding stgMainBinder H2010STG.Updatable expression] [] Map.empty
 
 stgMainBinder :: H2010STG.STGBinder
 stgMainBinder =
@@ -9996,6 +10060,7 @@ stgLazyFunctionArgumentProgram =
     , stgThunkBinding stgMainBinder H2010STG.Updatable mainBody
     ]
     []
+    Map.empty
  where
   constBinder =
     stgBinder
@@ -10049,6 +10114,7 @@ stgBlackHoleProgram =
     , stgThunkBinding stgMainBinder H2010STG.Updatable (H2010STG.STGAtom (stgVar stgRecursiveBinder))
     ]
     []
+    Map.empty
 
 expectCoreValidationError ::
   String ->

@@ -18579,7 +18579,7 @@ Notes:
   coverage can identify them, supported duplicate/unreachable alternatives emit
   redundant-pattern warnings, native compile results preserve warnings, and the
   compile CLI renders warnings to stderr. Broader report-complete coverage and
-  lazy runtime source attribution remain tracked outside this task.
+  nested runtime subexpression spans remain tracked outside this task.
 
 ## DIAG-010 — module/import diagnostics
 
@@ -18741,7 +18741,7 @@ Notes:
 ## DIAG-013 — runtime source attribution
 
 Status:
-- not started
+- complete
 
 Category:
 - diagnostics
@@ -18754,7 +18754,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver runtime source attribution for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver runtime source attribution for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Core and STG interpreter closures now carry source-defined top-level binding spans so forced runtime failures are reported at the responsible source binding.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -18764,29 +18764,31 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Syntax/Span.hs`
-- `src/Haskell2010/Parser.hs`
-- `src/Haskell2010/Renamer.hs`
+- `src/Haskell2010/Core/Syntax.hs`
+- `src/Haskell2010/Core/Eval.hs`
+- `src/Haskell2010/STG/Syntax.hs`
+- `src/Haskell2010/STG/Eval.hs`
+- `src/Haskell2010/STG/Lower.hs`
 - `src/Haskell2010/Typecheck.hs`
-- `src/CLI/Report.hs`
-- `test/golden/`
+- `test/Main.hs`
 
 Acceptance criteria:
-- runtime source attribution is implemented, completed, or explicitly documented according to status `not started`.
+- runtime source attribution is implemented for source-defined top-level Core and STG runtime closures and renders through the standard `runtime error` source diagnostic.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
+- Core evaluator runtime attribution unit tests
+- Core-to-STG runtime attribution unit tests
 - negative conformance tests
-- CLI rendering tests
 
 Documentation updates:
 - `docs/diagnostics-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M17 (Diagnostics). Completed by threading top-level binding spans through typed bindings, Core modules, STG programs, and interpreter runtime closures. DIAG-014 remains responsible for nested expression spans inside a source binding.
 
 ## DIAG-014 — nested runtime spans
 

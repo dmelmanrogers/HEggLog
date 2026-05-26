@@ -135,19 +135,22 @@ Main.hs:2:1-29: module/import error: module `Prelude` does not export term name 
 
 ## Runtime Diagnostics
 
-Runtime diagnostics currently attach to the root source expression. This is
-stable enough to identify the failing input, but it is not yet an exact
-subexpression trace for nested runtime failures.
+Haskell 2010 Core and STG interpreter diagnostics preserve source attribution
+for source-defined top-level runtime closures. When a forced top-level binding
+fails through a helper binding, the runtime error is reported at the helper
+binding's declaration rather than only at the requested entry point. The
+attribution uses the same one-line `runtime error` diagnostic shape as the rest
+of the compiler.
 
 Example:
 
 ```text
-<test>:1:1-24: runtime error: checked Int + overflowed: 9223372036854775807 + 1
+<haskell2010-renamer-test>:2:1-15: runtime error: division by zero
 ```
 
-Future interpreter work should preserve evaluation source positions so
-division-by-zero and overflow diagnostics can point to the exact primitive
-operation.
+DIAG-014 remains responsible for nested expression spans inside lowered Core
+and STG bodies, such as pointing directly at the primitive operation inside a
+larger source binding.
 
 ## LLVM Diagnostics
 
@@ -202,16 +205,18 @@ source-spanned `kind error` diagnostics. Class constraints and instance
 declaration failures render as source-spanned `class error` and `instance error`
 diagnostics for the executable subset. Module graph and explicit import-list
 failures render as source-spanned `module/import error` diagnostics at the
-responsible import declaration. The parser, renamer, typechecker,
-class/instance, and runtime no-matching-alternative errors exist for the
-executable subset, and guard fallthrough is covered by Core/STG/native tests.
+responsible import declaration. Core and STG interpreter runtime failures carry
+top-level source binding attribution for source-defined closures. The parser,
+renamer, typechecker, class/instance, and runtime no-matching-alternative
+errors exist for the executable subset, and guard fallthrough is covered by
+Core/STG/native tests.
 The Haskell 2010 typechecker now emits source-spanned warnings for supported
-non-exhaustive
-`case`, function, and lambda pattern matches, including finite constructor
-witnesses such as `False` or `Nothing` where the checker can identify them. It
-also emits source-spanned redundant-alternative warnings for supported
-unreachable alternatives. Native compilation carries those warnings through
-`Haskell2010LLVMResult`, and the CLI renders them to stderr before emit/build/run
-output. Runtime source attribution through lazy evaluation remains planned. The
-existing located `.hg` parser/typechecker and LLVM unsupported-source
-diagnostics are the carry-forward baseline.
+non-exhaustive `case`, function, and lambda pattern matches, including finite
+constructor witnesses such as `False` or `Nothing` where the checker can
+identify them. It also emits source-spanned redundant-alternative warnings for
+supported unreachable alternatives. Native compilation carries those warnings
+through `Haskell2010LLVMResult`, and the CLI renders them to stderr before
+emit/build/run output. Nested runtime subexpression spans through lazy
+evaluation remain tracked by DIAG-014. The existing located `.hg`
+parser/typechecker and LLVM unsupported-source diagnostics are the carry-forward
+baseline.

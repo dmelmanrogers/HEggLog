@@ -253,8 +253,10 @@ guard-fallthrough no-match behavior are also implemented and wet-tested.
 Irrefutable/lazy pattern semantics are implemented for the executable subset;
 source-spanned non-exhaustive and redundant pattern-match warnings are exposed
 by the typechecker, native API, and compile CLI for the supported finite
-constructor/literal/list/tuple executable subset. Broader report-complete
-pattern coverage and runtime source attribution remain later work.
+constructor/literal/list/tuple executable subset. Core/STG interpreter runtime
+failures carry source-defined top-level binding attribution; broader
+report-complete pattern coverage and nested runtime subexpression spans remain
+later work.
 
 Deliverables:
 

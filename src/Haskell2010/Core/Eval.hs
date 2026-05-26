@@ -46,6 +46,7 @@ import Runtime.Int
   , testBitHInt
   , xorHInt
   )
+import Syntax.Span (SourceSpan, renderSourceDiagnostic)
 
 data CoreValue
   = CoreInt HInt
@@ -61,8 +62,8 @@ data CoreValue
   | CorePointer (Maybe CoreValue)
   | CoreStablePtr CoreValue
   | CoreForeignPtr CoreValue
-  | CoreClosure Env CoreBinder CoreExpr
-  | CoreTypeClosure Env [RName] CoreExpr
+  | CoreClosure (Maybe SourceSpan) Env CoreBinder CoreExpr
+  | CoreTypeClosure (Maybe SourceSpan) Env [RName] CoreExpr
   | CoreConstructor RName [CoreThunk]
   | CoreData RName [CoreThunk]
   deriving stock (Show)
@@ -75,6 +76,7 @@ data CoreIOResult
 
 data CoreEvalError
   = CoreEvalInvalid [CoreValidate.CoreValidationError]
+  | CoreEvalErrorAt SourceSpan CoreEvalError
   | CoreEvalUnknownVariable RName
   | CoreEvalUnknownBinding RName
   | CoreEvalUnknownBindingOccurrence Text
@@ -90,7 +92,7 @@ type Env = Map.Map RName CoreThunk
 
 data CoreThunk
   = Evaluated CoreValue
-  | Unevaluated Env CoreExpr
+  | Unevaluated (Maybe SourceSpan) Env CoreExpr
   deriving stock (Show)
 
 evalCoreExpr :: CoreExpr -> Either CoreEvalError CoreValue
@@ -152,23 +154,25 @@ evalExpr coreEnv env = \case
     | otherwise ->
         evalDataConstructor coreEnv name []
   CLam binder body _ ->
-    Right (CoreClosure env binder body)
+    Right (CoreClosure Nothing env binder body)
   CApp function argument _ -> do
     functionValue <- evalExpr coreEnv env function
     case functionValue of
-      CoreClosure closureEnv binder body ->
-        evalExpr coreEnv (Map.insert (coreBinderName binder) (Unevaluated env argument) closureEnv) body
+      CoreClosure sourceRange closureEnv binder body ->
+        withCoreRuntimeSpan sourceRange $
+          attachCoreValueRuntimeSpan sourceRange
+            <$> evalExpr coreEnv (Map.insert (coreBinderName binder) (Unevaluated Nothing env argument) closureEnv) body
       CoreConstructor name fields ->
-        evalDataConstructor coreEnv name (fields <> [Unevaluated env argument])
+        evalDataConstructor coreEnv name (fields <> [Unevaluated Nothing env argument])
       other ->
         Left (CoreEvalTypeError ("expected Core function, got " <> renderCoreValue other))
   CTypeLam variables body _ ->
-    Right (CoreTypeClosure env variables body)
+    Right (CoreTypeClosure Nothing env variables body)
   CTypeApp function _ _ -> do
     functionValue <- evalExpr coreEnv env function
     case functionValue of
-      CoreTypeClosure closureEnv _ body ->
-        evalExpr coreEnv closureEnv body
+      CoreTypeClosure sourceRange closureEnv _ body ->
+        withCoreRuntimeSpan sourceRange (attachCoreValueRuntimeSpan sourceRange <$> evalExpr coreEnv closureEnv body)
       CoreConstructor {} ->
         Right functionValue
       CoreData {} ->
@@ -233,16 +237,43 @@ force :: CoreValidate.CoreValidationEnv -> CoreThunk -> Either CoreEvalError Cor
 force coreEnv = \case
   Evaluated value ->
     Right value
-  Unevaluated env expression ->
-    evalExpr coreEnv env expression
+  Unevaluated sourceRange env expression ->
+    withCoreRuntimeSpan sourceRange (attachCoreValueRuntimeSpan sourceRange <$> evalExpr coreEnv env expression)
+
+attachCoreValueRuntimeSpan :: Maybe SourceSpan -> CoreValue -> CoreValue
+attachCoreValueRuntimeSpan Nothing value =
+  value
+attachCoreValueRuntimeSpan sourceRange value =
+  case value of
+    CoreClosure Nothing env binder body ->
+      CoreClosure sourceRange env binder body
+    CoreTypeClosure Nothing env variables body ->
+      CoreTypeClosure sourceRange env variables body
+    _ ->
+      value
+
+withCoreRuntimeSpan :: Maybe SourceSpan -> Either CoreEvalError a -> Either CoreEvalError a
+withCoreRuntimeSpan Nothing action =
+  action
+withCoreRuntimeSpan (Just sourceRange) action =
+  case action of
+    Left err@CoreEvalErrorAt {} ->
+      Left err
+    Left err ->
+      Left (CoreEvalErrorAt sourceRange err)
+    Right value ->
+      Right value
 
 moduleEnv :: CoreModule -> Env
 moduleEnv coreModule =
   env
  where
+  sourceSpans =
+    coreModuleRuntimeSpans coreModule
+
   env =
     Map.fromList
-      [ (coreBinderName binder, Unevaluated env rhs)
+      [ (coreBinderName binder, Unevaluated (Map.lookup (coreBinderName binder) sourceSpans) env rhs)
       | (binder, rhs) <- concatMap bindPairs (coreModuleBinds coreModule)
       ]
 
@@ -250,14 +281,14 @@ extendEnv :: CoreBind -> Env -> Env
 extendEnv bind env =
   case bind of
     CoreNonRec binder rhs ->
-      Map.insert (coreBinderName binder) (Unevaluated env rhs) env
+      Map.insert (coreBinderName binder) (Unevaluated Nothing env rhs) env
     CoreRec pairs ->
       recEnv
      where
       recEnv =
         Map.union
           ( Map.fromList
-              [ (coreBinderName binder, Unevaluated recEnv rhs)
+              [ (coreBinderName binder, Unevaluated Nothing recEnv rhs)
               | (binder, rhs) <- pairs
               ]
           )
@@ -345,8 +376,11 @@ evalPrimitiveExpr coreEnv env op arguments =
         CoreIO firstChunks (CoreIOSuccess value) -> do
           continuation <- evalExpr coreEnv env continuationExpr
           case continuation of
-            CoreClosure closureEnv binder body -> do
-              second <- evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated value) closureEnv) body
+            CoreClosure sourceRange closureEnv binder body -> do
+              second <-
+                withCoreRuntimeSpan sourceRange $
+                  attachCoreValueRuntimeSpan sourceRange
+                    <$> evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated value) closureEnv) body
               case second of
                 CoreIO secondChunks result ->
                   Right (CoreIO (firstChunks <> secondChunks) result)
@@ -366,8 +400,11 @@ evalPrimitiveExpr coreEnv env op arguments =
         CoreIO chunks (CoreIOFailure err) -> do
           handler <- evalExpr coreEnv env handlerExpr
           case handler of
-            CoreClosure closureEnv binder body -> do
-              handled <- evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated err) closureEnv) body
+            CoreClosure sourceRange closureEnv binder body -> do
+              handled <-
+                withCoreRuntimeSpan sourceRange $
+                  attachCoreValueRuntimeSpan sourceRange
+                    <$> evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated err) closureEnv) body
               case handled of
                 CoreIO handledChunks result ->
                   Right (CoreIO (chunks <> handledChunks) result)
@@ -391,9 +428,13 @@ evalPrimitiveExpr coreEnv env op arguments =
     (PrimIOFix, [functionExpr]) -> do
       function <- evalExpr coreEnv env functionExpr
       case function of
-        CoreClosure closureEnv binder body ->
+        CoreClosure sourceRange closureEnv binder body ->
           let fixedValue =
-                case evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated fixedValue) closureEnv) body of
+                case
+                  withCoreRuntimeSpan sourceRange $
+                    attachCoreValueRuntimeSpan sourceRange
+                      <$> evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated fixedValue) closureEnv) body
+                of
                   Right (CoreIO _ (CoreIOSuccess value)) -> value
                   Right other -> error ("fixIO expected Core IO success, got " <> Text.unpack (renderCoreValue other))
                   Left err -> error ("fixIO evaluation failed: " <> Text.unpack (renderCoreEvalError err))
@@ -630,8 +671,11 @@ evalPrimitive coreEnv op values =
       Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
     (PrimFinalizeForeignPtr, [CoreForeignPtr _]) ->
       Right (CoreIO [] (CoreIOSuccess (CoreData unitDataConName [])))
-    (PrimWithForeignPtr, [CoreForeignPtr pointer, CoreClosure closureEnv binder body]) -> do
-      action <- evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated pointer) closureEnv) body
+    (PrimWithForeignPtr, [CoreForeignPtr pointer, CoreClosure sourceRange closureEnv binder body]) -> do
+      action <-
+        withCoreRuntimeSpan sourceRange $
+          attachCoreValueRuntimeSpan sourceRange
+            <$> evalExpr coreEnv (Map.insert (coreBinderName binder) (Evaluated pointer) closureEnv) body
       case action of
         CoreIO chunks result ->
           Right (CoreIO chunks result)
@@ -1039,10 +1083,20 @@ renderCoreValue = \case
       _ -> " <" <> Text.pack (show (length fields)) <> " lazy fields>"
 
 renderCoreEvalError :: CoreEvalError -> Text
-renderCoreEvalError = \case
+renderCoreEvalError err =
+  case err of
+    CoreEvalErrorAt sourceRange nested ->
+      renderSourceDiagnostic sourceRange "runtime error" (renderCoreEvalErrorDetail nested)
+    _ ->
+      renderCoreEvalErrorDetail err
+
+renderCoreEvalErrorDetail :: CoreEvalError -> Text
+renderCoreEvalErrorDetail = \case
   CoreEvalInvalid errors ->
     "invalid Core before evaluation: "
       <> Text.intercalate "; " (map CoreValidate.renderValidationError errors)
+  CoreEvalErrorAt _ err ->
+    renderCoreEvalErrorDetail err
   CoreEvalUnknownVariable name ->
     "unknown Core variable `" <> renderRName name <> "`"
   CoreEvalUnknownBinding name ->

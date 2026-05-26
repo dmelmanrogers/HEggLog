@@ -216,7 +216,7 @@ compileHaskell2010RenamedToLLVMWithOptions options parsed renamed mainName = do
       }
 
 foreignImportsInProgram :: STGProgram -> [CoreForeignImport]
-foreignImportsInProgram (STGProgram _ binds _foreignExports) =
+foreignImportsInProgram (STGProgram _ binds _foreignExports _runtimeSpans) =
   concatMap foreignImportsInBind binds
 
 foreignImportsInBind :: STGBind -> [CoreForeignImport]
