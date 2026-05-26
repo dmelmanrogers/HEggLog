@@ -2024,7 +2024,14 @@ testHaskell2010KindRejectsMismatch =
       \main = 0\n"
     of
       Left err
-        | H2010Typecheck.KindMismatch {} <- haskell2010TypecheckErrorDetail err -> Right ()
+        | H2010Typecheck.KindMismatch {} <- haskell2010TypecheckErrorDetail err -> do
+            let rendered = H2010Typecheck.renderTypecheckError err
+            assertBool
+              "kind mismatch diagnostic renders kind severity"
+              ("kind error: kind mismatch" `Text.isInfixOf` rendered)
+            assertBool
+              "kind mismatch diagnostic includes source span"
+              ("<haskell2010-renamer-test>:3:8-" `Text.isInfixOf` rendered)
       Left err -> Left ("expected kind mismatch, got: " <> show err)
       Right coreModule -> Left ("kind-mismatched source typechecked unexpectedly: " <> show coreModule)
 
@@ -2044,7 +2051,14 @@ testHaskell2010KindChecksMonadConstraint = do
       \main = 0\n"
     of
       Left err
-        | H2010Typecheck.KindMismatch {} <- haskell2010TypecheckErrorDetail err -> Right ()
+        | H2010Typecheck.KindMismatch {} <- haskell2010TypecheckErrorDetail err -> do
+            let rendered = H2010Typecheck.renderTypecheckError err
+            assertBool
+              "Monad constraint kind mismatch renders kind severity"
+              ("kind error: kind mismatch" `Text.isInfixOf` rendered)
+            assertBool
+              "Monad constraint kind mismatch includes source span"
+              ("<haskell2010-renamer-test>:2:14-" `Text.isInfixOf` rendered)
       Left err -> Left ("expected Monad kind mismatch, got: " <> show err)
       Right coreModule -> Left ("Monad Int source typechecked unexpectedly: " <> show coreModule)
 

@@ -81,6 +81,19 @@ The CLI report mode wraps these lines in a section header:
 examples/type-errors/add-bool.hg:1:5-9: type error: operator + expects Int operands, got Bool
 ```
 
+## Kind Diagnostics
+
+Haskell 2010 kind failures use the same source-span mechanism as type errors,
+but render with `kind error` severity so partial type-constructor application and
+higher-kinded class-argument mistakes are distinguishable from ordinary term
+type mismatches.
+
+Example:
+
+```text
+Main.hs:5:8-12: kind error: kind mismatch: expected *, got * -> *
+```
+
 ## Runtime Diagnostics
 
 Runtime diagnostics currently attach to the root source expression. This is
@@ -145,11 +158,12 @@ The Haskell 2010 target will need additional diagnostic classes:
 Current status: Haskell 2010 parse/lex errors are normalized into one-line
 source-spanned diagnostics on native and module-loading paths. Implicit layout
 failures in `let`, `where`, `do`, and `case ... of` blocks are classified as
-layout errors with explicit indentation expectations. The parser, renamer,
-typechecker, class/instance, and runtime no-matching-alternative errors exist
-for the executable subset, and guard fallthrough is covered by Core/STG/native
-tests. The Haskell 2010 typechecker now emits source-spanned warnings for
-supported non-exhaustive
+layout errors with explicit indentation expectations. Kind mismatches render as
+source-spanned `kind error` diagnostics. The parser, renamer, typechecker,
+class/instance, and runtime no-matching-alternative errors exist for the
+executable subset, and guard fallthrough is covered by Core/STG/native tests.
+The Haskell 2010 typechecker now emits source-spanned warnings for supported
+non-exhaustive
 `case`, function, and lambda pattern matches, including finite constructor
 witnesses such as `False` or `Nothing` where the checker can identify them. It
 also emits source-spanned redundant-alternative warnings for supported

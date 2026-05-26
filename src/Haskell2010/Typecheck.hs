@@ -449,9 +449,20 @@ typecheckModuleToCoreWithWarnings sourceModule = do
 renderTypecheckError :: TypecheckError -> Text
 renderTypecheckError = \case
   TypecheckErrorAt sourceRange err ->
-    renderSourceDiagnostic sourceRange "type error" (renderTypecheckErrorDetail err)
+    renderSourceDiagnostic sourceRange (typecheckErrorSeverity err) (renderTypecheckErrorDetail err)
   err ->
     renderTypecheckErrorDetail err
+
+typecheckErrorSeverity :: TypecheckError -> Text
+typecheckErrorSeverity = \case
+  TypecheckErrorAt _ err ->
+    typecheckErrorSeverity err
+  KindMismatch {} ->
+    "kind error"
+  KindOccursCheck {} ->
+    "kind error"
+  _ ->
+    "type error"
 
 renderTypecheckErrorDetail :: TypecheckError -> Text
 renderTypecheckErrorDetail = \case

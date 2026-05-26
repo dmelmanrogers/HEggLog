@@ -18428,7 +18428,7 @@ Notes:
 ## DIAG-007 — kind diagnostics
 
 Status:
-- not started
+- complete
 
 Category:
 - diagnostics
@@ -18441,7 +18441,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver kind diagnostics for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver source-spanned Haskell 2010 kind diagnostics for supported source type expressions, partial type-constructor use, and higher-kinded class arguments while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -18451,29 +18451,28 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Syntax/Span.hs`
-- `src/Haskell2010/Parser.hs`
-- `src/Haskell2010/Renamer.hs`
 - `src/Haskell2010/Typecheck.hs`
-- `src/CLI/Report.hs`
-- `test/golden/`
+- `test/Main.hs`
+- `test/haskell2010/conformance/manifest.json`
 
 Acceptance criteria:
-- kind diagnostics is implemented, completed, or explicitly documented according to status `not started`.
+- Kind mismatches and kind occurs-check failures render with `kind error` severity instead of the generic `type error` severity.
+- Kind diagnostics preserve the source span of the offending source type or class-constraint argument.
+- The conformance manifest checks the kind-error category and concrete source-span prefix for partial type-constructor use.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
-- diagnostic golden tests
-- negative conformance tests
-- CLI rendering tests
+- typechecker kind diagnostic unit tests
+- negative kind conformance tests
+- CLI/native rendering checks through compile-error kind fixtures
 
 Documentation updates:
 - `docs/diagnostics-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Completed by kind-specific typechecker diagnostic severity plus source-span assertions for kind mismatches and higher-kinded class constraints. Verified with `cabal build all`, `cabal test hegglog-test`, and the Haskell 2010 conformance harness.
 
 ## DIAG-008 — class/instance diagnostics
 

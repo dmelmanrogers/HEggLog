@@ -10241,7 +10241,7 @@
     {
       "id": "DIAG-007",
       "title": "kind diagnostics",
-      "status": "not started",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -10250,14 +10250,16 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "kind diagnostics is implemented, completed, or explicitly documented according to status `not started`.",
+        "Kind mismatches and kind occurs-check failures render with `kind error` severity instead of the generic `type error` severity.",
+        "Kind diagnostics preserve the source span of the offending source type or class-constraint argument.",
+        "The conformance manifest checks the kind-error category and concrete source-span prefix for partial type-constructor use.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
-        "diagnostic golden tests",
-        "negative conformance tests",
-        "CLI rendering tests"
+        "typechecker kind diagnostic unit tests",
+        "negative kind conformance tests",
+        "CLI/native rendering checks through compile-error kind fixtures"
       ],
       "docs": [
         "docs/diagnostics-spec.md",

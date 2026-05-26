@@ -1583,9 +1583,10 @@
       "sourceFile": "test/haskell2010/conformance/unsupported/kind-checking.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "kind mismatch",
+      "expectedDiagnosticCategory": "kind error",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/unsupported/kind-checking.hs:5:8-",
       "requiredStage": "typecheck",
-      "notes": "Partial type-constructor use must be rejected by kind checking."
+      "notes": "Partial type-constructor use must be rejected by source-spanned kind checking."
     },
     {
       "name": "io.system-io",
