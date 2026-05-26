@@ -10269,7 +10269,7 @@
     {
       "id": "DIAG-008",
       "title": "class/instance diagnostics",
-      "status": "in progress",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -10278,14 +10278,16 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "class/instance diagnostics is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Class-constraint failures render as `class error` diagnostics with source spans for explicit constraint positions and overloaded use-site dictionary obligations.",
+        "Instance declaration conflicts and malformed instance method sets render as `instance error` diagnostics from structured typechecker constructors rather than generic unsupported-form text.",
+        "Negative and unsupported conformance fixtures lock the class/instance diagnostic categories and source-span prefixes.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to this task for implemented work."
       ],
       "required_tests": [
-        "diagnostic golden tests",
-        "negative conformance tests",
-        "CLI rendering tests"
+        "typechecker class/instance diagnostic unit tests",
+        "negative class/instance conformance tests",
+        "CLI/native rendering checks through compile-error class/instance fixtures"
       ],
       "docs": [
         "docs/diagnostics-spec.md",

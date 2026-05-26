@@ -1321,7 +1321,8 @@
       "sourceFile": "test/haskell2010/conformance/negative/duplicate-monad-io.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "duplicate built-in instance",
+      "expectedDiagnosticCategory": "instance error",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/duplicate-monad-io.hs:3:1-",
       "requiredStage": "typecheck",
       "notes": "User instances must not overlap or duplicate the Haskell 2010 built-in Monad IO dictionary."
     },
@@ -1366,7 +1367,8 @@
       "sourceFile": "test/haskell2010/conformance/negative/missing-instance-import.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "unsolved type-class constraint",
+      "expectedDiagnosticCategory": "class error",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/missing-instance-import.hs:7:15-",
       "requiredStage": "typecheck",
       "notes": "A class and type import do not make an instance visible unless an import chain reaches the instance-declaring module."
     },
@@ -1565,7 +1567,8 @@
       "sourceFile": "test/haskell2010/conformance/unsupported/method-specific-constraint.hs",
       "category": "unsupported",
       "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "unsupported",
+      "expectedDiagnosticCategory": "class error",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/unsupported/method-specific-constraint.hs:4:11-",
       "requiredStage": "typecheck",
       "notes": "Method-specific class constraints are rejected by the explicit class-constraint placeholder."
     },
@@ -1574,7 +1577,8 @@
       "sourceFile": "test/haskell2010/conformance/unsupported/constrained-expression-signature.hs",
       "category": "unsupported",
       "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "unsupported",
+      "expectedDiagnosticCategory": "class error",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/unsupported/constrained-expression-signature.hs:4:15-",
       "requiredStage": "typecheck",
       "notes": "Constrained expression signatures are parsed but deliberately rejected until the broader local constraint surface is implemented."
     },

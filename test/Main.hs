@@ -2222,7 +2222,14 @@ testHaskell2010ConstraintRejectsInvalidArity =
       \main = bad\n"
     of
       Left err
-        | H2010Typecheck.InvalidClassConstraintArity {} <- haskell2010TypecheckErrorDetail err -> Right ()
+        | H2010Typecheck.InvalidClassConstraintArity {} <- haskell2010TypecheckErrorDetail err -> do
+            let rendered = H2010Typecheck.renderTypecheckError err
+            assertBool
+              "invalid class constraint arity renders class severity"
+              ("class error: class constraint" `Text.isInfixOf` rendered)
+            assertBool
+              "invalid class constraint arity includes constraint span"
+              ("<haskell2010-renamer-test>:2:8-" `Text.isInfixOf` rendered)
       Left err -> Left ("expected invalid class constraint arity, got: " <> show err)
       Right coreModule -> Left ("invalid class constraint arity typechecked unexpectedly: " <> show coreModule)
 
@@ -2234,15 +2241,22 @@ testHaskell2010ClassConstraintPlaceholders = do
   expectCoreEvalInt "superclass/default method Core oracle" 7 =<< evalHaskell2010CoreModuleBinding "main" coreModule
   instanceContextModule <- typecheckHaskell2010 instanceContextSource
   assertBool "instance constraint dictionary is emitted" (containsBindingPrefix "$fSized" instanceContextModule)
-  expectPlaceholder "method-specific constraint context" methodConstraintSource
-    *> expectPlaceholder "expression signature constraint context" expressionSignatureSource
+  expectPlaceholder "method-specific constraint context" "<haskell2010-renamer-test>:3:11-" methodConstraintSource
+    *> expectPlaceholder "expression signature constraint context" "<haskell2010-renamer-test>:2:14-" expressionSignatureSource
     *> expectTypecheckMessage "recursive superclass cycle" "recursive superclass cycle" recursiveSuperclassSource
  where
-  expectPlaceholder label source =
+  expectPlaceholder label expectedSpanPrefix source =
     case typecheckHaskell2010Raw source of
       Left err
         | H2010Typecheck.UnsupportedClassConstraintContext _ constraints <- haskell2010TypecheckErrorDetail err
-        , not (null constraints) -> Right ()
+        , not (null constraints) -> do
+            let rendered = H2010Typecheck.renderTypecheckError err
+            assertBool
+              (label <> ": renders class severity")
+              ("class error: unsupported class-constraint context" `Text.isInfixOf` rendered)
+            assertBool
+              (label <> ": includes first unsupported constraint span")
+              (Text.pack expectedSpanPrefix `Text.isInfixOf` rendered)
       Left err -> Left (label <> ": expected unsupported class-constraint context, got " <> show err)
       Right coreModule -> Left (label <> ": typechecked unexpectedly: " <> show coreModule)
 
@@ -2726,16 +2740,68 @@ testHaskell2010Core0RejectsInvalidDerivedBounded =
 
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries :: Either String ()
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
-  expectTypecheckMessage "rejects duplicate concrete instances" "duplicate instance" duplicateInstanceSource
-    *> expectTypecheckMessage "rejects overlapping instances" "overlapping instance" overlappingInstanceSource
-    *> expectTypecheckMessage "rejects missing instance methods" "missing instance method" missingInstanceMethodSource
-    *> expectTypecheckMessage "rejects unsolved Prelude class dictionaries" "unsolved type-class constraint" unsolvedPreludeConstraintSource
+  expectInstanceDiagnostic
+    "rejects duplicate concrete instances"
+    "<haskell2010-renamer-test>:7:1-"
+    duplicateInstanceSource
+    ( \case
+        H2010Typecheck.DuplicateInstance {} -> True
+        _ -> False
+    )
+    "duplicate instance"
+    *> expectInstanceDiagnostic
+      "rejects overlapping instances"
+      "<haskell2010-renamer-test>:7:1-"
+      overlappingInstanceSource
+      ( \case
+          H2010Typecheck.OverlappingInstance {} -> True
+          _ -> False
+      )
+      "overlapping instance"
+    *> expectInstanceDiagnostic
+      "rejects missing instance methods"
+      "<haskell2010-renamer-test>:5:1-"
+      missingInstanceMethodSource
+      ( \case
+          H2010Typecheck.MissingInstanceMethod {} -> True
+          _ -> False
+      )
+      "missing instance method"
+    *> expectClassDiagnostic
+      "rejects unsolved Prelude class dictionaries"
+      unsolvedPreludeConstraintSource
+      ( \case
+          H2010Typecheck.UnsolvedClassConstraint {} -> True
+          _ -> False
+      )
+      "unsolved type-class constraint"
  where
-  expectTypecheckMessage label needle source =
+  expectInstanceDiagnostic label expectedSpanPrefix source predicate needle =
     case typecheckHaskell2010Raw source of
       Left err
-        | needle `Text.isInfixOf` H2010Typecheck.renderTypecheckError err -> Right ()
-      Left err -> Left (label <> ": expected type class dictionary diagnostic, got " <> show err)
+        | predicate (haskell2010TypecheckErrorDetail err) -> do
+            let rendered = H2010Typecheck.renderTypecheckError err
+            assertBool
+              (label <> ": renders instance severity")
+              (("instance error: " <> needle) `Text.isInfixOf` rendered)
+            assertBool
+              (label <> ": includes instance declaration span")
+              (Text.pack expectedSpanPrefix `Text.isInfixOf` rendered)
+      Left err -> Left (label <> ": expected instance diagnostic, got " <> show err)
+      Right coreModule -> Left (label <> ": typechecked unexpectedly: " <> show coreModule)
+
+  expectClassDiagnostic label source predicate needle =
+    case typecheckHaskell2010Raw source of
+      Left err
+        | predicate (haskell2010TypecheckErrorDetail err) -> do
+            let rendered = H2010Typecheck.renderTypecheckError err
+            assertBool
+              (label <> ": renders class severity")
+              (("class error: " <> needle) `Text.isInfixOf` rendered)
+            assertBool
+              (label <> ": includes use-site span")
+              ("<haskell2010-renamer-test>:3:" `Text.isInfixOf` rendered)
+      Left err -> Left (label <> ": expected class diagnostic, got " <> show err)
       Right coreModule -> Left (label <> ": typechecked unexpectedly: " <> show coreModule)
 
   duplicateInstanceSource =

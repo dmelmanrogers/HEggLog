@@ -94,6 +94,31 @@ Example:
 Main.hs:5:8-12: kind error: kind mismatch: expected *, got * -> *
 ```
 
+## Class And Instance Diagnostics
+
+Haskell 2010 class-constraint failures render with `class error` severity.
+Explicit constraint positions report the offending constraint span, while
+dictionary obligations created by overloaded variable use preserve the source
+span of that use site.
+
+Example:
+
+```text
+Main.hs:7:15-30: class error: unsolved type-class constraint Measure Box
+```
+
+Instance declaration conflicts and malformed instance bodies render with
+`instance error` severity. Explicit instance declarations carry their
+declaration span, and duplicate/overlapping built-in or user instances are
+represented by structured typechecker errors instead of generic unsupported-form
+messages.
+
+Example:
+
+```text
+Main.hs:3:1-9:1: instance error: duplicate built-in instance for `Monad IO`
+```
+
 ## Runtime Diagnostics
 
 Runtime diagnostics currently attach to the root source expression. This is
@@ -159,7 +184,9 @@ Current status: Haskell 2010 parse/lex errors are normalized into one-line
 source-spanned diagnostics on native and module-loading paths. Implicit layout
 failures in `let`, `where`, `do`, and `case ... of` blocks are classified as
 layout errors with explicit indentation expectations. Kind mismatches render as
-source-spanned `kind error` diagnostics. The parser, renamer, typechecker,
+source-spanned `kind error` diagnostics. Class constraints and instance
+declaration failures render as source-spanned `class error` and `instance error`
+diagnostics for the executable subset. The parser, renamer, typechecker,
 class/instance, and runtime no-matching-alternative errors exist for the
 executable subset, and guard fallthrough is covered by Core/STG/native tests.
 The Haskell 2010 typechecker now emits source-spanned warnings for supported

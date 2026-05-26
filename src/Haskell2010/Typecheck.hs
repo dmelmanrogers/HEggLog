@@ -105,6 +105,13 @@ data TypecheckError
   | InvalidClassConstraintArity RName Int
   | UnsupportedClassConstraintContext ClassConstraintContext [ClassConstraint]
   | UnsolvedClassConstraint ClassConstraint
+  | DuplicateBuiltinInstance ClassConstraint
+  | OverlappingBuiltinInstance ClassConstraint
+  | DuplicateInstance ClassConstraint
+  | OverlappingInstance ClassConstraint
+  | UnknownInstanceMethod RName
+  | DuplicateInstanceMethod RName
+  | MissingInstanceMethod RName
   | AmbiguousTypeVariable Int
   | CoreValidationFailed [CoreValidate.CoreValidationError]
   deriving stock (Show, Eq)
@@ -461,6 +468,26 @@ typecheckErrorSeverity = \case
     "kind error"
   KindOccursCheck {} ->
     "kind error"
+  InvalidClassConstraintArity {} ->
+    "class error"
+  UnsupportedClassConstraintContext {} ->
+    "class error"
+  UnsolvedClassConstraint {} ->
+    "class error"
+  DuplicateBuiltinInstance {} ->
+    "instance error"
+  OverlappingBuiltinInstance {} ->
+    "instance error"
+  DuplicateInstance {} ->
+    "instance error"
+  OverlappingInstance {} ->
+    "instance error"
+  UnknownInstanceMethod {} ->
+    "instance error"
+  DuplicateInstanceMethod {} ->
+    "instance error"
+  MissingInstanceMethod {} ->
+    "instance error"
   _ ->
     "type error"
 
@@ -511,6 +538,20 @@ renderTypecheckErrorDetail = \case
         _ -> " with " <> Text.intercalate ", " (map renderClassConstraint constraints)
   UnsolvedClassConstraint constraint ->
     "unsolved type-class constraint " <> renderClassConstraint constraint
+  DuplicateBuiltinInstance constraint ->
+    "duplicate built-in instance for `" <> renderClassConstraint constraint <> "`"
+  OverlappingBuiltinInstance constraint ->
+    "overlapping built-in instance for `" <> renderClassConstraint constraint <> "`"
+  DuplicateInstance constraint ->
+    "duplicate instance for `" <> renderClassConstraint constraint <> "`"
+  OverlappingInstance constraint ->
+    "overlapping instance for `" <> renderClassConstraint constraint <> "`"
+  UnknownInstanceMethod name ->
+    "unknown instance method `" <> renderRName name <> "`"
+  DuplicateInstanceMethod name ->
+    "duplicate instance method `" <> renderRName name <> "`"
+  MissingInstanceMethod name ->
+    "missing instance method `" <> renderRName name <> "`"
   AmbiguousTypeVariable meta ->
     "ambiguous Core-0 type variable ?" <> renderInt meta
   CoreValidationFailed errors ->
@@ -3625,13 +3666,15 @@ inferInstanceDictionaries :: TypeEnv -> [RDecl] -> InferM [TypedInstanceDictiona
 inferInstanceDictionaries env =
   foldM collect []
  where
-  collect acc = \case
-    RInstanceDecl constraints instanceHead decls -> do
-      dictionary <- inferInstanceDictionary env constraints instanceHead decls
-      validateInstanceDictionary acc dictionary
-      pure (acc <> [dictionary])
-    _ ->
-      pure acc
+  collect acc decl =
+    withTypecheckSpan (rDeclSpan decl) $
+      case decl of
+        RInstanceDecl constraints instanceHead decls -> do
+          dictionary <- inferInstanceDictionary env constraints instanceHead decls
+          validateInstanceDictionary acc dictionary
+          pure (acc <> [dictionary])
+        _ ->
+          pure acc
 
 inferDerivedInstanceDictionaries :: TypeEnv -> [RDecl] -> [TypedInstanceDictionary] -> InferM [TypedInstanceDictionary]
 inferDerivedInstanceDictionaries env decls existing =
@@ -3713,13 +3756,13 @@ validateInstanceDictionary :: [TypedInstanceDictionary] -> TypedInstanceDictiona
 validateInstanceDictionary existing dictionary = do
   let instanceKey = instanceKeyFor dictionary
   when (isBuiltinInstanceConstraint instanceKey) $
-    throwTypecheck (UnsupportedCore0 ("duplicate built-in instance for `" <> renderClassConstraint instanceKey <> "`"))
+    throwTypecheck (DuplicateBuiltinInstance instanceKey)
   when (overlapsBuiltinInstanceConstraint instanceKey) $
-    throwTypecheck (UnsupportedCore0 ("overlapping built-in instance for `" <> renderClassConstraint instanceKey <> "`"))
+    throwTypecheck (OverlappingBuiltinInstance instanceKey)
   when (any (constraintMatches instanceKey . instanceKeyFor) existing) $
-    throwTypecheck (UnsupportedCore0 ("duplicate instance for `" <> renderClassConstraint instanceKey <> "`"))
+    throwTypecheck (DuplicateInstance instanceKey)
   when (any (constraintsOverlap instanceKey . instanceKeyFor) existing) $
-    throwTypecheck (UnsupportedCore0 ("overlapping instance for `" <> renderClassConstraint instanceKey <> "`"))
+    throwTypecheck (OverlappingInstance instanceKey)
 
 instanceKeyFor :: TypedInstanceDictionary -> ClassConstraint
 instanceKeyFor dictionary =
@@ -5206,7 +5249,7 @@ inferInstanceDictionary env sourceContext instanceHead decls = do
   case extraMethods of
     [] -> pure ()
     extra : _ ->
-      throwTypecheck (UnsupportedCore0 ("unknown instance method `" <> renderRName extra <> "`"))
+      throwTypecheck (UnknownInstanceMethod extra)
   let replacements = Map.singleton (classInfoVariable info) instanceType
       superclassConstraints = map (replaceConstraintTypeVars replacements) (classInfoSuperclasses info)
   typedMethods <- traverse (inferInstanceMethod env info instanceType methodMap) (classInfoMethods info)
@@ -5275,7 +5318,7 @@ collectInstanceMethods =
           let canonicalName = canonicalInstanceMethodName name
            in case Map.lookup canonicalName acc of
             Just _ ->
-              throwTypecheck (UnsupportedCore0 ("duplicate instance method `" <> renderRName canonicalName <> "`"))
+              throwTypecheck (DuplicateInstanceMethod canonicalName)
             Nothing ->
               pure
                 ( Map.insert
@@ -5314,7 +5357,7 @@ inferInstanceMethod ::
 inferInstanceMethod env info instanceType methodMap method =
   case Map.lookup (classMethodName method) methodMap <|> classMethodDefault method of
     Nothing ->
-      throwTypecheck (UnsupportedCore0 ("missing instance method `" <> renderRName (classMethodName method) <> "`"))
+      throwTypecheck (MissingInstanceMethod (classMethodName method))
     Just binding ->
       inferInstanceMethodBinding env info instanceType method binding
 
@@ -5504,8 +5547,10 @@ inferExpr env expr =
           Nothing ->
             inferPreludeValue name
           Just scheme -> do
-            (instantiatedTy, typeArguments) <- instantiate scheme
-            pure (TVar name scheme typeArguments instantiatedTy)
+            sourceRange <- currentTypecheckSpan
+            let spannedScheme = withSchemeConstraintSpan sourceRange scheme
+            (instantiatedTy, typeArguments) <- instantiate spannedScheme
+            pure (TVar name spannedScheme typeArguments instantiatedTy)
       RCon name ->
         inferConstructor name
       RRecordCon name fields ->
@@ -7895,7 +7940,13 @@ requireSingleConstraintArgument className = \case
 
 throwUnsupportedClassConstraintContext :: ClassConstraintContext -> [ClassConstraint] -> InferM a
 throwUnsupportedClassConstraintContext context constraints =
-  throwTypecheck (UnsupportedClassConstraintContext context constraints)
+  throwTypecheck
+    ( maybe
+        id
+        TypecheckErrorAt
+        (listToMaybe (mapMaybe classConstraintSpan constraints))
+        (UnsupportedClassConstraintContext context constraints)
+    )
 
 sourceMonoType :: RHsType -> InferM MonoType
 sourceMonoType sourceType =

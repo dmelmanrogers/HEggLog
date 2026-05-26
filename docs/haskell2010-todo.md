@@ -16643,7 +16643,7 @@ Notes:
 ## FFI-004 — C calling convention representation
 
 Status:
-- in progress
+- complete
 
 Category:
 - runtime
@@ -18490,7 +18490,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver class/instance diagnostics for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver source-spanned class/instance diagnostics for the Haskell 2010 frontend while preserving the current .hg substrate and the documented executable-subset behavior.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -18500,29 +18500,30 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Syntax/Span.hs`
-- `src/Haskell2010/Parser.hs`
-- `src/Haskell2010/Renamer.hs`
 - `src/Haskell2010/Typecheck.hs`
-- `src/CLI/Report.hs`
-- `test/golden/`
+- `test/Main.hs`
+- `test/haskell2010/conformance/manifest.json`
+- `docs/diagnostics-spec.md`
+- `docs/haskell2010-conformance-matrix.md`
 
 Acceptance criteria:
-- class/instance diagnostics is implemented, completed, or explicitly documented according to status `in progress`.
+- Class-constraint failures render as `class error` diagnostics with source spans for explicit constraint positions and overloaded use-site dictionary obligations.
+- Instance declaration conflicts and malformed instance method sets render as `instance error` diagnostics from structured typechecker constructors rather than generic unsupported-form text.
+- Negative and unsupported conformance fixtures lock the class/instance diagnostic categories and source-span prefixes.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
+- The Haskell 2010 conformance matrix points to this task for implemented work.
 
 Required tests:
-- diagnostic golden tests
-- negative conformance tests
-- CLI rendering tests
+- typechecker class/instance diagnostic unit tests
+- negative class/instance conformance tests
+- CLI/native rendering checks through compile-error class/instance fixtures
 
 Documentation updates:
 - `docs/diagnostics-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Completed by structured class/instance typechecker errors, declaration/use-site span preservation, manifest-backed span prefix checks, and diagnostics documentation. Verified with `cabal build all`, `cabal test hegglog-test`, and the Haskell 2010 conformance harness.
 
 ## DIAG-009 — pattern-match diagnostics
 
