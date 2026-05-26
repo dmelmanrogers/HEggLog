@@ -293,6 +293,7 @@ not full feature-completeness claims.
 | Unbound variable | rename failure | `test/haskell2010/conformance/negative/unbound-variable.hs` | compile-error covered | Unbound term must fail. |
 | Duplicate binding | rename failure | `test/haskell2010/conformance/negative/duplicate-binding.hs` | compile-error covered | Duplicate top-level binding must fail. |
 | Bad module import | module graph failure | `test/haskell2010/conformance/negative/bad-module-import.hs` | compile-error covered | Missing same-directory module must fail. |
+| Invalid character literal | parse failure | `test/haskell2010/conformance/negative/invalid-character-literal.hs`, `test/Main.hs` lexer diagnostic unit | compile-error covered with source-span prefix | Invalid lexical escapes must fail with a normalized one-line Haskell 2010 parse diagnostic. |
 | Malformed layout | parse failure | `test/haskell2010/conformance/negative/malformed-layout.hs` | compile-error covered | Malformed layout must fail. |
 | Malformed where layout | parse failure | `test/haskell2010/conformance/negative/malformed-where-layout.hs`, `test/haskell2010/conformance/negative/misindented-where-keyword.hs` | compile-error covered | Malformed `where` declaration layout and misindented line-broken `where` keywords must fail with parse diagnostics. |
 | Invalid top-level pattern binding | rename failure | `test/haskell2010/conformance/negative/invalid-pattern-binding.hs` | compile-error covered | Duplicate binders inside one top-level non-variable pattern binding must fail. |

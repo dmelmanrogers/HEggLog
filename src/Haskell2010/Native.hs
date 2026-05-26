@@ -19,6 +19,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Egglog.Eval as Egglog
 import Haskell2010.Core.Syntax (CoreForeignImport, CoreModule)
+import Haskell2010.Diagnostics (renderParseDiagnostic)
 import Haskell2010.FFI.LinkMetadata (ForeignLinkMetadata (..), foreignLinkMetadataForImportsExports)
 import Haskell2010.ModuleGraph
   ( LoadedModule (..)
@@ -50,7 +51,6 @@ import Haskell2010.Typecheck
 import Backend.LLVM.Emit (emitLLVMModule)
 import Backend.LLVM.IR (LLVMModule)
 import qualified Optimize.CoreEgglog as CoreEgglog
-import Text.Megaparsec (errorBundlePretty)
 
 data Haskell2010NativeOptions = Haskell2010NativeOptions
   { haskell2010UseEgglog :: Bool
@@ -126,7 +126,7 @@ compileHaskell2010ToLLVMWithOptions ::
 compileHaskell2010ToLLVMWithOptions options path source = do
   parsed <-
     mapLeft
-      (Haskell2010LLVMParseError . Text.pack . errorBundlePretty)
+      (Haskell2010LLVMParseError . renderParseDiagnostic)
       (parseSourceModule path source)
   virtualModules <-
     mapLeft
@@ -273,7 +273,7 @@ optimizeCoreIfEnabled options core
 renderHaskell2010LLVMError :: Haskell2010LLVMError -> Text
 renderHaskell2010LLVMError = \case
   Haskell2010LLVMParseError parseError ->
-    "Haskell 2010 parse error:\n" <> parseError
+    parseError
   Haskell2010LLVMModuleGraphError err ->
     renderModuleGraphError err
   Haskell2010LLVMRenameError err ->

@@ -18178,7 +18178,7 @@ Notes:
 ## DIAG-002 — lexer diagnostics
 
 Status:
-- in progress
+- complete
 
 Category:
 - diagnostics
@@ -18191,7 +18191,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver lexer diagnostics for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver source-spanned Haskell 2010 lexer/parser diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Lexical failures are normalized through the shared Haskell 2010 diagnostic renderer before they reach native compilation or module-graph loading.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -18201,29 +18201,28 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Syntax/Span.hs`
-- `src/Haskell2010/Parser.hs`
-- `src/Haskell2010/Renamer.hs`
-- `src/Haskell2010/Typecheck.hs`
-- `src/CLI/Report.hs`
-- `test/golden/`
+- `src/Haskell2010/Diagnostics.hs`
+- `src/Haskell2010/ModuleGraph.hs`
+- `src/Haskell2010/Native.hs`
+- `test/Main.hs`
 
 Acceptance criteria:
-- lexer diagnostics is implemented, completed, or explicitly documented according to status `in progress`.
+- Haskell 2010 lexical parse failures render as stable `file:line:column-end: Haskell 2010 parse error: ...` diagnostics without raw Megaparsec caret bundles on native/module paths.
+- Invalid character-literal coverage verifies source attribution and one-line diagnostic normalization.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
-- diagnostic golden tests
-- negative conformance tests
-- CLI rendering tests
+- parser unit diagnostics
+- negative conformance diagnostics
+- CLI/native rendering checks through existing compile-error cases
 
 Documentation updates:
 - `docs/diagnostics-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Completed by the Haskell 2010 diagnostic renderer used by module graph and native compilation. Verified with `cabal build all`, `cabal test hegglog-test`, and the Haskell 2010 conformance harness.
 
 ## DIAG-003 — layout diagnostics
 

@@ -22,9 +22,9 @@ semantic input for ANF, interpreters, optimizers, and backend lowering.
 
 ## Parser Diagnostics
 
-Parser diagnostics are Megaparsec `ParseErrorBundle` output. They include the
-source path, line, and column reported by Megaparsec, followed by the parser's
-expected-token summary.
+The legacy `.hg` parser still reports Megaparsec `ParseErrorBundle` output. It
+includes the source path, line, and column reported by Megaparsec, followed by
+the parser's expected-token summary.
 
 Example:
 
@@ -37,8 +37,17 @@ unexpected end of input
 expecting letter or '_'
 ```
 
-Parser diagnostics are not yet normalized into the same one-line source-range
-format used by later compiler phases.
+The Haskell 2010 frontend normalizes parse and lexical failures through
+`Haskell2010.Diagnostics.renderParseDiagnostic` before they escape native
+compilation or module-graph loading. These diagnostics use the same one-line
+source-range shape as later compiler phases:
+
+```text
+Main.hs:2:8-9: Haskell 2010 parse error: unexpected 'q' expecting ...
+```
+
+When Megaparsec reports more than one parse failure, each failure is rendered as
+one source-spanned diagnostic line.
 
 ## Typechecker Diagnostics
 
@@ -120,10 +129,12 @@ The Haskell 2010 target will need additional diagnostic classes:
 - runtime source attribution for lazy evaluation
 - source spans through Core/STG where possible
 
-Current status: Haskell 2010 parser, renamer, typechecker, class/instance, and
-runtime no-matching-alternative errors exist for the executable subset, and
-guard fallthrough is covered by Core/STG/native tests. The Haskell 2010
-typechecker now emits source-spanned warnings for supported non-exhaustive
+Current status: Haskell 2010 parse/lex errors are normalized into one-line
+source-spanned diagnostics on native and module-loading paths. The parser,
+renamer, typechecker, class/instance, and runtime no-matching-alternative errors
+exist for the executable subset, and guard fallthrough is covered by
+Core/STG/native tests. The Haskell 2010 typechecker now emits source-spanned
+warnings for supported non-exhaustive
 `case`, function, and lambda pattern matches, including finite constructor
 witnesses such as `False` or `Nothing` where the checker can identify them. It
 also emits source-spanned redundant-alternative warnings for supported

@@ -26,6 +26,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
+import Haskell2010.Diagnostics (renderParseDiagnostic)
 import Haskell2010.Parser (parseSourceModule)
 import Haskell2010.Pretty (renderModuleName)
 import Haskell2010.Renamed
@@ -33,7 +34,6 @@ import qualified Haskell2010.StandardLibrary as StandardLibrary
 import Haskell2010.Syntax
 import System.FilePath ((<.>), (</>), joinPath, normalise, takeDirectory)
 import System.IO.Error (isDoesNotExistError)
-import Text.Megaparsec (errorBundlePretty)
 
 data LoadedModule = LoadedModule
   { loadedModulePath :: FilePath
@@ -140,7 +140,7 @@ collectVirtualStandardModule seen moduleName
       let virtualPath = standardModuleVirtualPath moduleName
       parsed <-
         mapLeft
-          (ModuleParseError virtualPath . Text.pack . errorBundlePretty)
+          (ModuleParseError virtualPath . renderParseDiagnostic)
           (parseSourceModule virtualPath source)
       let actualName = sourceModuleName parsed
       if actualName /= moduleName
@@ -178,7 +178,7 @@ loadModule searchPolicy rootDirectory active state path expectedName =
         Right source -> do
           let parsedResult =
                 mapLeft
-                  (ModuleParseError path . Text.pack . errorBundlePretty)
+                  (ModuleParseError path . renderParseDiagnostic)
                   (parseSourceModule path source)
           case parsedResult of
             Left err ->
@@ -290,7 +290,7 @@ loadModuleBySearchPath searchPolicy rootDirectory active state expectedName =
       ModuleSourceFound source -> do
         let parsedResult =
               mapLeft
-                (ModuleParseError path . Text.pack . errorBundlePretty)
+                (ModuleParseError path . renderParseDiagnostic)
                 (parseSourceModule path source)
         case parsedResult of
           Left err ->
@@ -317,7 +317,7 @@ loadVirtualStandardModule searchPolicy rootDirectory active state moduleName sou
     standardModuleVirtualPath moduleName
   parseResult =
     mapLeft
-      (ModuleParseError virtualPath . Text.pack . errorBundlePretty)
+      (ModuleParseError virtualPath . renderParseDiagnostic)
       (parseSourceModule virtualPath source)
 
 standardModuleVirtualPath :: ModuleName -> FilePath
@@ -428,7 +428,9 @@ renderModuleGraphError = \case
   ModuleReadError path message ->
     "could not read Haskell 2010 module " <> Text.pack path <> ": " <> message
   ModuleParseError path message ->
-    "Haskell 2010 parse error in " <> Text.pack path <> ":\n" <> message
+    if diagnosticStartsWithPath path message
+      then message
+      else "Haskell 2010 parse error in " <> Text.pack path <> ":\n" <> message
   ModuleNameMismatch path expected actual ->
     "module name mismatch in "
       <> Text.pack path
@@ -457,3 +459,7 @@ mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = \case
   Left value -> Left (f value)
   Right value -> Right value
+
+diagnosticStartsWithPath :: FilePath -> Text -> Bool
+diagnosticStartsWithPath path message =
+  (Text.pack path <> ":") `Text.isPrefixOf` message

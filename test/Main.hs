@@ -35,6 +35,7 @@ import qualified Haskell2010.Core.Pretty as H2010CorePretty
 import qualified Haskell2010.Core.Subst as H2010CoreSubst
 import qualified Haskell2010.Core.Syntax as H2010Core
 import qualified Haskell2010.Core.Validate as H2010CoreValidate
+import qualified Haskell2010.Diagnostics as H2010Diagnostics
 import qualified Haskell2010.FFI.LinkMetadata as H2010Link
 import qualified Haskell2010.ModuleGraph as H2010ModuleGraph
 import qualified Haskell2010.ModuleInterface as H2010ModuleInterface
@@ -117,6 +118,7 @@ testGroups =
       , pureTest "Haskell 2010 user-defined operator bindings parse" testHaskell2010UserDefinedOperatorParsing
       , pureTest "Haskell 2010 constructor operator pattern bindings parse" testHaskell2010ConstructorOperatorPatternBindingParsing
       , pureTest "Haskell 2010 malformed layout is rejected" testHaskell2010MalformedLayout
+      , pureTest "Haskell 2010 lexer diagnostics render source spans" testHaskell2010LexerDiagnostics
       , pureTest "Haskell 2010 imports after declarations are rejected" testHaskell2010ImportAfterDecl
       ]
   , TestGroup
@@ -970,6 +972,27 @@ testHaskell2010MalformedLayout =
     of
       Left _ -> Right ()
       Right parsed -> Left ("malformed Haskell 2010 layout parsed unexpectedly: " <> show parsed)
+
+testHaskell2010LexerDiagnostics :: Either String ()
+testHaskell2010LexerDiagnostics =
+  case
+    H2010Parser.parseSourceModule
+      "<haskell2010-lexer-diagnostic>"
+      "module Bad where\n\
+      \main = '\\q'\n"
+    of
+      Left err -> do
+        let rendered = H2010Diagnostics.renderParseDiagnostic err
+        assertBool
+          "Haskell 2010 lexer diagnostic includes source location"
+          ("<haskell2010-lexer-diagnostic>:2:" `Text.isInfixOf` rendered)
+        assertBool
+          "Haskell 2010 lexer diagnostic includes parse category"
+          ("Haskell 2010 parse error" `Text.isInfixOf` rendered)
+        assertBool
+          "Haskell 2010 lexer diagnostic is normalized onto one line per error"
+          (not ("\n" `Text.isInfixOf` rendered))
+      Right parsed -> Left ("invalid Haskell 2010 character literal parsed unexpectedly: " <> show parsed)
 
 testHaskell2010ImportAfterDecl :: Either String ()
 testHaskell2010ImportAfterDecl =

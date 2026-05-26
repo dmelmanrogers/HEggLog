@@ -1241,6 +1241,16 @@
       "notes": "Missing same-directory imported module must fail module graph loading."
     },
     {
+      "name": "negative.invalid-character-literal",
+      "sourceFile": "test/haskell2010/conformance/negative/invalid-character-literal.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "parse",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/invalid-character-literal.hs:3:",
+      "requiredStage": "parse",
+      "notes": "Invalid character-literal escapes must fail with a normalized source-spanned parse diagnostic."
+    },
+    {
       "name": "negative.malformed-layout",
       "sourceFile": "test/haskell2010/conformance/negative/malformed-layout.hs",
       "category": "negative",

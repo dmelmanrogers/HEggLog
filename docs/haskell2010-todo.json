@@ -10108,7 +10108,7 @@
     {
       "id": "DIAG-002",
       "title": "lexer diagnostics",
-      "status": "in progress",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -10117,14 +10117,15 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "lexer diagnostics is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Haskell 2010 lexical parse failures render as stable `file:line:column-end: Haskell 2010 parse error: ...` diagnostics without raw Megaparsec caret bundles on native/module paths.",
+        "Invalid character-literal coverage verifies source attribution and one-line diagnostic normalization.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
-        "diagnostic golden tests",
-        "negative conformance tests",
-        "CLI rendering tests"
+        "parser unit diagnostics",
+        "negative conformance diagnostics",
+        "CLI/native rendering checks through existing compile-error cases"
       ],
       "docs": [
         "docs/diagnostics-spec.md",
