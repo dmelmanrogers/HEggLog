@@ -19,20 +19,25 @@ import Text.Megaparsec.Pos (SourcePos, sourceColumn, sourceLine, sourceName, unP
 
 renderParseDiagnostic :: ParseErrorBundle Text Void -> Text
 renderParseDiagnostic =
-  renderParseDiagnosticWithSeverity "Haskell 2010 parse error"
+  renderParseDiagnosticWithSeverityFor classifyParseSeverity
 
 renderParseDiagnosticWithSeverity :: Text -> ParseErrorBundle Text Void -> Text
-renderParseDiagnosticWithSeverity severity bundle =
+renderParseDiagnosticWithSeverity severity =
+  renderParseDiagnosticWithSeverityFor (const severity)
+
+renderParseDiagnosticWithSeverityFor :: (Text -> Text) -> ParseErrorBundle Text Void -> Text
+renderParseDiagnosticWithSeverityFor severityFor bundle =
   Text.intercalate "\n" (renderAttached <$> NonEmpty.toList errorsWithPositions)
  where
   (errorsWithPositions, _) =
     attachSourcePos errorOffset (bundleErrors bundle) (bundlePosState bundle)
 
   renderAttached (parseError, position) =
-    renderSourceDiagnostic
-      (sourcePointSpan position)
-      severity
-      (oneLineMessage (Text.pack (parseErrorTextPretty parseError)))
+    let message = oneLineMessage (Text.pack (parseErrorTextPretty parseError))
+     in renderSourceDiagnostic
+          (sourcePointSpan position)
+          (severityFor message)
+          message
 
 sourcePointSpan :: SourcePos -> SourceSpan
 sourcePointSpan position =
@@ -50,3 +55,12 @@ sourcePointSpan position =
 oneLineMessage :: Text -> Text
 oneLineMessage =
   Text.unwords . Text.words
+
+classifyParseSeverity :: Text -> Text
+classifyParseSeverity message
+  | "layout" `Text.isInfixOf` lowerMessage || "indent" `Text.isInfixOf` lowerMessage =
+      "Haskell 2010 layout error"
+  | otherwise =
+      "Haskell 2010 parse error"
+ where
+  lowerMessage = Text.toLower message

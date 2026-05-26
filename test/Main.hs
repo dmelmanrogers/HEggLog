@@ -118,6 +118,7 @@ testGroups =
       , pureTest "Haskell 2010 user-defined operator bindings parse" testHaskell2010UserDefinedOperatorParsing
       , pureTest "Haskell 2010 constructor operator pattern bindings parse" testHaskell2010ConstructorOperatorPatternBindingParsing
       , pureTest "Haskell 2010 malformed layout is rejected" testHaskell2010MalformedLayout
+      , pureTest "Haskell 2010 malformed where layout has layout diagnostics" testHaskell2010MalformedWhereLayoutDiagnostics
       , pureTest "Haskell 2010 lexer diagnostics render source spans" testHaskell2010LexerDiagnostics
       , pureTest "Haskell 2010 imports after declarations are rejected" testHaskell2010ImportAfterDecl
       ]
@@ -840,7 +841,14 @@ testHaskell2010MisindentedWhereKeyword =
       \where\n\
       \  x = 1\n"
     of
-      Left _ -> Right ()
+      Left err -> do
+        let rendered = H2010Diagnostics.renderParseDiagnostic err
+        assertBool
+          "misindented where keyword reports a layout diagnostic"
+          ("Haskell 2010 layout error" `Text.isInfixOf` rendered)
+        assertBool
+          "misindented where keyword keeps the where source location"
+          ("<haskell2010-misindented-where-keyword>:5:1-" `Text.isInfixOf` rendered)
       Right parsed -> Left ("misindented where keyword parsed unexpectedly: " <> show parsed)
 
 testHaskell2010ExpressionSurfaceParsing :: Either String ()
@@ -970,8 +978,37 @@ testHaskell2010MalformedLayout =
       \   y = 2\n\
       \  in x\n"
     of
-      Left _ -> Right ()
+      Left err -> do
+        let rendered = H2010Diagnostics.renderParseDiagnostic err
+        assertBool
+          "malformed let layout reports layout category"
+          ("Haskell 2010 layout error" `Text.isInfixOf` rendered)
+        assertBool
+          "malformed let layout explains expected indentation"
+          ("expected column" `Text.isInfixOf` rendered)
       Right parsed -> Left ("malformed Haskell 2010 layout parsed unexpectedly: " <> show parsed)
+
+testHaskell2010MalformedWhereLayoutDiagnostics :: Either String ()
+testHaskell2010MalformedWhereLayoutDiagnostics =
+  case
+    H2010Parser.parseSourceModule
+      "<haskell2010-malformed-where-layout>"
+      "module Bad where\n\
+      \\n\
+      \main = f True\n\
+      \  where\n\
+      \    f True = 1\n\
+      \   f False = 0\n"
+    of
+      Left err -> do
+        let rendered = H2010Diagnostics.renderParseDiagnostic err
+        assertBool
+          "malformed where layout reports layout category"
+          ("Haskell 2010 layout error" `Text.isInfixOf` rendered)
+        assertBool
+          "malformed where layout identifies the bad item"
+          ("<haskell2010-malformed-where-layout>:6:4-" `Text.isInfixOf` rendered)
+      Right parsed -> Left ("malformed where layout parsed unexpectedly: " <> show parsed)
 
 testHaskell2010LexerDiagnostics :: Either String ()
 testHaskell2010LexerDiagnostics =

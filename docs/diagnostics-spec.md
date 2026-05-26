@@ -49,6 +49,19 @@ Main.hs:2:8-9: Haskell 2010 parse error: unexpected 'q' expecting ...
 When Megaparsec reports more than one parse failure, each failure is rendered as
 one source-spanned diagnostic line.
 
+## Layout Diagnostics
+
+The Haskell 2010 layout parser validates implicit `let`, `where`, `do`, and
+`case ... of` blocks against the layout keyword's reference column. Misaligned
+items that are still indented inside the block produce explicit layout
+diagnostics instead of falling through to unrelated token expectations.
+
+Example:
+
+```text
+Main.hs:5:6-7: Haskell 2010 layout error: layout item is indented to column 6; expected column 7 for another item, or column 3 or less to close the block
+```
+
 ## Typechecker Diagnostics
 
 Type errors use the located AST and identify the smallest practical source
@@ -130,11 +143,13 @@ The Haskell 2010 target will need additional diagnostic classes:
 - source spans through Core/STG where possible
 
 Current status: Haskell 2010 parse/lex errors are normalized into one-line
-source-spanned diagnostics on native and module-loading paths. The parser,
-renamer, typechecker, class/instance, and runtime no-matching-alternative errors
-exist for the executable subset, and guard fallthrough is covered by
-Core/STG/native tests. The Haskell 2010 typechecker now emits source-spanned
-warnings for supported non-exhaustive
+source-spanned diagnostics on native and module-loading paths. Implicit layout
+failures in `let`, `where`, `do`, and `case ... of` blocks are classified as
+layout errors with explicit indentation expectations. The parser, renamer,
+typechecker, class/instance, and runtime no-matching-alternative errors exist
+for the executable subset, and guard fallthrough is covered by Core/STG/native
+tests. The Haskell 2010 typechecker now emits source-spanned warnings for
+supported non-exhaustive
 `case`, function, and lambda pattern matches, including finite constructor
 witnesses such as `False` or `Nothing` where the checker can identify them. It
 also emits source-spanned redundant-alternative warnings for supported

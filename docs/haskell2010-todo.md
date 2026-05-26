@@ -18227,7 +18227,7 @@ Notes:
 ## DIAG-003 — layout diagnostics
 
 Status:
-- in progress
+- complete
 
 Category:
 - diagnostics
@@ -18240,7 +18240,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver layout diagnostics for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver source-spanned Haskell 2010 layout diagnostics for implicit `let`, `where`, `do`, and `case ... of` layout blocks while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -18250,29 +18250,30 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Syntax/Span.hs`
+- `src/Haskell2010/Diagnostics.hs`
+- `src/Haskell2010/Layout.hs`
 - `src/Haskell2010/Parser.hs`
-- `src/Haskell2010/Renamer.hs`
-- `src/Haskell2010/Typecheck.hs`
-- `src/CLI/Report.hs`
-- `test/golden/`
+- `test/Main.hs`
+- `test/haskell2010/conformance/manifest.json`
 
 Acceptance criteria:
-- layout diagnostics is implemented, completed, or explicitly documented according to status `in progress`.
+- Implicit layout blocks validate misaligned continuation items against their layout keyword reference column and emit explicit layout messages rather than unrelated parse-token expectations.
+- Layout diagnostics render as stable `file:line:column-end: Haskell 2010 layout error: ...` messages on native/module paths.
+- Existing malformed layout conformance fixtures assert layout categories and concrete source-span prefixes.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
-- diagnostic golden tests
-- negative conformance tests
-- CLI rendering tests
+- parser layout diagnostic unit tests
+- negative conformance layout tests
+- CLI/native rendering checks through compile-error layout fixtures
 
 Documentation updates:
 - `docs/diagnostics-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Completed by context-aware implicit layout block validation and diagnostic classification. Verified with `cabal build all`, `cabal test hegglog-test`, and the Haskell 2010 conformance harness.
 
 ## DIAG-004 — parser diagnostics
 

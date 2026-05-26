@@ -1255,7 +1255,8 @@
       "sourceFile": "test/haskell2010/conformance/negative/malformed-layout.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "parse",
+      "expectedDiagnosticCategory": "layout",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/malformed-layout.hs:5:6-",
       "requiredStage": "parse",
       "notes": "Malformed layout must fail during Haskell 2010 parsing."
     },
@@ -1264,7 +1265,8 @@
       "sourceFile": "test/haskell2010/conformance/negative/malformed-where-layout.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "parse",
+      "expectedDiagnosticCategory": "layout",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/malformed-where-layout.hs:6:4-",
       "requiredStage": "parse",
       "notes": "Malformed where-group layout must fail during Haskell 2010 parsing."
     },
@@ -1273,7 +1275,8 @@
       "sourceFile": "test/haskell2010/conformance/negative/misindented-where-keyword.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "parse",
+      "expectedDiagnosticCategory": "layout",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/misindented-where-keyword.hs:5:1-",
       "requiredStage": "parse",
       "notes": "A line-broken where keyword at the enclosing declaration column is rejected instead of being attached to the preceding RHS."
     },

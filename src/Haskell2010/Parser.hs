@@ -14,7 +14,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Void (Void)
-import Haskell2010.Layout (layoutBlock)
+import Haskell2010.Layout (layoutBlock, layoutBlockFrom)
 import Haskell2010.Lexer
   ( Parser
   , charLiteral
@@ -424,8 +424,9 @@ lambdaExpr = withSpan setExprSpan $ do
 
 letExpr :: Parser Expr
 letExpr = withSpan setExprSpan $ do
+  start <- getSourcePos
   reserved "let"
-  decls <- layoutBlock declParser
+  decls <- layoutBlockFrom (sourceColumn start) declParser
   scn
   reserved "in"
   Let decls <$> exprParser
@@ -441,15 +442,17 @@ ifExpr = withSpan setExprSpan $ do
 
 caseExpr :: Parser Expr
 caseExpr = withSpan setExprSpan $ do
+  start <- getSourcePos
   reserved "case"
   scrutinee <- exprParser
   reserved "of"
-  Case scrutinee <$> layoutBlock altParser
+  Case scrutinee <$> layoutBlockFrom (sourceColumn start) altParser
 
 doExpr :: Parser Expr
 doExpr = withSpan setExprSpan $ do
+  start <- getSourcePos
   reserved "do"
-  Do <$> layoutBlock stmtParser
+  Do <$> layoutBlockFrom (sourceColumn start) stmtParser
 
 infixExpr :: Parser Expr
 infixExpr = withSpan setExprSpan $ do
@@ -597,8 +600,9 @@ stmtParser =
     void (symbol "<-")
     BindStmt pat <$> exprParser
   letStmt = do
+    start <- getSourcePos
     reserved "let"
-    LetStmt <$> layoutBlock declParser
+    LetStmt <$> layoutBlockFrom (sourceColumn start) declParser
 
 altParser :: Parser Alt
 altParser = withSpan setAltSpan $ do
@@ -797,7 +801,7 @@ optionalWhereDeclsFrom reference =
     wherePos <- getSourcePos
     validateWhereIndent reference wherePos
     reserved "where"
-    layoutBlock declParser
+    layoutBlockFrom (sourceColumn reference) declParser
 
 validateWhereIndent :: SourcePos -> SourcePos -> Parser ()
 validateWhereIndent reference wherePos

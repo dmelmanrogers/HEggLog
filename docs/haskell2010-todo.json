@@ -10135,7 +10135,7 @@
     {
       "id": "DIAG-003",
       "title": "layout diagnostics",
-      "status": "in progress",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -10144,14 +10144,16 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "layout diagnostics is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Implicit layout blocks validate misaligned continuation items against their layout keyword reference column and emit explicit layout messages rather than unrelated parse-token expectations.",
+        "Layout diagnostics render as stable `file:line:column-end: Haskell 2010 layout error: ...` messages on native/module paths.",
+        "Existing malformed layout conformance fixtures assert layout categories and concrete source-span prefixes.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
-        "diagnostic golden tests",
-        "negative conformance tests",
-        "CLI rendering tests"
+        "parser layout diagnostic unit tests",
+        "negative conformance layout tests",
+        "CLI/native rendering checks through compile-error layout fixtures"
       ],
       "docs": [
         "docs/diagnostics-spec.md",
