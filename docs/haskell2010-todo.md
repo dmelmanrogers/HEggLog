@@ -18585,7 +18585,7 @@ Notes:
 ## DIAG-010 — module/import diagnostics
 
 Status:
-- in progress
+- complete
 
 Category:
 - diagnostics
