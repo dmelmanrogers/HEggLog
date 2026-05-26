@@ -1236,7 +1236,8 @@
       "sourceFile": "test/haskell2010/conformance/negative/bad-module-import.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "could not read",
+      "expectedDiagnosticCategory": "module/import error",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/bad-module-import.hs:3:1-",
       "requiredStage": "rename",
       "notes": "Missing same-directory imported module must fail module graph loading."
     },
@@ -1796,7 +1797,8 @@
       "sourceFile": "test/haskell2010/conformance/unsupported/package-module-search-path.hs",
       "category": "unsupported",
       "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
+      "expectedDiagnosticCategory": "module/import error",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/unsupported/package-module-search-path.hs:3:1-",
       "requiredStage": "module-graph",
       "notes": "Package databases and unimplemented library modules are not implemented; source imports load generated standard-library interfaces or explicit source files found through the root directory plus -i/--import-path directories."
     }

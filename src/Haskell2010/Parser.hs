@@ -136,22 +136,24 @@ exportSpec =
     pure (ExportThing name children)
 
 importDecl :: Parser ImportDecl
-importDecl = do
-  reserved "import"
-  qualifiedImport <- option False (True <$ reserved "qualified")
-  importedModule <- Lex.moduleName
-  alias <- optional (reserved "as" *> Lex.moduleName)
-  specs <- optional . try $ do
-    hidingImport <- option False (True <$ reserved "hiding")
-    names <- parensComma importSpec
-    pure (names, hidingImport)
-  pure
-    ImportDecl
-      { importQualified = qualifiedImport
-      , importModule = importedModule
-      , importAs = alias
-      , importSpecs = specs
-      }
+importDecl =
+  withSpan setImportSpan $ do
+    reserved "import"
+    qualifiedImport <- option False (True <$ reserved "qualified")
+    importedModule <- Lex.moduleName
+    alias <- optional (reserved "as" *> Lex.moduleName)
+    specs <- optional . try $ do
+      hidingImport <- option False (True <$ reserved "hiding")
+      names <- parensComma importSpec
+      pure (names, hidingImport)
+    pure
+      ImportDecl
+        { importSpan = Nothing
+        , importQualified = qualifiedImport
+        , importModule = importedModule
+        , importAs = alias
+        , importSpecs = specs
+        }
 
 importSpec :: Parser ImportSpec
 importSpec =

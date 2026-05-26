@@ -93,6 +93,7 @@ module Haskell2010.Syntax
   , setDeclSpan
   , setExprSpan
   , setHsTypeSpan
+  , setImportSpan
   , setPatSpan
   , setRhsSpan
   , setStmtSpan
@@ -121,12 +122,17 @@ data Export
   deriving stock (Show, Eq, Ord)
 
 data ImportDecl = ImportDecl
-  { importQualified :: Bool
+  { importSpan :: Maybe SourceSpan
+  , importQualified :: Bool
   , importModule :: ModuleName
   , importAs :: Maybe ModuleName
   , importSpecs :: Maybe ([ImportSpec], Bool)
   }
   deriving stock (Show, Eq, Ord)
+
+setImportSpan :: SourceSpan -> ImportDecl -> ImportDecl
+setImportSpan sourceRange importDecl =
+  importDecl {importSpan = Just sourceRange}
 
 data ImportSpec
   = ImportName Text

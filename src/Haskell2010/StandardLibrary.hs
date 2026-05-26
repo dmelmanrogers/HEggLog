@@ -25,7 +25,8 @@ standardPreludeModuleName =
 implicitPreludeImport :: S.ImportDecl
 implicitPreludeImport =
   S.ImportDecl
-    { S.importQualified = False
+    { S.importSpan = Nothing
+    , S.importQualified = False
     , S.importModule = standardPreludeModuleName
     , S.importAs = Nothing
     , S.importSpecs = Nothing

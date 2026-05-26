@@ -21,13 +21,16 @@ import Haskell2010.Pretty (renderModuleName)
 import Haskell2010.Renamed
 import qualified Haskell2010.StandardLibrary as StandardLibrary
 import qualified Haskell2010.Syntax as S
+import Syntax.Span (SourceSpan, renderSourceDiagnostic)
 
 data RenameError
-  = DuplicateName Namespace Text
+  = RenameErrorAt SourceSpan RenameError
+  | DuplicateName Namespace Text
   | DuplicateModuleName S.ModuleName
   | DuplicatePatternName Text
   | UnboundName Namespace Text
   | MissingModule S.ModuleName
+  | MissingImportName S.ModuleName Namespace Text
   | AmbiguousName Namespace Text [RName]
   | ConflictingFixity Text S.Fixity S.Fixity
   | InvalidFixityUse Text
@@ -39,6 +42,7 @@ data RenameState = RenameState
   { nextUnique :: Int
   , scopes :: [Scope]
   , fixities :: Map.Map Text S.Fixity
+  , renameSpanStack :: [SourceSpan]
   }
   deriving stock (Show, Eq)
 
@@ -70,6 +74,7 @@ initialRenameState =
     { nextUnique = 1
     , scopes = []
     , fixities = Map.empty
+    , renameSpanStack = []
     }
 
 renameModuleWithInterfaces :: Bool -> Map.Map S.ModuleName ModuleInterface -> S.HsModule -> RenameM RHsModule
@@ -110,6 +115,26 @@ interfacesWithStandardLibraryModules interfaces =
 
 renderRenameError :: RenameError -> Text
 renderRenameError = \case
+  RenameErrorAt sourceRange err ->
+    renderSourceDiagnostic sourceRange (renameErrorSeverity err) (renderRenameErrorDetail err)
+  err ->
+    renderRenameErrorDetail err
+
+renameErrorSeverity :: RenameError -> Text
+renameErrorSeverity = \case
+  RenameErrorAt _ err ->
+    renameErrorSeverity err
+  MissingModule {} ->
+    "module/import error"
+  MissingImportName {} ->
+    "module/import error"
+  _ ->
+    "rename error"
+
+renderRenameErrorDetail :: RenameError -> Text
+renderRenameErrorDetail = \case
+  RenameErrorAt _ err ->
+    renderRenameErrorDetail err
   DuplicateName namespace occ ->
     "duplicate " <> renderNamespace namespace <> " binding `" <> occ <> "`"
   DuplicateModuleName moduleName ->
@@ -120,6 +145,14 @@ renderRenameError = \case
     "unbound " <> renderNamespace namespace <> " name `" <> occ <> "`"
   MissingModule moduleName ->
     "missing imported module `" <> renderModuleName moduleName <> "`"
+  MissingImportName moduleName namespace occ ->
+    "module `"
+      <> renderModuleName moduleName
+      <> "` does not export "
+      <> renderNamespace namespace
+      <> " name `"
+      <> occ
+      <> "`"
   AmbiguousName namespace occ names ->
     "ambiguous "
       <> renderNamespace namespace
@@ -161,12 +194,13 @@ importsScope strictImports interfaces =
   foldM addImport emptyScope
  where
   addImport scope importDecl = do
-    let moduleText = renderModuleName (S.importModule importDecl)
-        qualifierTexts = List.nub (moduleText : maybe [] ((: []) . renderModuleName) (S.importAs importDecl))
-        moduleNames = (,moduleText) <$> qualifierTexts
-    scopeWithModules <- foldM addModuleAlias scope moduleNames
-    importedNames <- importedNamesFor strictImports interfaces importDecl
-    foldM (addImportedName importDecl qualifierTexts) scopeWithModules importedNames
+    withRenameSpan (S.importSpan importDecl) $ do
+      let moduleText = renderModuleName (S.importModule importDecl)
+          qualifierTexts = List.nub (moduleText : maybe [] ((: []) . renderModuleName) (S.importAs importDecl))
+          moduleNames = (,moduleText) <$> qualifierTexts
+      scopeWithModules <- foldM addModuleAlias scope moduleNames
+      importedNames <- importedNamesFor strictImports interfaces importDecl
+      foldM (addImportedName importDecl qualifierTexts) scopeWithModules importedNames
 
   addModuleAlias scope (alias, originalModule) = do
     name <- freshName ModuleNamespace originalModule True
@@ -189,13 +223,14 @@ importsFixities strictImports interfaces imports =
   Map.unions <$> traverse importFixities imports
  where
   importFixities importDecl = do
-    importedNames <- importedNamesFor strictImports interfaces importDecl
-    let importedOccurrences = Set.fromList (map unqualifiedOccurrence importedNames)
-    pure
-      ( Map.filterWithKey
-          (\occ _ -> occ `Set.member` importedOccurrences)
-          (maybe Map.empty interfaceFixities (lookupImportInterface interfaces importDecl))
-      )
+    withRenameSpan (S.importSpan importDecl) $ do
+      importedNames <- importedNamesFor strictImports interfaces importDecl
+      let importedOccurrences = Set.fromList (map unqualifiedOccurrence importedNames)
+      pure
+        ( Map.filterWithKey
+            (\occ _ -> occ `Set.member` importedOccurrences)
+            (maybe Map.empty interfaceFixities (lookupImportInterface interfaces importDecl))
+        )
 
 importedNamesFor :: Bool -> Map.Map S.ModuleName ModuleInterface -> S.ImportDecl -> RenameM [RName]
 importedNamesFor strictImports interfaces importDecl =
@@ -247,14 +282,14 @@ selectImportSpec interface = \case
               , unqualifiedOccurrence childName == child
               ]
         if null matches
-          then throwRename (UnboundName (childNamespace child) child)
+          then throwRename (MissingImportName (interfaceModuleName interface) (childNamespace child) child)
           else pure matches
 
 selectClassifiedExport :: ModuleInterface -> Text -> [(Namespace, Text)] -> RenameM [RName]
 selectClassifiedExport interface occ classified =
   case matches of
     [] ->
-      throwRename (UnboundName fallbackNamespace occ)
+      throwRename (MissingImportName (interfaceModuleName interface) fallbackNamespace occ)
     _ ->
       pure matches
  where
@@ -1216,5 +1251,22 @@ lookupOperatorName occ
       lookupName TermNamespace occ `orElseRename` lookupName ConstructorNamespace occ
 
 throwRename :: RenameError -> RenameM a
-throwRename =
-  lift . Left
+throwRename err = do
+  spans <- renameSpanStack <$> get
+  lift . Left $
+    case err of
+      RenameErrorAt {} ->
+        err
+      _ ->
+        case spans of
+          sourceRange : _ -> RenameErrorAt sourceRange err
+          [] -> err
+
+withRenameSpan :: Maybe SourceSpan -> RenameM a -> RenameM a
+withRenameSpan Nothing action =
+  action
+withRenameSpan (Just sourceRange) action = do
+  modify (\state -> state {renameSpanStack = sourceRange : renameSpanStack state})
+  result <- action
+  modify (\state -> state {renameSpanStack = drop 1 (renameSpanStack state)})
+  pure result

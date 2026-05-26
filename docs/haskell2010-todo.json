@@ -10323,7 +10323,7 @@
     {
       "id": "DIAG-010",
       "title": "module/import diagnostics",
-      "status": "in progress",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -10332,14 +10332,18 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "module/import diagnostics is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Import declarations carry source spans from parsing through module graph loading and renaming.",
+        "Missing source modules render as `module/import error` diagnostics at the responsible import declaration and report the searched paths.",
+        "Explicit import lists that name non-exported entities render as structured `MissingImportName` diagnostics at the import declaration.",
+        "Negative and unsupported conformance fixtures lock module/import diagnostic categories and source-span prefixes.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to this task for implemented work."
       ],
       "required_tests": [
-        "diagnostic golden tests",
-        "negative conformance tests",
-        "CLI rendering tests"
+        "parser import-span unit tests",
+        "renamer import-list diagnostic unit tests",
+        "module graph negative conformance tests",
+        "CLI/native rendering checks through compile-error module/import fixtures"
       ],
       "docs": [
         "docs/diagnostics-spec.md",

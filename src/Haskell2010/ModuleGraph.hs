@@ -34,6 +34,7 @@ import qualified Haskell2010.StandardLibrary as StandardLibrary
 import Haskell2010.Syntax
 import System.FilePath ((<.>), (</>), joinPath, normalise, takeDirectory)
 import System.IO.Error (isDoesNotExistError)
+import Syntax.Span (SourceSpan, renderSourceDiagnostic)
 
 data LoadedModule = LoadedModule
   { loadedModulePath :: FilePath
@@ -55,7 +56,7 @@ data ModuleGraphError
   | ModuleNameMismatch FilePath ModuleName ModuleName
   | DuplicateModule ModuleName FilePath FilePath
   | ModuleCycle [ModuleName]
-  | ModuleNotFound ModuleName [FilePath]
+  | ModuleNotFound (Maybe SourceSpan) ModuleName [FilePath]
   deriving stock (Show, Eq, Ord)
 
 data ModuleSearchPolicy
@@ -264,6 +265,7 @@ loadImport searchPolicy rootDirectory active stateResult importDecl =
             rootDirectory
             active
             state
+            (importSpan importDecl)
             (importModule importDecl)
 
 loadModuleBySearchPath ::
@@ -271,15 +273,16 @@ loadModuleBySearchPath ::
   FilePath ->
   [ModuleName] ->
   LoadState ->
+  Maybe SourceSpan ->
   ModuleName ->
   IO (Either ModuleGraphError LoadState)
-loadModuleBySearchPath searchPolicy rootDirectory active state expectedName =
+loadModuleBySearchPath searchPolicy rootDirectory active state importSourceRange expectedName =
   go candidates
  where
   candidates =
     resolveModuleImportPaths searchPolicy rootDirectory expectedName
   go [] =
-    pure (Left (ModuleNotFound expectedName candidates))
+    pure (Left (ModuleNotFound importSourceRange expectedName candidates))
   go (path : rest) = do
     sourceResult <- readModuleSourceCandidate path
     case sourceResult of
@@ -449,11 +452,23 @@ renderModuleGraphError = \case
   ModuleCycle names ->
     "cyclic Haskell 2010 module imports: "
       <> Text.intercalate " -> " (map renderModuleName names)
-  ModuleNotFound name paths ->
-    "could not read Haskell 2010 module `"
-      <> renderModuleName name
-      <> "`: no source file found; searched: "
-      <> Text.intercalate ", " (map Text.pack paths)
+  ModuleNotFound sourceRange name paths ->
+    renderMaybeSourceDiagnostic sourceRange (missingModuleMessage name paths)
+
+renderMaybeSourceDiagnostic :: Maybe SourceSpan -> Text -> Text
+renderMaybeSourceDiagnostic sourceRange message =
+  case sourceRange of
+    Just span' ->
+      renderSourceDiagnostic span' "module/import error" message
+    Nothing ->
+      "module/import error: " <> message
+
+missingModuleMessage :: ModuleName -> [FilePath] -> Text
+missingModuleMessage name paths =
+  "could not read Haskell 2010 module `"
+    <> renderModuleName name
+    <> "`: no source file found; searched: "
+    <> Text.intercalate ", " (map Text.pack paths)
 
 mapLeft :: (a -> b) -> Either a c -> Either b c
 mapLeft f = \case

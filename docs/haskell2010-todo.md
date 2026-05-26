@@ -16698,7 +16698,7 @@ Notes:
 ## FFI-005 — primitive marshalling
 
 Status:
-- in progress
+- complete
 
 Category:
 - runtime
@@ -18597,7 +18597,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver module/import diagnostics for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver source-spanned module/import diagnostics for the Haskell 2010 frontend while preserving the current .hg substrate and the documented executable-subset behavior.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -18607,29 +18607,36 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Syntax/Span.hs`
 - `src/Haskell2010/Parser.hs`
 - `src/Haskell2010/Renamer.hs`
-- `src/Haskell2010/Typecheck.hs`
-- `src/CLI/Report.hs`
-- `test/golden/`
+- `src/Haskell2010/ModuleGraph.hs`
+- `src/Haskell2010/Syntax.hs`
+- `src/Haskell2010/StandardLibrary.hs`
+- `test/Main.hs`
+- `test/haskell2010/conformance/manifest.json`
+- `docs/diagnostics-spec.md`
+- `docs/haskell2010-conformance-matrix.md`
 
 Acceptance criteria:
-- module/import diagnostics is implemented, completed, or explicitly documented according to status `in progress`.
+- Import declarations carry source spans from parsing through module graph loading and renaming.
+- Missing source modules render as `module/import error` diagnostics at the responsible import declaration and report the searched paths.
+- Explicit import lists that name non-exported entities render as structured `MissingImportName` diagnostics at the import declaration.
+- Negative and unsupported conformance fixtures lock module/import diagnostic categories and source-span prefixes.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
+- The Haskell 2010 conformance matrix points to this task for implemented work.
 
 Required tests:
-- diagnostic golden tests
-- negative conformance tests
-- CLI rendering tests
+- parser import-span unit tests
+- renamer import-list diagnostic unit tests
+- module graph negative conformance tests
+- CLI/native rendering checks through compile-error module/import fixtures
 
 Documentation updates:
 - `docs/diagnostics-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Completed by import-declaration source spans, structured missing import-name diagnostics, source-spanned missing-module diagnostics, and manifest-backed span prefix checks. Verified with `cabal build all`, `cabal test hegglog-test`, and the Haskell 2010 conformance harness.
 
 ## DIAG-011 — Core validation diagnostics
 

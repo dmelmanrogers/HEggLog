@@ -119,6 +119,20 @@ Example:
 Main.hs:3:1-9:1: instance error: duplicate built-in instance for `Monad IO`
 ```
 
+## Module And Import Diagnostics
+
+Haskell 2010 import declarations carry source spans from parsing through module
+graph loading and import-list resolution. Missing source modules and missing
+exported names selected by explicit import lists render with `module/import
+error` severity at the import declaration that caused the failure.
+
+Examples:
+
+```text
+Main.hs:3:1-21: module/import error: could not read Haskell 2010 module `MissingModule`: no source file found; searched: ./MissingModule.hs
+Main.hs:2:1-29: module/import error: module `Prelude` does not export term name `notExported`
+```
+
 ## Runtime Diagnostics
 
 Runtime diagnostics currently attach to the root source expression. This is
@@ -186,7 +200,9 @@ failures in `let`, `where`, `do`, and `case ... of` blocks are classified as
 layout errors with explicit indentation expectations. Kind mismatches render as
 source-spanned `kind error` diagnostics. Class constraints and instance
 declaration failures render as source-spanned `class error` and `instance error`
-diagnostics for the executable subset. The parser, renamer, typechecker,
+diagnostics for the executable subset. Module graph and explicit import-list
+failures render as source-spanned `module/import error` diagnostics at the
+responsible import declaration. The parser, renamer, typechecker,
 class/instance, and runtime no-matching-alternative errors exist for the
 executable subset, and guard fallthrough is covered by Core/STG/native tests.
 The Haskell 2010 typechecker now emits source-spanned warnings for supported

@@ -135,6 +135,7 @@ testGroups =
       , pureTest "resolves operator precedence" testHaskell2010RenamerFixityPrecedence
       , pureTest "rejects chained non-associative operators" testHaskell2010RenamerNonAssociativeFixity
       , pureTest "detects ambiguous explicit imports" testHaskell2010RenamerAmbiguousImport
+      , pureTest "renders import-spec diagnostics with spans" testHaskell2010RenamerImportSpecDiagnostics
       , pureTest "resolves qualified explicit imports" testHaskell2010RenamerQualifiedImport
       , pureTest "applies implicit Prelude imports" testHaskell2010RenamerImplicitPrelude
       , pureTest "honors explicit Prelude import specs" testHaskell2010RenamerExplicitPreludeSpecs
@@ -147,6 +148,7 @@ testGroups =
       , pureTest "exports and imports instances through module interfaces" testHaskell2010RenamerModuleGraphInstances
       , pureTest "exposes explicit module compilation boundary" testHaskell2010ModuleCompilationBoundary
       , ioTest "loads imports through source search paths" testHaskell2010ModuleGraphImportSearchPath
+      , ioTest "renders missing import diagnostics with spans" testHaskell2010ModuleGraphMissingImportDiagnostics
       , ioTest "detects module graph import cycles" testHaskell2010ModuleGraphCycle
       ]
   , TestGroup
@@ -761,16 +763,22 @@ testHaskell2010ModuleParsing = do
         ]
     )
     (H2010.moduleExports parsed)
-  expectEqual
-    "Haskell 2010 import"
-    [ H2010.ImportDecl
-        { H2010.importQualified = True
-        , H2010.importModule = H2010.ModuleName ["Data", "List"]
-        , H2010.importAs = Just (H2010.ModuleName ["List"])
-        , H2010.importSpecs = Just ([H2010.ImportName "map"], True)
-        }
-    ]
-    (H2010.moduleImports parsed)
+  case H2010.moduleImports parsed of
+    [actualImport] -> do
+      assertBool "Haskell 2010 import carries a source span" (H2010.importSpan actualImport /= Nothing)
+      expectEqual
+        "Haskell 2010 import"
+        ( H2010.ImportDecl
+            { H2010.importSpan = H2010.importSpan actualImport
+            , H2010.importQualified = True
+            , H2010.importModule = H2010.ModuleName ["Data", "List"]
+            , H2010.importAs = Just (H2010.ModuleName ["List"])
+            , H2010.importSpecs = Just ([H2010.ImportName "map"], True)
+            }
+        )
+        actualImport
+    imports ->
+      Left ("expected one Haskell 2010 import, got: " <> show imports)
   expectEqual "Haskell 2010 declaration count" 7 (length (H2010.moduleDecls parsed))
 
 testHaskell2010LayoutParsing :: Either String ()
@@ -1240,6 +1248,26 @@ testHaskell2010RenamerAmbiguousImport =
       Left err -> Left ("expected ambiguous import error, got: " <> show err)
       Right renamed -> Left ("ambiguous import renamed unexpectedly: " <> show renamed)
 
+testHaskell2010RenamerImportSpecDiagnostics :: Either String ()
+testHaskell2010RenamerImportSpecDiagnostics =
+  case
+    renameHaskell2010Raw
+      "module BadImport where\n\
+      \import Prelude (notExported)\n\
+      \main = 0\n"
+    of
+      Left err
+        | H2010Renamer.MissingImportName (H2010.ModuleName ["Prelude"]) H2010Names.TermNamespace "notExported" <- haskell2010RenameErrorDetail err -> do
+            let rendered = H2010Renamer.renderRenameError err
+            assertBool
+              "missing import name diagnostic includes import declaration span"
+              ("<haskell2010-renamer-test>:2:1-" `Text.isPrefixOf` rendered)
+            assertBool
+              "missing import name diagnostic renders module/import severity"
+              ("module/import error: module `Prelude` does not export term name `notExported`" `Text.isInfixOf` rendered)
+      Left err -> Left ("expected missing import-name diagnostic, got: " <> show err)
+      Right renamed -> Left ("missing import-name source renamed unexpectedly: " <> show renamed)
+
 testHaskell2010RenamerQualifiedImport :: Either String ()
 testHaskell2010RenamerQualifiedImport = do
   renamed <-
@@ -1629,7 +1657,15 @@ testHaskell2010RenamerModuleGraphExports = do
         other -> Left ("unexpected renamed multi-module main: " <> show other)
     other -> Left ("unexpected renamed module graph: " <> show other)
   case renameHaskell2010ModulesRaw haskell2010HiddenImportSources of
-    Left (H2010Renamer.UnboundName H2010Names.TermNamespace "hidden") -> Right ()
+    Left err
+      | H2010Renamer.MissingImportName (H2010.ModuleName ["Lib"]) H2010Names.TermNamespace "hidden" <- haskell2010RenameErrorDetail err -> do
+          let rendered = H2010Renamer.renderRenameError err
+          assertBool
+            "hidden export rejection includes import declaration span"
+            ("Main.hs:2:1-" `Text.isPrefixOf` rendered)
+          assertBool
+            "hidden export rejection renders module/import severity"
+            ("module/import error: module `Lib` does not export term name `hidden`" `Text.isInfixOf` rendered)
     Left err -> Left ("expected hidden export rejection, got " <> show err)
     Right renamed -> Left ("hidden import renamed unexpectedly: " <> show renamed)
 
@@ -1723,6 +1759,27 @@ testHaskell2010ModuleGraphImportSearchPath = do
             Left "search-path graph unexpectedly loaded no modules"
       Left err ->
         Left ("expected search-path module graph to load, got " <> show err)
+
+testHaskell2010ModuleGraphMissingImportDiagnostics :: IO (Either String ())
+testHaskell2010ModuleGraphMissingImportDiagnostics = do
+  let sourcePath = "test/haskell2010/conformance/negative/bad-module-import.hs"
+  result <- H2010ModuleGraph.loadModuleGraph sourcePath
+  pure $
+    case result of
+      Left err@(H2010ModuleGraph.ModuleNotFound (Just sourceRange) (H2010.ModuleName ["MissingModule"]) paths) -> do
+        expectEqual "missing module import span file" sourcePath (spanFile sourceRange)
+        expectEqual "missing module import span start line" 3 (spanStartLine sourceRange)
+        expectEqual "missing module import span start column" 1 (spanStartColumn sourceRange)
+        assertBool "missing module search path recorded" (not (null paths))
+        let rendered = H2010ModuleGraph.renderModuleGraphError err
+        assertBool
+          "missing module diagnostic includes import source span"
+          ("test/haskell2010/conformance/negative/bad-module-import.hs:3:1-" `Text.isPrefixOf` rendered)
+        assertBool
+          "missing module diagnostic renders module/import severity"
+          ("module/import error: could not read Haskell 2010 module `MissingModule`" `Text.isInfixOf` rendered)
+      Left err -> Left ("expected source-spanned missing module diagnostic, got " <> show err)
+      Right graph -> Left ("missing import graph loaded unexpectedly: " <> show graph)
 
 testHaskell2010ModuleGraphCycle :: IO (Either String ())
 testHaskell2010ModuleGraphCycle = do
@@ -8049,8 +8106,15 @@ renameHaskell2010ModulesRaw sources = do
 expectRenameError :: String -> H2010Renamer.RenameError -> Text -> Either String ()
 expectRenameError label expected source =
   case renameHaskell2010Raw source of
-    Left actual -> expectEqual label expected actual
+    Left actual -> expectEqual label expected (haskell2010RenameErrorDetail actual)
     Right renamed -> Left (label <> "\nexpected rename error, got module:\n" <> show renamed)
+
+haskell2010RenameErrorDetail :: H2010Renamer.RenameError -> H2010Renamer.RenameError
+haskell2010RenameErrorDetail = \case
+  H2010Renamer.RenameErrorAt _ err ->
+    haskell2010RenameErrorDetail err
+  err ->
+    err
 
 typecheckHaskell2010 :: Text -> Either String H2010Core.CoreModule
 typecheckHaskell2010 source =
