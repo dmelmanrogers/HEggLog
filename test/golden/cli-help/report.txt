@@ -1,0 +1,18 @@
+HeggLog report mode
+
+usage:
+  hegglog report FILE [--no-egglog] [--strict-egglog] [-i PATH]
+  hegglog FILE
+
+behavior:
+  Emit a diagnostic/status report for a source file.
+  legacy .hg reports include parsed syntax, type, interpreter result, ANF, rewrites, EGraph, Egglog, and Core.
+  Haskell 2010 .hs reports parse, rename, typecheck, optimize according to flags, validate Core/STG, and include typed Core/STG sections.
+
+options:
+  --no-egglog
+      Report the unoptimized validation path.
+  --strict-egglog
+      Require Egglog optimization support instead of reporting a fallback path.
+  -i, --import-path PATH
+      Add a Haskell 2010 source module import search directory. May be repeated; the root module directory is searched first.

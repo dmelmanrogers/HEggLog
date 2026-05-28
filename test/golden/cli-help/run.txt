@@ -1,0 +1,31 @@
+HeggLog run mode
+
+usage:
+  hegglog run FILE [--no-egglog] [-i PATH] [dump options] [native link options]
+
+behavior:
+  Compile FILE to a temporary native executable, run it, forward program stdout/stderr, and exit with the program status.
+
+options:
+  --no-egglog
+      Compile without Egglog optimization.
+  --strict-egglog
+      Require Egglog optimization support instead of falling back to unoptimized output.
+  --keep-intermediates
+      Preserve generated LLVM, object, and temporary executable intermediates under .context/hegglog/intermediates.
+  -i, --import-path PATH
+      Add a Haskell 2010 source module import search directory. May be repeated; the root module directory is searched first.
+  --dump-core
+      Write original typed Core to stderr before running the compiled executable.
+  --dump-optimized-core
+      Write optimized typed Core to stderr before running the compiled executable.
+  --dump-stg
+      Write validated STG to stderr before running the compiled executable.
+  --link-object PATH
+      Add an object file or native archive to the clang link command. May be repeated.
+  --link-library NAME
+      Link with -lNAME. May be repeated.
+  --library-path PATH
+      Add -LPATH to the native link command. May be repeated.
+  --framework NAME
+      Link with a macOS framework. May be repeated.

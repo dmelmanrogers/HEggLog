@@ -1,0 +1,23 @@
+HeggLog emit-core mode
+
+usage:
+  hegglog emit-core FILE [--no-egglog] [--original|--optimized|--both] [-i PATH] [-o PATH]
+
+behavior:
+  Parse, rename, typecheck, optimize when enabled, and validate Core/STG; emit typed Haskell 2010 Core without LLVM or native codegen.
+
+options:
+  --original
+      Emit the typechecker Core before Core optimization.
+  --optimized
+      Emit the checked Core after Core optimization. This is the default.
+  --both
+      Emit original and optimized Core sections.
+  --no-egglog
+      Disable Core optimization before validation and output.
+  --strict-egglog
+      Require Core Egglog optimization support instead of preserving unsupported fragments.
+  -i, --import-path PATH
+      Add a Haskell 2010 source module import search directory. May be repeated; the root module directory is searched first.
+  -o, --output PATH
+      Write Core output to PATH instead of stdout.

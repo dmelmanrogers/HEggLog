@@ -66,19 +66,19 @@ main = do
         renderCommandError err
         exitFailure
       Right CommandGeneralHelp ->
-        Text.IO.putStrLn generalUsage
+        emitUsage generalUsage
       Right CommandCheckHelp ->
-        Text.IO.putStrLn checkUsage
+        emitUsage checkUsage
       Right CommandCompileHelp ->
-        Text.IO.putStrLn compileUsage
+        emitUsage compileUsage
       Right CommandEmitCoreHelp ->
-        Text.IO.putStrLn emitCoreUsage
+        emitUsage emitCoreUsage
       Right CommandEmitSTGHelp ->
-        Text.IO.putStrLn emitSTGUsage
+        emitUsage emitSTGUsage
       Right CommandReportHelp ->
-        Text.IO.putStrLn reportUsage
+        emitUsage reportUsage
       Right CommandRunHelp ->
-        Text.IO.putStrLn runUsage
+        emitUsage runUsage
       Right (CommandCheck path cliOptions) ->
         runCheck path cliOptions
       Right (CommandReport path cliOptions) ->
@@ -95,7 +95,11 @@ main = do
 renderCommandError :: CLICommandError -> IO ()
 renderCommandError err = do
   Text.IO.hPutStrLn stderr (commandErrorMessage err)
-  Text.IO.hPutStrLn stderr (usageForTopic (commandErrorUsageTopic err))
+  Text.IO.hPutStr stderr (usageForTopic (commandErrorUsageTopic err))
+
+emitUsage :: Text -> IO ()
+emitUsage =
+  Text.IO.putStr
 
 runReport :: FilePath -> ReportCLIOptions -> IO ()
 runReport path cliOptions

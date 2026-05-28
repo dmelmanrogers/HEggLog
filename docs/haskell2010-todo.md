@@ -19770,7 +19770,7 @@ Notes:
 ## CLI-016 — help text tests
 
 Status:
-- in progress
+- complete
 
 Category:
 - cli
@@ -19799,7 +19799,9 @@ Files likely touched:
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- help text tests is implemented, completed, or explicitly documented according to status `in progress`.
+- All public help topics are locked by exact golden fixtures.
+- The executable CLI help paths compare stdout exactly against the same public golden fixtures and verify stderr remains empty.
+- Help emission writes the stored usage text directly so each topic has one intentional trailing newline rather than an accidental extra blank line.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -19814,7 +19816,12 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M18 (CLI productization). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M18 (CLI productization). Status reflects the codebase after CLI-016 implementation and should be revised whenever implementation or conformance coverage changes.
+
+Implementation notes:
+- `test/golden/cli-help/*.txt` now defines the public help text contract for general, check, compile, emit-core, emit-stg, report, and run.
+- `hegglog-test` compares `CLI.Command` usage constants exactly against those fixtures.
+- `e2e-wet-test` invokes the built executable help commands and compares stdout exactly against the same fixtures while asserting stderr is empty.
 
 ## TEST-CONF-001 — conformance manifest
 

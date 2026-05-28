@@ -10940,7 +10940,7 @@
     {
       "id": "CLI-016",
       "title": "help text tests",
-      "status": "in progress",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10948,7 +10948,9 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "help text tests is implemented, completed, or explicitly documented according to status `in progress`.",
+        "All public help topics are locked by exact golden fixtures.",
+        "The executable CLI help paths compare stdout exactly against the same public golden fixtures and verify stderr remains empty.",
+        "Help emission writes the stored usage text directly so each topic has one intentional trailing newline rather than an accidental extra blank line.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

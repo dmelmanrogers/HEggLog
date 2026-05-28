@@ -1,0 +1,21 @@
+HeggLog check mode
+
+usage:
+  hegglog check FILE [--no-egglog] [-i PATH] [dump options]
+
+behavior:
+  Parse, rename, typecheck, and validate Core/STG without emitting LLVM IR, invoking clang, or requiring a `main` binding.
+
+options:
+  --no-egglog
+      Check the unoptimized Core/STG path.
+  --strict-egglog
+      Require Egglog optimization support instead of falling back to unoptimized Core/STG.
+  -i, --import-path PATH
+      Add a Haskell 2010 source module import search directory. May be repeated; the root module directory is searched first.
+  --dump-core
+      Write original typed Core to stderr after successful checking.
+  --dump-optimized-core
+      Write optimized typed Core to stderr after successful checking.
+  --dump-stg
+      Write validated STG to stderr after successful checking.

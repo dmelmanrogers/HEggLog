@@ -53,8 +53,9 @@ debug artifacts under `.context/hegglog/intermediates`; native keep mode writes
 the generated LLVM, compiles a real object file, and links the executable from
 that object, while `run` also preserves its normally temporary executable.
 General, check, emit-core, emit-stg, run, compile, and report help are stable
-stdout-producing commands; malformed command lines produce diagnostics and
-scoped usage text on stderr before exiting nonzero.
+stdout-producing commands covered by exact public golden fixtures; malformed
+command lines produce diagnostics and scoped usage text on stderr before exiting
+nonzero.
 
 The native executable path supports checked signed `Int64` arithmetic,
 checked division, conditionals, top-level first-order direct calls,

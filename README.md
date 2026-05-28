@@ -107,8 +107,8 @@ cabal run hegglog -- report test/e2e/programs/haskell2010/lazy-argument.hs --no-
 The top-level CLI accepts `hegglog --help`, `hegglog check --help`,
 `hegglog emit-core --help`, `hegglog emit-stg --help`, `hegglog run --help`,
 `hegglog compile --help`, and `hegglog report --help`. Help is printed to
-stdout; malformed command lines print a scoped diagnostic and the relevant
-usage text to stderr.
+stdout and is locked by exact public golden tests; malformed command lines
+print a scoped diagnostic and the relevant usage text to stderr.
 
 Check a supported source file without native code generation:
 

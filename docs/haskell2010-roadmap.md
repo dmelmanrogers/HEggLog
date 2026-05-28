@@ -526,7 +526,7 @@ Acceptance criteria:
 
 ### Phase 18 - CLI Productization
 
-Status: started. `CLI-001`, `CLI-002`, `CLI-003`, `CLI-005`, `CLI-006`, `CLI-007`, `CLI-010`, `CLI-011`, and `CLI-012`
+Status: started. `CLI-001`, `CLI-002`, `CLI-003`, `CLI-005`, `CLI-006`, `CLI-007`, `CLI-010`, `CLI-011`, `CLI-012`, and `CLI-016`
 are complete: top-level command parsing is centralized in `CLI.Command`,
 `Main` dispatches parsed commands, `check` validates through Core/STG without
 LLVM/native codegen, `run` compiles to a temporary native executable and
@@ -545,7 +545,8 @@ LLVM/object artifacts and run-mode temporary executables under
 `compile` and `report` have scoped help, legacy report and legacy `FILE
 --emit-llvm` forms remain supported, and CLI unit/wet tests cover help, error,
 check, report, emit-core, emit-stg, strict Egglog, dump flags, kept intermediates, and run
-stdout/stderr/exit behavior.
+stdout/stderr/exit behavior. Public help text is locked by exact golden
+fixtures at both the command-model and executable CLI layers.
 The broader command set below remains tracked by the remaining CLI tasks.
 
 Commands:

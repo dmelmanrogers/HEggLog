@@ -85,6 +85,7 @@ tests hegglog clang =
 
 commandModelTests :: FilePath -> [Test]
 commandModelTests hegglog =
+  cliHelpTests hegglog <>
   [ TestLabel "CLI help uses stdout" $
       TestCase $ do
         result <- runCommand hegglog ["--help"]
@@ -330,6 +331,29 @@ commandModelTests hegglog =
         assertNonZeroExit ("run runtime error " <> showCommand hegglog args) result
         assertEqual "run runtime-error stdout" "" (resultStdout result)
         assertBool "run runtime-error stderr reports exit" ("native executable exited with" `isInfixOf` resultStderr result)
+  ]
+
+cliHelpTests :: FilePath -> [Test]
+cliHelpTests hegglog =
+  [ TestLabel ("CLI " <> label <> " help matches public golden stdout") $
+      TestCase $ do
+        expected <- Text.IO.readFile goldenPath
+        result <- runCommand hegglog args
+        assertExitSuccess (label <> " help " <> showCommand hegglog args) result
+        assertEqual (label <> " help stdout") (Text.unpack expected) (resultStdout result)
+        assertEqual (label <> " help stderr") "" (resultStderr result)
+  | (label, args, goldenPath) <- cliHelpGoldenCases
+  ]
+
+cliHelpGoldenCases :: [(String, [String], FilePath)]
+cliHelpGoldenCases =
+  [ ("general", ["--help"], "test/golden/cli-help/general.txt")
+  , ("check", ["check", "--help"], "test/golden/cli-help/check.txt")
+  , ("compile", ["compile", "--help"], "test/golden/cli-help/compile.txt")
+  , ("emit-core", ["emit-core", "--help"], "test/golden/cli-help/emit-core.txt")
+  , ("emit-stg", ["emit-stg", "--help"], "test/golden/cli-help/emit-stg.txt")
+  , ("report", ["report", "--help"], "test/golden/cli-help/report.txt")
+  , ("run", ["run", "--help"], "test/golden/cli-help/run.txt")
   ]
 
 caseTests :: FilePath -> FilePath -> E2ECase -> [Test]

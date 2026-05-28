@@ -443,6 +443,7 @@ testGroups =
       [ pureTest "command model parses supported top-level forms" testCLICommandModelParsesSupportedForms
       , pureTest "command model rejects invalid forms with scoped usage" testCLICommandModelRejectsInvalidForms
       , pureTest "command model exposes stable help text" testCLICommandModelUsageText
+      , ioTest "command help text matches public golden fixtures" testCLIHelpTextGolden
       , pureTest "check, emit-core, emit-stg, and run flags expose scoped option sets" testCheckEmitCoreRunFlags
       , pureTest "compile flags select LLVM and native output modes" testCompileFlagsOutputModes
       , pureTest "compile flags collect native link options" testCompileFlagsLinkOptions
@@ -5546,6 +5547,29 @@ testCLICommandModelUsageText =
     *> assertBool "report usage documents .hg mode" ("legacy .hg" `Text.isInfixOf` CommandCLI.reportUsage)
     *> assertBool "report usage documents Haskell 2010 mode" ("Haskell 2010 .hs reports" `Text.isInfixOf` CommandCLI.reportUsage)
     *> assertBool "report usage documents strict egglog" ("--strict-egglog" `Text.isInfixOf` CommandCLI.reportUsage)
+
+testCLIHelpTextGolden :: IO (Either String ())
+testCLIHelpTextGolden = do
+  results <- traverse checkHelpGolden cliHelpGoldenCases
+  pure $
+    case [message | Left message <- results] of
+      [] -> Right ()
+      messages -> Left (List.intercalate "\n\n" messages)
+ where
+  checkHelpGolden (label, path, actual) = do
+    expected <- Text.IO.readFile path
+    pure (expectEqualText (label <> " help golden") expected actual)
+
+cliHelpGoldenCases :: [(String, FilePath, Text)]
+cliHelpGoldenCases =
+  [ ("general", "test/golden/cli-help/general.txt", CommandCLI.generalUsage)
+  , ("check", "test/golden/cli-help/check.txt", CommandCLI.checkUsage)
+  , ("compile", "test/golden/cli-help/compile.txt", CommandCLI.compileUsage)
+  , ("emit-core", "test/golden/cli-help/emit-core.txt", CommandCLI.emitCoreUsage)
+  , ("emit-stg", "test/golden/cli-help/emit-stg.txt", CommandCLI.emitSTGUsage)
+  , ("report", "test/golden/cli-help/report.txt", CommandCLI.reportUsage)
+  , ("run", "test/golden/cli-help/run.txt", CommandCLI.runUsage)
+  ]
 
 testCheckEmitCoreRunFlags :: Either String ()
 testCheckEmitCoreRunFlags = do
