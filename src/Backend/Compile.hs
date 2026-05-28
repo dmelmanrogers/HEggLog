@@ -1,8 +1,10 @@
 module Backend.Compile
-  ( CompileLLVMError (..)
+  ( CompileCheckResult (..)
+  , CompileLLVMError (..)
   , CompileLLVMOptions (..)
   , LLVMCompileResult (..)
   , LLVMOptimizationStatus (..)
+  , checkToBackend
   , compileToLLVM
   , defaultCompileLLVMOptions
   , renderCompileLLVMError
@@ -45,6 +47,7 @@ import Typecheck.Types (LocatedTypeError, renderLocatedTypeError)
 
 data CompileLLVMOptions = CompileLLVMOptions
   { compileUseEgglog :: Bool
+  , compileStrictEgglog :: Bool
   }
   deriving stock (Show, Eq, Ord)
 
@@ -52,6 +55,7 @@ defaultCompileLLVMOptions :: CompileLLVMOptions
 defaultCompileLLVMOptions =
   CompileLLVMOptions
     { compileUseEgglog = True
+    , compileStrictEgglog = False
     }
 
 data LLVMOptimizationStatus
@@ -72,12 +76,23 @@ data LLVMCompileResult = LLVMCompileResult
   }
   deriving stock (Show, Eq)
 
+data CompileCheckResult = CompileCheckResult
+  { checkParsed :: Program
+  , checkSourceType :: Type
+  , checkOriginalANF :: AProgram
+  , checkSelectedANF :: AProgram
+  , checkOptimizationStatus :: LLVMOptimizationStatus
+  , checkBackendProgram :: BackendProgram
+  }
+  deriving stock (Show, Eq)
+
 data CompileLLVMError
   = LLVMCompileParseError Text
   | LLVMCompileTypeError LocatedTypeError
   | LLVMCompileUnsupportedSource SourceSpan Text
   | LLVMCompileInvalidANF ANFValidationError
   | LLVMCompileEgglogFailed EgglogBackendError
+  | LLVMCompileStrictEgglogUnsupported EgglogBackendError
   | LLVMCompileClosureConvertError ClosureConvertError
   | LLVMCompileBackendLowerError BackendLowerError
   | LLVMCompileLowerError LLVMLowerError
@@ -85,6 +100,31 @@ data CompileLLVMError
 
 compileToLLVM :: CompileLLVMOptions -> FilePath -> Text -> Either CompileLLVMError LLVMCompileResult
 compileToLLVM options path source = do
+  checked <- checkToBackend options path source
+  llvmModule0 <- mapLeft LLVMCompileLowerError (lowerBackendToLLVM (checkBackendProgram checked))
+  let llvmModule1 =
+        llvmModule0
+          { moduleComments =
+              moduleComments llvmModule0
+                <> [ "source type: " <> renderDoc (prettyType (checkSourceType checked))
+                   , renderLLVMOptimizationStatus (checkOptimizationStatus checked)
+                   ]
+          }
+      emitted = emitLLVMModule llvmModule1
+  pure
+    LLVMCompileResult
+      { llvmParsed = checkParsed checked
+      , llvmSourceType = checkSourceType checked
+      , llvmOriginalANF = checkOriginalANF checked
+      , llvmSelectedANF = checkSelectedANF checked
+      , llvmOptimizationStatus = checkOptimizationStatus checked
+      , llvmBackendProgram = checkBackendProgram checked
+      , llvmModule = llvmModule1
+      , llvmText = emitted
+      }
+
+checkToBackend :: CompileLLVMOptions -> FilePath -> Text -> Either CompileLLVMError CompileCheckResult
+checkToBackend options path source = do
   parsed <-
     case parseLocatedSourceProgram path source of
       Left parseError -> Left (LLVMCompileParseError (Text.pack (errorBundlePretty parseError)))
@@ -106,6 +146,9 @@ compileToLLVM options path source = do
           Just (sourceRange, message) -> Left (LLVMCompileUnsupportedSource sourceRange message)
           Nothing -> Right ()
         mapLeft LLVMCompileInvalidANF (validateANFProgram anf)
+        if compileStrictEgglog options
+          then Left (LLVMCompileStrictEgglogUnsupported (ReconstructedTypeError "closure-converted programs are outside the Egglog optimizer fragment"))
+          else Right ()
         backend <- mapLeft LLVMCompileClosureConvertError (closureConvertProgram inferredType stripped)
         pure
           ( anf
@@ -121,26 +164,14 @@ compileToLLVM options path source = do
         mapLeft LLVMCompileInvalidANF (validateANFProgram selectedANF)
         backend <- mapLeft LLVMCompileBackendLowerError (lowerANFProgramToBackend selectedANF)
         pure (selectedANF, optimizationStatus, backend)
-  llvmModule0 <- mapLeft LLVMCompileLowerError (lowerBackendToLLVM backend)
-  let llvmModule1 =
-        llvmModule0
-          { moduleComments =
-              moduleComments llvmModule0
-                <> [ "source type: " <> renderDoc (prettyType inferredType)
-                   , renderLLVMOptimizationStatus optimizationStatus
-                   ]
-          }
-      emitted = emitLLVMModule llvmModule1
   pure
-    LLVMCompileResult
-      { llvmParsed = stripped
-      , llvmSourceType = inferredType
-      , llvmOriginalANF = anf
-      , llvmSelectedANF = selectedANF
-      , llvmOptimizationStatus = optimizationStatus
-      , llvmBackendProgram = backend
-      , llvmModule = llvmModule1
-      , llvmText = emitted
+    CompileCheckResult
+      { checkParsed = stripped
+      , checkSourceType = inferredType
+      , checkOriginalANF = anf
+      , checkSelectedANF = selectedANF
+      , checkOptimizationStatus = optimizationStatus
+      , checkBackendProgram = backend
       }
 
 selectANFProgram :: CompileLLVMOptions -> AProgram -> Either CompileLLVMError (AProgram, LLVMOptimizationStatus)
@@ -150,6 +181,8 @@ selectANFProgram options program@(AProgram defs mainExpr)
       pure (AProgram [] selectedMain, status)
   | not (compileUseEgglog options) =
       Right (program, LLVMOptimizationDisabled)
+  | compileStrictEgglog options =
+      Left (LLVMCompileStrictEgglogUnsupported (ReconstructedTypeError "top-level or lambda-lifted definitions are outside the Egglog optimizer fragment"))
   | otherwise =
       Right
         ( program
@@ -165,7 +198,9 @@ selectANF options anf
         EgglogOptimized result ->
           Right (optimizedANF result, LLVMOptimizationApplied result)
         EgglogUnsupported err ->
-          Right (anf, LLVMOptimizationUnsupported err)
+          if compileStrictEgglog options
+            then Left (LLVMCompileStrictEgglogUnsupported err)
+            else Right (anf, LLVMOptimizationUnsupported err)
         EgglogFailed err ->
           Left (LLVMCompileEgglogFailed err)
 
@@ -181,6 +216,8 @@ renderCompileLLVMError = \case
     "invalid ANF before LLVM compilation: " <> renderANFValidationError err
   LLVMCompileEgglogFailed err ->
     "Egglog optimization failed before LLVM compilation: " <> renderEgglogBackendError err
+  LLVMCompileStrictEgglogUnsupported err ->
+    "Egglog optimization is required by --strict-egglog but unsupported before LLVM compilation: " <> renderEgglogBackendError err
   LLVMCompileClosureConvertError err ->
     renderClosureConvertError err
   LLVMCompileBackendLowerError err ->

@@ -1,14 +1,20 @@
 module Haskell2010.Native
   ( ForeignLinkMetadata (..)
+  , Haskell2010CheckError (..)
+  , Haskell2010CheckResult (..)
   , Haskell2010LLVMError (..)
   , Haskell2010NativeOptions (..)
   , Haskell2010LLVMResult (..)
   , Haskell2010OptimizationStatus (..)
+  , checkHaskell2010File
+  , checkHaskell2010FileWithOptions
+  , checkHaskell2010WithOptions
   , compileHaskell2010FileToLLVM
   , compileHaskell2010FileToLLVMWithOptions
   , compileHaskell2010ToLLVM
   , compileHaskell2010ToLLVMWithOptions
   , defaultHaskell2010NativeOptions
+  , renderHaskell2010CheckError
   , renderHaskell2010LLVMError
   , renderHaskell2010OptimizationStatus
   )
@@ -54,6 +60,7 @@ import qualified Optimize.CoreEgglog as CoreEgglog
 
 data Haskell2010NativeOptions = Haskell2010NativeOptions
   { haskell2010UseEgglog :: Bool
+  , haskell2010StrictEgglog :: Bool
   , haskell2010EgglogRunConfig :: Egglog.RunConfig
   , haskell2010ImportPaths :: [FilePath]
   }
@@ -63,6 +70,7 @@ defaultHaskell2010NativeOptions :: Haskell2010NativeOptions
 defaultHaskell2010NativeOptions =
   Haskell2010NativeOptions
     { haskell2010UseEgglog = True
+    , haskell2010StrictEgglog = False
     , haskell2010EgglogRunConfig = Egglog.defaultRunConfig
     , haskell2010ImportPaths = []
     }
@@ -81,6 +89,17 @@ data Haskell2010LLVMResult = Haskell2010LLVMResult
   }
   deriving stock (Show, Eq)
 
+data Haskell2010CheckResult = Haskell2010CheckResult
+  { haskell2010CheckParsed :: HsModule
+  , haskell2010CheckRenamed :: RHsModule
+  , haskell2010CheckOriginalCore :: CoreModule
+  , haskell2010CheckWarnings :: [TypecheckWarning]
+  , haskell2010CheckCore :: CoreModule
+  , haskell2010CheckOptimizationStatus :: Haskell2010OptimizationStatus
+  , haskell2010CheckSTG :: STGProgram
+  }
+  deriving stock (Show, Eq)
+
 data Haskell2010OptimizationStatus
   = Haskell2010OptimizationDisabled
   | Haskell2010OptimizationApplied CoreEgglog.CoreEgglogResult
@@ -96,6 +115,32 @@ data Haskell2010LLVMError
   | Haskell2010LLVMLowerError STGLowerError
   | Haskell2010LLVMSTGError STGLLVMError
   deriving stock (Show, Eq)
+
+data Haskell2010CheckError
+  = Haskell2010CheckParseError Text
+  | Haskell2010CheckModuleGraphError ModuleGraphError
+  | Haskell2010CheckRenameError RenameError
+  | Haskell2010CheckTypecheckError TypecheckError
+  | Haskell2010CheckCoreEgglogError CoreEgglog.CoreEgglogError
+  | Haskell2010CheckLowerError STGLowerError
+  deriving stock (Show, Eq)
+
+checkHaskell2010File :: FilePath -> IO (Either Haskell2010CheckError Haskell2010CheckResult)
+checkHaskell2010File =
+  checkHaskell2010FileWithOptions defaultHaskell2010NativeOptions
+
+checkHaskell2010FileWithOptions ::
+  Haskell2010NativeOptions ->
+  FilePath ->
+  IO (Either Haskell2010CheckError Haskell2010CheckResult)
+checkHaskell2010FileWithOptions options path = do
+  graphResult <-
+    loadModuleGraphWithPolicy
+      (RootDirectoryAndImportPathSourceSearch (haskell2010ImportPaths options))
+      path
+  pure $ do
+    graph <- mapLeft Haskell2010CheckModuleGraphError graphResult
+    checkHaskell2010LoadedModulesWithOptions options graph
 
 compileHaskell2010FileToLLVM :: FilePath -> IO (Either Haskell2010LLVMError Haskell2010LLVMResult)
 compileHaskell2010FileToLLVM =
@@ -117,6 +162,32 @@ compileHaskell2010FileToLLVMWithOptions options path = do
 compileHaskell2010ToLLVM :: FilePath -> Text -> Either Haskell2010LLVMError Haskell2010LLVMResult
 compileHaskell2010ToLLVM =
   compileHaskell2010ToLLVMWithOptions defaultHaskell2010NativeOptions
+
+checkHaskell2010WithOptions ::
+  Haskell2010NativeOptions ->
+  FilePath ->
+  Text ->
+  Either Haskell2010CheckError Haskell2010CheckResult
+checkHaskell2010WithOptions options path source = do
+  parsed <-
+    mapLeft
+      (Haskell2010CheckParseError . renderParseDiagnostic)
+      (parseSourceModule path source)
+  virtualModules <-
+    mapLeft
+      Haskell2010CheckModuleGraphError
+      (loadVirtualStandardModuleClosure parsed)
+  case virtualModules of
+    [] -> do
+      renamed <- mapLeft Haskell2010CheckRenameError (renameModule parsed)
+      checkHaskell2010RenamedWithOptions options parsed renamed
+    _ -> do
+      renamedModules <-
+        mapLeft
+          Haskell2010CheckRenameError
+          (renameModuleGraph (map loadedModuleParsed virtualModules <> [parsed]))
+      let renamed = wholeProgramModule renamedModules
+      checkHaskell2010RenamedWithOptions options parsed renamed
 
 compileHaskell2010ToLLVMWithOptions ::
   Haskell2010NativeOptions ->
@@ -155,6 +226,19 @@ compileHaskell2010ToLLVMWithOptions options path source = do
       mainName <- mapLeft Haskell2010LLVMMissingMain (rootMainName rootRenamed)
       compileHaskell2010RenamedToLLVMWithOptions options parsed renamed mainName
 
+checkHaskell2010LoadedModulesWithOptions ::
+  Haskell2010NativeOptions ->
+  LoadedModuleGraph ->
+  Either Haskell2010CheckError Haskell2010CheckResult
+checkHaskell2010LoadedModulesWithOptions options graph = do
+  renamedModules <-
+    mapLeft
+      Haskell2010CheckRenameError
+      (renameModuleGraph (map loadedModuleParsed (loadedModules graph)))
+  let renamed = wholeProgramModule renamedModules
+      parsed = loadedModuleParsed (loadedRoot graph)
+  checkHaskell2010RenamedWithOptions options parsed renamed
+
 compileHaskell2010LoadedModulesToLLVMWithOptions ::
   Haskell2010NativeOptions ->
   LoadedModuleGraph ->
@@ -191,11 +275,11 @@ compileHaskell2010RenamedToLLVMWithOptions ::
   RName ->
   Either Haskell2010LLVMError Haskell2010LLVMResult
 compileHaskell2010RenamedToLLVMWithOptions options parsed renamed mainName = do
-  typecheckResult <- mapLeft Haskell2010LLVMTypecheckError (typecheckModuleToCoreWithWarnings renamed)
-  let originalCore = typecheckResultCore typecheckResult
-  (core, optimizationStatus) <-
-    optimizeCoreIfEnabled options originalCore
-  stg <- mapLeft Haskell2010LLVMLowerError (lowerCoreModule core)
+  checked <-
+    mapLeft
+      checkErrorToLLVMError
+      (checkHaskell2010RenamedWithOptions options parsed renamed)
+  let stg = haskell2010CheckSTG checked
   llvmModule <- mapLeft Haskell2010LLVMSTGError (lowerSTGProgramToLLVMByName mainName stg)
   let linkMetadata =
         foreignLinkMetadataForImportsExports
@@ -203,16 +287,38 @@ compileHaskell2010RenamedToLLVMWithOptions options parsed renamed mainName = do
           (stgProgramForeignExports stg)
   pure
     Haskell2010LLVMResult
-      { haskell2010Parsed = parsed
-      , haskell2010Renamed = renamed
-      , haskell2010OriginalCore = originalCore
-      , haskell2010Warnings = typecheckResultWarnings typecheckResult
-      , haskell2010Core = core
-      , haskell2010OptimizationStatus = optimizationStatus
+      { haskell2010Parsed = haskell2010CheckParsed checked
+      , haskell2010Renamed = haskell2010CheckRenamed checked
+      , haskell2010OriginalCore = haskell2010CheckOriginalCore checked
+      , haskell2010Warnings = haskell2010CheckWarnings checked
+      , haskell2010Core = haskell2010CheckCore checked
+      , haskell2010OptimizationStatus = haskell2010CheckOptimizationStatus checked
       , haskell2010STG = stg
       , haskell2010LinkMetadata = linkMetadata
       , haskell2010LLVMModule = llvmModule
       , haskell2010LLVMText = emitLLVMModule llvmModule
+      }
+
+checkHaskell2010RenamedWithOptions ::
+  Haskell2010NativeOptions ->
+  HsModule ->
+  RHsModule ->
+  Either Haskell2010CheckError Haskell2010CheckResult
+checkHaskell2010RenamedWithOptions options parsed renamed = do
+  typecheckResult <- mapLeft Haskell2010CheckTypecheckError (typecheckModuleToCoreWithWarnings renamed)
+  let originalCore = typecheckResultCore typecheckResult
+  (core, optimizationStatus) <-
+    mapLeft Haskell2010CheckCoreEgglogError (optimizeCoreIfEnabled options originalCore)
+  stg <- mapLeft Haskell2010CheckLowerError (lowerCoreModule core)
+  pure
+    Haskell2010CheckResult
+      { haskell2010CheckParsed = parsed
+      , haskell2010CheckRenamed = renamed
+      , haskell2010CheckOriginalCore = originalCore
+      , haskell2010CheckWarnings = typecheckResultWarnings typecheckResult
+      , haskell2010CheckCore = core
+      , haskell2010CheckOptimizationStatus = optimizationStatus
+      , haskell2010CheckSTG = stg
       }
 
 foreignImportsInProgram :: STGProgram -> [CoreForeignImport]
@@ -261,16 +367,48 @@ foreignImportsInAlt (STGAlt _ _ body) =
 optimizeCoreIfEnabled ::
   Haskell2010NativeOptions ->
   CoreModule ->
-  Either Haskell2010LLVMError (CoreModule, Haskell2010OptimizationStatus)
+  Either CoreEgglog.CoreEgglogError (CoreModule, Haskell2010OptimizationStatus)
 optimizeCoreIfEnabled options core
   | not (haskell2010UseEgglog options) =
       Right (core, Haskell2010OptimizationDisabled)
+  | haskell2010StrictEgglog options = do
+      result <-
+        CoreEgglog.optimizeCoreModuleWithEgglogStrict (haskell2010EgglogRunConfig options) core
+      Right (CoreEgglog.coreEgglogOptimizedModule result, Haskell2010OptimizationApplied result)
   | otherwise = do
       result <-
-        mapLeft
-          Haskell2010LLVMCoreEgglogError
-          (CoreEgglog.optimizeCoreModuleWithEgglog (haskell2010EgglogRunConfig options) core)
+        CoreEgglog.optimizeCoreModuleWithEgglog (haskell2010EgglogRunConfig options) core
       Right (CoreEgglog.coreEgglogOptimizedModule result, Haskell2010OptimizationApplied result)
+
+checkErrorToLLVMError :: Haskell2010CheckError -> Haskell2010LLVMError
+checkErrorToLLVMError = \case
+  Haskell2010CheckParseError err ->
+    Haskell2010LLVMParseError err
+  Haskell2010CheckModuleGraphError err ->
+    Haskell2010LLVMModuleGraphError err
+  Haskell2010CheckRenameError err ->
+    Haskell2010LLVMRenameError err
+  Haskell2010CheckTypecheckError err ->
+    Haskell2010LLVMTypecheckError err
+  Haskell2010CheckCoreEgglogError err ->
+    Haskell2010LLVMCoreEgglogError err
+  Haskell2010CheckLowerError err ->
+    Haskell2010LLVMLowerError err
+
+renderHaskell2010CheckError :: Haskell2010CheckError -> Text
+renderHaskell2010CheckError = \case
+  Haskell2010CheckParseError parseError ->
+    parseError
+  Haskell2010CheckModuleGraphError err ->
+    renderModuleGraphError err
+  Haskell2010CheckRenameError err ->
+    renderRenameError err
+  Haskell2010CheckTypecheckError err ->
+    renderTypecheckError err
+  Haskell2010CheckCoreEgglogError err ->
+    CoreEgglog.renderCoreEgglogError err
+  Haskell2010CheckLowerError err ->
+    renderSTGLowerError err
 
 renderHaskell2010LLVMError :: Haskell2010LLVMError -> Text
 renderHaskell2010LLVMError = \case

@@ -1,7 +1,12 @@
 module CLI.Report
   ( CompileError (..)
   , CompileReport (..)
+  , LegacyReportEgglog (..)
+  , LegacyReportOptions (..)
+  , compileLegacyCore
   , compileReport
+  , compileReportWithOptions
+  , defaultLegacyReportOptions
   , renderCompileError
   , renderFullReport
   , renderGoldenReport
@@ -18,6 +23,7 @@ import IR.ANF (AExpr, AProgram (..), renderANF, renderANFProgram, toANFProgram)
 import IR.Core (CoreProgram, lower, renderCore)
 import Optimize.EgglogBackend
   ( AppliedRuleSummary (..)
+  , EgglogBackendError
   , EgglogOptimizationAttempt (..)
   , EgglogOptimizationResult (..)
   , ExtractionStats (..)
@@ -61,20 +67,43 @@ data CompileReport = CompileReport
   , reportOptimizedANF :: AProgram
   , reportAppliedRewrites :: [AppliedRewrite]
   , reportEGraph :: Either EGraphError EGraphResult
-  , reportEgglog :: EgglogOptimizationAttempt
+  , reportEgglog :: LegacyReportEgglog
   , reportCore :: CoreProgram
   }
   deriving stock (Show, Eq)
+
+data LegacyReportOptions = LegacyReportOptions
+  { legacyReportUseEgglog :: Bool
+  , legacyReportStrictEgglog :: Bool
+  }
+  deriving stock (Show, Eq)
+
+data LegacyReportEgglog
+  = LegacyReportEgglogDisabled
+  | LegacyReportEgglogAttempt EgglogOptimizationAttempt
+  deriving stock (Show, Eq)
+
+defaultLegacyReportOptions :: LegacyReportOptions
+defaultLegacyReportOptions =
+  LegacyReportOptions
+    { legacyReportUseEgglog = True
+    , legacyReportStrictEgglog = False
+    }
 
 data CompileError
   = CompileParseError Text
   | CompileTypeError LocatedTypeError
   | CompileRuntimeError SourceSpan RuntimeError
   | CompileSimplifyError SimplifyError
+  | CompileEgglogError EgglogBackendError
   deriving stock (Show, Eq)
 
 compileReport :: FilePath -> Text -> Either CompileError CompileReport
-compileReport path source = do
+compileReport =
+  compileReportWithOptions defaultLegacyReportOptions
+
+compileReportWithOptions :: LegacyReportOptions -> FilePath -> Text -> Either CompileError CompileReport
+compileReportWithOptions options path source = do
   parsed <-
     case parseLocatedSourceProgram path source of
       Left parseError -> Left (CompileParseError (Text.pack (errorBundlePretty parseError)))
@@ -94,6 +123,7 @@ compileReport path source = do
     case simplifyTopLevelAware anf of
       Left simplifyError -> Left (CompileSimplifyError simplifyError)
       Right result -> Right result
+  egglogReport <- selectLegacyEgglogReport options mainANF
   pure
     CompileReport
       { reportParsed = stripped
@@ -104,9 +134,40 @@ compileReport path source = do
       , reportOptimizedANF = replaceProgramMain anf (simplifiedANF simplified)
       , reportAppliedRewrites = appliedRewrites simplified
       , reportEGraph = optimizeANF mainANF
-      , reportEgglog = tryOptimizeWithEgglog defaultRunConfig mainANF
+      , reportEgglog = egglogReport
       , reportCore = lower (programMain stripped)
       }
+
+selectLegacyEgglogReport :: LegacyReportOptions -> AExpr -> Either CompileError LegacyReportEgglog
+selectLegacyEgglogReport options mainANF
+  | not (legacyReportUseEgglog options) =
+      Right LegacyReportEgglogDisabled
+  | otherwise =
+      case tryOptimizeWithEgglog defaultRunConfig mainANF of
+        attempt@(EgglogOptimized {}) ->
+          Right (LegacyReportEgglogAttempt attempt)
+        EgglogUnsupported err
+          | legacyReportStrictEgglog options ->
+              Left (CompileEgglogError err)
+        attempt@(EgglogUnsupported {}) ->
+          Right (LegacyReportEgglogAttempt attempt)
+        EgglogFailed err
+          | legacyReportStrictEgglog options ->
+              Left (CompileEgglogError err)
+        attempt@(EgglogFailed {}) ->
+          Right (LegacyReportEgglogAttempt attempt)
+
+compileLegacyCore :: FilePath -> Text -> Either CompileError CoreProgram
+compileLegacyCore path source = do
+  parsed <-
+    case parseLocatedSourceProgram path source of
+      Left parseError -> Left (CompileParseError (Text.pack (errorBundlePretty parseError)))
+      Right expr -> Right expr
+  typedParsed <-
+    case elaborateLocatedProgram parsed of
+      Left typeError -> Left (CompileTypeError typeError)
+      Right (_, result) -> Right result
+  pure (lower (programMain (stripLocatedProgram typedParsed)))
 
 programMainANF :: AProgram -> AExpr
 programMainANF (AProgram _ mainExpr) =
@@ -167,6 +228,10 @@ renderCompileError = \case
     section "Runtime error" (renderSourceDiagnostic sourceRange "runtime error" (renderRuntimeError runtimeError))
   CompileSimplifyError simplifyError ->
     section "Simplify error" (renderSimplifyError simplifyError)
+  CompileEgglogError egglogError ->
+    section
+      "Egglog error"
+      ("Egglog optimization is required by --strict-egglog but unsupported in report mode: " <> renderEgglogBackendError egglogError)
 
 section :: Text -> Text -> Text
 section title body =
@@ -183,9 +248,11 @@ renderEGraphReport = \case
   Left err ->
     renderEGraphError err
 
-renderEgglogReport :: EgglogOptimizationAttempt -> Text
+renderEgglogReport :: LegacyReportEgglog -> Text
 renderEgglogReport = \case
-  EgglogOptimized result ->
+  LegacyReportEgglogDisabled ->
+    "status: disabled\n"
+  LegacyReportEgglogAttempt (EgglogOptimized result) ->
     Text.unlines
       [ "status: optimized"
       , "optimized ANF:"
@@ -201,12 +268,12 @@ renderEgglogReport = \case
       , "merge conflicts: " <> Text.pack (show (mergeConflicts (rebuildStats result)))
       , "rules: " <> renderAppliedRuleSummary (appliedRules result)
       ]
-  EgglogUnsupported err ->
+  LegacyReportEgglogAttempt (EgglogUnsupported err) ->
     Text.unlines
       [ "status: unsupported"
       , "reason: " <> renderEgglogBackendError err
       ]
-  EgglogFailed err ->
+  LegacyReportEgglogAttempt (EgglogFailed err) ->
     Text.unlines
       [ "status: failed"
       , "reason: " <> renderEgglogBackendError err

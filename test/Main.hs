@@ -9,6 +9,7 @@ import qualified Backend.LLVM.Toolchain as LLVMTools
 import qualified Backend.LLVM.Validate as LV
 import qualified Backend.Lower as BL
 import qualified Backend.Validate as BV
+import qualified CLI.Command as CommandCLI
 import qualified CLI.Compile as CompileCLI
 import CLI.Report (CompileError (..), CompileReport (..), compileReport, renderCompileError, renderGoldenReport)
 import Control.Monad (unless, when)
@@ -439,7 +440,11 @@ testGroups =
       ]
   , TestGroup
       "CLI"
-      [ pureTest "compile flags select LLVM and native output modes" testCompileFlagsOutputModes
+      [ pureTest "command model parses supported top-level forms" testCLICommandModelParsesSupportedForms
+      , pureTest "command model rejects invalid forms with scoped usage" testCLICommandModelRejectsInvalidForms
+      , pureTest "command model exposes stable help text" testCLICommandModelUsageText
+      , pureTest "check, emit-core, emit-stg, and run flags expose scoped option sets" testCheckEmitCoreRunFlags
+      , pureTest "compile flags select LLVM and native output modes" testCompileFlagsOutputModes
       , pureTest "compile flags collect native link options" testCompileFlagsLinkOptions
       , pureTest "compile flags reject invalid run combinations" testCompileFlagsRejectInvalidRunModes
       ]
@@ -892,8 +897,11 @@ testHaskell2010ForeignDeclarationParsing = do
   parsed <-
     parseHaskell2010
       "module ForeignSurface where\n\
-      \foreign import ccall unsafe \"static [stdlib.h] abs\" c_abs :: Int -> IO Int\n\
-      \foreign import ccall safe \"[errno.h] &errno\" c_errno :: Ptr Int\n\
+      \foreign import ccall unsafe \"static stdlib.h abs\" c_abs :: Int -> IO Int\n\
+      \foreign import ccall safe \"errno.h &errno\" c_errno :: Ptr Int\n\
+      \foreign import ccall \"static [string.h]\" c_strlen :: Ptr Int -> IO Int\n\
+      \foreign import ccall \"&\" c_default_addr :: Ptr Int\n\
+      \foreign import ccall \"\" c_default :: IO Int\n\
       \foreign import ccall \"dynamic\" mkFun :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
       \foreign import ccall \"wrapper\" wrapFun :: (Int -> IO Int) -> IO (FunPtr (Int -> IO Int))\n\
       \foreign export ccall \"hs_identity\" identity :: Int -> Int\n\
@@ -901,6 +909,9 @@ testHaskell2010ForeignDeclarationParsing = do
   case H2010.moduleDecls parsed of
     [ H2010.ForeignDecl (H2010.ForeignImportDecl cAbs)
       , H2010.ForeignDecl (H2010.ForeignImportDecl cErrno)
+      , H2010.ForeignDecl (H2010.ForeignImportDecl cStrlen)
+      , H2010.ForeignDecl (H2010.ForeignImportDecl cDefaultAddress)
+      , H2010.ForeignDecl (H2010.ForeignImportDecl cDefault)
       , H2010.ForeignDecl (H2010.ForeignImportDecl dynamicImport)
       , H2010.ForeignDecl (H2010.ForeignImportDecl wrapperImport)
       , H2010.ForeignDecl (H2010.ForeignExportDecl exported)
@@ -911,6 +922,9 @@ testHaskell2010ForeignDeclarationParsing = do
         expectEqual "static import entity" (H2010.ForeignImportStatic (Just "stdlib.h") "abs") (H2010.foreignImportEntityKind (H2010.foreignImportEntity cAbs))
         expectEqual "foreign import binds parsed name" "c_abs" (H2010.foreignImportName cAbs)
         expectEqual "address import entity" (H2010.ForeignImportAddress (Just "errno.h") "errno") (H2010.foreignImportEntityKind (H2010.foreignImportEntity cErrno))
+        expectEqual "bracketed header default symbol remains accepted" (H2010.ForeignImportStatic (Just "string.h") "c_strlen") (H2010.foreignImportEntityKind (H2010.foreignImportEntity cStrlen))
+        expectEqual "address import defaults to parsed name" (H2010.ForeignImportAddress Nothing "c_default_addr") (H2010.foreignImportEntityKind (H2010.foreignImportEntity cDefaultAddress))
+        expectEqual "empty import entity defaults" H2010.ForeignImportDefault (H2010.foreignImportEntityKind (H2010.foreignImportEntity cDefault))
         expectEqual "dynamic import entity" H2010.ForeignImportDynamic (H2010.foreignImportEntityKind (H2010.foreignImportEntity dynamicImport))
         expectEqual "wrapper import entity" H2010.ForeignImportWrapper (H2010.foreignImportEntityKind (H2010.foreignImportEntity wrapperImport))
         expectEqual "export entity symbol" (Just "hs_identity") (H2010.foreignExportEntitySymbol (H2010.foreignExportEntity exported))
@@ -1590,7 +1604,7 @@ testHaskell2010RenamerForeignDeclarations = do
   renamed <-
     renameHaskell2010
       "module ForeignRenamer (c_abs) where\n\
-      \foreign import ccall unsafe \"static [stdlib.h] abs\" c_abs :: Int -> IO Int\n\
+      \foreign import ccall unsafe \"static stdlib.h abs\" c_abs :: Int -> IO Int\n\
       \main = c_abs\n"
   case H2010Renamed.rModuleDecls renamed of
     [ H2010Renamed.RForeignDecl (H2010Renamed.RForeignImportDecl foreignImport)
@@ -2954,6 +2968,13 @@ testHaskell2010ForeignTypechecking = do
     \main = 1\n"
     "declare i32 @abs(i32)"
   expectForeignImportDeclaration
+    "static import with Report-shaped header and default symbol"
+    "module Core0 where\n\
+    \foreign import ccall \"static ffi_helpers.h\" hegglog_ffi_current :: IO Int\n\
+    \main :: Int\n\
+    \main = 1\n"
+    "declare i64 @hegglog_ffi_current()"
+  expectForeignImportDeclaration
     "static unsigned import over Foreign.C.Types"
     "module Core0 where\n\
     \import Foreign.C.Types (CUInt)\n\
@@ -3034,6 +3055,14 @@ testHaskell2010ForeignTypechecking = do
     "module Core0 where\n\
     \import Foreign (Ptr)\n\
     \foreign import ccall \"&hegglog_ffi_global_i64\" c_global :: Ptr Int\n\
+    \main :: Int\n\
+    \main = 1\n"
+    "@hegglog_ffi_global_i64 = external global i8"
+  expectForeignImportValueDeclaration
+    "address import defaults to Haskell binder"
+    "module Core0 where\n\
+    \import Foreign (Ptr)\n\
+    \foreign import ccall \"&\" hegglog_ffi_global_i64 :: Ptr Int\n\
     \main :: Int\n\
     \main = 1\n"
     "@hegglog_ffi_global_i64 = external global i8"
@@ -3462,6 +3491,21 @@ testHaskell2010RejectsInvalidForeignTypechecking = do
     "module Core0 where\n\
     \import Foreign.C.Types (CInt)\n\
     \foreign import jvm \"foreign\" foreign_value :: CInt -> CInt\n\
+    \main = 1\n"
+  expectForeignTypeError
+    "foreign import rejects invalid ccall header syntax"
+    "unknown foreign import entity"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"static ffi_helpers.txt hegglog_ffi_add_i64\" c_add :: CInt -> CInt -> CInt\n\
+    \main = 1\n"
+  expectForeignTypeError
+    "foreign export rejects invalid C identifiers"
+    "foreign export symbol `bad symbol` is not a valid C identifier"
+    "module Core0 where\n\
+    \identity :: Int -> Int\n\
+    \identity x = x\n\
+    \foreign export ccall \"bad symbol\" identity :: Int -> Int\n\
     \main = 1\n"
   expectForeignTypeError
     "foreign export type must match exported binding"
@@ -4471,7 +4515,7 @@ testHaskell2010NativeFFILinkMetadata = do
   result <-
     compileHaskell2010Native
       "module Main where\n\
-      \foreign import ccall \"static [ffi_helpers.h] hegglog_ffi_add_i64\" c_add :: Int -> Int -> IO Int\n\
+      \foreign import ccall \"static ffi_helpers.h hegglog_ffi_add_i64\" c_add :: Int -> Int -> IO Int\n\
       \exported :: Int -> Int\n\
       \exported value = value\n\
       \foreign export ccall \"hegglog_hs_export_id\" exported :: Int -> Int\n\
@@ -5332,6 +5376,388 @@ testParserDiagnosticIncludesLocation =
     Right parsed ->
       Left ("expected parser to fail, got " <> show parsed)
 
+testCLICommandModelParsesSupportedForms :: Either String ()
+testCLICommandModelParsesSupportedForms = do
+  expectEqual
+    "general help"
+    (Right CommandCLI.CommandGeneralHelp)
+    (CommandCLI.parseCLICommand ["--help"])
+  expectEqual
+    "compile help"
+    (Right CommandCLI.CommandCompileHelp)
+    (CommandCLI.parseCLICommand ["compile", "--help"])
+  expectEqual
+    "check help"
+    (Right CommandCLI.CommandCheckHelp)
+    (CommandCLI.parseCLICommand ["check", "--help"])
+  expectEqual
+    "emit-core help"
+    (Right CommandCLI.CommandEmitCoreHelp)
+    (CommandCLI.parseCLICommand ["emit-core", "--help"])
+  expectEqual
+    "emit-stg help"
+    (Right CommandCLI.CommandEmitSTGHelp)
+    (CommandCLI.parseCLICommand ["emit-stg", "--help"])
+  expectEqual
+    "run help"
+    (Right CommandCLI.CommandRunHelp)
+    (CommandCLI.parseCLICommand ["run", "--help"])
+  expectEqual
+    "report help"
+    (Right CommandCLI.CommandReportHelp)
+    (CommandCLI.parseCLICommand ["report", "--help"])
+  expectEqual
+    "explicit compile command"
+    (Right (CommandCLI.CommandCompile "Main.hs" (compileOptions (CompileCLI.EmitLLVM (Just "out.ll")))))
+    (CommandCLI.parseCLICommand ["compile", "Main.hs", "--emit-llvm", "-o", "out.ll"])
+  expectEqual
+    "legacy compile invocation"
+    (Right (CommandCLI.CommandCompile "Main.hs" (compileOptions (CompileCLI.EmitLLVM Nothing))))
+    (CommandCLI.parseCLICommand ["Main.hs", "--emit-llvm"])
+  expectEqual
+    "explicit check command"
+    (Right (CommandCLI.CommandCheck "Lib.hs" checkOptions))
+    (CommandCLI.parseCLICommand ["check", "Lib.hs", "--no-egglog", "-i", "src-hs"])
+  expectEqual
+    "explicit emit-core command"
+    (Right (CommandCLI.CommandEmitCore "Main.hs" emitCoreOptions))
+    (CommandCLI.parseCLICommand ["emit-core", "Main.hs", "--both", "--no-egglog", "--import-path=src-hs", "-o", "core.txt"])
+  expectEqual
+    "explicit emit-stg command"
+    (Right (CommandCLI.CommandEmitSTG "Main.hs" emitSTGOptions))
+    (CommandCLI.parseCLICommand ["emit-stg", "Main.hs", "--no-egglog", "--import-path=src-hs", "-o", "stg.txt"])
+  expectEqual
+    "explicit run command"
+    (Right (CommandCLI.CommandRun "Main.hs" runOptions))
+    (CommandCLI.parseCLICommand ["run", "Main.hs", "--no-egglog", "--import-path=src-hs", "--link-library", "m"])
+  expectEqual
+    "explicit report command"
+    (Right (CommandCLI.CommandReport "examples/test.hg" CompileCLI.defaultReportCLIOptions))
+    (CommandCLI.parseCLICommand ["report", "examples/test.hg"])
+  expectEqual
+    "explicit Haskell report command"
+    (Right (CommandCLI.CommandReport "Main.hs" reportOptions))
+    (CommandCLI.parseCLICommand ["report", "Main.hs", "--no-egglog", "-i", "src-hs"])
+  expectEqual
+    "legacy report invocation"
+    (Right (CommandCLI.CommandReport "examples/test.hg" CompileCLI.defaultReportCLIOptions))
+    (CommandCLI.parseCLICommand ["examples/test.hg"])
+ where
+  compileOptions outputMode =
+    CompileCLI.CompileCLIOptions
+      { CompileCLI.cliOutputMode = outputMode
+      , CompileCLI.cliUseEgglog = True
+      , CompileCLI.cliStrictEgglog = False
+      , CompileCLI.cliImportPaths = []
+      , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+      , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+      , CompileCLI.cliKeepIntermediates = False
+      }
+  checkOptions =
+    CompileCLI.CheckCLIOptions
+      { CompileCLI.checkUseEgglog = False
+      , CompileCLI.checkStrictEgglog = False
+      , CompileCLI.checkImportPaths = ["src-hs"]
+      , CompileCLI.checkDumpOptions = CompileCLI.emptyDumpCLIOptions
+      }
+  emitCoreOptions =
+    CompileCLI.EmitCoreCLIOptions
+      { CompileCLI.emitCoreUseEgglog = False
+      , CompileCLI.emitCoreStrictEgglog = False
+      , CompileCLI.emitCoreImportPaths = ["src-hs"]
+      , CompileCLI.emitCoreOutput = Just "core.txt"
+      , CompileCLI.emitCoreSelection = CompileCLI.EmitCoreBoth
+      }
+  emitSTGOptions =
+    CompileCLI.EmitSTGCLIOptions
+      { CompileCLI.emitSTGUseEgglog = False
+      , CompileCLI.emitSTGStrictEgglog = False
+      , CompileCLI.emitSTGImportPaths = ["src-hs"]
+      , CompileCLI.emitSTGOutput = Just "stg.txt"
+      }
+  runOptions =
+    CompileCLI.RunCLIOptions
+      { CompileCLI.runUseEgglog = False
+      , CompileCLI.runStrictEgglog = False
+      , CompileCLI.runImportPaths = ["src-hs"]
+      , CompileCLI.runLinkOptions =
+          CompileCLI.emptyCompileLinkOptions
+            { CompileCLI.cliLinkLibraries = ["m"]
+            }
+      , CompileCLI.runDumpOptions = CompileCLI.emptyDumpCLIOptions
+      , CompileCLI.runKeepIntermediates = False
+      }
+  reportOptions =
+    CompileCLI.ReportCLIOptions
+      { CompileCLI.reportUseEgglog = False
+      , CompileCLI.reportStrictEgglog = False
+      , CompileCLI.reportImportPaths = ["src-hs"]
+      }
+
+testCLICommandModelRejectsInvalidForms :: Either String ()
+testCLICommandModelRejectsInvalidForms =
+  expectCommandError "missing command" CommandCLI.GeneralUsage "missing command" (CommandCLI.parseCLICommand [])
+    *> expectCommandError "missing check source" CommandCLI.CheckUsage "check requires a source file" (CommandCLI.parseCLICommand ["check"])
+    *> expectCommandError "missing compile source" CommandCLI.CompileUsage "compile requires a source file" (CommandCLI.parseCLICommand ["compile"])
+    *> expectCommandError "missing emit-core source" CommandCLI.EmitCoreUsage "emit-core requires a source file" (CommandCLI.parseCLICommand ["emit-core"])
+    *> expectCommandError "missing emit-stg source" CommandCLI.EmitSTGUsage "emit-stg requires a source file" (CommandCLI.parseCLICommand ["emit-stg"])
+    *> expectCommandError "missing report source" CommandCLI.ReportUsage "report requires a source file" (CommandCLI.parseCLICommand ["report"])
+    *> expectCommandError "missing run source" CommandCLI.RunUsage "run requires a source file" (CommandCLI.parseCLICommand ["run"])
+    *> expectCommandError "extra report args" CommandCLI.ReportUsage "report accepts exactly one source file" (CommandCLI.parseCLICommand ["report", "a.hg", "b.hg"])
+    *> expectCommandError "unknown top-level command" CommandCLI.GeneralUsage "unknown command" (CommandCLI.parseCLICommand ["frobnicate", "--bad"])
+    *> expectCommandError "invalid check flags stay in check usage" CommandCLI.CheckUsage "not valid for check" (CommandCLI.parseCLICommand ["check", "Main.hs", "--link-library", "m"])
+    *> expectCommandError "invalid compile flags stay in compile usage" CommandCLI.CompileUsage "--run requires -o/--output" (CommandCLI.parseCLICommand ["compile", "Main.hs", "--run"])
+    *> expectCommandError "invalid emit-core flags stay in emit-core usage" CommandCLI.EmitCoreUsage "not valid for emit-core" (CommandCLI.parseCLICommand ["emit-core", "Main.hs", "--link-library", "m"])
+    *> expectCommandError "invalid emit-stg flags stay in emit-stg usage" CommandCLI.EmitSTGUsage "not valid for emit-stg" (CommandCLI.parseCLICommand ["emit-stg", "Main.hs", "--link-library", "m"])
+    *> expectCommandError "invalid run flags stay in run usage" CommandCLI.RunUsage "not valid for run" (CommandCLI.parseCLICommand ["run", "Main.hs", "--emit-llvm"])
+ where
+  expectCommandError label expectedTopic expectedMessage = \case
+    Left err ->
+      expectEqual (label <> " usage topic") expectedTopic (CommandCLI.commandErrorUsageTopic err)
+        *> assertBool (label <> " message") (expectedMessage `Text.isInfixOf` CommandCLI.commandErrorMessage err)
+    Right command ->
+      Left (label <> ": expected command parse failure, got " <> show command)
+
+testCLICommandModelUsageText :: Either String ()
+testCLICommandModelUsageText =
+  assertBool "general usage documents compile command" ("hegglog compile FILE" `Text.isInfixOf` CommandCLI.generalUsage)
+    *> assertBool "general usage documents check command" ("hegglog check FILE" `Text.isInfixOf` CommandCLI.generalUsage)
+    *> assertBool "general usage documents emit-core command" ("hegglog emit-core FILE" `Text.isInfixOf` CommandCLI.generalUsage)
+    *> assertBool "general usage documents emit-stg command" ("hegglog emit-stg FILE" `Text.isInfixOf` CommandCLI.generalUsage)
+    *> assertBool "general usage documents run command" ("hegglog run FILE" `Text.isInfixOf` CommandCLI.generalUsage)
+    *> assertBool "general usage documents report command" ("hegglog report FILE" `Text.isInfixOf` CommandCLI.generalUsage)
+    *> assertBool "general usage documents legacy report invocation" ("hegglog FILE" `Text.isInfixOf` CommandCLI.generalUsage)
+    *> assertBool "check usage documents no-codegen validation" ("without emitting LLVM IR" `Text.isInfixOf` CommandCLI.checkUsage)
+    *> assertBool "check usage documents dump flags" ("--dump-core" `Text.isInfixOf` CommandCLI.checkUsage && "--dump-stg" `Text.isInfixOf` CommandCLI.checkUsage)
+    *> assertBool "check usage documents strict egglog" ("--strict-egglog" `Text.isInfixOf` CommandCLI.checkUsage)
+    *> assertBool "emit-core usage documents typed Core" ("typed Haskell 2010 Core" `Text.isInfixOf` CommandCLI.emitCoreUsage)
+    *> assertBool "emit-core usage documents original output" ("--original" `Text.isInfixOf` CommandCLI.emitCoreUsage)
+    *> assertBool "emit-stg usage documents STG output" ("emit Haskell 2010 STG" `Text.isInfixOf` CommandCLI.emitSTGUsage)
+    *> assertBool "emit-stg usage documents output files" ("--output PATH" `Text.isInfixOf` CommandCLI.emitSTGUsage)
+    *> assertBool "run usage documents output forwarding" ("forward program stdout/stderr" `Text.isInfixOf` CommandCLI.runUsage)
+    *> assertBool "run usage documents dump flags" ("--dump-optimized-core" `Text.isInfixOf` CommandCLI.runUsage)
+    *> assertBool "run usage documents keep intermediates" ("--keep-intermediates" `Text.isInfixOf` CommandCLI.runUsage)
+    *> assertBool "run usage documents strict egglog" ("--strict-egglog" `Text.isInfixOf` CommandCLI.runUsage)
+    *> assertBool "compile usage documents link objects" ("--link-object PATH" `Text.isInfixOf` CommandCLI.compileUsage)
+    *> assertBool "compile usage documents import paths" ("--import-path PATH" `Text.isInfixOf` CommandCLI.compileUsage)
+    *> assertBool "compile usage documents dump flags" ("--dump-optimized-core" `Text.isInfixOf` CommandCLI.compileUsage)
+    *> assertBool "compile usage documents keep intermediates" ("--keep-intermediates" `Text.isInfixOf` CommandCLI.compileUsage)
+    *> assertBool "compile usage documents strict egglog" ("--strict-egglog" `Text.isInfixOf` CommandCLI.compileUsage)
+    *> assertBool "report usage documents .hg mode" ("legacy .hg" `Text.isInfixOf` CommandCLI.reportUsage)
+    *> assertBool "report usage documents Haskell 2010 mode" ("Haskell 2010 .hs reports" `Text.isInfixOf` CommandCLI.reportUsage)
+    *> assertBool "report usage documents strict egglog" ("--strict-egglog" `Text.isInfixOf` CommandCLI.reportUsage)
+
+testCheckEmitCoreRunFlags :: Either String ()
+testCheckEmitCoreRunFlags = do
+  expectEqual
+    "check flags"
+    ( Right
+        ( CompileCLI.CheckCLIOptions
+          { CompileCLI.checkUseEgglog = False
+          , CompileCLI.checkStrictEgglog = False
+          , CompileCLI.checkImportPaths = ["src-hs", "generated-hs"]
+          , CompileCLI.checkDumpOptions = CompileCLI.emptyDumpCLIOptions
+          }
+        )
+    )
+    (CompileCLI.parseCheckFlags ["--no-egglog", "-i", "src-hs", "--import-path=generated-hs"])
+  expectEqual
+    "check dump flags"
+    ( Right
+        ( CompileCLI.CheckCLIOptions
+          { CompileCLI.checkUseEgglog = True
+          , CompileCLI.checkStrictEgglog = False
+          , CompileCLI.checkImportPaths = []
+          , CompileCLI.checkDumpOptions =
+              CompileCLI.emptyDumpCLIOptions
+                { CompileCLI.dumpCore = True
+                , CompileCLI.dumpSTG = True
+                }
+          }
+        )
+    )
+    (CompileCLI.parseCheckFlags ["--dump-core", "--dump-stg"])
+  expectEqual
+    "check strict egglog flag"
+    ( Right
+        ( CompileCLI.CheckCLIOptions
+          { CompileCLI.checkUseEgglog = True
+          , CompileCLI.checkStrictEgglog = True
+          , CompileCLI.checkImportPaths = []
+          , CompileCLI.checkDumpOptions = CompileCLI.emptyDumpCLIOptions
+          }
+        )
+    )
+    (CompileCLI.parseCheckFlags ["--strict-egglog"])
+  expectEqual
+    "emit-core flags"
+    ( Right
+        ( CompileCLI.EmitCoreCLIOptions
+          { CompileCLI.emitCoreUseEgglog = False
+          , CompileCLI.emitCoreStrictEgglog = False
+          , CompileCLI.emitCoreImportPaths = ["src-hs", "generated-hs"]
+          , CompileCLI.emitCoreOutput = Just "Core.out"
+          , CompileCLI.emitCoreSelection = CompileCLI.EmitCoreOriginal
+          }
+        )
+    )
+    (CompileCLI.parseEmitCoreFlags ["--no-egglog", "--original", "-i", "src-hs", "--import-path=generated-hs", "--output=Core.out"])
+  expectEqual
+    "emit-core strict egglog flag"
+    ( Right
+        ( CompileCLI.EmitCoreCLIOptions
+          { CompileCLI.emitCoreUseEgglog = True
+          , CompileCLI.emitCoreStrictEgglog = True
+          , CompileCLI.emitCoreImportPaths = []
+          , CompileCLI.emitCoreOutput = Nothing
+          , CompileCLI.emitCoreSelection = CompileCLI.EmitCoreOptimized
+          }
+        )
+    )
+    (CompileCLI.parseEmitCoreFlags ["--strict-egglog"])
+  expectEqual
+    "emit-stg flags"
+    ( Right
+        ( CompileCLI.EmitSTGCLIOptions
+          { CompileCLI.emitSTGUseEgglog = False
+          , CompileCLI.emitSTGStrictEgglog = False
+          , CompileCLI.emitSTGImportPaths = ["src-hs", "generated-hs"]
+          , CompileCLI.emitSTGOutput = Just "STG.out"
+          }
+        )
+    )
+    (CompileCLI.parseEmitSTGFlags ["--no-egglog", "-i", "src-hs", "--import-path=generated-hs", "--output=STG.out"])
+  expectEqual
+    "run flags"
+    ( Right
+        ( CompileCLI.RunCLIOptions
+          { CompileCLI.runUseEgglog = False
+          , CompileCLI.runStrictEgglog = False
+          , CompileCLI.runImportPaths = ["src-hs"]
+          , CompileCLI.runLinkOptions =
+              CompileCLI.CompileLinkOptions
+                { CompileCLI.cliLinkObjects = ["ffi.o"]
+                , CompileCLI.cliLinkLibraries = ["m"]
+                , CompileCLI.cliLinkLibraryPaths = ["native"]
+                , CompileCLI.cliLinkFrameworks = ["CoreFoundation"]
+                }
+          , CompileCLI.runDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.runKeepIntermediates = False
+          }
+        )
+    )
+    ( CompileCLI.parseRunFlags
+        [ "--no-egglog"
+        , "-isrc-hs"
+        , "--link-object"
+        , "ffi.o"
+        , "--library-path"
+        , "native"
+        , "--link-library"
+        , "m"
+        , "--framework"
+        , "CoreFoundation"
+        ]
+    )
+  expectEqual
+    "run dump flags"
+    ( Right
+        ( CompileCLI.RunCLIOptions
+          { CompileCLI.runUseEgglog = True
+          , CompileCLI.runStrictEgglog = False
+          , CompileCLI.runImportPaths = []
+          , CompileCLI.runLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.runDumpOptions =
+              CompileCLI.emptyDumpCLIOptions
+                { CompileCLI.dumpOptimizedCore = True
+                }
+          , CompileCLI.runKeepIntermediates = False
+          }
+        )
+    )
+    (CompileCLI.parseRunFlags ["--dump-optimized-core"])
+  expectEqual
+    "run keep intermediates flag"
+    ( Right
+        ( CompileCLI.RunCLIOptions
+          { CompileCLI.runUseEgglog = True
+          , CompileCLI.runStrictEgglog = False
+          , CompileCLI.runImportPaths = []
+          , CompileCLI.runLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.runDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.runKeepIntermediates = True
+          }
+        )
+    )
+    (CompileCLI.parseRunFlags ["--keep-intermediates"])
+  expectEqual
+    "run strict egglog flag"
+    ( Right
+        ( CompileCLI.RunCLIOptions
+          { CompileCLI.runUseEgglog = True
+          , CompileCLI.runStrictEgglog = True
+          , CompileCLI.runImportPaths = []
+          , CompileCLI.runLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.runDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.runKeepIntermediates = False
+          }
+        )
+    )
+    (CompileCLI.parseRunFlags ["--strict-egglog"])
+  expectEqual
+    "report flags"
+    ( Right
+        ( CompileCLI.ReportCLIOptions
+          { CompileCLI.reportUseEgglog = False
+          , CompileCLI.reportStrictEgglog = False
+          , CompileCLI.reportImportPaths = ["src-hs", "generated-hs"]
+          }
+        )
+    )
+    (CompileCLI.parseReportFlags ["--no-egglog", "-i", "src-hs", "--import-path=generated-hs"])
+  expectEqual
+    "report strict egglog flag"
+    ( Right
+        ( CompileCLI.ReportCLIOptions
+          { CompileCLI.reportUseEgglog = True
+          , CompileCLI.reportStrictEgglog = True
+          , CompileCLI.reportImportPaths = []
+          }
+        )
+    )
+    (CompileCLI.parseReportFlags ["--strict-egglog"])
+  assertLeftContains "check rejects native link flag" "not valid for check" (CompileCLI.parseCheckFlags ["--link-object", "ffi.o"])
+  assertLeftContains "check rejects output flag" "not valid for check" (CompileCLI.parseCheckFlags ["-o", "program"])
+  assertLeftContains "check rejects keep intermediates" "not valid for check" (CompileCLI.parseCheckFlags ["--keep-intermediates"])
+  assertLeftContains "check rejects conflicting egglog flags" "cannot be combined" (CompileCLI.parseCheckFlags ["--no-egglog", "--strict-egglog"])
+  assertLeftContains "emit-core rejects dump flag" "already an IR output command" (CompileCLI.parseEmitCoreFlags ["--dump-core"])
+  assertLeftContains "emit-core rejects keep intermediates" "not valid for emit-core" (CompileCLI.parseEmitCoreFlags ["--keep-intermediates"])
+  assertLeftContains "emit-core rejects conflicting egglog flags" "cannot be combined" (CompileCLI.parseEmitCoreFlags ["--no-egglog", "--strict-egglog"])
+  assertLeftContains "emit-core rejects native link flag" "not valid for emit-core" (CompileCLI.parseEmitCoreFlags ["--framework", "CoreFoundation"])
+  assertLeftContains "emit-core rejects run flag" "not valid for emit-core" (CompileCLI.parseEmitCoreFlags ["--run"])
+  assertLeftContains "emit-core rejects duplicate output" "provided more than once" (CompileCLI.parseEmitCoreFlags ["-o", "a", "--output", "b"])
+  assertLeftContains "emit-core rejects duplicate selection" "cannot be combined" (CompileCLI.parseEmitCoreFlags ["--original", "--both"])
+  assertLeftContains "emit-stg rejects native link flag" "not valid for emit-stg" (CompileCLI.parseEmitSTGFlags ["--framework", "CoreFoundation"])
+  assertLeftContains "emit-stg rejects run flag" "not valid for emit-stg" (CompileCLI.parseEmitSTGFlags ["--run"])
+  assertLeftContains "emit-stg rejects dump flag" "already an IR output command" (CompileCLI.parseEmitSTGFlags ["--dump-stg"])
+  assertLeftContains "emit-stg rejects keep intermediates" "not valid for emit-stg" (CompileCLI.parseEmitSTGFlags ["--keep-intermediates"])
+  assertLeftContains "emit-stg rejects conflicting egglog flags" "cannot be combined" (CompileCLI.parseEmitSTGFlags ["--no-egglog", "--strict-egglog"])
+  assertLeftContains "emit-stg rejects duplicate output" "provided more than once" (CompileCLI.parseEmitSTGFlags ["-o", "a", "--output", "b"])
+  assertLeftContains "emit-stg rejects Core selection" "not valid for emit-stg" (CompileCLI.parseEmitSTGFlags ["--both"])
+  assertLeftContains "run rejects LLVM mode" "not valid for run" (CompileCLI.parseRunFlags ["--emit-llvm"])
+  assertLeftContains "run rejects output flag" "temporary native executable" (CompileCLI.parseRunFlags ["--output", "program"])
+  assertLeftContains "run rejects conflicting egglog flags" "cannot be combined" (CompileCLI.parseRunFlags ["--no-egglog", "--strict-egglog"])
+  assertLeftContains "report rejects dump flag" "not valid for report" (CompileCLI.parseReportFlags ["--dump-core"])
+  assertLeftContains "report rejects native link flag" "not valid for report" (CompileCLI.parseReportFlags ["--link-library", "m"])
+  assertLeftContains "report rejects output flag" "not valid for report" (CompileCLI.parseReportFlags ["--output", "report.txt"])
+  assertLeftContains "report rejects conflicting egglog flags" "cannot be combined" (CompileCLI.parseReportFlags ["--no-egglog", "--strict-egglog"])
+ where
+  assertLeftContains label needle = \case
+    Left message ->
+      assertBool label (needle `Text.isInfixOf` message)
+    Right value ->
+      Left (label <> ": expected parse failure, got " <> show value)
+
 testCompileFlagsOutputModes :: Either String ()
 testCompileFlagsOutputModes = do
   expectEqual
@@ -5340,8 +5766,11 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.EmitLLVM (Just "out.ll")
           , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliStrictEgglog = False
           , CompileCLI.cliImportPaths = []
           , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.cliKeepIntermediates = False
           }
         )
     )
@@ -5352,8 +5781,11 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.EmitAndRunLLVM Nothing
           , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliStrictEgglog = False
           , CompileCLI.cliImportPaths = []
           , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.cliKeepIntermediates = False
           }
         )
     )
@@ -5364,8 +5796,11 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.BuildExecutable "program"
           , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliStrictEgglog = False
           , CompileCLI.cliImportPaths = []
           , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.cliKeepIntermediates = False
           }
         )
     )
@@ -5376,12 +5811,65 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.BuildAndRunExecutable "program"
           , CompileCLI.cliUseEgglog = False
+          , CompileCLI.cliStrictEgglog = False
           , CompileCLI.cliImportPaths = []
           , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.cliKeepIntermediates = False
           }
         )
     )
     (CompileCLI.parseCompileFlags ["--output", "program", "--run", "--no-egglog"])
+  expectEqual
+    "compile dump flags"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.EmitLLVM Nothing
+          , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliStrictEgglog = False
+          , CompileCLI.cliImportPaths = []
+          , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.cliDumpOptions =
+              CompileCLI.emptyDumpCLIOptions
+                { CompileCLI.dumpCore = True
+                , CompileCLI.dumpOptimizedCore = True
+                , CompileCLI.dumpSTG = True
+                }
+          , CompileCLI.cliKeepIntermediates = False
+          }
+        )
+    )
+    (CompileCLI.parseCompileFlags ["--emit-llvm", "--dump-core", "--dump-optimized-core", "--dump-stg"])
+  expectEqual
+    "compile keep intermediates flag"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.EmitLLVM Nothing
+          , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliStrictEgglog = False
+          , CompileCLI.cliImportPaths = []
+          , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.cliKeepIntermediates = True
+          }
+        )
+    )
+    (CompileCLI.parseCompileFlags ["--emit-llvm", "--keep-intermediates"])
+  expectEqual
+    "compile strict egglog flag"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.EmitLLVM Nothing
+          , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliStrictEgglog = True
+          , CompileCLI.cliImportPaths = []
+          , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.cliKeepIntermediates = False
+          }
+        )
+    )
+    (CompileCLI.parseCompileFlags ["--emit-llvm", "--strict-egglog"])
 
 testCompileFlagsLinkOptions :: Either String ()
 testCompileFlagsLinkOptions =
@@ -5391,6 +5879,7 @@ testCompileFlagsLinkOptions =
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.BuildExecutable "program"
           , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliStrictEgglog = False
           , CompileCLI.cliImportPaths = ["src-hs", "vendor-hs", "generated-hs"]
           , CompileCLI.cliLinkOptions =
               CompileCLI.CompileLinkOptions
@@ -5399,6 +5888,8 @@ testCompileFlagsLinkOptions =
                 , CompileCLI.cliLinkLibraryPaths = ["native"]
                 , CompileCLI.cliLinkFrameworks = ["CoreFoundation"]
                 }
+          , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.cliKeepIntermediates = False
           }
         )
     )
@@ -5435,6 +5926,7 @@ testCompileFlagsRejectInvalidRunModes =
     *> assertLeftContains "missing link library name rejected" "--link-library requires a library name" (CompileCLI.parseCompileFlags ["--link-library"])
     *> assertLeftContains "missing library path rejected" "--library-path requires a directory path" (CompileCLI.parseCompileFlags ["--library-path"])
     *> assertLeftContains "missing framework name rejected" "--framework requires a framework name" (CompileCLI.parseCompileFlags ["--framework"])
+    *> assertLeftContains "conflicting egglog flags rejected" "cannot be combined" (CompileCLI.parseCompileFlags ["--no-egglog", "--strict-egglog"])
  where
   assertLeftContains label needle = \case
     Left message ->

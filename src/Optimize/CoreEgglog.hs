@@ -2,6 +2,7 @@ module Optimize.CoreEgglog
   ( CoreEgglogError (..)
   , CoreEgglogResult (..)
   , optimizeCoreModuleWithEgglog
+  , optimizeCoreModuleWithEgglogStrict
   , renderCoreEgglogError
   , renderCoreEgglogStatus
   )
@@ -42,6 +43,7 @@ data CoreEgglogError
   | CoreEgglogUnsupportedType CoreType
   | CoreEgglogUnsupportedANF AExpr
   | CoreEgglogUnsupportedANFAtom Atom
+  | CoreEgglogStrictUnsupportedFragment CoreExpr
   | CoreEgglogTypeMismatch CoreType CoreType
   | CoreEgglogUnknownANFName Name
   | CoreEgglogCannotConvert Text
@@ -51,6 +53,7 @@ data OptimizeState = OptimizeState
   { optimizeNextUnique :: Int
   , optimizeAppliedRules :: [Text]
   , optimizeProvenance :: [Text]
+  , optimizeStrict :: Bool
   }
   deriving stock (Show, Eq)
 
@@ -88,7 +91,15 @@ data KnownCaseScrutinee
   deriving stock (Show, Eq)
 
 optimizeCoreModuleWithEgglog :: RunConfig -> CoreModule -> Either CoreEgglogError CoreEgglogResult
-optimizeCoreModuleWithEgglog config coreModule = do
+optimizeCoreModuleWithEgglog =
+  optimizeCoreModuleWithEgglogMode False
+
+optimizeCoreModuleWithEgglogStrict :: RunConfig -> CoreModule -> Either CoreEgglogError CoreEgglogResult
+optimizeCoreModuleWithEgglogStrict =
+  optimizeCoreModuleWithEgglogMode True
+
+optimizeCoreModuleWithEgglogMode :: Bool -> RunConfig -> CoreModule -> Either CoreEgglogError CoreEgglogResult
+optimizeCoreModuleWithEgglogMode strict config coreModule = do
   let validationEnv = CoreValidate.moduleValidationEnv coreModule
   case CoreValidate.validateModule validationEnv coreModule of
     Left errors -> Left (CoreEgglogInvalidInput errors)
@@ -98,6 +109,7 @@ optimizeCoreModuleWithEgglog config coreModule = do
           { optimizeNextUnique = nextUniqueAfterModule coreModule
           , optimizeAppliedRules = []
           , optimizeProvenance = []
+          , optimizeStrict = strict
           }
       moduleScope = scopeFromBinds (coreModuleBinds coreModule)
   (optimizedBinds, finalState) <-
@@ -327,13 +339,18 @@ tryEgglogRewrite config env expression = do
   optimizerState <- get
   case encodeCoreFragment env expression of
     Nothing ->
-      pure expression
+      if optimizeStrict optimizerState && expressionCost expression > 1
+        then lift (Left (CoreEgglogStrictUnsupportedFragment expression))
+        else pure expression
     Just fragment ->
       case ANFEgglog.optimizeWithEgglog config (fragmentANF fragment) of
         Left err
-          | isUnsupportedANFBackend err -> pure expression
+          | isUnsupportedANFBackend err ->
+              if optimizeStrict optimizerState && expressionCost expression > 1
+                then lift (Left (CoreEgglogBackendError err))
+                else pure expression
         Left err
-          | expressionCost expression <= 1 -> pure expression
+          | expressionCost expression <= 1 && not (optimizeStrict optimizerState) -> pure expression
           | otherwise -> lift (Left (CoreEgglogBackendError err))
         Right result -> do
           decoded <-
@@ -983,6 +1000,8 @@ renderCoreEgglogError = \case
     "Core Egglog optimizer cannot decode ANF expression " <> renderANF expr
   CoreEgglogUnsupportedANFAtom atom ->
     "Core Egglog optimizer cannot decode ANF atom " <> Text.pack (show atom)
+  CoreEgglogStrictUnsupportedFragment expr ->
+    "Core Egglog optimizer is required by --strict-egglog but cannot encode Core fragment " <> renderCoreExpr expr
   CoreEgglogTypeMismatch expected actual ->
     "Core Egglog type mismatch: expected " <> renderCoreType expected <> ", got " <> renderCoreType actual
   CoreEgglogUnknownANFName name ->
