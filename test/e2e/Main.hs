@@ -425,8 +425,9 @@ runEmitLLVMCase hegglog clang e2eCase =
     assertBool "LLVM output should be nonempty" (not (Text.null llvmText))
     assertBool "LLVM output should contain define" ("define" `Text.isInfixOf` llvmText)
     assertBool "LLVM output should contain @main" ("@main" `Text.isInfixOf` llvmText)
-    clangResult <- runCommand clang [llvmPath, "-o", exePath]
-    assertExitSuccess ("clang emitted LLVM " <> showCommand clang [llvmPath, "-o", exePath]) clangResult
+    let clangArgs = [llvmPath, "-lm", "-o", exePath]
+    clangResult <- runCommand clang clangArgs
+    assertExitSuccess ("clang emitted LLVM " <> showCommand clang clangArgs) clangResult
     assertExecutableExists exePath
     runResult <- runCommandWithInput exePath [] (stdinText e2eCase)
     case expected e2eCase of

@@ -77,6 +77,7 @@ import Syntax.Span (SourceSpan (..))
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, removePathForcibly)
 import System.Exit (exitFailure)
 import System.FilePath ((</>))
+import qualified System.Info as SystemInfo
 import Test.QuickCheck hiding (NonZero, label)
 import Text.Megaparsec (errorBundlePretty)
 import Typecheck.Infer (infer, inferProgram)
@@ -362,6 +363,7 @@ testGroups =
       [ pureTest "emits boxed lazy STG runtime LLVM" testHaskell2010NativeLLVMShape
       , pureTest "erases newtype constructor allocation in native LLVM" testHaskell2010NativeNewtypeErasure
       , pureTest "emits FFI link metadata" testHaskell2010NativeFFILinkMetadata
+      , pureTest "emits host errno accessor in native LLVM" testHaskell2010NativeErrnoAccessor
       , pureTest "emits Char runtime LLVM" testHaskell2010NativeCharRuntime
       , pureTest "emits String as Char lists in native LLVM" testHaskell2010NativeStringCharList
       , pureTest "emits arithmetic sequence LLVM" testHaskell2010NativeArithmeticSequences
@@ -4533,6 +4535,23 @@ testHaskell2010NativeFFILinkMetadata = do
   assertBool "LLVM records foreign link import symbol" ("; foreign link import symbol: hegglog_ffi_add_i64" `Text.isInfixOf` llvmText)
   assertBool "LLVM records foreign link export symbol" ("; foreign link export symbol: hegglog_hs_export_id" `Text.isInfixOf` llvmText)
 
+testHaskell2010NativeErrnoAccessor :: Either String ()
+testHaskell2010NativeErrnoAccessor = do
+  llvmText <- compileHaskell2010NativeText "module Main where\nmain = 0\n"
+  case SystemInfo.os of
+    "darwin" ->
+      assertBool "Darwin LLVM declares __error" ("declare ptr @__error()" `Text.isInfixOf` llvmText)
+        *> assertBool "Darwin LLVM calls __error" ("call ptr @__error()" `Text.isInfixOf` llvmText)
+        *> assertBool "Darwin LLVM does not reference Linux errno accessor" (not ("__errno_location" `Text.isInfixOf` llvmText))
+    "freebsd" ->
+      assertBool "FreeBSD LLVM declares __error" ("declare ptr @__error()" `Text.isInfixOf` llvmText)
+        *> assertBool "FreeBSD LLVM calls __error" ("call ptr @__error()" `Text.isInfixOf` llvmText)
+        *> assertBool "FreeBSD LLVM does not reference Linux errno accessor" (not ("__errno_location" `Text.isInfixOf` llvmText))
+    _ ->
+      assertBool "Linux-style LLVM declares __errno_location" ("declare ptr @__errno_location()" `Text.isInfixOf` llvmText)
+        *> assertBool "Linux-style LLVM calls __errno_location" ("call ptr @__errno_location()" `Text.isInfixOf` llvmText)
+        *> assertBool "Linux-style LLVM does not reference Darwin errno accessor" (not ("__error" `Text.isInfixOf` llvmText))
+
 testHaskell2010NativeGetLine :: Either String ()
 testHaskell2010NativeGetLine = do
   llvmText <- compileHaskell2010NativeText haskell2010IOGetLineSource
@@ -7560,6 +7579,7 @@ testNativeBuildLinkOptionsMissingObject = do
         case result of
           LLVMTools.NativeBuildFailed _clangPath args _code _stdoutText stderrText ->
             assertBool "clang argv includes missing link object" (missingPath `elem` args)
+              *> assertBool "clang argv includes native runtime math library" ("-lm" `elem` args)
               *> assertBool "clang stderr names missing link object" (Text.pack missingPath `Text.isInfixOf` Text.pack stderrText)
           LLVMTools.NativeBuildSucceeded ->
             Left "expected native link to fail for missing object input"
