@@ -75,17 +75,19 @@ terms, and makes imported foreign names available through ordinary module
 interfaces. The typechecker validates the current FFI signature boundary
 against generated `Foreign`, `Foreign.C`, and `Foreign.C.Types` interfaces
 and valid imports lower into explicit Core/STG foreign-call or foreign-import
-value IR. The native backend lowers supported `foreign import ccall` scalar
+value IR. The native backend lowers supported `foreign import ccall` scalar/floating
 imports to LLVM external declarations/direct calls or indirect `FunPtr` calls
-with checked integer/Bool/Char marshalling, and now lowers boxed
+with checked integer/Bool/Char/Float/Double marshalling, and now lowers boxed
 `Ptr`/`FunPtr` values, static `&symbol` address imports, pointer
 arguments/results, and `wrapper` callback trampolines for the same ABI slice.
-Complete package search paths, complete Prelude module coverage, floating-point
-ABI work, broader link metadata, automatic GC finalization, and
-`freeHaskellFunPtr`/callback-slot reclamation remain later
-module-system/runtime work; `foreign export ccall` entrypoints and explicit
-`StablePtr`/manual `ForeignPtr` ownership APIs are implemented for the current
-scalar/pointer native ABI slice.
+FFI link metadata is preserved for header-qualified imports and C symbols, and
+native executable builds accept explicit source import paths, link objects,
+libraries, library paths, and frameworks through the compile CLI. Package
+database/interface search paths, complete Prelude module coverage, automatic GC finalization, and remaining
+Foreign library breadth remain later module-system/runtime work; `foreign
+export ccall` entrypoints, `freeHaskellFunPtr` wrapper slot reclamation, and
+explicit `StablePtr`/manual `ForeignPtr` ownership APIs are implemented for the
+current scalar/floating/pointer native ABI slice.
 
 Required namespaces and scopes:
 
@@ -111,6 +113,28 @@ Required errors:
 Fixity handling belongs at the boundary between parsing and renaming. The
 frontend may parse infix expressions as unresolved operator trees, then resolve
 precedence and associativity after fixity declarations are known.
+
+## Module Compilation Boundary
+
+The current Haskell 2010 module pipeline is explicit source-graph
+whole-program compilation. `Haskell2010.ModuleGraph.currentModuleCompilationBoundary`
+records the active policy:
+
+- `RootDirectoryAndImportPathSourceSearch []` resolves source imports under
+  the root module's directory first, with generated standard-library modules
+  supplied by `Haskell2010.StandardLibrary`. Native compile commands may add
+  ordered source roots with repeated `-i`/`--import-path` flags.
+- `WholeProgramSourceCompilation` keeps loaded source modules together through
+  renaming, typechecking, Core/STG lowering, and native compilation.
+- `InterfaceFilesDeferredUntilStableSearchPaths` documents that `.hi`-style
+  interface artifacts are intentionally deferred until package/interface
+  identity and generated standard-library boundaries are stable.
+
+This boundary is specified in
+`docs/haskell2010-module-compilation-boundary.md`. Future separate compilation
+must preserve current import/export behavior, fixities, instance visibility,
+implicit/explicit `Prelude` semantics, generated library interfaces, and FFI
+link metadata before replacing the whole-program pipeline.
 
 ## Typechecker
 
@@ -155,8 +179,8 @@ Current initial Haskell 2010 class capabilities:
 Remaining planned Haskell 2010 capabilities:
 
 - instance contexts, method-specific constraints, and remaining deriving classes
-- full `showsPrec`/`showList`, Fractional/Floating and full Ratio numeric
-  behavior, and fuller Prelude hierarchy
+- generic Ratio numeric behavior beyond the current `Ratio Integer`/`Rational`
+  surface, native out-of-i64 `Integer` payloads, and fuller Prelude hierarchy
 - kind checking for type constructors and classes
 
 The typechecker emits typed Core or rejects the program. It must not accept a
@@ -218,9 +242,8 @@ whole-program Core flattening, and root `main` native entrypoint selection for
 the executable subset. It exposes source-spanned non-exhaustive and redundant
 pattern-match warnings for supported partial `case`, function, and lambda
 patterns through the typechecker, native API, and compile CLI. The full Haskell
-2010 type-class surface, the report-compatible `showsPrec`/`showList`
-hierarchy, report-complete pattern coverage/runtime attribution, broader
-Prelude, handles, and richer IO behavior remain planned. The strict
+2010 type-class surface, report-complete pattern coverage/runtime attribution,
+broader Prelude, handles, and richer IO behavior remain planned. The strict
 `.hg` frontend is useful substrate and regression coverage, but it is not
 Haskell 2010:
 

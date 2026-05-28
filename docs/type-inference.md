@@ -129,14 +129,13 @@ Built-in dictionaries for `Monad IO`, `Monad Maybe`, and `Monad []` drive
 generic do-notation desugaring, including refutable pattern binds that call
 `fail` instead of relying on a raw no-match case.
 
-TC-016 documents `Read` as a deliberate Haskell 2010 Prelude/typeclass
-deviation. The renamer recognizes `Read` as a Prelude class name so source
-constraints fail as explicit unsupported type-class constraints, but the
-typechecker does not install `Read` class metadata, dictionaries, methods, or
-standard instances. This avoids a partial implementation of `readsPrec`,
-`readList`, `read`, `reads`, and lexical read behavior before the compiler has
-the parser-combinator and derived-instance infrastructure needed to make `Read`
-coherent.
+TC-030 promotes `Read` from the now-closed TC-016 documented deviation into the
+supported Prelude/typeclass surface. The typechecker installs the `Read` class
+with Report-shaped `readsPrec` and `readList` methods, generated `ReadS` and
+`ShowS` synonyms, public `reads`, `read`, `lex`, and `readParen` bindings,
+built-in scalar/list dictionaries, and derived `Read` dictionaries for the same
+supported data/newtype shapes as derived `Show`. Generated read parsers lower
+through the ordinary dictionary, Core, STG, LLVM, and native paths.
 
 TYPE-019 records the monomorphism-restriction decision for the executable
 subset: unsigned nullary value bindings without explicit signatures are eligible
@@ -145,11 +144,12 @@ bindings and functions with value parameters keep their result metavariables
 protected from this defaulting pass. This matches the current executable
 `Int`-defaulting behavior for numeric/simple class constraints, now including
 standard-class compatibility with `Enum`/`Bounded` and with the supported
-`Real`/`Integral` hierarchy when a `Num` constraint is present, without
+`Real`/`Integral` hierarchy and the supported `Fractional`/`Floating`
+classes, without
 claiming complete Haskell 2010 monomorphism-restriction coverage for every
 pattern binding and class-library form. Full MR conformance should be revisited
-when broader pattern bindings, Fractional/Floating classes, arbitrary-precision
-`Integer`, and full `Ratio`/`Rational` behavior are in place.
+when broader pattern bindings, native out-of-i64 `Integer` payloads, and the
+generic numeric-library surface around `Ratio a` are in place.
 
 TYPE-020 preserves source attribution for Haskell 2010 typecheck failures.
 Parsed declarations, expressions, patterns, statements, alternatives,
@@ -191,13 +191,15 @@ Structural `Ord [a]` is available for list and `String` fields, and superclass
 projection now lowers through reusable Core selector bindings rather than
 duplicating local projection cases.
 
-TC-025 adds derived `Show` for the same executable deriving surface. Generated
-instances synthesize ordinary `show :: a -> String` dictionary methods for
-nullary constructors, product constructors, records, recursive data, `newtype`,
-`String` fields, list-backed contexts, and parameterized declarations. Because
-the current `Show` class intentionally exposes only `show` and not the full
-Haskell 2010 `showsPrec`/`showList` hierarchy, product fields are conservatively
-parenthesized until that method hierarchy is introduced.
+TC-025 adds derived `Show` for the same executable deriving surface, and TC-029
+promotes that implementation to the Haskell 2010 method shape. Generated
+instances now synthesize `showsPrec`, `show`, and `showList` dictionary methods
+for nullary constructors, product constructors, records, recursive data,
+`newtype`, `String` fields, list-backed contexts, and parameterized
+declarations. Product constructors render with application precedence 10,
+nested constructor fields are parenthesized through `showsPrec 11`, records use
+record-construction syntax, and the generated `showList` methods use the same
+continuation-passing `ShowS` surface as the built-in dictionaries.
 
 TC-031 adds derived `Enum` for nullary-constructor data declarations. Generated
 dictionaries number constructors in declaration order, synthesize `succ`,

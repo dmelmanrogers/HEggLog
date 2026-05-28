@@ -1,5 +1,7 @@
 module Main where
 
+import Data.Ratio (denominator, numerator)
+
 default (Integer, Int)
 
 main :: IO ()
@@ -18,9 +20,8 @@ main = do
     (d, m) -> do
       print d
       print m
-  case toRational (7 :: Int) of
-    (n, d) -> do
-      print n
-      print d
+  let r = toRational (7 :: Int)
+  print (numerator r)
+  print (denominator r)
   print (toInteger (7 :: Int))
   return ()

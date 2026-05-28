@@ -3,9 +3,14 @@ module Backend.LLVM.Toolchain
   , LLVMRunResult (..)
   , LLVMTools (..)
   , NativeBuildResult (..)
+  , NativeIntermediatePaths (..)
+  , NativeLinkOptions (..)
   , NativeRunResult (..)
   , buildNativeExecutable
+  , buildNativeExecutableWithIntermediatePaths
+  , buildNativeExecutableWithLinkOptions
   , buildNativeExecutableWithObjects
+  , defaultNativeLinkOptions
   , findLLVMTools
   , runNativeExecutable
   , runNativeExecutableWithInput
@@ -20,6 +25,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.IO as Text.IO
 import System.Directory (createDirectoryIfMissing, findExecutable, getTemporaryDirectory, removeFile)
 import System.Exit (ExitCode (..))
+import System.FilePath (takeDirectory)
 import System.IO (hClose, openTempFile)
 import System.Process (readProcessWithExitCode)
 
@@ -54,6 +60,29 @@ data NativeRunResult
   | NativeRunFailed ExitCode String String
   | NativeRunIOError String
   deriving stock (Show, Eq, Ord)
+
+data NativeLinkOptions = NativeLinkOptions
+  { nativeLinkObjects :: [FilePath]
+  , nativeLinkLibraries :: [String]
+  , nativeLinkLibraryPaths :: [FilePath]
+  , nativeLinkFrameworks :: [String]
+  }
+  deriving stock (Show, Eq, Ord)
+
+data NativeIntermediatePaths = NativeIntermediatePaths
+  { nativeIntermediateLLVM :: FilePath
+  , nativeIntermediateObject :: FilePath
+  }
+  deriving stock (Show, Eq, Ord)
+
+defaultNativeLinkOptions :: NativeLinkOptions
+defaultNativeLinkOptions =
+  NativeLinkOptions
+    { nativeLinkObjects = []
+    , nativeLinkLibraries = []
+    , nativeLinkLibraryPaths = []
+    , nativeLinkFrameworks = []
+    }
 
 findLLVMTools :: IO LLVMTools
 findLLVMTools =
@@ -97,10 +126,18 @@ validateLLVMText tools llvmText =
 
 buildNativeExecutable :: LLVMTools -> Text.Text -> FilePath -> IO NativeBuildResult
 buildNativeExecutable tools llvmText outputPath =
-  buildNativeExecutableWithObjects tools llvmText [] outputPath
+  buildNativeExecutableWithLinkOptions tools llvmText defaultNativeLinkOptions outputPath
 
 buildNativeExecutableWithObjects :: LLVMTools -> Text.Text -> [FilePath] -> FilePath -> IO NativeBuildResult
 buildNativeExecutableWithObjects tools llvmText extraInputs outputPath =
+  buildNativeExecutableWithLinkOptions
+    tools
+    llvmText
+    defaultNativeLinkOptions {nativeLinkObjects = extraInputs}
+    outputPath
+
+buildNativeExecutableWithLinkOptions :: LLVMTools -> Text.Text -> NativeLinkOptions -> FilePath -> IO NativeBuildResult
+buildNativeExecutableWithLinkOptions tools llvmText linkOptions outputPath =
   case llvmClang tools of
     Nothing ->
       pure (NativeBuildToolchainMissing ("clang unavailable: " <> renderLLVMTools tools))
@@ -112,12 +149,63 @@ buildNativeExecutableWithObjects tools llvmText extraInputs outputPath =
           Left err -> NativeBuildIOError (show err)
  where
   runClang clangPath llvmPath = do
-    let args = llvmPath : extraInputs <> ["-o", outputPath]
+    let args = llvmPath : renderNativeLinkOptions linkOptions <> ["-o", outputPath]
     (code, stdoutText, stderrText) <- readProcessWithExitCode clangPath args ""
     pure $
       case code of
         ExitSuccess -> NativeBuildSucceeded
         ExitFailure {} -> NativeBuildFailed clangPath args code stdoutText stderrText
+
+buildNativeExecutableWithIntermediatePaths ::
+  LLVMTools ->
+  Text.Text ->
+  NativeLinkOptions ->
+  NativeIntermediatePaths ->
+  FilePath ->
+  IO NativeBuildResult
+buildNativeExecutableWithIntermediatePaths tools llvmText linkOptions intermediatePaths outputPath =
+  case llvmClang tools of
+    Nothing ->
+      pure (NativeBuildToolchainMissing ("clang unavailable: " <> renderLLVMTools tools))
+    Just clangPath -> do
+      result <- try (runKeptBuild clangPath) :: IO (Either IOException NativeBuildResult)
+      pure $
+        case result of
+          Right value -> value
+          Left err -> NativeBuildIOError (show err)
+ where
+  runKeptBuild clangPath = do
+    ensureParentDirectory (nativeIntermediateLLVM intermediatePaths)
+    ensureParentDirectory (nativeIntermediateObject intermediatePaths)
+    ensureParentDirectory outputPath
+    Text.IO.writeFile (nativeIntermediateLLVM intermediatePaths) llvmText
+    let compileArgs =
+          [ "-c"
+          , nativeIntermediateLLVM intermediatePaths
+          , "-o"
+          , nativeIntermediateObject intermediatePaths
+          ]
+    (compileCode, compileStdout, compileStderr) <- readProcessWithExitCode clangPath compileArgs ""
+    case compileCode of
+      ExitFailure {} ->
+        pure (NativeBuildFailed clangPath compileArgs compileCode compileStdout compileStderr)
+      ExitSuccess -> do
+        let linkArgs =
+              nativeIntermediateObject intermediatePaths
+                : renderNativeLinkOptions linkOptions
+                  <> ["-o", outputPath]
+        (linkCode, linkStdout, linkStderr) <- readProcessWithExitCode clangPath linkArgs ""
+        pure $
+          case linkCode of
+            ExitSuccess -> NativeBuildSucceeded
+            ExitFailure {} -> NativeBuildFailed clangPath linkArgs linkCode linkStdout linkStderr
+
+renderNativeLinkOptions :: NativeLinkOptions -> [String]
+renderNativeLinkOptions options =
+  nativeLinkObjects options
+    <> ["-L" <> path | path <- nativeLinkLibraryPaths options]
+    <> ["-l" <> library | library <- nativeLinkLibraries options]
+    <> concat [["-framework", framework] | framework <- nativeLinkFrameworks options]
 
 runNativeExecutable :: FilePath -> IO NativeRunResult
 runNativeExecutable path =
@@ -192,6 +280,10 @@ withTempLLVMFile llvmText action =
   ignoreRemoveError :: IOException -> IO ()
   ignoreRemoveError _ =
     pure ()
+
+ensureParentDirectory :: FilePath -> IO ()
+ensureParentDirectory path =
+  createDirectoryIfMissing True (takeDirectory path)
 
 processResult :: ExitCode -> String -> String -> LLVMRunResult
 processResult = \case

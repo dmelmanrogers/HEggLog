@@ -2,6 +2,7 @@ module Optimize.CoreEgglog
   ( CoreEgglogError (..)
   , CoreEgglogResult (..)
   , optimizeCoreModuleWithEgglog
+  , optimizeCoreModuleWithEgglogStrict
   , renderCoreEgglogError
   , renderCoreEgglogStatus
   )
@@ -42,6 +43,7 @@ data CoreEgglogError
   | CoreEgglogUnsupportedType CoreType
   | CoreEgglogUnsupportedANF AExpr
   | CoreEgglogUnsupportedANFAtom Atom
+  | CoreEgglogStrictUnsupportedFragment CoreExpr
   | CoreEgglogTypeMismatch CoreType CoreType
   | CoreEgglogUnknownANFName Name
   | CoreEgglogCannotConvert Text
@@ -51,6 +53,7 @@ data OptimizeState = OptimizeState
   { optimizeNextUnique :: Int
   , optimizeAppliedRules :: [Text]
   , optimizeProvenance :: [Text]
+  , optimizeStrict :: Bool
   }
   deriving stock (Show, Eq)
 
@@ -88,7 +91,15 @@ data KnownCaseScrutinee
   deriving stock (Show, Eq)
 
 optimizeCoreModuleWithEgglog :: RunConfig -> CoreModule -> Either CoreEgglogError CoreEgglogResult
-optimizeCoreModuleWithEgglog config coreModule = do
+optimizeCoreModuleWithEgglog =
+  optimizeCoreModuleWithEgglogMode False
+
+optimizeCoreModuleWithEgglogStrict :: RunConfig -> CoreModule -> Either CoreEgglogError CoreEgglogResult
+optimizeCoreModuleWithEgglogStrict =
+  optimizeCoreModuleWithEgglogMode True
+
+optimizeCoreModuleWithEgglogMode :: Bool -> RunConfig -> CoreModule -> Either CoreEgglogError CoreEgglogResult
+optimizeCoreModuleWithEgglogMode strict config coreModule = do
   let validationEnv = CoreValidate.moduleValidationEnv coreModule
   case CoreValidate.validateModule validationEnv coreModule of
     Left errors -> Left (CoreEgglogInvalidInput errors)
@@ -98,6 +109,7 @@ optimizeCoreModuleWithEgglog config coreModule = do
           { optimizeNextUnique = nextUniqueAfterModule coreModule
           , optimizeAppliedRules = []
           , optimizeProvenance = []
+          , optimizeStrict = strict
           }
       moduleScope = scopeFromBinds (coreModuleBinds coreModule)
   (optimizedBinds, finalState) <-
@@ -139,6 +151,8 @@ optimizeExpr config validationEnv env expression = do
         pure expression
       CCon {} ->
         pure expression
+      CSpanned sourceRange inner ->
+        CSpanned sourceRange <$> optimizeExpr config validationEnv env inner
       CLam binder body ty ->
         CLam binder <$> optimizeExpr config validationEnv (Map.insert (coreBinderName binder) (coreBinderType binder) env) body <*> pure ty
       CApp fn arg ty ->
@@ -325,13 +339,18 @@ tryEgglogRewrite config env expression = do
   optimizerState <- get
   case encodeCoreFragment env expression of
     Nothing ->
-      pure expression
+      if optimizeStrict optimizerState && expressionCost expression > 1
+        then lift (Left (CoreEgglogStrictUnsupportedFragment expression))
+        else pure expression
     Just fragment ->
       case ANFEgglog.optimizeWithEgglog config (fragmentANF fragment) of
         Left err
-          | isUnsupportedANFBackend err -> pure expression
+          | isUnsupportedANFBackend err ->
+              if optimizeStrict optimizerState && expressionCost expression > 1
+                then lift (Left (CoreEgglogBackendError err))
+                else pure expression
         Left err
-          | expressionCost expression <= 1 -> pure expression
+          | expressionCost expression <= 1 && not (optimizeStrict optimizerState) -> pure expression
           | otherwise -> lift (Left (CoreEgglogBackendError err))
         Right result -> do
           decoded <-
@@ -678,27 +697,123 @@ corePrimToANF = \case
   PrimEq -> Just Eq
   PrimLt -> Just Lt
   PrimNegate -> Nothing
+  PrimBitAnd -> Nothing
+  PrimBitOr -> Nothing
+  PrimBitXor -> Nothing
+  PrimBitComplement -> Nothing
+  PrimShift -> Nothing
+  PrimShiftL -> Nothing
+  PrimShiftR -> Nothing
+  PrimRotate -> Nothing
+  PrimRotateL -> Nothing
+  PrimRotateR -> Nothing
+  PrimBit -> Nothing
+  PrimTestBit -> Nothing
+  PrimIntegerAdd -> Nothing
+  PrimIntegerSub -> Nothing
+  PrimIntegerMul -> Nothing
+  PrimIntegerQuot -> Nothing
+  PrimIntegerRem -> Nothing
+  PrimIntegerEq -> Nothing
+  PrimIntegerLt -> Nothing
+  PrimIntegerNegate -> Nothing
+  PrimIntegerAbs -> Nothing
+  PrimIntegerSignum -> Nothing
+  PrimIntegerToInt -> Nothing
+  PrimIntToInteger -> Nothing
+  PrimIntegerToFloat {} -> Nothing
+  PrimShowInteger -> Nothing
   PrimCharToInt -> Nothing
   PrimIntToChar -> Nothing
   PrimShowInt -> Nothing
   PrimShowBool -> Nothing
   PrimPutStrLn -> Nothing
   PrimGetLine -> Nothing
+  PrimGetArgs -> Nothing
+  PrimGetProgName -> Nothing
+  PrimGetEnv -> Nothing
+  PrimExitWith -> Nothing
+  PrimStdHandle {} -> Nothing
+  PrimOpenFile -> Nothing
+  PrimHClose -> Nothing
+  PrimReadFile -> Nothing
+  PrimWriteFile -> Nothing
+  PrimAppendFile -> Nothing
+  PrimHFileSize -> Nothing
+  PrimHSetFileSize -> Nothing
+  PrimHIsEOF -> Nothing
+  PrimHSetBuffering -> Nothing
+  PrimHGetBuffering -> Nothing
+  PrimHFlush -> Nothing
+  PrimHGetPosn -> Nothing
+  PrimHSetPosn -> Nothing
+  PrimHSeek -> Nothing
+  PrimHTell -> Nothing
+  PrimHIsOpen -> Nothing
+  PrimHIsClosed -> Nothing
+  PrimHIsReadable -> Nothing
+  PrimHIsWritable -> Nothing
+  PrimHIsSeekable -> Nothing
+  PrimHIsTerminalDevice -> Nothing
+  PrimHSetEcho -> Nothing
+  PrimHGetEcho -> Nothing
+  PrimHShow -> Nothing
+  PrimHWaitForInput -> Nothing
+  PrimHReady -> Nothing
+  PrimHGetChar -> Nothing
+  PrimHGetLine -> Nothing
+  PrimHLookAhead -> Nothing
+  PrimHGetContents -> Nothing
+  PrimHPutChar -> Nothing
+  PrimHPutStr -> Nothing
+  PrimHPutStrLn -> Nothing
   PrimIOThen -> Nothing
   PrimIOBind -> Nothing
   PrimIOReturn -> Nothing
   PrimIOFail -> Nothing
+  PrimIOError -> Nothing
+  PrimIOCatch -> Nothing
+  PrimIOTry -> Nothing
+  PrimIOFix -> Nothing
+  PrimNullPtr -> Nothing
+  PrimCastPtr -> Nothing
+  PrimIsNullPtr -> Nothing
   PrimNewStablePtr -> Nothing
   PrimDeRefStablePtr -> Nothing
   PrimFreeStablePtr -> Nothing
   PrimCastStablePtrToPtr -> Nothing
   PrimCastPtrToStablePtr -> Nothing
+  PrimFreeHaskellFunPtr -> Nothing
   PrimNewForeignPtr -> Nothing
   PrimNewForeignPtr_ -> Nothing
   PrimAddForeignPtrFinalizer -> Nothing
   PrimFinalizeForeignPtr -> Nothing
   PrimWithForeignPtr -> Nothing
   PrimTouchForeignPtr -> Nothing
+  PrimUnsafeForeignPtrToPtr -> Nothing
+  PrimCastForeignPtr -> Nothing
+  PrimPtrPlus -> Nothing
+  PrimPtrMinus -> Nothing
+  PrimPtrAlign -> Nothing
+  PrimMallocBytes -> Nothing
+  PrimReallocBytes -> Nothing
+  PrimFree -> Nothing
+  PrimFinalizerFree -> Nothing
+  PrimPeek {} -> Nothing
+  PrimPoke {} -> Nothing
+  PrimCopyBytes -> Nothing
+  PrimMoveBytes -> Nothing
+  PrimGetErrno -> Nothing
+  PrimResetErrno -> Nothing
+  PrimPeekCString -> Nothing
+  PrimPeekCStringLen -> Nothing
+  PrimNewCString -> Nothing
+  PrimPeekCWString -> Nothing
+  PrimPeekCWStringLen -> Nothing
+  PrimNewCWString -> Nothing
+  PrimFloat {} -> Nothing
+  PrimFloatInt {} -> Nothing
+  PrimFixedIntegral {} -> Nothing
 
 anfPrimToCore :: BinOp -> CorePrimOp
 anfPrimToCore = \case
@@ -764,7 +879,7 @@ scopeFromBind bind =
   Map.fromList [(coreBinderName binder, coreBinderType binder) | binder <- bindersOf bind]
 
 moduleCost :: CoreModule -> Int
-moduleCost (CoreModule _ _ binds _foreignExports) =
+moduleCost (CoreModule _ _ binds _foreignExports _) =
   sum (map bindCost binds)
 
 bindCost :: CoreBind -> Int
@@ -777,6 +892,8 @@ expressionCost = \case
   CVar {} -> 1
   CLit {} -> 1
   CCon {} -> 1
+  CSpanned _ expression ->
+    expressionCost expression
   CLam _ body _ -> 1 + expressionCost body
   CApp fn arg _ -> 1 + expressionCost fn + expressionCost arg
   CTypeLam _ body _ -> expressionCost body
@@ -794,7 +911,7 @@ expressionCost = \case
     2
 
 nextUniqueAfterModule :: CoreModule -> Int
-nextUniqueAfterModule (CoreModule _ _ binds foreignExports) =
+nextUniqueAfterModule (CoreModule _ _ binds foreignExports _) =
   maximum (1000000 : concatMap uniquesInBind binds <> map (nameUnique . coreForeignExportName) foreignExports) + 1
 
 nextUniqueAfterExpr :: CoreExpr -> Int
@@ -811,6 +928,8 @@ uniquesInExpr = \case
   CVar name _ -> [nameUnique name]
   CLit {} -> []
   CCon name _ -> [nameUnique name]
+  CSpanned _ expression ->
+    uniquesInExpr expression
   CLam binder body _ -> nameUnique (coreBinderName binder) : uniquesInExpr body
   CApp fn arg _ -> uniquesInExpr fn <> uniquesInExpr arg
   CTypeLam variables body _ -> map nameUnique variables <> uniquesInExpr body
@@ -881,6 +1000,8 @@ renderCoreEgglogError = \case
     "Core Egglog optimizer cannot decode ANF expression " <> renderANF expr
   CoreEgglogUnsupportedANFAtom atom ->
     "Core Egglog optimizer cannot decode ANF atom " <> Text.pack (show atom)
+  CoreEgglogStrictUnsupportedFragment expr ->
+    "Core Egglog optimizer is required by --strict-egglog but cannot encode Core fragment " <> renderCoreExpr expr
   CoreEgglogTypeMismatch expected actual ->
     "Core Egglog type mismatch: expected " <> renderCoreType expected <> ", got " <> renderCoreType actual
   CoreEgglogUnknownANFName name ->

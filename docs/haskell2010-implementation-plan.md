@@ -123,17 +123,18 @@ is built alongside them.
     structured placeholder diagnostics for unsupported constraint contexts,
     generated dictionary constructors/selectors, built-in `Eq Int`, `Eq Bool`,
     `Eq Char`, `Ord Int`, `Ord Bool`, executable `Num Int`, `Real Int`,
-    `Integral Int`, `Show Int`,
+    `Integral Int`, Report-shaped `Show Int`,
     `Show Bool`, `Show Char`, exact `Show String`, and generated structural
-    list `Show` dictionaries, derived `Eq`/`Ord`/`Show` dictionaries for supported
+    list `Show` dictionaries, Report-shaped `Read` dictionaries for supported
+    scalar/list/unit/Ordering values, derived `Eq`/`Ord`/`Show`/`Read` dictionaries for supported
     data/newtype declarations, structural list `Eq`, and structural list `Ord`,
     source-spanned typecheck diagnostics including delayed class-constraint
     dictionary failures,
     documented executable-subset monomorphism/defaulting behavior,
     Core/STG/native execution, and wet-tested default/no-egglog CLI runs.
-    Instance contexts, derived `Read`, the full `showsPrec`/`showList` hierarchy,
-    Fractional/Floating classes, arbitrary-precision `Integer`, and full
-    `Ratio`/`Rational` behavior remain planned.
+    Instance contexts, generic `Ratio a` dictionaries beyond
+    `Rational = Ratio Integer`, native out-of-i64 `Integer` payloads, and exact
+    shortest-roundtrip floating lexical polish remain planned.
 15. Guarded RHS/case alternatives and as-pattern aliases. Completed for
     multi-branch guards, guarded case alternatives, as-pattern alias binding,
     Core/STG/native no-match behavior for guard fallthrough, and wet-tested
@@ -151,7 +152,9 @@ is built alongside them.
     names, explicit export filtering including `Thing(..)` children, hiding,
     qualified aliases, whole-program Core flattening for the executable subset,
     root-module `main` selection, Core/STG/native execution, and wet-tested
-    default/no-egglog CLI runs.
+    default/no-egglog CLI runs. `MOD-011`/`MOD-012` deliberately keep separate
+    compilation and persistent interface files behind an explicit boundary
+    until module search paths and dependency fingerprints are stable.
 19. Egglog Core optimizer. Completed for the first safe Core-0 fragment and
     expanded with known literal and saturated known-constructor case/projection
     rewrites for ADT/list/tuple/dictionary-shaped Core. The optimizer validates
@@ -281,3 +284,9 @@ is built alongside them.
 - The current `.hg` pipeline remains isolated and continues to serve as a
   regression baseline.
 - Native wet tests are the acceptance boundary for executable behavior.
+- Haskell 2010 Report behavior wins over implementation convenience. When the
+  Report defines semantics, the compiler must either implement those semantics
+  or keep the gap as a numbered, manifest-backed unsupported/deferred task.
+  Compiler-specific behavior that the Report leaves unspecified, such as
+  package search paths and separate compilation details, must be documented as
+  an implementation policy before code depends on it.

@@ -1,0 +1,41 @@
+HeggLog compile mode
+
+usage:
+  hegglog compile FILE --emit-llvm [-o FILE.ll] [--no-egglog] [--run-llvm] [dump options]
+  hegglog compile FILE -o PROGRAM [--no-egglog] [--run] [dump options]
+  hegglog FILE --emit-llvm [-o FILE.ll] [--no-egglog] [--run-llvm] [dump options]
+
+options:
+  --emit-llvm
+      Emit textual LLVM IR instead of building a native executable.
+  -o, --output PATH
+      Write LLVM IR to PATH with --emit-llvm, or build native executable PATH otherwise.
+  --run
+      Build the native executable and run it. Requires -o/--output.
+  --run-llvm
+      Run generated LLVM text through lli, or through a temporary clang executable.
+  --no-egglog
+      Compile without Egglog optimization.
+  --strict-egglog
+      Require Egglog optimization support instead of falling back to unoptimized output.
+  --keep-intermediates
+      Preserve generated LLVM and native object intermediates under .context/hegglog/intermediates. Native run mode also preserves its temporary executable there.
+  -i, --import-path PATH
+      Add a source module import search directory. May be repeated; the root module directory is searched first.
+  --dump-core
+      Write original typed Core to stderr before emitting or building the compile output.
+  --dump-optimized-core
+      Write optimized typed Core to stderr before emitting or building the compile output.
+  --dump-stg
+      Write validated STG to stderr before emitting or building the compile output.
+  --link-object PATH
+      Add an object file or native archive to the clang link command. May be repeated.
+  --link-library NAME
+      Link with -lNAME. May be repeated.
+  --library-path PATH
+      Add -LPATH to the native link command. May be repeated.
+  --framework NAME
+      Link with a macOS framework. May be repeated.
+
+toolchain:
+  Native executable output requires clang. LLVM text output does not.

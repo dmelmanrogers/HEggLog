@@ -180,6 +180,22 @@
       "notes": "Same-directory module graph with qualified import, export list, and constructor child import."
     },
     {
+      "name": "modules.import-search-path",
+      "sourceFile": "test/haskell2010/conformance/modules/search-path-main.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "42\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "importPaths": [
+        "test/haskell2010/conformance/search-path"
+      ],
+      "notes": "Ordered source import search paths load modules outside the root module directory through repeated -i/--import-path entries."
+    },
+    {
       "name": "modules.implicit-prelude",
       "sourceFile": "test/haskell2010/conformance/modules/implicit-prelude.hs",
       "category": "modules",
@@ -243,6 +259,170 @@
         "no-egglog"
       ],
       "notes": "Implemented generated standard-library modules import through ModuleInterface with explicit export lists, child exports, fixities, and ordinary Prelude-backed semantics."
+    },
+    {
+      "name": "modules.data-ix",
+      "sourceFile": "test/haskell2010/conformance/modules/data-ix.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "[1,2,3,4]\n2\nTrue\nxyz\n[False,True]\n[LT,EQ,GT]\n1\n[Red,Green,Blue]\n1\nTrue\n2\n4\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Ix imports expose the Haskell 2010 Ix class methods for scalar, unit, tuple, and derived enum/product indexes through native execution."
+    },
+    {
+      "name": "modules.data-array",
+      "sourceFile": "test/haskell2010/conformance/modules/data-array.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "abc\nbc\n1\n3\n[1,2,3]\naZc\n2\n3\n1\n0\n10\nbc\nAbc\nTrue\nGT\narray (1,3) [(1,'a'),(2,'b'),(3,'c')]\n(array (1,3) [(1,'a'),(2,'b'),(3,'c')])!\nabc\nxy\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Array imports expose immutable non-strict array construction, indexing, bounds, indices, elems, assocs, updates, accumulation, ixmap, Functor, Eq, Ord, Show, and Read behavior through native execution."
+    },
+    {
+      "name": "modules.data-array-partial",
+      "sourceFile": "test/haskell2010/conformance/modules/data-array-partial.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Array array preserves report-specified partial behavior for out-of-range associations."
+    },
+    {
+      "name": "modules.data-array-duplicate-partial",
+      "sourceFile": "test/haskell2010/conformance/modules/data-array-duplicate-partial.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Array array preserves report-specified partial behavior for duplicate associations at the duplicated index."
+    },
+    {
+      "name": "modules.data-list",
+      "sourceFile": "test/haskell2010/conformance/modules/data-list.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "3\n[1,2]\na-b-c\nab,cd,ef\n[[1,4,7],[2,5,8],[3,6]]\n[\"\",\"a\",\"b\",\"ab\"]\n[\"abc\",\"bac\",\"cba\",\"bca\",\"cab\",\"acb\"]\n6\nTrue\n15\n5\nhaskell\n[1,2,3]\n[1,11,2,12]\nFalse\nTrue\nTrue\nTrue\n6\n24\n4\n1\n[0,1,3,6]\n[1,3,6]\n[[1,2,3],[2,3],[3],[]]\n[6,5,3]\n6\n[1,3,6]\n6\n[6,5,3]\n[1,3,5,7,9]\n[7,7,7,7]\n[1,2,1,2,1]\n[4,3,2,1]\n[1,2]\n[3,4]\n[1,2]\n[3,4]\n[1,2]\n[3,1]\n[1,2]\n[3,1]\n[1,2]\n[3,1]\nfix\n[\"m\",\"i\",\"ss\"]\n[\"\",\"a\",\"ab\",\"abc\"]\n[\"abc\",\"bc\",\"c\",\"\"]\nTrue\nTrue\nTrue\nTrue\n2\n3\n[1,3]\n[2,4]\n8\n1\n[1,3,5]\n2\n[0,2]\n[11,22]\n[6]\n[10]\n[15]\n[21]\n[28]\n2\n1\n1\n1\n1\n1\n[1,2]\nab\n3\n4\n5\n6\n7\n[\"a\",\"b\"]\n[\"a\",\"b\",\"c\"]\na\nb\n\na b c\nban\nbnana\nbana\ndogcw\nississippi\n[1,2,3]\n[1,2,3,4]\nab\nbnana\nbana\ndogcw\nississippi\n[\"aa\",\"bb\"]\n[3,2,1]\n[1,2,3,4]\n4\n1\n3\n[1,2]\n[2,3]\n[1,2]\n[3]\n6\n[8,8,8]\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.List imports expose the Haskell 2010 list API through a source-backed standard-library module compiled by the normal parser, renamer, typechecker, Core/STG, and native paths."
+    },
+    {
+      "name": "modules.data-list-partial",
+      "sourceFile": "test/haskell2010/conformance/modules/data-list-partial.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.List partial selectors preserve bottom behavior by compiling empty-list last to a native no-match runtime failure."
+    },
+    {
+      "name": "modules.data-maybe",
+      "sourceFile": "test/haskell2010/conformance/modules/data-maybe.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "7\n5\nTrue\nFalse\nTrue\nok\n11\n3\n[8]\n[]\n1\nTrue\n[1,3]\n[30,40]\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Maybe imports expose the Haskell 2010 Maybe helper API through a source-backed standard-library module compiled by the normal parser, renamer, typechecker, Core/STG, and native paths."
+    },
+    {
+      "name": "modules.data-maybe-partial",
+      "sourceFile": "test/haskell2010/conformance/modules/data-maybe-partial.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Maybe fromJust preserves partial behavior by compiling Nothing to a native runtime failure."
+    },
+    {
+      "name": "modules.data-char",
+      "sourceFile": "test/haskell2010/conformance/modules/data-char.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nFalse\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nUppercaseLetter\nNonSpacingMark\nAzQ\n15\nf\n65\nA\n\\n!\n\\SO\\&H\n\\n\nHello\n'A'\n7\n!\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Char imports expose character classification, case conversion, digit conversion, ordinal conversion, GeneralCategory, and literal show/read helpers through a source-backed standard-library module compiled by the normal parser, renamer, typechecker, Core/STG, and native paths."
+    },
+    {
+      "name": "modules.data-char-partial",
+      "sourceFile": "test/haskell2010/conformance/modules/data-char-partial.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Char digitToInt preserves partial behavior by compiling invalid hexadecimal input to a native runtime failure."
+    },
+    {
+      "name": "modules.control-monad",
+      "sourceFile": "test/haskell2010/conformance/modules/control-monad.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "[2,3,4]\n[4,5]\n12\n15\n9\n99\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Control.Monad imports expose Report combinators and MonadPlus methods through generated interfaces and native Core/STG lowering."
+    },
+    {
+      "name": "modules.standard-library-scalar-types",
+      "sourceFile": "test/haskell2010/conformance/modules/standard-library-scalar-types.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "0\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Generated Data.Int, Data.Word, and Foreign.C.Types interfaces expose the currently supported scalar type-name surface."
+    },
+    {
+      "name": "modules.data-int-word",
+      "sourceFile": "test/haskell2010/conformance/modules/data-int-word.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "-128\n127\n-128\n127\n255\n0\n18446744073709551615\n127\n1\n-4\n2\n255\n0\n-1\n-1\n-1\n2\n1\nTrue\nFalse\n16\nTrue\nFalse\n[126,127]\n[254,255]\n[250,251,252]\n1\nTrue\n255\n-128\n255\n255\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Int and Data.Word expose real fixed-width runtime representations with modulo arithmetic, bounds, Show/Read, Enum, Ix, Bits, signed shifts, unsigned Word64 rendering, and native execution."
     },
     {
       "name": "declarations.top-level-function",
@@ -622,13 +802,26 @@
       "sourceFile": "test/haskell2010/conformance/prelude/broad-show.hs",
       "category": "prelude",
       "expectedStatus": "native-success",
-      "expectedStdout": "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Q'\n\"ok\"\n",
+      "expectedStdout": "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Z'!\n\"hi\"!\n\"ab\"!\n[1,2]!\n'\\NUL'\n\"\\n\\\"\\\\\"\n\"\\SO\\&H\"\n'Q'\n\"ok\"\n",
       "requiredStage": "native",
       "compilerModes": [
         "default",
         "no-egglog"
       ],
-      "notes": "Broader Show coverage for Char, String, generic lists, nested string lists, print, and defaulted numeric list elements."
+      "notes": "Broader Show coverage for Char, String, generic lists, nested string lists, shows, showsPrec, showList, escaping, print, and defaulted numeric list elements."
+    },
+    {
+      "name": "prelude.read-standard",
+      "sourceFile": "test/haskell2010/conformance/prelude/read-standard.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "123\n-45\nTrue\n'Z'\nhi\n[1,2,3]\n0\nok\n7\nFoo\nGT\n1\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Report-shaped Read coverage for ReadS, readsPrec, readList, reads, read, lex, readParen, built-in Int/Bool/Char/String/list/Ordering/unit instances, whitespace/token parsing, and constructor-boundary rejection."
     },
     {
       "name": "prelude.arithmetic-sequences",
@@ -654,7 +847,20 @@
         "default",
         "no-egglog"
       ],
-      "notes": "Executable Real Int and Integral Int dictionaries cover quot/rem/div/mod, pair-returning quotient methods, toInteger, integer-rational conversion, and Integer default declarations."
+      "notes": "Executable Real Int/Integer and Integral Int/Integer dictionaries cover quot/rem/div/mod, pair-returning quotient methods, toInteger, integer-rational conversion, and Integer default declarations."
+    },
+    {
+      "name": "prelude.floating-numeric",
+      "sourceFile": "test/haskell2010/conformance/prelude/floating-numeric.hs",
+      "category": "prelude",
+      "expectedStatus": "native-success",
+      "expectedStdout": "3.75\n3\n3\n0\n1\n3\n3\n3\n2\n2\n24\n1\nTrue\nTrue\nFalse\nFalse\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Executable Float and Double numeric tower coverage for Fractional, Floating, RealFrac, and RealFloat methods, including native floating literals and IEEE predicate primitives."
     },
     {
       "name": "prelude.enum-bounded",
@@ -731,6 +937,19 @@
       "notes": "Explicit IO fail compiles through the Monad IO dictionary and exits nonzero at runtime."
     },
     {
+      "name": "io.io-error",
+      "sourceFile": "test/haskell2010/conformance/io/io-error.hs",
+      "category": "io",
+      "expectedStatus": "native-success",
+      "expectedStdout": "caught:boom\nTrue\nmissing\npath.txt\n7\nTrue\nfailed\nTrue\nnew\nann.txt\nuser error\ndoes not exist\nTrue\nTrue\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "System.IO.Error values, IOErrorType constants, classifiers, accessors, annotateIOError, catch, try, and IO fail recovery compose through native IO result wrappers."
+    },
+    {
       "name": "egglog.known-constructor",
       "sourceFile": "test/haskell2010/conformance/egglog/known-constructor.hs",
       "category": "egglog",
@@ -783,7 +1002,23 @@
       "extraObjects": [
         "test/native/haskell2010/ffi_helpers.c"
       ],
-      "notes": "Static foreign import ccall declarations lower through LLVM, link against C helpers, marshal Int/Bool/Char values, and sequence IO effects."
+      "notes": "Static foreign import ccall declarations lower through LLVM, preserve header-qualified link metadata, link against C helpers through CLI link-object flags, marshal Int/Bool/Char values, and sequence IO effects."
+    },
+    {
+      "name": "ffi.fixed-width-scalars",
+      "sourceFile": "test/haskell2010/conformance/ffi/fixed-width-scalars.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "0\n-120\n18446744073709551615\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c"
+      ],
+      "notes": "Static ccall scalar marshalling preserves fixed-width Int8, Word8, and Word64 representations across C helper calls."
     },
     {
       "name": "ffi.pointer-address",
@@ -818,6 +1053,54 @@
       "notes": "dynamic imports emit indirect FunPtr calls and wrapper imports create C-callable callbacks that re-enter Haskell closures."
     },
     {
+      "name": "ffi.wrapper-reclamation",
+      "sourceFile": "test/haskell2010/conformance/ffi/wrapper-reclamation.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "30\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c"
+      ],
+      "notes": "freeHaskellFunPtr clears wrapper callback slots, is idempotent for already-freed wrapper pointers, and allows later wrapper allocations to reclaim freed slots instead of exhausting the fixed callback pool."
+    },
+    {
+      "name": "ffi.wrapper-after-free",
+      "sourceFile": "test/haskell2010/conformance/ffi/wrapper-after-free.hs",
+      "category": "ffi",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c"
+      ],
+      "notes": "C calls through a Haskell wrapper FunPtr after freeHaskellFunPtr fail at runtime instead of re-entering stale Haskell callback closures."
+    },
+    {
+      "name": "ffi.floating-ccall",
+      "sourceFile": "test/haskell2010/conformance/ffi/floating-ccall.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "4125\n65\n4125\n65\n4190\n4225\n4125\n4125\n65\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c",
+        "test/native/haskell2010/ffi_floating_export_helpers.c"
+      ],
+      "notes": "Floating-point FFI marshalling covers Float, Double, CFloat, and CDouble through static calls, dynamic calls, wrapper callbacks, and foreign export entrypoints."
+    },
+    {
       "name": "ffi.foreign-export",
       "sourceFile": "test/haskell2010/conformance/ffi/foreign-export.hs",
       "category": "ffi",
@@ -848,6 +1131,77 @@
         "test/native/haskell2010/ffi_helpers.c"
       ],
       "notes": "StablePtr and manual ForeignPtr APIs compile natively with stable pointer dereference/free, casts, withForeignPtr, finalizer registration, reverse-order dispatch, and idempotent finalization."
+    },
+    {
+      "name": "ffi.foreign-library-surface",
+      "sourceFile": "test/haskell2010/conformance/ffi/foreign-library-surface.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "7\npositive1\nunit\nvoid\nnull\nfun\nptrfun\n41\n41\n41\nmaybe-new\n41\nmaybe-with\n41\nnothing\n41\nok\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c"
+      ],
+      "notes": "Broader Foreign library surface imports and runs through null pointer guards, pointer casts, ForeignPtr casts/extraction, and implemented Foreign.Marshal.Error/Utils helpers."
+    },
+    {
+      "name": "ffi.foreign-storable",
+      "sourceFile": "test/haskell2010/conformance/ffi/foreign-storable.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "123\n456\n456\n77\nZ\n0\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Foreign.Storable native wet coverage for Int, CInt, Char, Ptr payloads, peek/poke, byte offsets, element offsets, and malloc/free lifetime."
+    },
+    {
+      "name": "ffi.foreign-marshal-array",
+      "sourceFile": "test/haskell2010/conformance/ffi/foreign-marshal-array.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "[3,4,5]\n[9,8,7]\n[9,8,7]\n[9,9,8,7]\n3\n[1,2,3]\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Foreign.Marshal.Array native wet coverage for newArray, pokeArray, peekArray, copyArray, moveArray overlap behavior, advancePtr, sentinel arrays, and lengthArray0."
+    },
+    {
+      "name": "ffi.foreign-c-string",
+      "sourceFile": "test/haskell2010/conformance/ffi/foreign-c-string.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "abc\nab\nxy\nhi\nlmno\nAZ\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Foreign.C.String native wet coverage for CString, CStringLen, withCString, withCStringLen, freeable newCString buffers, and CWString conversion."
+    },
+    {
+      "name": "ffi.foreign-c-error",
+      "sourceFile": "test/haskell2010/conformance/ffi/foreign-c-error.hs",
+      "category": "ffi",
+      "expectedStatus": "native-success",
+      "expectedStdout": "0\n5\ndenied\ndenied-unit\n4\nTrue\nFalse\n99\nTrue\n42\ngeneric-unit-ok\n42\nminus-unit-ok\nblocked\n33\nblocked-unit\nmayblock-unit-ok\nminus-blocked\n33\nminus-blocked-unit\nminus-mayblock-unit-ok\nsecret.txt\nunit-secret.txt\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "extraObjects": [
+        "test/native/haskell2010/ffi_helpers.c"
+      ],
+      "notes": "Foreign.C.Error native wet coverage for errno constants, isValidErrno, getErrno/resetErrno, retry/may-block guards, path-carrying errors, and C errno set by helper functions."
     },
     {
       "name": "negative.type-error",
@@ -882,16 +1236,28 @@
       "sourceFile": "test/haskell2010/conformance/negative/bad-module-import.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "could not read",
+      "expectedDiagnosticCategory": "module/import error",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/bad-module-import.hs:3:1-",
       "requiredStage": "rename",
       "notes": "Missing same-directory imported module must fail module graph loading."
+    },
+    {
+      "name": "negative.invalid-character-literal",
+      "sourceFile": "test/haskell2010/conformance/negative/invalid-character-literal.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "parse",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/invalid-character-literal.hs:3:",
+      "requiredStage": "parse",
+      "notes": "Invalid character-literal escapes must fail with a normalized source-spanned parse diagnostic."
     },
     {
       "name": "negative.malformed-layout",
       "sourceFile": "test/haskell2010/conformance/negative/malformed-layout.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "parse",
+      "expectedDiagnosticCategory": "layout",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/malformed-layout.hs:5:6-",
       "requiredStage": "parse",
       "notes": "Malformed layout must fail during Haskell 2010 parsing."
     },
@@ -900,7 +1266,8 @@
       "sourceFile": "test/haskell2010/conformance/negative/malformed-where-layout.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "parse",
+      "expectedDiagnosticCategory": "layout",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/malformed-where-layout.hs:6:4-",
       "requiredStage": "parse",
       "notes": "Malformed where-group layout must fail during Haskell 2010 parsing."
     },
@@ -909,7 +1276,8 @@
       "sourceFile": "test/haskell2010/conformance/negative/misindented-where-keyword.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "parse",
+      "expectedDiagnosticCategory": "layout",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/misindented-where-keyword.hs:5:1-",
       "requiredStage": "parse",
       "notes": "A line-broken where keyword at the enclosing declaration column is rejected instead of being attached to the preceding RHS."
     },
@@ -918,9 +1286,9 @@
       "sourceFile": "test/haskell2010/conformance/negative/constructor-operator-binding.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "parse",
-      "requiredStage": "parse",
-      "notes": "Colon-prefixed constructor operators are rejected in value-operator binding syntax."
+      "expectedDiagnosticCategory": "unbound",
+      "requiredStage": "rename",
+      "notes": "Colon-prefixed constructor operators are rejected as value-operator bindings and do not create term bindings."
     },
     {
       "name": "negative.invalid-pattern-binding",
@@ -954,7 +1322,8 @@
       "sourceFile": "test/haskell2010/conformance/negative/duplicate-monad-io.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "duplicate built-in instance",
+      "expectedDiagnosticCategory": "instance error",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/duplicate-monad-io.hs:3:1-",
       "requiredStage": "typecheck",
       "notes": "User instances must not overlap or duplicate the Haskell 2010 built-in Monad IO dictionary."
     },
@@ -999,7 +1368,8 @@
       "sourceFile": "test/haskell2010/conformance/negative/missing-instance-import.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "unsolved type-class constraint",
+      "expectedDiagnosticCategory": "class error",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/negative/missing-instance-import.hs:7:15-",
       "requiredStage": "typecheck",
       "notes": "A class and type import do not make an instance visible unless an import chain reaches the instance-declaring module."
     },
@@ -1029,6 +1399,15 @@
       "expectedDiagnosticCategory": "foreign import",
       "requiredStage": "typecheck",
       "notes": "ForeignPtr is an ownership wrapper, not a direct C ABI argument type; code must use withForeignPtr to expose Ptr."
+    },
+    {
+      "name": "negative.ffi-word-not-basic",
+      "sourceFile": "test/haskell2010/conformance/negative/ffi-word-not-basic.hs",
+      "category": "negative",
+      "expectedStatus": "compile-error",
+      "expectedDiagnosticCategory": "non-marshallable",
+      "requiredStage": "typecheck",
+      "notes": "Data.Word exports Word as a library type name, but Haskell 2010 FFI basic foreign types include Word8/Word16/Word32/Word64 rather than plain Word."
     },
     {
       "name": "negative.ffi-wrapper-bad-shape",
@@ -1116,9 +1495,22 @@
       "sourceFile": "test/haskell2010/conformance/typeclasses/derived-show.hs",
       "category": "typeclasses",
       "expectedStatus": "native-success",
-      "expectedStdout": "Off\nBox ('x')\nName (\"aa\")\nNode (Leaf ('a')) (Leaf ('b'))\nYears (7)\nPerson { age = (42), label = (\"Ada\") }\n[Box (True),Box (False)]\n",
+      "expectedStdout": "Off\nBox 'x'\nName \"aa\"\nNode (Leaf 'a') (Leaf 'b')\nYears 7\nPerson {age = 42, label = \"Ada\"}\n[Box True,Box False]\n(Box True)!\nBox False!\n[Box True,Box False]!\n",
       "requiredStage": "native",
-      "notes": "Derived Show synthesizes executable-subset Show dictionaries for nullary constructors, products, recursive data, newtypes, records, String fields, and list-backed contexts."
+      "notes": "Derived Show synthesizes report-shaped showsPrec/show/showList dictionaries for nullary constructors, products, recursive data, newtypes, records, String fields, list-backed contexts, and precedence-sensitive output."
+    },
+    {
+      "name": "typeclasses.derived-read",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/derived-read.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-success",
+      "expectedStdout": "Off\nBox 'x'\nName \"aa\"\nNode (Leaf 'a') (Leaf 'b')\nYears 7\nPerson {age = 42, label = \"Ada\"}\n[Box True,Box False]\n0\n1\n0\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Derived Read synthesizes readsPrec/readList dictionaries for nullary constructors, products, recursive data, newtypes, records, String fields, list-backed contexts, precedence-sensitive nested constructors, and lexical constructor-boundary rejection."
     },
     {
       "name": "typeclasses.derived-enum",
@@ -1150,47 +1542,44 @@
       "sourceFile": "test/haskell2010/conformance/typeclasses/derived-bounded.hs",
       "category": "typeclasses",
       "expectedStatus": "native-success",
-      "expectedStdout": "0\n3\nPair (False) (North)\nPair (True) (West)\nRecord { low = (False), high = (North) }\nRecord { low = (True), high = (West) }\nFlag (False)\nFlag (True)\n",
+      "expectedStdout": "0\n3\nPair False North\nPair True West\nRecord {low = False, high = North}\nRecord {low = True, high = West}\nFlag False\nFlag True\n",
       "requiredStage": "native",
       "compilerModes": [
         "default",
         "no-egglog"
       ],
-      "notes": "Derived Bounded synthesizes enumeration bounds and single-constructor field-wise minBound/maxBound dictionaries for data, record, newtype, and parameterized product declarations."
+      "notes": "Derived Bounded synthesizes enumeration bounds and single-constructor field-wise minBound/maxBound dictionaries for data, record, newtype, and parameterized product declarations, with Report-shaped derived Show output for the printed values."
     },
     {
-      "name": "unsupported.instance-context",
-      "sourceFile": "test/haskell2010/conformance/unsupported/instance-context.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "unsupported",
-      "requiredStage": "typecheck",
-      "notes": "Instance contexts are intentionally outside the current concrete-instance dictionary slice."
+      "name": "typeclasses.instance-context",
+      "sourceFile": "test/haskell2010/conformance/typeclasses/instance-context.hs",
+      "category": "typeclasses",
+      "expectedStatus": "native-success",
+      "expectedStdout": "True\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "User-written instance contexts elaborate to dictionary arguments and compile through native execution."
     },
     {
       "name": "unsupported.method-specific-constraint",
       "sourceFile": "test/haskell2010/conformance/unsupported/method-specific-constraint.hs",
       "category": "unsupported",
       "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "unsupported",
+      "expectedDiagnosticCategory": "class error",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/unsupported/method-specific-constraint.hs:4:11-",
       "requiredStage": "typecheck",
       "notes": "Method-specific class constraints are rejected by the explicit class-constraint placeholder."
-    },
-    {
-      "name": "unsupported.read-class",
-      "sourceFile": "test/haskell2010/conformance/unsupported/read-class.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "unsupported",
-      "requiredStage": "typecheck",
-      "notes": "TC-016 documents Read as a deliberate Prelude/typeclass deviation until ReadS, readsPrec/readList, lexical parsing, and derived Read are implemented coherently."
     },
     {
       "name": "unsupported.constrained-expression-signature",
       "sourceFile": "test/haskell2010/conformance/unsupported/constrained-expression-signature.hs",
       "category": "unsupported",
       "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "unsupported",
+      "expectedDiagnosticCategory": "class error",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/unsupported/constrained-expression-signature.hs:4:15-",
       "requiredStage": "typecheck",
       "notes": "Constrained expression signatures are parsed but deliberately rejected until the broader local constraint surface is implemented."
     },
@@ -1199,18 +1588,37 @@
       "sourceFile": "test/haskell2010/conformance/unsupported/kind-checking.hs",
       "category": "negative",
       "expectedStatus": "compile-error",
-      "expectedDiagnosticCategory": "kind mismatch",
+      "expectedDiagnosticCategory": "kind error",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/unsupported/kind-checking.hs:5:8-",
       "requiredStage": "typecheck",
-      "notes": "Partial type-constructor use must be rejected by kind checking."
+      "notes": "Partial type-constructor use must be rejected by source-spanned kind checking."
     },
     {
-      "name": "unsupported.handle-io",
-      "sourceFile": "test/haskell2010/conformance/unsupported/handle-io.hs",
-      "category": "unsupported",
-      "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "unbound",
-      "requiredStage": "typecheck",
-      "notes": "Handle-based IO remains beyond the current line-oriented stdin/stdout IO slice."
+      "name": "io.system-io",
+      "sourceFile": "test/haskell2010/conformance/io/system-io.hs",
+      "category": "io",
+      "expectedStatus": "native-success",
+      "expectedStdout": "alpha-beta\nTrue\nplain-stdout\nfirst\nsecond\nTrue\n<stdout>\n",
+      "stdin": "first\nsecond\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "System.IO report surface imports and runs through native standard handles for buffering, text output, line input, getContents, EOF checks, hPrint, and hShow."
+    },
+    {
+      "name": "io.system-io-files",
+      "sourceFile": "test/haskell2010/conformance/io/system-io-files.hs",
+      "category": "io",
+      "expectedStatus": "native-success",
+      "expectedStdout": "ab\n1\n4\nbc\nFalse\nFalse\nTrue\ndef\nxyz\n11\n8\n1\n7\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nFalse\nTrue\nTrue\nrw\nQ\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "System.IO file-backed handles support openFile, ReadWriteMode creation, writeFile, appendFile, withFile close discipline, hGetChar, hLookAhead, hGetLine, lazy semi-closed hGetContents, semi-closed handle predicates/failures, bounded hSeek/hTell/hGetPosn/hSetPosn, hFileSize/hSetFileSize, buffering metadata, echo metadata, readiness, close state, and productive fixIO."
     },
     {
       "name": "patterns.irrefutable-pattern",
@@ -1235,13 +1643,164 @@
       "notes": "Unit and wildcard function patterns compile natively without forcing an unused argument."
     },
     {
+      "name": "modules.data-bits",
+      "sourceFile": "test/haskell2010/conformance/modules/data-bits.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "2\n7\n5\n-1\n4\n12\n-9223372036854775808\n0\n-1\n-9223372036854775808\n2\n1\n32\n0\n8\n-2\n2\nTrue\nFalse\n64\nTrue\n8\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Bits exports the report-shaped Bits class and validates the supported Int instance across bitwise operators, shifts, rotates, bit constructors, predicates, and directional helpers."
+    },
+    {
+      "name": "modules.data-bits-negative-shift-partial",
+      "sourceFile": "test/haskell2010/conformance/modules/data-bits-negative-shift-partial.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Directional bit-count operations reject negative indexes rather than relying on undefined native shift behavior."
+    },
+    {
+      "name": "modules.data-ratio",
+      "sourceFile": "test/haskell2010/conformance/modules/data-ratio.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "3\n2\n-3\n2\n0\n1\n3 % 2\nTrue\nTrue\n7 % 4\n5 % 4\n3 % 8\n-3 % 2\n3 % 2\n1 % 1\n3 % 2\n7\n1\n[3 % 2,-3 % 2]\n0 % 1\n3 % 10\n3 % 2\n3 % 2\n!\n[3 % 2,-3 % 2]\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Ratio exports Ratio/Rational and validates normalization, positive denominators, numerator/denominator accessors, Prelude toRational integration, and supported Ratio Integer Eq/Ord/Num/Show behavior."
+    },
+    {
+      "name": "modules.data-ratio-zero-denominator-partial",
+      "sourceFile": "test/haskell2010/conformance/modules/data-ratio-zero-denominator-partial.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Ratio.% rejects zero denominators instead of constructing an invalid Ratio."
+    },
+    {
+      "name": "modules.data-complex",
+      "sourceFile": "test/haskell2010/conformance/modules/data-complex.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "3\n4\n3 :+ -4\n5\n1\n0\n0 :+ 2\n0 :+ 0\n3 :+ 4\n[3 :+ 4,3 :+ -4]\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Data.Complex is importable and source-backed, including Complex((:+)), rectangular and polar operations, Eq/Num/Fractional/Floating/Show instances, and native Double-backed execution."
+    },
+    {
+      "name": "modules.numeric",
+      "sourceFile": "test/haskell2010/conformance/modules/numeric.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "255\nff\n100\n(-12)\n110\n123\nx\n63\n!\n-45\n!\n125.0\n!\n1.20\n1.23e2\n123.40\n12.000000\n[1,2]\n2\n1.50\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "Numeric is importable and source-backed, including integral bases, signed reads/shows, floating formatting/parsing, floatToDigits, and fromRat over the current supported numeric tower."
+    },
+    {
+      "name": "modules.system-environment",
+      "sourceFile": "test/haskell2010/conformance/modules/system-environment.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "[\"alpha\",\"beta\"]\nprog\nenv-value\nTrue\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "args": [
+        "alpha",
+        "beta"
+      ],
+      "env": {
+        "HEGGLOG_LIB011_ENV": "env-value"
+      },
+      "notes": "System.Environment exposes getArgs, getProgName, and getEnv through native process argv/envp behavior; missing variables surface as catchable does-not-exist IOErrors."
+    },
+    {
+      "name": "modules.system-exit",
+      "sourceFile": "test/haskell2010/conformance/modules/system-exit.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "True\nTrue\nTrue\nTrue\nTrue\nbefore\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "System.Exit exports ExitCode with Eq, Ord, Show, Read, and exitSuccess process behavior."
+    },
+    {
+      "name": "modules.system-exit-failure",
+      "sourceFile": "test/haskell2010/conformance/modules/system-exit-failure.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "expectedStdout": "before\n",
+      "expectedExitCode": 7,
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "exitWith (ExitFailure n) terminates the native executable with the requested process status after preserving prior effects."
+    },
+    {
+      "name": "modules.system-exit-catch",
+      "sourceFile": "test/haskell2010/conformance/modules/system-exit-catch.hs",
+      "category": "modules",
+      "expectedStatus": "native-runtime-error",
+      "expectedStdout": "",
+      "expectedExitCode": 9,
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "exitWith bypasses System.IO.Error.catch; this follows the Libraries Report distinction between process exit and IOError failure."
+    },
+    {
+      "name": "modules.system-exit-zero-catch",
+      "sourceFile": "test/haskell2010/conformance/modules/system-exit-zero-catch.hs",
+      "category": "modules",
+      "expectedStatus": "native-success",
+      "expectedStdout": "caught\n",
+      "requiredStage": "native",
+      "compilerModes": [
+        "default",
+        "no-egglog"
+      ],
+      "notes": "On the native POSIX target, ExitFailure 0 is prohibited and surfaces as a catchable illegal-operation IOError rather than a successful process exit."
+    },
+    {
       "name": "unsupported.package-module-search-path",
       "sourceFile": "test/haskell2010/conformance/unsupported/package-module-search-path.hs",
       "category": "unsupported",
       "expectedStatus": "unsupported-documented",
-      "expectedDiagnosticCategory": "could not read",
+      "expectedDiagnosticCategory": "module/import error",
+      "expectedDiagnosticSpanPrefix": "test/haskell2010/conformance/unsupported/package-module-search-path.hs:3:1-",
       "requiredStage": "module-graph",
-      "notes": "Package and unimplemented library module search paths are not implemented; imports only load generated standard-library interfaces or same-directory files."
+      "notes": "Package databases and unimplemented library modules are not implemented; source imports load generated standard-library interfaces or explicit source files found through the root directory plus -i/--import-path directories."
     }
   ]
 }

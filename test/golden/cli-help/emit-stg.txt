@@ -1,0 +1,17 @@
+HeggLog emit-stg mode
+
+usage:
+  hegglog emit-stg FILE [--no-egglog] [-i PATH] [-o PATH]
+
+behavior:
+  Parse, rename, typecheck, optimize Core when enabled, lower to STG, validate STG, and emit Haskell 2010 STG without LLVM or native codegen.
+
+options:
+  --no-egglog
+      Disable Core optimization before STG lowering and output.
+  --strict-egglog
+      Require Core Egglog optimization support before STG lowering.
+  -i, --import-path PATH
+      Add a Haskell 2010 source module import search directory. May be repeated; the root module directory is searched first.
+  -o, --output PATH
+      Write STG output to PATH instead of stdout.

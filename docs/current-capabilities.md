@@ -19,6 +19,44 @@ subset. For that subset, HeggLog can:
 - build native executables through `clang`
 - execute native artifacts under mandatory wet tests
 
+The `hegglog` executable now has a single normalized command parser for the
+supported top-level commands: `hegglog check FILE ...`, `hegglog run FILE
+...`, `hegglog emit-core FILE ...`, `hegglog emit-stg FILE ...`,
+`hegglog compile FILE ...`, `hegglog report FILE`, and the legacy
+`hegglog FILE` report/interpreter form.
+`check` parses, renames, typechecks, optimizes according to the selected Egglog
+mode, and validates Core/STG without LLVM or native code generation and without
+requiring a root `main` binding. `emit-core` reuses that validation pipeline and
+emits typed Haskell 2010 Core to stdout or a file, with `--original`,
+`--optimized`, and `--both` selections for typechecker Core versus checked
+post-optimizer Core. For legacy `.hg`, `emit-core` exposes the existing lowered
+legacy Core IR without changing report/interpreter behavior. `emit-stg` uses
+the same Haskell 2010 validation path and emits checked STG to stdout or a file
+for runtime/backend debugging; legacy `.hg` sources are rejected because that
+frontend has no STG layer.
+`report` emits source-aware diagnostic/status output: legacy `.hg` reports keep
+the parser/typechecker/interpreter/ANF/facts/rewrite/EGraph/Egglog/Core report,
+while Haskell 2010 `.hs` reports run the check pipeline and render stable source,
+warning, optimization, typed Core, and STG sections. Report mode accepts
+`--no-egglog`, `--strict-egglog`, and repeated Haskell 2010 import paths.
+`run` compiles through the normal native pipeline into a temporary executable,
+forwards program stdout/stderr without build chatter, and exits with the
+program status. Egglog optimization is explicitly controllable: `--no-egglog`
+disables it, while `--strict-egglog` requires optimizer support and fails
+instead of falling back to unoptimized ANF/Core for nontrivial unsupported input.
+`check`, `compile`, and `run` also expose stable debug dump flags:
+`--dump-core`, `--dump-optimized-core`, and `--dump-stg`. These dump original
+typed Core, optimized typed Core, and validated STG to stderr with stable
+section headers, keeping generated LLVM stdout and program stdout
+machine-readable. `compile` and `run` support `--keep-intermediates`, preserving
+debug artifacts under `.context/hegglog/intermediates`; native keep mode writes
+the generated LLVM, compiles a real object file, and links the executable from
+that object, while `run` also preserves its normally temporary executable.
+General, check, emit-core, emit-stg, run, compile, and report help are stable
+stdout-producing commands covered by exact public golden fixtures; malformed
+command lines produce diagnostics and scoped usage text on stderr before exiting
+nonzero.
+
 The native executable path supports checked signed `Int64` arithmetic,
 checked division, conditionals, top-level first-order direct calls,
 lambda-lifted non-capturing lambdas, and closure-converted local function
@@ -73,8 +111,8 @@ and local functions, plus the initial type class dictionary slice for
 user-defined single-parameter classes, concrete instances, explicit source
 constraints with normalized argument representation, dictionary-passed method
 calls, superclass dictionary fields/projection, default class methods,
-derived `Eq`/`Ord`/`Show` dictionaries for supported data/newtype declarations including
-parameterized, recursive, `String`-field, and list-backed cases,
+derived `Eq`/`Ord`/Report-shaped `Show` dictionaries for supported data/newtype declarations including
+parameterized, recursive, `String`-field, list-backed, record, and precedence-sensitive cases,
 derived `Enum` dictionaries for nullary-constructor data declarations,
 derived `Bounded` dictionaries for all-nullary enumerations and
 single-constructor products, records, and newtypes,
@@ -84,13 +122,16 @@ documented nullary-binding monomorphism/defaulting behavior, boxed `Char`
 literals and literal cases, scalar `main :: Char` output, and built-in
 `Eq Int`, `Eq Bool`, `Eq Char`, structural `Eq [a]`, `Ord Int`, `Ord Bool`, `Ord Char`, structural `Ord [a]`, executable `Num Int`, executable `Real Int`, and executable `Integral Int`
 class methods, plus guarded RHSs, guarded case alternatives, as-pattern
-aliases, and guard-fallthrough no-match behavior, plus the first IO printing/input
-slice for `IO`, `main :: IO ()`,
-`putStrLn`, `getLine`, `print`, and higher-kinded `Monad` dictionaries for
+aliases, and guard-fallthrough no-match behavior, plus the standard-handle IO
+printing/input slice for `IO`, `main :: IO ()`,
+`putStrLn`, `putStr`, `putChar`, `getLine`, `getContents`, `print`, and `System.IO`
+handle text operations plus file-backed handles, seek/position, semi-closed
+lazy `hGetContents`, and productive `fixIO`, and higher-kinded `Monad` dictionaries for
 `IO`, `Maybe`, and lists, including `return`, `(>>)`, `(>>=)`, `fail`, generic
-expression and bind-statement `do` sequencing, and refutable do-bind failure, and
-built-in `Show Int`/`Show Bool`/`Show Char`/`Show String` plus generated
-structural list `Show` dictionaries, plus executable arithmetic sequences over
+expression and bind-statement `do` sequencing, refutable do-bind failure, and
+recoverable `IOError` behavior through `ioError`, `catch`, and `try`, and
+built-in Report-shaped `Show Int`/`Show Bool`/`Show Char`/`Show String` plus generated
+structural list `Show` dictionaries and Prelude `shows`, plus executable arithmetic sequences over
 `Int`, `Char`, and derived-enumeration ranges, public `Enum Int`/`Enum Char` and
 `Bounded Int`/`Bounded Char`/`Bounded Bool` dictionaries, plus executable list comprehensions with generator
 scoping, Bool guards, `let` qualifiers, nested generators, and refutable
@@ -112,41 +153,68 @@ ownership policy, boxed `Char` values, `Eq Char` primitive lowering, scalar
 `Char` root printing, source `String` literals as ordinary list-of-`Char`
 constructor values, and checked primitive aborts, then uses the existing clang
 toolchain path to produce native executables. The Haskell 2010 native path also
-executes `main :: IO ()` actions for `putStrLn`, `getLine`, and `print` using
+executes `main :: IO ()` actions for `putStrLn`, `putStr`, `putChar`, `getLine`,
+`getContents`, `print`, standard-handle `hPutStr`/`hPutChar`/`hPutStrLn`, `hPrint`,
+`hSetBuffering`, `hIsEOF`, and `hShow` using
 list-of-`Char` traversal, built-in scalar/string `Show` results represented as
 lists, generated list `Show` dictionaries, Monad-backed do-bind result values,
-explicit `(>>=)`, `failIO#` aborts for IO fail paths, and a compatibility path
-for legacy internal string payloads. Dedicated
+explicit `(>>=)`, explicit IO success/failure wrappers, catchable `failIO#`,
+`ioError`, `catch`, `try`, and a compatibility path for legacy internal string
+payloads. Dedicated
 native wet tests now cover direct string output, list operations over strings,
 show-produced strings, explicit `Char` cons patterns, and string literal
 patterns, plus `Int`/`Char` arithmetic sequences, list comprehensions, and
 Monad IO/Maybe/list do-notation in both default and `--no-egglog` modes.
 Static `foreign import ccall` declarations now lower through Core/STG foreign
 IR to native LLVM external declarations and direct calls for the supported
-scalar and pointer ABI slice: boxed `Int`/`Bool`/`Char`, boxed `Ptr`/`FunPtr`,
-static `&symbol` data and function addresses, signed and unsigned integer C ABI
-declarations, checked integer marshalling, pointer arguments/results, and
-result-carrying `IO` sequencing. `dynamic` imports now lower to indirect
-`FunPtr` calls, and `wrapper` imports now generate C-callable callback
-trampolines backed by process-lifetime closure slots. `foreign export ccall`
-declarations now lower to C-callable native LLVM entrypoints for the supported
-scalar/pointer ABI slice; entrypoints allocate the module closure graph, box C
-arguments, enter the exported Haskell closure, force pure or `IO` results, and
-marshal results back to C. Native wet tests link generated LLVM against C
-helper files and check side-effect ordering, pointer mutation, indirect
-function-pointer calls, Haskell callbacks re-entering boxed closures, and C
-helpers calling exported Haskell entrypoints. Explicit `StablePtr` ownership
+scalar, floating, and pointer ABI slice: boxed `Int`/`Bool`/`Char`/`Float` and
+`Double`, boxed `Ptr`/`FunPtr`, static `&symbol` data and function addresses,
+signed and unsigned integer C ABI declarations, `CFloat`/`CDouble` ABI
+declarations, checked integer marshalling, floating-point marshalling, pointer
+arguments/results, and result-carrying `IO` sequencing. `dynamic` imports now
+lower to indirect `FunPtr` calls, and `wrapper` imports now generate C-callable
+callback trampolines backed by reclaimable process-lifetime closure slots.
+`freeHaskellFunPtr` releases wrapper slots, double-free is idempotent for
+wrapper pointers, callback-after-free aborts, and later wrapper allocations can
+reuse freed slots. `foreign export ccall` declarations now lower to C-callable native LLVM entrypoints for the
+supported scalar/floating/pointer ABI slice; entrypoints allocate the module
+closure graph, box C arguments, enter the exported Haskell closure, force pure
+or `IO` results, and marshal results back to C. Native wet tests link generated
+LLVM against C helper files and check side-effect ordering, pointer mutation,
+floating-point round trips, indirect function-pointer calls, Haskell callbacks
+re-entering boxed closures, and C helpers calling exported Haskell entrypoints.
+Explicit `StablePtr` ownership
 and manual `ForeignPtr` finalizer APIs are implemented with native wet coverage:
 stable pointers can be created, dereferenced, cast to raw pointers, cast back,
 and explicitly freed, while foreign pointers own raw addresses, accept bounded
 process-lifetime finalizer lists, support `withForeignPtr`, and finalize
-idempotently. Floating-point marshalling, broader link metadata, automatic GC
-finalizer scheduling, `freeHaskellFunPtr`/callback-slot reclamation, and richer
-`Foreign.*` marshalling modules remain later FFI work.
+idempotently with reverse-order finalizer dispatch. `Foreign.Ptr` also exposes null and representation-preserving
+pointer/function-pointer casts plus `freeHaskellFunPtr`; `Foreign.ForeignPtr` exposes
+`FinalizerPtr`/`FinalizerEnvPtr`, `unsafeForeignPtrToPtr`, and
+`castForeignPtr`; `Foreign.C.Error`, `Foreign.C.String`,
+`Foreign.Marshal.Alloc`, `Foreign.Marshal.Array`, and `Foreign.Storable`
+cover all Report errno constants, `Errno(Errno)`, `isValidErrno`,
+errno access/reset, retry/may-block/path errno guards, C/CW string conversion,
+raw allocation, array marshalling, and typed memory peek/poke; and
+`Foreign.Marshal.Error`/`Foreign.Marshal.Utils` expose guard and `Maybe`
+pointer helpers. FFI link metadata is now
+preserved through native compilation: header-qualified imports, static/address
+symbols, and export symbols appear in the Haskell 2010 LLVM result and emitted
+LLVM comments, while the CLI/toolchain accepts explicit `--link-object`,
+`--link-library`, `--library-path`, and `--framework` inputs for clang.
+Automatic GC finalizer scheduling remains outside the current process-lifetime
+runtime claim; the prior errno, Storable, raw allocation, array marshalling,
+and C string marshalling gaps are implemented and native-tested.
 Multi-module Haskell 2010 compilation now also follows the Report's special
 instance import/export rule for the executable source-instance subset:
 instances move across empty export lists, empty import lists, and transitive
 import chains independently of ordinary name filtering.
+The module compilation boundary is explicit in
+`Haskell2010.ModuleGraph.currentModuleCompilationBoundary`: current imports
+use root-directory-first source search, generated standard-library interfaces,
+and ordered CLI `-i`/`--import-path` source roots; current compilation is
+whole-program source-graph compilation, and persistent interface files are
+intentionally deferred until package/interface identity is stable.
 The Haskell 2010
 native path now runs an Egglog Core optimizer by
 default for safe typed Core fragments before STG lowering; `--no-egglog`
@@ -157,11 +225,10 @@ Core while preserving lazy constructor fields and forced bottom behavior.
 Haskell 2010 conformance is now tracked by a dedicated mandatory suite backed
 by `test/haskell2010/conformance/manifest.json`; the current compiler passes
 the documented executable-subset cases, while incomplete Haskell 2010 features
-are represented as explicit failing or unsupported-documented fixtures. `Read`
-is a documented Prelude/typeclass deviation: `Read` constraints are recognized
-only far enough to fail explicitly as unsupported until the compiler has
-coherent `ReadS`, lexical read parsing, standard instances, and derived `Read`
-support.
+are represented as explicit failing or unsupported-documented fixtures. The
+Prelude/typeclass surface now includes Report-shaped `Show` and `Read` for the
+supported executable subset, including `ReadS`, lexical read parsing, standard
+supported instances, and derived `Read`.
 
 Current status:
 
@@ -239,14 +306,22 @@ Current status:
   preservation, strict bottom preservation, and optimized/unoptimized native
   agreement
 - Haskell 2010 conformance suite: implemented as
-  `haskell2010-conformance-test`; it contains 118 manifest-tracked fixtures with
-  80 native-success cases, 5 native-runtime-error cases, 27 compile-error cases,
-  and 6 unsupported-documented cases
+  `haskell2010-conformance-test`; it contains 157 manifest-tracked fixtures with
+  111 native-success cases, 15 native-runtime-error cases, 29 compile-error
+  cases, and 3 unsupported-documented cases
 - Haskell 2010 standard library layout: implemented for the current executable
   subset as generated/importable `Prelude`, `Control.Monad`, `Data.Int`,
-  `Data.List`, `Data.Maybe`, `Data.Word`, `System.IO`, and implemented
-  `Foreign.*` module interfaces; `Control.Monad` includes real `Functor(fmap)`
-  support for `[]`, `Maybe`, and `IO`; broader standard modules remain reserved and documented in
+  `Data.List`, `Data.Maybe`, `Data.Char`, `Data.Word`, `System.IO`, `System.IO.Error`, and implemented
+  `Foreign.*` module interfaces including `Foreign.Marshal.Error` and
+  `Foreign.Marshal.Utils`; `Control.Monad` includes real `Functor(fmap)`,
+  `Monad(..)`, `MonadPlus(..)`, and Report monadic combinators for supported
+  `[]`, `Maybe`, and `IO` dictionaries; `Data.Char` is a source-backed module
+  with Report classification, conversion, digit, ordinal, and literal-helper
+  APIs under the documented compact character-table policy; `Data.Int` and
+  `Data.Word` have real fixed-width runtime representations, numeric/class
+  dictionaries, and native scalar FFI coverage for the Report fixed-width
+  foreign types; broader standard
+  modules remain reserved and documented in
   [haskell2010-standard-library-layout.md](haskell2010-standard-library-layout.md)
 
 Progress is tracked in
@@ -264,12 +339,20 @@ source matrix closure, and ADT-007 completed record
 update expressions.
 
 The following coherent chunk is Prelude, deriving, and typeclass library
-completion: TC-029, TC-030, and TEST-CONF-015. PRELUDE-019 and PRELUDE-020 are
-complete for the current high-value function and standard-module interface slices.
-TEST-CONF-015 is the required reconciliation point against Chapter 9 Prelude
-and the Part II Haskell 2010 Libraries module inventory before more
-standard-library support is claimed. Remaining FFI closure is tracked
-separately by FFI-010 through FFI-013.
+completion: the numbered LIB follow-ups from TEST-CONF-015.
+PRELUDE-019 and PRELUDE-020 are complete for the current high-value function
+and standard-module interface slices. TEST-CONF-015 is complete for
+validator-backed reconciliation against Chapter 9 Prelude and the Part II
+Haskell 2010 Libraries module inventory. FFI-010 is complete for floating-point
+native ABI marshalling of `Float`, `Double`, `CFloat`, and `CDouble`; FFI-011
+is complete for link metadata and explicit native link inputs; FFI-012 is
+complete for explicit callback/finalizer lifetime behavior; and FFI-013
+implements the Foreign library surface that fits the current native runtime
+model, including errno, Storable, allocation, array, and C-string pieces.
+MOD-011 and MOD-012 are complete as a documented module-compilation boundary:
+the current compiler is intentionally whole-program over loaded source modules,
+and future interface files must wait for stable search-path and dependency
+fingerprint semantics.
 
 ## Carry-Forward Infrastructure
 
@@ -301,15 +384,23 @@ Current tests include:
 - native executable tests in the normal Cabal suite
 - `e2e-wet-test`, included in `cabal test all`, which invokes the built
   `hegglog` CLI, compiles real `.hg` and executable-subset `.hs` files,
-  executes native artifacts, verifies stdout/stderr/exit codes, compares
-  report-mode `Result: <value>` output, runs Haskell 2010 default Egglog and
+  checks help/error stdout and stderr discipline, checks no-codegen validation
+  for `.hg` and Haskell 2010 library modules, checks `emit-core` stdout/file
+  output for validated typed Haskell 2010 Core sections, checks `emit-stg`
+  stdout/file output and legacy `.hg` rejection, checks dump flag stderr output
+  and stdout preservation for check/compile/run, checks `--keep-intermediates`
+  LLVM/object/executable preservation, checks `--strict-egglog` success and
+  fallback rejection behavior, checks top-level `run` stdout, stderr, and
+  nonzero-exit behavior, executes native artifacts, verifies
+  stdout/stderr/exit codes, compares report-mode `Result: <value>` output,
+  runs Haskell 2010 default Egglog and
   `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
   programs, user-defined type class dictionary programs, derived `Eq`/`Ord`/`Show`/`Enum`/`Bounded`
-  programs, and built-in `Eq`/`Ord`/`Num`/`Show`/`Enum`/`Bounded` dictionary programs, numeric-defaulting and
+  programs, and built-in `Eq`/`Ord`/`Num`/`Fractional`/`Floating`/`RealFrac`/`RealFloat`/`Show`/`Enum`/`Bounded` dictionary programs, `Data.Complex` programs, numeric-defaulting and
   monomorphism/defaulting decision programs, multi-file module programs,
   implicit, explicit, and qualified Prelude import programs,
-  known-constructor optimizer programs, plus line-oriented IO
-  printing/input programs, and compiles selected emitted LLVM through `clang`
+  known-constructor optimizer programs, plus line-oriented and standard-handle IO
+  printing/input and recoverable IO-error programs, and compiles selected emitted LLVM through `clang`
 - `haskell2010-conformance-test`, included in `cabal test all`, which reads the
   JSON conformance manifest, invokes the built `hegglog` executable as a
   subprocess, compiles native-success cases to actual executables, executes
@@ -318,8 +409,10 @@ Current tests include:
   unsupported-documented cases fail explicitly rather than silently passing
 
 Future Haskell 2010 conformance work should extend this direct executable
-coverage as report-complete pattern coverage/runtime attribution,
-the report-compatible `showsPrec`/`showList` hierarchy, exhaustive Unicode/string escape fidelity,
-additional string library behavior, and broader IO are implemented. Source-spanned
+coverage as report-complete pattern coverage/runtime attribution, broader
+Unicode/string escape edge cases, and additional string library behavior are
+implemented. Native `System.IO` coverage now includes file-backed handles, true
+seeking and position state, lazy semi-closed contents, and productive `fixIO`.
+Source-spanned
 non-exhaustive and redundant pattern warnings are already exposed through the
 Haskell 2010 typechecker, native compilation result APIs, and compile CLI.

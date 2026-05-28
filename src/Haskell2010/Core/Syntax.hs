@@ -10,19 +10,62 @@ module Haskell2010.Core.Syntax
   , CoreForeignImport (..)
   , CoreModule (..)
   , CorePrimOp (..)
+  , ForeignStorableKind (..)
+  , StdHandle (..)
+  , FloatingIntPrimOp (..)
+  , FloatingPrimOp (..)
+  , FloatingWidth (..)
+  , FixedIntegral (..)
+  , FixedIntegralOp (..)
   , CoreType (..)
   , boolTy
   , charTy
+  , doubleTy
   , eitherLeftDataConName
   , eitherRightDataConName
   , eitherTyConName
+  , exitCodeTy
+  , exitCodeTyConName
+  , exitFailureDataConName
+  , exitSuccessDataConName
   , falseDataConName
+  , floatTy
+  , fixedIntegralTy
   , foreignPtrTy
   , foreignPtrTyConName
   , funTy
   , funPtrTy
   , funPtrTyConName
+  , bufferModeBlockDataConName
+  , bufferModeLineDataConName
+  , bufferModeNoDataConName
+  , bufferModeTy
+  , bufferModeTyConName
+  , handleTy
+  , handlePosnTy
+  , handlePosnTyConName
+  , handleTyConName
+  , integerTy
   , intTy
+  , ioModeAppendDataConName
+  , ioModeReadDataConName
+  , ioModeReadWriteDataConName
+  , ioModeTy
+  , ioModeTyConName
+  , ioModeWriteDataConName
+  , ioErrorAlreadyExistsTypeDataConName
+  , ioErrorAlreadyInUseTypeDataConName
+  , ioErrorDataConName
+  , ioErrorDoesNotExistTypeDataConName
+  , ioErrorEOFTypeDataConName
+  , ioErrorFullTypeDataConName
+  , ioErrorIllegalOperationTypeDataConName
+  , ioErrorPermissionTypeDataConName
+  , ioErrorTy
+  , ioErrorTyConName
+  , ioErrorTypeTy
+  , ioErrorTypeTyConName
+  , ioErrorUserTypeDataConName
   , ioTy
   , ioTyConName
   , listTyConName
@@ -37,8 +80,16 @@ module Haskell2010.Core.Syntax
   , orderingTy
   , ptrTy
   , ptrTyConName
+  , ratioDataConName
+  , ratioTy
+  , ratioTyConName
   , stablePtrTy
   , stablePtrTyConName
+  , seekModeAbsoluteDataConName
+  , seekModeRelativeDataConName
+  , seekModeFromEndDataConName
+  , seekModeTy
+  , seekModeTyConName
   , stringTy
   , trueDataConName
   , tupleDataConName
@@ -52,14 +103,17 @@ where
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Haskell2010.FixedWidth (FixedIntegral (..), FixedIntegralOp (..), fixedIntegralTypeName)
 import Haskell2010.Names (Namespace (..), RName (..))
 import Haskell2010.Syntax (ForeignCallConv, ForeignExportEntity, ForeignImportEntity, ForeignSafety, Literal, ModuleName)
+import Syntax.Span (SourceSpan)
 
 data CoreModule = CoreModule
   { coreModuleName :: Maybe ModuleName
   , coreModuleConstructors :: Map.Map RName CoreConstructorInfo
   , coreModuleBinds :: [CoreBind]
   , coreModuleForeignExports :: [CoreForeignExport]
+  , coreModuleRuntimeSpans :: Map.Map RName SourceSpan
   }
   deriving stock (Show, Eq, Ord)
 
@@ -118,6 +172,7 @@ data CoreExpr
   = CVar RName CoreType
   | CLit Literal CoreType
   | CCon RName CoreType
+  | CSpanned SourceSpan CoreExpr
   | CLam CoreBinder CoreExpr CoreType
   | CApp CoreExpr CoreExpr CoreType
   | CTypeLam [RName] CoreExpr CoreType
@@ -148,27 +203,194 @@ data CorePrimOp
   | PrimEq
   | PrimLt
   | PrimNegate
+  | PrimBitAnd
+  | PrimBitOr
+  | PrimBitXor
+  | PrimBitComplement
+  | PrimShift
+  | PrimShiftL
+  | PrimShiftR
+  | PrimRotate
+  | PrimRotateL
+  | PrimRotateR
+  | PrimBit
+  | PrimTestBit
+  | PrimIntegerAdd
+  | PrimIntegerSub
+  | PrimIntegerMul
+  | PrimIntegerQuot
+  | PrimIntegerRem
+  | PrimIntegerEq
+  | PrimIntegerLt
+  | PrimIntegerNegate
+  | PrimIntegerAbs
+  | PrimIntegerSignum
+  | PrimIntegerToInt
+  | PrimIntToInteger
+  | PrimIntegerToFloat FloatingWidth
+  | PrimShowInteger
   | PrimCharToInt
   | PrimIntToChar
   | PrimShowInt
   | PrimShowBool
   | PrimPutStrLn
   | PrimGetLine
+  | PrimGetArgs
+  | PrimGetProgName
+  | PrimGetEnv
+  | PrimExitWith
+  | PrimStdHandle StdHandle
+  | PrimOpenFile
+  | PrimHClose
+  | PrimReadFile
+  | PrimWriteFile
+  | PrimAppendFile
+  | PrimHFileSize
+  | PrimHSetFileSize
+  | PrimHIsEOF
+  | PrimHSetBuffering
+  | PrimHGetBuffering
+  | PrimHFlush
+  | PrimHGetPosn
+  | PrimHSetPosn
+  | PrimHSeek
+  | PrimHTell
+  | PrimHIsOpen
+  | PrimHIsClosed
+  | PrimHIsReadable
+  | PrimHIsWritable
+  | PrimHIsSeekable
+  | PrimHIsTerminalDevice
+  | PrimHSetEcho
+  | PrimHGetEcho
+  | PrimHShow
+  | PrimHWaitForInput
+  | PrimHReady
+  | PrimHGetChar
+  | PrimHGetLine
+  | PrimHLookAhead
+  | PrimHGetContents
+  | PrimHPutChar
+  | PrimHPutStr
+  | PrimHPutStrLn
   | PrimIOThen
   | PrimIOBind
   | PrimIOReturn
   | PrimIOFail
+  | PrimIOError
+  | PrimIOCatch
+  | PrimIOTry
+  | PrimIOFix
+  | PrimNullPtr
+  | PrimCastPtr
+  | PrimIsNullPtr
   | PrimNewStablePtr
   | PrimDeRefStablePtr
   | PrimFreeStablePtr
   | PrimCastStablePtrToPtr
   | PrimCastPtrToStablePtr
+  | PrimFreeHaskellFunPtr
   | PrimNewForeignPtr
   | PrimNewForeignPtr_
   | PrimAddForeignPtrFinalizer
   | PrimFinalizeForeignPtr
   | PrimWithForeignPtr
   | PrimTouchForeignPtr
+  | PrimUnsafeForeignPtrToPtr
+  | PrimCastForeignPtr
+  | PrimPtrPlus
+  | PrimPtrMinus
+  | PrimPtrAlign
+  | PrimMallocBytes
+  | PrimReallocBytes
+  | PrimFree
+  | PrimFinalizerFree
+  | PrimPeek ForeignStorableKind
+  | PrimPoke ForeignStorableKind
+  | PrimCopyBytes
+  | PrimMoveBytes
+  | PrimGetErrno
+  | PrimResetErrno
+  | PrimPeekCString
+  | PrimPeekCStringLen
+  | PrimNewCString
+  | PrimPeekCWString
+  | PrimPeekCWStringLen
+  | PrimNewCWString
+  | PrimFloat FloatingWidth FloatingPrimOp
+  | PrimFloatInt FloatingWidth FloatingIntPrimOp
+  | PrimFixedIntegral FixedIntegral FixedIntegralOp
+  deriving stock (Show, Eq, Ord)
+
+data ForeignStorableKind
+  = StoreInt
+  | StoreBool
+  | StoreChar
+  | StoreInt8
+  | StoreWord8
+  | StoreInt16
+  | StoreWord16
+  | StoreInt32
+  | StoreWord32
+  | StoreInt64
+  | StoreWord
+  | StoreWord64
+  | StoreFloat
+  | StoreDouble
+  | StorePtr
+  deriving stock (Show, Eq, Ord)
+
+data StdHandle
+  = StdInHandle
+  | StdOutHandle
+  | StdErrHandle
+  deriving stock (Show, Eq, Ord)
+
+data FloatingWidth
+  = FloatWidth
+  | DoubleWidth
+  deriving stock (Show, Eq, Ord)
+
+data FloatingPrimOp
+  = FloatAdd
+  | FloatSub
+  | FloatMul
+  | FloatDiv
+  | FloatEq
+  | FloatLt
+  | FloatNegate
+  | FloatAbs
+  | FloatSignum
+  | FloatFromInt
+  | FloatShow
+  | FloatExp
+  | FloatLog
+  | FloatSqrt
+  | FloatSin
+  | FloatCos
+  | FloatTan
+  | FloatAsin
+  | FloatAcos
+  | FloatAtan
+  | FloatSinh
+  | FloatCosh
+  | FloatTanh
+  | FloatAsinh
+  | FloatAcosh
+  | FloatAtanh
+  | FloatPow
+  | FloatAtan2
+  deriving stock (Show, Eq, Ord)
+
+data FloatingIntPrimOp
+  = FloatTruncate
+  | FloatRound
+  | FloatCeiling
+  | FloatFloor
+  | FloatIsNaN
+  | FloatIsInfinite
+  | FloatIsDenormalized
+  | FloatIsNegativeZero
   deriving stock (Show, Eq, Ord)
 
 exprType :: CoreExpr -> CoreType
@@ -176,6 +398,7 @@ exprType = \case
   CVar _ ty -> ty
   CLit _ ty -> ty
   CCon _ ty -> ty
+  CSpanned _ expression -> exprType expression
   CLam _ _ ty -> ty
   CApp _ _ ty -> ty
   CTypeLam _ _ ty -> ty
@@ -200,6 +423,10 @@ intTy :: CoreType
 intTy =
   builtinType "Int" (-1)
 
+integerTy :: CoreType
+integerTy =
+  builtinType "Integer" (-34)
+
 boolTy :: CoreType
 boolTy =
   builtinType "Bool" (-2)
@@ -207,6 +434,18 @@ boolTy =
 charTy :: CoreType
 charTy =
   builtinType "Char" (-3)
+
+floatTy :: CoreType
+floatTy =
+  builtinType "Float" (-10)
+
+doubleTy :: CoreType
+doubleTy =
+  builtinType "Double" (-11)
+
+fixedIntegralTy :: FixedIntegral -> CoreType
+fixedIntegralTy =
+  CTyCon . fixedIntegralTypeName
 
 unitTy :: CoreType
 unitTy =
@@ -236,9 +475,81 @@ ioTy :: CoreType -> CoreType
 ioTy =
   CTyApp (CTyCon ioTyConName)
 
+ioErrorTyConName :: RName
+ioErrorTyConName =
+  builtinTypeName "IOError" (-22)
+
+ioErrorTy :: CoreType
+ioErrorTy =
+  CTyCon ioErrorTyConName
+
+ioErrorTypeTyConName :: RName
+ioErrorTypeTyConName =
+  builtinTypeName "IOErrorType" (-23)
+
+ioErrorTypeTy :: CoreType
+ioErrorTypeTy =
+  CTyCon ioErrorTypeTyConName
+
+handleTyConName :: RName
+handleTyConName =
+  builtinTypeName "Handle" (-24)
+
+handleTy :: CoreType
+handleTy =
+  CTyCon handleTyConName
+
+handlePosnTyConName :: RName
+handlePosnTyConName =
+  builtinTypeName "HandlePosn" (-25)
+
+handlePosnTy :: CoreType
+handlePosnTy =
+  CTyCon handlePosnTyConName
+
+ioModeTyConName :: RName
+ioModeTyConName =
+  builtinTypeName "IOMode" (-26)
+
+ioModeTy :: CoreType
+ioModeTy =
+  CTyCon ioModeTyConName
+
+bufferModeTyConName :: RName
+bufferModeTyConName =
+  builtinTypeName "BufferMode" (-27)
+
+bufferModeTy :: CoreType
+bufferModeTy =
+  CTyCon bufferModeTyConName
+
+seekModeTyConName :: RName
+seekModeTyConName =
+  builtinTypeName "SeekMode" (-28)
+
+seekModeTy :: CoreType
+seekModeTy =
+  CTyCon seekModeTyConName
+
+exitCodeTyConName :: RName
+exitCodeTyConName =
+  builtinTypeName "ExitCode" (-29)
+
+exitCodeTy :: CoreType
+exitCodeTy =
+  CTyCon exitCodeTyConName
+
 listTyConName :: RName
 listTyConName =
   builtinTypeName "[]" (-8)
+
+ratioTyConName :: RName
+ratioTyConName =
+  builtinTypeName "Ratio" (-9)
+
+ratioTy :: CoreType -> CoreType
+ratioTy =
+  CTyApp (CTyCon ratioTyConName)
 
 ptrTyConName :: RName
 ptrTyConName =
@@ -319,6 +630,94 @@ orderingEQDataConName =
 orderingGTDataConName :: RName
 orderingGTDataConName =
   builtinCon "GT" (-21)
+
+ioErrorDataConName :: RName
+ioErrorDataConName =
+  builtinCon "$IOError" (-40)
+
+ioErrorAlreadyExistsTypeDataConName :: RName
+ioErrorAlreadyExistsTypeDataConName =
+  builtinCon "$AlreadyExistsErrorType" (-41)
+
+ioErrorDoesNotExistTypeDataConName :: RName
+ioErrorDoesNotExistTypeDataConName =
+  builtinCon "$DoesNotExistErrorType" (-42)
+
+ioErrorAlreadyInUseTypeDataConName :: RName
+ioErrorAlreadyInUseTypeDataConName =
+  builtinCon "$AlreadyInUseErrorType" (-43)
+
+ioErrorFullTypeDataConName :: RName
+ioErrorFullTypeDataConName =
+  builtinCon "$FullErrorType" (-44)
+
+ioErrorEOFTypeDataConName :: RName
+ioErrorEOFTypeDataConName =
+  builtinCon "$EOFErrorType" (-45)
+
+ioErrorIllegalOperationTypeDataConName :: RName
+ioErrorIllegalOperationTypeDataConName =
+  builtinCon "$IllegalOperationErrorType" (-46)
+
+ioErrorPermissionTypeDataConName :: RName
+ioErrorPermissionTypeDataConName =
+  builtinCon "$PermissionErrorType" (-47)
+
+ioErrorUserTypeDataConName :: RName
+ioErrorUserTypeDataConName =
+  builtinCon "$UserErrorType" (-48)
+
+ratioDataConName :: RName
+ratioDataConName =
+  builtinCon "$Ratio" (-49)
+
+ioModeReadDataConName :: RName
+ioModeReadDataConName =
+  builtinCon "ReadMode" (-50)
+
+ioModeWriteDataConName :: RName
+ioModeWriteDataConName =
+  builtinCon "WriteMode" (-51)
+
+ioModeAppendDataConName :: RName
+ioModeAppendDataConName =
+  builtinCon "AppendMode" (-52)
+
+ioModeReadWriteDataConName :: RName
+ioModeReadWriteDataConName =
+  builtinCon "ReadWriteMode" (-53)
+
+bufferModeNoDataConName :: RName
+bufferModeNoDataConName =
+  builtinCon "NoBuffering" (-54)
+
+bufferModeLineDataConName :: RName
+bufferModeLineDataConName =
+  builtinCon "LineBuffering" (-55)
+
+bufferModeBlockDataConName :: RName
+bufferModeBlockDataConName =
+  builtinCon "BlockBuffering" (-56)
+
+seekModeAbsoluteDataConName :: RName
+seekModeAbsoluteDataConName =
+  builtinCon "AbsoluteSeek" (-57)
+
+seekModeRelativeDataConName :: RName
+seekModeRelativeDataConName =
+  builtinCon "RelativeSeek" (-58)
+
+seekModeFromEndDataConName :: RName
+seekModeFromEndDataConName =
+  builtinCon "SeekFromEnd" (-59)
+
+exitSuccessDataConName :: RName
+exitSuccessDataConName =
+  builtinCon "ExitSuccess" (-60)
+
+exitFailureDataConName :: RName
+exitFailureDataConName =
+  builtinCon "ExitFailure" (-61)
 
 tupleDataConName :: Int -> RName
 tupleDataConName arity =

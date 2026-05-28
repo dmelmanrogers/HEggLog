@@ -4,6 +4,7 @@ data Box = Box Int
 
 triple x = x + x + x
 
+value :: Int
 value = 6
 
 hidden = 999

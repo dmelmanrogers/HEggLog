@@ -9,6 +9,7 @@ import qualified Backend.LLVM.Toolchain as LLVMTools
 import qualified Backend.LLVM.Validate as LV
 import qualified Backend.Lower as BL
 import qualified Backend.Validate as BV
+import qualified CLI.Command as CommandCLI
 import qualified CLI.Compile as CompileCLI
 import CLI.Report (CompileError (..), CompileReport (..), compileReport, renderCompileError, renderGoldenReport)
 import Control.Monad (unless, when)
@@ -35,6 +36,8 @@ import qualified Haskell2010.Core.Pretty as H2010CorePretty
 import qualified Haskell2010.Core.Subst as H2010CoreSubst
 import qualified Haskell2010.Core.Syntax as H2010Core
 import qualified Haskell2010.Core.Validate as H2010CoreValidate
+import qualified Haskell2010.Diagnostics as H2010Diagnostics
+import qualified Haskell2010.FFI.LinkMetadata as H2010Link
 import qualified Haskell2010.ModuleGraph as H2010ModuleGraph
 import qualified Haskell2010.ModuleInterface as H2010ModuleInterface
 import qualified Haskell2010.Names as H2010Names
@@ -114,8 +117,10 @@ testGroups =
       , pureTest "Haskell 2010 record field syntax parses" testHaskell2010RecordFieldSyntaxParsing
       , pureTest "Haskell 2010 record update syntax parses" testHaskell2010RecordUpdateSyntaxParsing
       , pureTest "Haskell 2010 user-defined operator bindings parse" testHaskell2010UserDefinedOperatorParsing
-      , pureTest "Haskell 2010 constructor operator bindings are rejected" testHaskell2010ConstructorOperatorBindingRejected
+      , pureTest "Haskell 2010 constructor operator pattern bindings parse" testHaskell2010ConstructorOperatorPatternBindingParsing
       , pureTest "Haskell 2010 malformed layout is rejected" testHaskell2010MalformedLayout
+      , pureTest "Haskell 2010 malformed where layout has layout diagnostics" testHaskell2010MalformedWhereLayoutDiagnostics
+      , pureTest "Haskell 2010 lexer diagnostics render source spans" testHaskell2010LexerDiagnostics
       , pureTest "Haskell 2010 imports after declarations are rejected" testHaskell2010ImportAfterDecl
       ]
   , TestGroup
@@ -131,6 +136,7 @@ testGroups =
       , pureTest "resolves operator precedence" testHaskell2010RenamerFixityPrecedence
       , pureTest "rejects chained non-associative operators" testHaskell2010RenamerNonAssociativeFixity
       , pureTest "detects ambiguous explicit imports" testHaskell2010RenamerAmbiguousImport
+      , pureTest "renders import-spec diagnostics with spans" testHaskell2010RenamerImportSpecDiagnostics
       , pureTest "resolves qualified explicit imports" testHaskell2010RenamerQualifiedImport
       , pureTest "applies implicit Prelude imports" testHaskell2010RenamerImplicitPrelude
       , pureTest "honors explicit Prelude import specs" testHaskell2010RenamerExplicitPreludeSpecs
@@ -141,6 +147,9 @@ testGroups =
       , pureTest "renames Haskell 2010 foreign declarations" testHaskell2010RenamerForeignDeclarations
       , pureTest "resolves module graph imports through exports" testHaskell2010RenamerModuleGraphExports
       , pureTest "exports and imports instances through module interfaces" testHaskell2010RenamerModuleGraphInstances
+      , pureTest "exposes explicit module compilation boundary" testHaskell2010ModuleCompilationBoundary
+      , ioTest "loads imports through source search paths" testHaskell2010ModuleGraphImportSearchPath
+      , ioTest "renders missing import diagnostics with spans" testHaskell2010ModuleGraphMissingImportDiagnostics
       , ioTest "detects module graph import cycles" testHaskell2010ModuleGraphCycle
       ]
   , TestGroup
@@ -190,17 +199,21 @@ testGroups =
       , pureTest "typechecks Char runtime representation" testHaskell2010Core0CharRuntime
       , pureTest "typechecks String as Char lists" testHaskell2010Core0StringCharList
       , pureTest "typechecks broader Show dictionaries" testHaskell2010Core0BroadShow
+      , pureTest "typechecks Report-shaped Read dictionaries" testHaskell2010Core0BroadRead
       , pureTest "typechecks Prelude append" testHaskell2010Core0Append
       , pureTest "typechecks Prelude foldl" testHaskell2010Core0Foldl
       , pureTest "typechecks Prelude function completion" testHaskell2010Core0PreludeFunctions
       , pureTest "typechecks fromInteger and numeric defaulting" testHaskell2010Core0NumericDefaulting
+      , pureTest "typechecks arbitrary-precision Integer arithmetic" testHaskell2010Core0ArbitraryInteger
       , pureTest "typechecks Real and Integral numeric methods" testHaskell2010Core0NumericHierarchy
+      , pureTest "typechecks Numeric module helpers" testHaskell2010Core0NumericModule
       , pureTest "documents monomorphism restriction defaulting policy" testHaskell2010MonomorphismRestrictionDefaulting
       , pureTest "typechecks multi-module imports" testHaskell2010Core0MultiModuleImports
       , pureTest "typechecks transitive instance imports" testHaskell2010Core0ModuleInstanceImports
       , pureTest "typechecks IO printing" testHaskell2010Core0IOPrinting
       , pureTest "typechecks normal IO examples" testHaskell2010Core0IONormalExamples
       , pureTest "typechecks IO getLine" testHaskell2010Core0IOGetLine
+      , pureTest "typechecks IO error behavior" testHaskell2010Core0IOError
       , pureTest "typechecks higher-kinded Monad constraints and dictionaries" testHaskell2010Core0Monad
       , pureTest "typechecks guards and as-patterns" testHaskell2010Core0GuardsAndAsPatterns
       , pureTest "desugars operator sections to Core lambdas" testHaskell2010Core0Sections
@@ -210,6 +223,7 @@ testGroups =
       , pureTest "typechecks derived Eq instances" testHaskell2010Core0DerivedEq
       , pureTest "typechecks derived Ord instances" testHaskell2010Core0DerivedOrd
       , pureTest "typechecks derived Show instances" testHaskell2010Core0DerivedShow
+      , pureTest "typechecks derived Read instances" testHaskell2010Core0DerivedRead
       , pureTest "typechecks derived Enum instances" testHaskell2010Core0DerivedEnum
       , pureTest "typechecks derived Bounded instances" testHaskell2010Core0DerivedBounded
       , pureTest "typechecks list comprehensions" testHaskell2010Core0ListComprehensions
@@ -245,17 +259,21 @@ testGroups =
       , pureTest "evaluates Char equality and literal cases" testHaskell2010Core0EvalCharRuntime
       , pureTest "evaluates String as Char lists" testHaskell2010Core0EvalStringCharList
       , pureTest "evaluates broader Show dictionaries" testHaskell2010Core0EvalBroadShow
+      , pureTest "evaluates Report-shaped Read dictionaries" testHaskell2010Core0EvalBroadRead
       , pureTest "evaluates Prelude append" testHaskell2010Core0EvalAppend
       , pureTest "evaluates Prelude foldl" testHaskell2010Core0EvalFoldl
       , pureTest "evaluates Prelude function completion" testHaskell2010Core0EvalPreludeFunctions
       , pureTest "evaluates standard library module imports" testHaskell2010Core0EvalStandardLibraryModules
       , pureTest "evaluates fromInteger and numeric defaulting" testHaskell2010Core0EvalNumericDefaulting
+      , pureTest "evaluates arbitrary-precision Integer arithmetic" testHaskell2010Core0EvalArbitraryInteger
       , pureTest "evaluates Real and Integral numeric methods" testHaskell2010Core0EvalNumericHierarchy
+      , pureTest "evaluates Numeric module helpers" testHaskell2010Core0EvalNumericModule
       , pureTest "evaluates multi-module imports" testHaskell2010Core0EvalMultiModuleImports
       , pureTest "evaluates transitive instance imports" testHaskell2010Core0EvalModuleInstanceImports
       , pureTest "evaluates IO printing" testHaskell2010Core0EvalIOPrinting
       , pureTest "evaluates normal IO examples" testHaskell2010Core0EvalIONormalExamples
       , pureTest "evaluates IO getLine with empty interpreter stdin" testHaskell2010Core0EvalIOGetLine
+      , pureTest "evaluates IO error behavior" testHaskell2010Core0EvalIOError
       , pureTest "evaluates Monad IO Maybe and list do-notation" testHaskell2010Core0EvalMonad
       , pureTest "evaluates guards and as-patterns" testHaskell2010Core0EvalGuardsAndAsPatterns
       , pureTest "evaluates operator sections" testHaskell2010Core0EvalSections
@@ -265,6 +283,7 @@ testGroups =
       , pureTest "evaluates derived Eq instances" testHaskell2010Core0EvalDerivedEq
       , pureTest "evaluates derived Ord instances" testHaskell2010Core0EvalDerivedOrd
       , pureTest "evaluates derived Show instances" testHaskell2010Core0EvalDerivedShow
+      , pureTest "evaluates derived Read instances" testHaskell2010Core0EvalDerivedRead
       , pureTest "evaluates derived Enum instances" testHaskell2010Core0EvalDerivedEnum
       , pureTest "reports derived Enum bounds errors" testHaskell2010Core0EvalDerivedEnumRuntimeError
       , pureTest "evaluates derived Bounded instances" testHaskell2010Core0EvalDerivedBounded
@@ -272,6 +291,8 @@ testGroups =
       , pureTest "does not force unused let bindings" testHaskell2010Core0EvalLazyLet
       , pureTest "does not force unused function arguments" testHaskell2010Core0EvalLazyArgument
       , pureTest "reports forced division by zero" testHaskell2010Core0EvalDivisionByZero
+      , pureTest "attributes Core runtime failures to source expressions" testHaskell2010Core0EvalRuntimeSourceSpan
+      , pureTest "attributes Core runtime failures to nested source expressions" testHaskell2010Core0EvalNestedRuntimeSourceSpan
       , pureTest "reports guard fallthrough as no matching alternative" testHaskell2010Core0EvalGuardFallthrough
       ]
   , TestGroup
@@ -303,16 +324,20 @@ testGroups =
       , pureTest "preserves Char runtime semantics" testHaskell2010CoreToSTGCharRuntime
       , pureTest "preserves String as Char lists" testHaskell2010CoreToSTGStringCharList
       , pureTest "preserves broader Show semantics" testHaskell2010CoreToSTGBroadShow
+      , pureTest "preserves Report-shaped Read semantics" testHaskell2010CoreToSTGBroadRead
       , pureTest "preserves Prelude append semantics" testHaskell2010CoreToSTGAppend
       , pureTest "preserves Prelude foldl semantics" testHaskell2010CoreToSTGFoldl
       , pureTest "preserves Prelude function completion semantics" testHaskell2010CoreToSTGPreludeFunctions
       , pureTest "preserves standard library module import semantics" testHaskell2010CoreToSTGStandardLibraryModules
       , pureTest "preserves fromInteger and numeric defaulting" testHaskell2010CoreToSTGNumericDefaulting
+      , pureTest "preserves arbitrary-precision Integer arithmetic" testHaskell2010CoreToSTGArbitraryInteger
       , pureTest "preserves Real and Integral numeric methods" testHaskell2010CoreToSTGNumericHierarchy
+      , pureTest "preserves Numeric module helper semantics" testHaskell2010CoreToSTGNumericModule
       , pureTest "preserves multi-module import semantics" testHaskell2010CoreToSTGMultiModuleImports
       , pureTest "preserves IO printing semantics" testHaskell2010CoreToSTGIOPrinting
       , pureTest "preserves normal IO example semantics" testHaskell2010CoreToSTGIONormalExamples
       , pureTest "preserves IO getLine empty-stdin semantics" testHaskell2010CoreToSTGIOGetLine
+      , pureTest "preserves IO error behavior" testHaskell2010CoreToSTGIOError
       , pureTest "preserves guard and as-pattern semantics" testHaskell2010CoreToSTGGuardsAndAsPatterns
       , pureTest "preserves operator section semantics" testHaskell2010CoreToSTGSections
       , pureTest "preserves user-defined operator semantics" testHaskell2010CoreToSTGUserDefinedOperators
@@ -321,10 +346,13 @@ testGroups =
       , pureTest "preserves derived Eq semantics" testHaskell2010CoreToSTGDerivedEq
       , pureTest "preserves derived Ord semantics" testHaskell2010CoreToSTGDerivedOrd
       , pureTest "preserves derived Show semantics" testHaskell2010CoreToSTGDerivedShow
+      , pureTest "preserves derived Read semantics" testHaskell2010CoreToSTGDerivedRead
       , pureTest "preserves derived Enum semantics" testHaskell2010CoreToSTGDerivedEnum
       , pureTest "preserves derived Bounded semantics" testHaskell2010CoreToSTGDerivedBounded
       , pureTest "preserves list comprehension semantics" testHaskell2010CoreToSTGListComprehensions
       , pureTest "preserves forced division-by-zero errors" testHaskell2010CoreToSTGDivisionByZero
+      , pureTest "preserves runtime source attribution" testHaskell2010CoreToSTGRuntimeSourceSpan
+      , pureTest "preserves nested runtime source attribution" testHaskell2010CoreToSTGNestedRuntimeSourceSpan
       , pureTest "preserves guard fallthrough errors" testHaskell2010CoreToSTGGuardFallthrough
       , pureTest "preserves curried partial application" testHaskell2010CoreToSTGPartialApplication
       , pureTest "rejects invalid Core before lowering" testHaskell2010CoreToSTGRejectsInvalidCore
@@ -333,14 +361,17 @@ testGroups =
       "Haskell 2010 Native Output"
       [ pureTest "emits boxed lazy STG runtime LLVM" testHaskell2010NativeLLVMShape
       , pureTest "erases newtype constructor allocation in native LLVM" testHaskell2010NativeNewtypeErasure
+      , pureTest "emits FFI link metadata" testHaskell2010NativeFFILinkMetadata
       , pureTest "emits Char runtime LLVM" testHaskell2010NativeCharRuntime
       , pureTest "emits String as Char lists in native LLVM" testHaskell2010NativeStringCharList
       , pureTest "emits arithmetic sequence LLVM" testHaskell2010NativeArithmeticSequences
       , pureTest "emits numeric hierarchy LLVM" testHaskell2010NativeNumericHierarchy
+      , pureTest "emits Numeric module helper LLVM" testHaskell2010NativeNumericModule
       , pureTest "emits Enum Bounded LLVM" testHaskell2010NativeEnumBounded
       , pureTest "emits derived Eq LLVM" testHaskell2010NativeDerivedEq
       , pureTest "emits derived Ord LLVM" testHaskell2010NativeDerivedOrd
       , pureTest "emits derived Show LLVM" testHaskell2010NativeDerivedShow
+      , pureTest "emits derived Read LLVM" testHaskell2010NativeDerivedRead
       , pureTest "emits derived Enum LLVM" testHaskell2010NativeDerivedEnum
       , pureTest "emits derived Bounded LLVM" testHaskell2010NativeDerivedBounded
       , pureTest "emits Prelude append LLVM" testHaskell2010NativeAppend
@@ -352,6 +383,8 @@ testGroups =
       , ioTest "native static ccall imports link and run" testHaskell2010NativeStaticCCall
       , ioTest "native pointer and address imports link and run" testHaskell2010NativePointerAddressCCall
       , ioTest "native dynamic and wrapper imports link and run" testHaskell2010NativeDynamicWrapperCCall
+      , ioTest "native wrapper slots reclaim freed callbacks" testHaskell2010NativeWrapperReclamation
+      , ioTest "native wrapper callbacks reject use after free" testHaskell2010NativeWrapperAfterFreeRuntimeError
       , ioTest "native foreign exports link and run" testHaskell2010NativeForeignExportCCall
       , ioTest "native StablePtr ForeignPtr finalizers link and run" testHaskell2010NativeStableForeignPtrFinalizers
       , ioTest "LLVM execution preserves Core-0 semantics" testHaskell2010NativeLLVMExecution
@@ -407,7 +440,13 @@ testGroups =
       ]
   , TestGroup
       "CLI"
-      [ pureTest "compile flags select LLVM and native output modes" testCompileFlagsOutputModes
+      [ pureTest "command model parses supported top-level forms" testCLICommandModelParsesSupportedForms
+      , pureTest "command model rejects invalid forms with scoped usage" testCLICommandModelRejectsInvalidForms
+      , pureTest "command model exposes stable help text" testCLICommandModelUsageText
+      , ioTest "command help text matches public golden fixtures" testCLIHelpTextGolden
+      , pureTest "check, emit-core, emit-stg, and run flags expose scoped option sets" testCheckEmitCoreRunFlags
+      , pureTest "compile flags select LLVM and native output modes" testCompileFlagsOutputModes
+      , pureTest "compile flags collect native link options" testCompileFlagsLinkOptions
       , pureTest "compile flags reject invalid run combinations" testCompileFlagsRejectInvalidRunModes
       ]
   , TestGroup
@@ -606,6 +645,7 @@ testGroups =
       , pureTest "LLVM compiler closure-converts capturing lambdas" testLLVMCompileCapturingLambda
       , pureTest "LLVM compiler closure-converts inferred capturing lambdas" testLLVMCompileInferredCapturingLambda
       , ioTest "native build reports missing clang structurally" testNativeBuildToolchainMissing
+      , ioTest "native link options report missing objects" testNativeBuildLinkOptionsMissingObject
       , ioTest "native executable output matches interpreter when clang is available" testNativeExecutionMatchesInterpreter
       , ioTest "native executable runtime errors fail when clang is available" testNativeRuntimeErrorExecutable
       , ioTest "LLVM checked Int overflow aborts when tools are available" testLLVMOverflowAborts
@@ -733,16 +773,22 @@ testHaskell2010ModuleParsing = do
         ]
     )
     (H2010.moduleExports parsed)
-  expectEqual
-    "Haskell 2010 import"
-    [ H2010.ImportDecl
-        { H2010.importQualified = True
-        , H2010.importModule = H2010.ModuleName ["Data", "List"]
-        , H2010.importAs = Just (H2010.ModuleName ["List"])
-        , H2010.importSpecs = Just ([H2010.ImportName "map"], True)
-        }
-    ]
-    (H2010.moduleImports parsed)
+  case H2010.moduleImports parsed of
+    [actualImport] -> do
+      assertBool "Haskell 2010 import carries a source span" (H2010.importSpan actualImport /= Nothing)
+      expectEqual
+        "Haskell 2010 import"
+        ( H2010.ImportDecl
+            { H2010.importSpan = H2010.importSpan actualImport
+            , H2010.importQualified = True
+            , H2010.importModule = H2010.ModuleName ["Data", "List"]
+            , H2010.importAs = Just (H2010.ModuleName ["List"])
+            , H2010.importSpecs = Just ([H2010.ImportName "map"], True)
+            }
+        )
+        actualImport
+    imports ->
+      Left ("expected one Haskell 2010 import, got: " <> show imports)
   expectEqual "Haskell 2010 declaration count" 7 (length (H2010.moduleDecls parsed))
 
 testHaskell2010LayoutParsing :: Either String ()
@@ -813,7 +859,14 @@ testHaskell2010MisindentedWhereKeyword =
       \where\n\
       \  x = 1\n"
     of
-      Left _ -> Right ()
+      Left err -> do
+        let rendered = H2010Diagnostics.renderParseDiagnostic err
+        assertBool
+          "misindented where keyword reports a layout diagnostic"
+          ("Haskell 2010 layout error" `Text.isInfixOf` rendered)
+        assertBool
+          "misindented where keyword keeps the where source location"
+          ("<haskell2010-misindented-where-keyword>:5:1-" `Text.isInfixOf` rendered)
       Right parsed -> Left ("misindented where keyword parsed unexpectedly: " <> show parsed)
 
 testHaskell2010ExpressionSurfaceParsing :: Either String ()
@@ -845,8 +898,11 @@ testHaskell2010ForeignDeclarationParsing = do
   parsed <-
     parseHaskell2010
       "module ForeignSurface where\n\
-      \foreign import ccall unsafe \"static [stdlib.h] abs\" c_abs :: Int -> IO Int\n\
-      \foreign import ccall safe \"[errno.h] &errno\" c_errno :: Ptr Int\n\
+      \foreign import ccall unsafe \"static stdlib.h abs\" c_abs :: Int -> IO Int\n\
+      \foreign import ccall safe \"errno.h &errno\" c_errno :: Ptr Int\n\
+      \foreign import ccall \"static [string.h]\" c_strlen :: Ptr Int -> IO Int\n\
+      \foreign import ccall \"&\" c_default_addr :: Ptr Int\n\
+      \foreign import ccall \"\" c_default :: IO Int\n\
       \foreign import ccall \"dynamic\" mkFun :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
       \foreign import ccall \"wrapper\" wrapFun :: (Int -> IO Int) -> IO (FunPtr (Int -> IO Int))\n\
       \foreign export ccall \"hs_identity\" identity :: Int -> Int\n\
@@ -854,6 +910,9 @@ testHaskell2010ForeignDeclarationParsing = do
   case H2010.moduleDecls parsed of
     [ H2010.ForeignDecl (H2010.ForeignImportDecl cAbs)
       , H2010.ForeignDecl (H2010.ForeignImportDecl cErrno)
+      , H2010.ForeignDecl (H2010.ForeignImportDecl cStrlen)
+      , H2010.ForeignDecl (H2010.ForeignImportDecl cDefaultAddress)
+      , H2010.ForeignDecl (H2010.ForeignImportDecl cDefault)
       , H2010.ForeignDecl (H2010.ForeignImportDecl dynamicImport)
       , H2010.ForeignDecl (H2010.ForeignImportDecl wrapperImport)
       , H2010.ForeignDecl (H2010.ForeignExportDecl exported)
@@ -864,6 +923,9 @@ testHaskell2010ForeignDeclarationParsing = do
         expectEqual "static import entity" (H2010.ForeignImportStatic (Just "stdlib.h") "abs") (H2010.foreignImportEntityKind (H2010.foreignImportEntity cAbs))
         expectEqual "foreign import binds parsed name" "c_abs" (H2010.foreignImportName cAbs)
         expectEqual "address import entity" (H2010.ForeignImportAddress (Just "errno.h") "errno") (H2010.foreignImportEntityKind (H2010.foreignImportEntity cErrno))
+        expectEqual "bracketed header default symbol remains accepted" (H2010.ForeignImportStatic (Just "string.h") "c_strlen") (H2010.foreignImportEntityKind (H2010.foreignImportEntity cStrlen))
+        expectEqual "address import defaults to parsed name" (H2010.ForeignImportAddress Nothing "c_default_addr") (H2010.foreignImportEntityKind (H2010.foreignImportEntity cDefaultAddress))
+        expectEqual "empty import entity defaults" H2010.ForeignImportDefault (H2010.foreignImportEntityKind (H2010.foreignImportEntity cDefault))
         expectEqual "dynamic import entity" H2010.ForeignImportDynamic (H2010.foreignImportEntityKind (H2010.foreignImportEntity dynamicImport))
         expectEqual "wrapper import entity" H2010.ForeignImportWrapper (H2010.foreignImportEntityKind (H2010.foreignImportEntity wrapperImport))
         expectEqual "export entity symbol" (Just "hs_identity") (H2010.foreignExportEntitySymbol (H2010.foreignExportEntity exported))
@@ -919,8 +981,8 @@ testHaskell2010UserDefinedOperatorParsing = do
   assertBool "symbolic fixity declaration parses" ("<+>" `elem` fixityNames)
   assertBool "backtick fixity declaration parses" ("combine" `elem` fixityNames)
 
-testHaskell2010ConstructorOperatorBindingRejected :: Either String ()
-testHaskell2010ConstructorOperatorBindingRejected =
+testHaskell2010ConstructorOperatorPatternBindingParsing :: Either String ()
+testHaskell2010ConstructorOperatorPatternBindingParsing =
   case
     H2010Parser.parseSourceModule
       "<haskell2010-constructor-operator-binding>"
@@ -928,8 +990,8 @@ testHaskell2010ConstructorOperatorBindingRejected =
       \x :*: y = x\n\
       \main = 1\n"
     of
-      Left _ -> Right ()
-      Right parsed -> Left ("constructor operator binding parsed unexpectedly: " <> show parsed)
+      Right _ -> Right ()
+      Left err -> Left ("constructor operator pattern binding failed to parse: " <> show err)
 
 testHaskell2010MalformedLayout :: Either String ()
 testHaskell2010MalformedLayout =
@@ -943,8 +1005,58 @@ testHaskell2010MalformedLayout =
       \   y = 2\n\
       \  in x\n"
     of
-      Left _ -> Right ()
+      Left err -> do
+        let rendered = H2010Diagnostics.renderParseDiagnostic err
+        assertBool
+          "malformed let layout reports layout category"
+          ("Haskell 2010 layout error" `Text.isInfixOf` rendered)
+        assertBool
+          "malformed let layout explains expected indentation"
+          ("expected column" `Text.isInfixOf` rendered)
       Right parsed -> Left ("malformed Haskell 2010 layout parsed unexpectedly: " <> show parsed)
+
+testHaskell2010MalformedWhereLayoutDiagnostics :: Either String ()
+testHaskell2010MalformedWhereLayoutDiagnostics =
+  case
+    H2010Parser.parseSourceModule
+      "<haskell2010-malformed-where-layout>"
+      "module Bad where\n\
+      \\n\
+      \main = f True\n\
+      \  where\n\
+      \    f True = 1\n\
+      \   f False = 0\n"
+    of
+      Left err -> do
+        let rendered = H2010Diagnostics.renderParseDiagnostic err
+        assertBool
+          "malformed where layout reports layout category"
+          ("Haskell 2010 layout error" `Text.isInfixOf` rendered)
+        assertBool
+          "malformed where layout identifies the bad item"
+          ("<haskell2010-malformed-where-layout>:6:4-" `Text.isInfixOf` rendered)
+      Right parsed -> Left ("malformed where layout parsed unexpectedly: " <> show parsed)
+
+testHaskell2010LexerDiagnostics :: Either String ()
+testHaskell2010LexerDiagnostics =
+  case
+    H2010Parser.parseSourceModule
+      "<haskell2010-lexer-diagnostic>"
+      "module Bad where\n\
+      \main = '\\q'\n"
+    of
+      Left err -> do
+        let rendered = H2010Diagnostics.renderParseDiagnostic err
+        assertBool
+          "Haskell 2010 lexer diagnostic includes source location"
+          ("<haskell2010-lexer-diagnostic>:2:" `Text.isInfixOf` rendered)
+        assertBool
+          "Haskell 2010 lexer diagnostic includes parse category"
+          ("Haskell 2010 parse error" `Text.isInfixOf` rendered)
+        assertBool
+          "Haskell 2010 lexer diagnostic is normalized onto one line per error"
+          (not ("\n" `Text.isInfixOf` rendered))
+      Right parsed -> Left ("invalid Haskell 2010 character literal parsed unexpectedly: " <> show parsed)
 
 testHaskell2010ImportAfterDecl :: Either String ()
 testHaskell2010ImportAfterDecl =
@@ -1155,6 +1267,26 @@ testHaskell2010RenamerAmbiguousImport =
       Left err -> Left ("expected ambiguous import error, got: " <> show err)
       Right renamed -> Left ("ambiguous import renamed unexpectedly: " <> show renamed)
 
+testHaskell2010RenamerImportSpecDiagnostics :: Either String ()
+testHaskell2010RenamerImportSpecDiagnostics =
+  case
+    renameHaskell2010Raw
+      "module BadImport where\n\
+      \import Prelude (notExported)\n\
+      \main = 0\n"
+    of
+      Left err
+        | H2010Renamer.MissingImportName (H2010.ModuleName ["Prelude"]) H2010Names.TermNamespace "notExported" <- haskell2010RenameErrorDetail err -> do
+            let rendered = H2010Renamer.renderRenameError err
+            assertBool
+              "missing import name diagnostic includes import declaration span"
+              ("<haskell2010-renamer-test>:2:1-" `Text.isPrefixOf` rendered)
+            assertBool
+              "missing import name diagnostic renders module/import severity"
+              ("module/import error: module `Prelude` does not export term name `notExported`" `Text.isInfixOf` rendered)
+      Left err -> Left ("expected missing import-name diagnostic, got: " <> show err)
+      Right renamed -> Left ("missing import-name source renamed unexpectedly: " <> show renamed)
+
 testHaskell2010RenamerQualifiedImport :: Either String ()
 testHaskell2010RenamerQualifiedImport = do
   renamed <-
@@ -1300,18 +1432,68 @@ testHaskell2010StandardLibraryExpandedInterfaces = do
   dataList <- requireInterface (H2010.ModuleName ["Data", "List"])
   assertBool "Data.List exports map" (interfaceExportsName H2010Names.TermNamespace "map" dataList)
   assertBool "Data.List exports head" (interfaceExportsName H2010Names.TermNamespace "head" dataList)
+  assertBool "Data.List exports last" (interfaceExportsName H2010Names.TermNamespace "last" dataList)
+  assertBool "Data.List exports genericReplicate" (interfaceExportsName H2010Names.TermNamespace "genericReplicate" dataList)
   assertBool "Data.List exports ++" (interfaceExportsName H2010Names.TermNamespace "++" dataList)
+  assertBool "Data.List exports \\\\" (interfaceExportsName H2010Names.TermNamespace "\\\\" dataList)
   expectEqual
     "Data.List ++ fixity"
     (Just (H2010.Fixity H2010.InfixR 5))
     (Map.lookup "++" (H2010ModuleInterface.interfaceFixities dataList))
+  expectEqual
+    "Data.List !! fixity"
+    (Just (H2010.Fixity H2010.InfixL 9))
+    (Map.lookup "!!" (H2010ModuleInterface.interfaceFixities dataList))
+  expectEqual
+    "Data.List \\\\ fixity"
+    (Just (H2010.Fixity H2010.InfixL 5))
+    (Map.lookup "\\\\" (H2010ModuleInterface.interfaceFixities dataList))
 
   dataMaybe <- requireInterface (H2010.ModuleName ["Data", "Maybe"])
   assertBool "Data.Maybe exports Maybe" (interfaceExportsName H2010Names.TypeNamespace "Maybe" dataMaybe)
   assertBool "Data.Maybe exports Just" (interfaceExportsName H2010Names.ConstructorNamespace "Just" dataMaybe)
+  assertBool "Data.Maybe exports maybe" (interfaceExportsName H2010Names.TermNamespace "maybe" dataMaybe)
+  assertBool "Data.Maybe exports isJust" (interfaceExportsName H2010Names.TermNamespace "isJust" dataMaybe)
+  assertBool "Data.Maybe exports fromJust" (interfaceExportsName H2010Names.TermNamespace "fromJust" dataMaybe)
+  assertBool "Data.Maybe exports catMaybes" (interfaceExportsName H2010Names.TermNamespace "catMaybes" dataMaybe)
+  assertBool "Data.Maybe exports mapMaybe" (interfaceExportsName H2010Names.TermNamespace "mapMaybe" dataMaybe)
   assertBool
     "Data.Maybe exposes Maybe constructors"
     (interfaceExportsChild H2010Names.TypeNamespace "Maybe" H2010Names.ConstructorNamespace "Nothing" dataMaybe)
+
+  dataChar <- requireInterface (H2010.ModuleName ["Data", "Char"])
+  assertBool "Data.Char exports Char" (interfaceExportsName H2010Names.TypeNamespace "Char" dataChar)
+  assertBool "Data.Char exports GeneralCategory" (interfaceExportsName H2010Names.TypeNamespace "GeneralCategory" dataChar)
+  assertBool "Data.Char exports isAlpha" (interfaceExportsName H2010Names.TermNamespace "isAlpha" dataChar)
+  assertBool "Data.Char exports generalCategory" (interfaceExportsName H2010Names.TermNamespace "generalCategory" dataChar)
+  assertBool "Data.Char exports showLitChar" (interfaceExportsName H2010Names.TermNamespace "showLitChar" dataChar)
+  assertBool
+    "Data.Char exposes GeneralCategory constructors"
+    (interfaceExportsChild H2010Names.TypeNamespace "GeneralCategory" H2010Names.ConstructorNamespace "UppercaseLetter" dataChar)
+
+  dataIx <- requireInterface (H2010.ModuleName ["Data", "Ix"])
+  assertBool "Data.Ix exports Ix" (interfaceExportsName H2010Names.ClassNamespace "Ix" dataIx)
+  assertBool "Data.Ix exports range" (interfaceExportsName H2010Names.TermNamespace "range" dataIx)
+  assertBool
+    "Data.Ix exposes Ix range child"
+    (interfaceExportsChild H2010Names.ClassNamespace "Ix" H2010Names.TermNamespace "range" dataIx)
+
+  dataArray <- requireInterface (H2010.ModuleName ["Data", "Array"])
+  assertBool "Data.Array exports Array" (interfaceExportsName H2010Names.TypeNamespace "Array" dataArray)
+  assertBool "Data.Array exports array" (interfaceExportsName H2010Names.TermNamespace "array" dataArray)
+  assertBool "Data.Array exports !" (interfaceExportsName H2010Names.TermNamespace "!" dataArray)
+  assertBool "Data.Array exports //" (interfaceExportsName H2010Names.TermNamespace "//" dataArray)
+  assertBool
+    "Data.Array re-exports Ix range child"
+    (interfaceExportsChild H2010Names.ClassNamespace "Ix" H2010Names.TermNamespace "range" dataArray)
+  expectEqual
+    "Data.Array ! fixity"
+    (Just (H2010.Fixity H2010.InfixL 9))
+    (Map.lookup "!" (H2010ModuleInterface.interfaceFixities dataArray))
+  expectEqual
+    "Data.Array // fixity"
+    (Just (H2010.Fixity H2010.InfixL 9))
+    (Map.lookup "//" (H2010ModuleInterface.interfaceFixities dataArray))
 
   controlMonad <- requireInterface (H2010.ModuleName ["Control", "Monad"])
   assertBool "Control.Monad exports Functor" (interfaceExportsName H2010Names.ClassNamespace "Functor" controlMonad)
@@ -1324,13 +1506,36 @@ testHaskell2010StandardLibraryExpandedInterfaces = do
   assertBool
     "Control.Monad exposes Monad bind child"
     (interfaceExportsChild H2010Names.ClassNamespace "Monad" H2010Names.TermNamespace ">>=" controlMonad)
+  assertBool "Control.Monad exports MonadPlus" (interfaceExportsName H2010Names.ClassNamespace "MonadPlus" controlMonad)
+  assertBool "Control.Monad exports mapM" (interfaceExportsName H2010Names.TermNamespace "mapM" controlMonad)
+  assertBool "Control.Monad exports sequence" (interfaceExportsName H2010Names.TermNamespace "sequence" controlMonad)
+  assertBool "Control.Monad exports =<<" (interfaceExportsName H2010Names.TermNamespace "=<<" controlMonad)
+  assertBool "Control.Monad exports guard" (interfaceExportsName H2010Names.TermNamespace "guard" controlMonad)
+  assertBool
+    "Control.Monad exposes MonadPlus mzero child"
+    (interfaceExportsChild H2010Names.ClassNamespace "MonadPlus" H2010Names.TermNamespace "mzero" controlMonad)
   expectEqual
     "Control.Monad bind fixity"
     (Just (H2010.Fixity H2010.InfixL 1))
     (Map.lookup ">>=" (H2010ModuleInterface.interfaceFixities controlMonad))
+  expectEqual
+    "Control.Monad =<< fixity"
+    (Just (H2010.Fixity H2010.InfixR 1))
+    (Map.lookup "=<<" (H2010ModuleInterface.interfaceFixities controlMonad))
 
   systemIO <- requireInterface (H2010.ModuleName ["System", "IO"])
   assertBool "System.IO exports IO" (interfaceExportsName H2010Names.TypeNamespace "IO" systemIO)
+  assertBool "System.IO exports Handle" (interfaceExportsName H2010Names.TypeNamespace "Handle" systemIO)
+  assertBool "System.IO exports IOMode" (interfaceExportsName H2010Names.TypeNamespace "IOMode" systemIO)
+  assertBool "System.IO exports BufferMode" (interfaceExportsName H2010Names.TypeNamespace "BufferMode" systemIO)
+  assertBool "System.IO exports SeekMode" (interfaceExportsName H2010Names.TypeNamespace "SeekMode" systemIO)
+  assertBool "System.IO exports ReadMode" (interfaceExportsName H2010Names.ConstructorNamespace "ReadMode" systemIO)
+  assertBool "System.IO exports LineBuffering" (interfaceExportsName H2010Names.ConstructorNamespace "LineBuffering" systemIO)
+  assertBool "System.IO exports AbsoluteSeek" (interfaceExportsName H2010Names.ConstructorNamespace "AbsoluteSeek" systemIO)
+  assertBool "System.IO exports openFile" (interfaceExportsName H2010Names.TermNamespace "openFile" systemIO)
+  assertBool "System.IO exports hClose" (interfaceExportsName H2010Names.TermNamespace "hClose" systemIO)
+  assertBool "System.IO exports hGetLine" (interfaceExportsName H2010Names.TermNamespace "hGetLine" systemIO)
+  assertBool "System.IO exports hPutStrLn" (interfaceExportsName H2010Names.TermNamespace "hPutStrLn" systemIO)
   assertBool "System.IO exports putStrLn" (interfaceExportsName H2010Names.TermNamespace "putStrLn" systemIO)
   assertBool "System.IO exports getLine" (interfaceExportsName H2010Names.TermNamespace "getLine" systemIO)
   assertBool "System.IO exports print" (interfaceExportsName H2010Names.TermNamespace "print" systemIO)
@@ -1346,14 +1551,24 @@ testHaskell2010StandardLibraryExpandedInterfaces = do
   assertBool "Foreign.Ptr exports FunPtr" (interfaceExportsName H2010Names.TypeNamespace "FunPtr" foreignPtr)
   assertBool "Foreign.C.String exports CString" (interfaceExportsName H2010Names.TypeNamespace "CString" foreignCString)
 
-  expectEqual
-    "Data.Char stays reserved until functions are implemented"
-    Nothing
-    (Map.lookup (H2010.ModuleName ["Data", "Char"]) H2010StandardLibrary.standardLibraryModuleInterfaces)
-  expectEqual
-    "Numeric stays reserved until numeric formatting is implemented"
-    Nothing
-    (Map.lookup (H2010.ModuleName ["Numeric"]) H2010StandardLibrary.standardLibraryModuleInterfaces)
+  numeric <- requireInterface (H2010.ModuleName ["Numeric"])
+  assertBool "Numeric exports showIntAtBase" (interfaceExportsName H2010Names.TermNamespace "showIntAtBase" numeric)
+  assertBool "Numeric exports showFFloat" (interfaceExportsName H2010Names.TermNamespace "showFFloat" numeric)
+  assertBool "Numeric exports readFloat" (interfaceExportsName H2010Names.TermNamespace "readFloat" numeric)
+  assertBool "Numeric exports fromRat" (interfaceExportsName H2010Names.TermNamespace "fromRat" numeric)
+
+  systemEnvironment <- requireInterface (H2010.ModuleName ["System", "Environment"])
+  assertBool "System.Environment exports getArgs" (interfaceExportsName H2010Names.TermNamespace "getArgs" systemEnvironment)
+  assertBool "System.Environment exports getProgName" (interfaceExportsName H2010Names.TermNamespace "getProgName" systemEnvironment)
+  assertBool "System.Environment exports getEnv" (interfaceExportsName H2010Names.TermNamespace "getEnv" systemEnvironment)
+
+  systemExit <- requireInterface (H2010.ModuleName ["System", "Exit"])
+  assertBool "System.Exit exports ExitCode" (interfaceExportsName H2010Names.TypeNamespace "ExitCode" systemExit)
+  assertBool "System.Exit exports ExitSuccess" (interfaceExportsName H2010Names.ConstructorNamespace "ExitSuccess" systemExit)
+  assertBool "System.Exit exports exitWith" (interfaceExportsName H2010Names.TermNamespace "exitWith" systemExit)
+  assertBool
+    "System.Exit exposes ExitCode constructors"
+    (interfaceExportsChild H2010Names.TypeNamespace "ExitCode" H2010Names.ConstructorNamespace "ExitFailure" systemExit)
   _ <- typecheckHaskell2010 haskell2010StandardLibraryModulesSource
   Right ()
  where
@@ -1390,7 +1605,7 @@ testHaskell2010RenamerForeignDeclarations = do
   renamed <-
     renameHaskell2010
       "module ForeignRenamer (c_abs) where\n\
-      \foreign import ccall unsafe \"static [stdlib.h] abs\" c_abs :: Int -> IO Int\n\
+      \foreign import ccall unsafe \"static stdlib.h abs\" c_abs :: Int -> IO Int\n\
       \main = c_abs\n"
   case H2010Renamed.rModuleDecls renamed of
     [ H2010Renamed.RForeignDecl (H2010Renamed.RForeignImportDecl foreignImport)
@@ -1461,7 +1676,15 @@ testHaskell2010RenamerModuleGraphExports = do
         other -> Left ("unexpected renamed multi-module main: " <> show other)
     other -> Left ("unexpected renamed module graph: " <> show other)
   case renameHaskell2010ModulesRaw haskell2010HiddenImportSources of
-    Left (H2010Renamer.UnboundName H2010Names.TermNamespace "hidden") -> Right ()
+    Left err
+      | H2010Renamer.MissingImportName (H2010.ModuleName ["Lib"]) H2010Names.TermNamespace "hidden" <- haskell2010RenameErrorDetail err -> do
+          let rendered = H2010Renamer.renderRenameError err
+          assertBool
+            "hidden export rejection includes import declaration span"
+            ("Main.hs:2:1-" `Text.isPrefixOf` rendered)
+          assertBool
+            "hidden export rejection renders module/import severity"
+            ("module/import error: module `Lib` does not export term name `hidden`" `Text.isInfixOf` rendered)
     Left err -> Left ("expected hidden export rejection, got " <> show err)
     Right renamed -> Left ("hidden import renamed unexpectedly: " <> show renamed)
 
@@ -1490,6 +1713,92 @@ testHaskell2010RenamerModuleGraphInstances = do
       of
         Just (_, interface) -> Right interface
         Nothing -> Left ("missing interface for module " <> Text.unpack moduleName)
+
+testHaskell2010ModuleCompilationBoundary :: Either String ()
+testHaskell2010ModuleCompilationBoundary = do
+  let boundary = H2010ModuleGraph.currentModuleCompilationBoundary
+  expectEqual
+    "module graph search policy"
+    (H2010ModuleGraph.RootDirectoryAndImportPathSourceSearch [])
+    (H2010ModuleGraph.moduleBoundarySearchPolicy boundary)
+  expectEqual
+    "module graph compilation mode"
+    H2010ModuleGraph.WholeProgramSourceCompilation
+    (H2010ModuleGraph.moduleBoundaryCompilationMode boundary)
+  expectEqual
+    "module graph interface-file policy"
+    H2010ModuleGraph.InterfaceFilesDeferredUntilStableSearchPaths
+    (H2010ModuleGraph.moduleBoundaryInterfaceFilePolicy boundary)
+  expectEqual
+    "root-directory import path resolution"
+    (".context" </> "module-boundary" </> "Data" </> "Thing.hs")
+    ( H2010ModuleGraph.resolveModuleImportPath
+        (H2010ModuleGraph.RootDirectoryAndImportPathSourceSearch [])
+        (".context" </> "module-boundary")
+        (H2010.ModuleName ["Data", "Thing"])
+    )
+  expectEqual
+    "ordered import search path resolution"
+    [ ".context" </> "module-boundary" </> "Data" </> "Thing.hs"
+    , ".context" </> "module-boundary-lib" </> "Data" </> "Thing.hs"
+    ]
+    ( H2010ModuleGraph.resolveModuleImportPaths
+        (H2010ModuleGraph.RootDirectoryAndImportPathSourceSearch [".context" </> "module-boundary-lib", ".context" </> "module-boundary"])
+        (".context" </> "module-boundary")
+        (H2010.ModuleName ["Data", "Thing"])
+    )
+
+testHaskell2010ModuleGraphImportSearchPath :: IO (Either String ())
+testHaskell2010ModuleGraphImportSearchPath = do
+  let directory = ".context/module-graph-search-path-test"
+      rootDirectory = directory </> "app"
+      libraryDirectory = directory </> "lib"
+      mainPath = rootDirectory </> "Main.hs"
+      externalDirectory = libraryDirectory </> "Search"
+      externalPath = externalDirectory </> "External.hs"
+      externalName = H2010.ModuleName ["Search", "External"]
+      mainName = H2010.ModuleName ["Main"]
+      searchPolicy = H2010ModuleGraph.RootDirectoryAndImportPathSourceSearch [libraryDirectory]
+  removeDirectoryIfPresent directory
+  createDirectoryIfMissing True rootDirectory
+  createDirectoryIfMissing True externalDirectory
+  Text.IO.writeFile mainPath "module Main where\nimport Search.External (answer)\nmain = answer\n"
+  Text.IO.writeFile externalPath "module Search.External where\nanswer = 42\n"
+  result <- H2010ModuleGraph.loadModuleGraphWithPolicy searchPolicy mainPath
+  removeDirectoryIfPresent directory
+  pure $
+    case result of
+      Right graph -> do
+        let modules = H2010ModuleGraph.loadedModules graph
+        expectEqual "search-path graph module order" [externalName, mainName] (map H2010ModuleGraph.loadedModuleName modules)
+        case modules of
+          externalModule : _ ->
+            expectEqual "search-path import path used" externalPath (H2010ModuleGraph.loadedModulePath externalModule)
+          [] ->
+            Left "search-path graph unexpectedly loaded no modules"
+      Left err ->
+        Left ("expected search-path module graph to load, got " <> show err)
+
+testHaskell2010ModuleGraphMissingImportDiagnostics :: IO (Either String ())
+testHaskell2010ModuleGraphMissingImportDiagnostics = do
+  let sourcePath = "test/haskell2010/conformance/negative/bad-module-import.hs"
+  result <- H2010ModuleGraph.loadModuleGraph sourcePath
+  pure $
+    case result of
+      Left err@(H2010ModuleGraph.ModuleNotFound (Just sourceRange) (H2010.ModuleName ["MissingModule"]) paths) -> do
+        expectEqual "missing module import span file" sourcePath (spanFile sourceRange)
+        expectEqual "missing module import span start line" 3 (spanStartLine sourceRange)
+        expectEqual "missing module import span start column" 1 (spanStartColumn sourceRange)
+        assertBool "missing module search path recorded" (not (null paths))
+        let rendered = H2010ModuleGraph.renderModuleGraphError err
+        assertBool
+          "missing module diagnostic includes import source span"
+          ("test/haskell2010/conformance/negative/bad-module-import.hs:3:1-" `Text.isPrefixOf` rendered)
+        assertBool
+          "missing module diagnostic renders module/import severity"
+          ("module/import error: could not read Haskell 2010 module `MissingModule`" `Text.isInfixOf` rendered)
+      Left err -> Left ("expected source-spanned missing module diagnostic, got " <> show err)
+      Right graph -> Left ("missing import graph loaded unexpectedly: " <> show graph)
 
 testHaskell2010ModuleGraphCycle :: IO (Either String ())
 testHaskell2010ModuleGraphCycle = do
@@ -1714,7 +2023,7 @@ testHaskell2010Core0Identity = do
       "module Core0 where\n\
       \id :: a -> a\n\
       \id x = x\n"
-  case H2010Core.coreModuleBinds coreModule of
+  case map stripCoreBindSpans (H2010Core.coreModuleBinds coreModule) of
     [H2010Core.CoreNonRec binder (H2010Core.CTypeLam [_] (H2010Core.CLam param (H2010Core.CVar bodyName _) _) binderTy)] -> do
       expectEqual "id Core binder type" binderTy (H2010Core.coreBinderType binder)
       expectEqual "id body returns lambda parameter" (H2010Core.coreBinderName param) bodyName
@@ -1728,7 +2037,7 @@ testHaskell2010Core0Const = do
       "module Core0 where\n\
       \const :: a -> b -> a\n\
       \const x y = x\n"
-  case H2010Core.coreModuleBinds coreModule of
+  case map stripCoreBindSpans (H2010Core.coreModuleBinds coreModule) of
     [H2010Core.CoreNonRec binder (H2010Core.CTypeLam variables (H2010Core.CLam xBinder (H2010Core.CLam _ (H2010Core.CVar bodyName _) _) _) binderTy)] -> do
       expectEqual "const quantifier count" 2 (length variables)
       expectEqual "const body returns first parameter" (H2010Core.coreBinderName xBinder) bodyName
@@ -1744,7 +2053,7 @@ testHaskell2010Core0PolymorphicLet = do
       \  id x = x\n\
       \in if id True then id 1 else id 2\n"
   (binder, rhs) <- lookupCoreBindingOccurrence "use" coreModule
-  expectEqual "polymorphic let result type" H2010Core.intTy (H2010Core.coreBinderType binder)
+  expectEqual "polymorphic let result type" H2010Core.integerTy (H2010Core.coreBinderType binder)
   assertBool "polymorphic let emits type applications" (countTypeApps rhs >= 3)
   assertBool "polymorphic let emits generalized local binding" (containsTypeLambda rhs)
   expectEqual
@@ -1791,7 +2100,14 @@ testHaskell2010KindRejectsMismatch =
       \main = 0\n"
     of
       Left err
-        | H2010Typecheck.KindMismatch {} <- haskell2010TypecheckErrorDetail err -> Right ()
+        | H2010Typecheck.KindMismatch {} <- haskell2010TypecheckErrorDetail err -> do
+            let rendered = H2010Typecheck.renderTypecheckError err
+            assertBool
+              "kind mismatch diagnostic renders kind severity"
+              ("kind error: kind mismatch" `Text.isInfixOf` rendered)
+            assertBool
+              "kind mismatch diagnostic includes source span"
+              ("<haskell2010-renamer-test>:3:8-" `Text.isInfixOf` rendered)
       Left err -> Left ("expected kind mismatch, got: " <> show err)
       Right coreModule -> Left ("kind-mismatched source typechecked unexpectedly: " <> show coreModule)
 
@@ -1811,7 +2127,14 @@ testHaskell2010KindChecksMonadConstraint = do
       \main = 0\n"
     of
       Left err
-        | H2010Typecheck.KindMismatch {} <- haskell2010TypecheckErrorDetail err -> Right ()
+        | H2010Typecheck.KindMismatch {} <- haskell2010TypecheckErrorDetail err -> do
+            let rendered = H2010Typecheck.renderTypecheckError err
+            assertBool
+              "Monad constraint kind mismatch renders kind severity"
+              ("kind error: kind mismatch" `Text.isInfixOf` rendered)
+            assertBool
+              "Monad constraint kind mismatch includes source span"
+              ("<haskell2010-renamer-test>:2:14-" `Text.isInfixOf` rendered)
       Left err -> Left ("expected Monad kind mismatch, got: " <> show err)
       Right coreModule -> Left ("Monad Int source typechecked unexpectedly: " <> show coreModule)
 
@@ -1948,7 +2271,8 @@ testHaskell2010IrrefutablePatterns = do
 testHaskell2010IrrefutablePatternDemand :: Either String ()
 testHaskell2010IrrefutablePatternDemand =
   case evalHaskell2010BindingRaw "main" haskell2010IrrefutablePatternDemandSource of
-    Left H2010CoreEval.CoreEvalNoMatchingAlternative {} -> Right ()
+    Left err
+      | H2010CoreEval.CoreEvalNoMatchingAlternative {} <- haskell2010CoreEvalErrorDetail err -> Right ()
     Left err -> Left ("expected demanded lazy pattern mismatch, got: " <> show err)
     Right value -> Left ("demanded lazy pattern mismatch evaluated unexpectedly: " <> show value)
 
@@ -1975,7 +2299,14 @@ testHaskell2010ConstraintRejectsInvalidArity =
       \main = bad\n"
     of
       Left err
-        | H2010Typecheck.InvalidClassConstraintArity {} <- haskell2010TypecheckErrorDetail err -> Right ()
+        | H2010Typecheck.InvalidClassConstraintArity {} <- haskell2010TypecheckErrorDetail err -> do
+            let rendered = H2010Typecheck.renderTypecheckError err
+            assertBool
+              "invalid class constraint arity renders class severity"
+              ("class error: class constraint" `Text.isInfixOf` rendered)
+            assertBool
+              "invalid class constraint arity includes constraint span"
+              ("<haskell2010-renamer-test>:2:8-" `Text.isInfixOf` rendered)
       Left err -> Left ("expected invalid class constraint arity, got: " <> show err)
       Right coreModule -> Left ("invalid class constraint arity typechecked unexpectedly: " <> show coreModule)
 
@@ -1985,16 +2316,24 @@ testHaskell2010ClassConstraintPlaceholders = do
   assertBool "superclass dictionary constructor is recorded" (containsConstructorOccurrence "$MkOrderedDict" coreModule)
   assertBool "default method-filled instance dictionary is emitted" (containsBindingPrefix "$fOrdered" coreModule)
   expectCoreEvalInt "superclass/default method Core oracle" 7 =<< evalHaskell2010CoreModuleBinding "main" coreModule
-  expectPlaceholder "method-specific constraint context" methodConstraintSource
-    *> expectPlaceholder "instance constraint context" instanceContextSource
-    *> expectPlaceholder "expression signature constraint context" expressionSignatureSource
+  instanceContextModule <- typecheckHaskell2010 instanceContextSource
+  assertBool "instance constraint dictionary is emitted" (containsBindingPrefix "$fSized" instanceContextModule)
+  expectPlaceholder "method-specific constraint context" "<haskell2010-renamer-test>:3:11-" methodConstraintSource
+    *> expectPlaceholder "expression signature constraint context" "<haskell2010-renamer-test>:2:14-" expressionSignatureSource
     *> expectTypecheckMessage "recursive superclass cycle" "recursive superclass cycle" recursiveSuperclassSource
  where
-  expectPlaceholder label source =
+  expectPlaceholder label expectedSpanPrefix source =
     case typecheckHaskell2010Raw source of
       Left err
         | H2010Typecheck.UnsupportedClassConstraintContext _ constraints <- haskell2010TypecheckErrorDetail err
-        , not (null constraints) -> Right ()
+        , not (null constraints) -> do
+            let rendered = H2010Typecheck.renderTypecheckError err
+            assertBool
+              (label <> ": renders class severity")
+              ("class error: unsupported class-constraint context" `Text.isInfixOf` rendered)
+            assertBool
+              (label <> ": includes first unsupported constraint span")
+              (Text.pack expectedSpanPrefix `Text.isInfixOf` rendered)
       Left err -> Left (label <> ": expected unsupported class-constraint context, got " <> show err)
       Right coreModule -> Left (label <> ": typechecked unexpectedly: " <> show coreModule)
 
@@ -2190,6 +2529,17 @@ testHaskell2010Core0BroadShow = do
   assertBool "Prelude Show list method helper is emitted" (containsBindingOccurrence "$show_list" coreModule)
   expectCoreEvalIO "broader Show Core oracle" haskell2010BroadShowOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0BroadRead :: Either String ()
+testHaskell2010Core0BroadRead = do
+  coreModule <- typecheckHaskell2010 haskell2010BroadReadSource
+  assertBool "Prelude Read dictionary constructor is recorded" (containsConstructorOccurrence "$MkReadDict" coreModule)
+  assertBool "Prelude Read Int instance dictionary is emitted" (containsBindingOccurrence "$fReadInt" coreModule)
+  assertBool "Prelude Read Bool instance dictionary is emitted" (containsBindingOccurrence "$fReadBool" coreModule)
+  assertBool "Prelude Read Char instance dictionary is emitted" (containsBindingOccurrence "$fReadChar" coreModule)
+  assertBool "Prelude generic Read list dictionary is emitted" (containsBindingOccurrence "$fReadList" coreModule)
+  assertBool "Prelude Read lexical helper is emitted" (containsBindingOccurrence "$read_lex" coreModule)
+  expectCoreEvalIO "broader Read Core oracle" haskell2010BroadReadOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0Append :: Either String ()
 testHaskell2010Core0Append = do
   coreModule <- typecheckHaskell2010 haskell2010AppendSource
@@ -2214,10 +2564,18 @@ testHaskell2010Core0NumericDefaulting :: Either String ()
 testHaskell2010Core0NumericDefaulting = do
   coreModule <- typecheckHaskell2010 haskell2010NumericDefaultingSource
   assertBool "Prelude Num dictionary constructor is recorded" (containsConstructorOccurrence "$MkNumDict" coreModule)
-  assertBool "Prelude Num Int instance dictionary is emitted" (containsBindingOccurrence "$fNumInt" coreModule)
+  assertBool "Prelude Num Integer instance dictionary is emitted" (containsBindingOccurrence "$fNumInteger" coreModule)
   assertBool "Prelude fromInteger selector is emitted" (containsBindingOccurrence "fromInteger" coreModule)
-  assertBool "Prelude Show Int instance dictionary is emitted" (containsBindingOccurrence "$fShowInt" coreModule)
+  assertBool "Prelude Show Integer instance dictionary is emitted" (containsBindingOccurrence "$fShowInteger" coreModule)
   expectCoreEvalIO "numeric defaulting Core oracle" "7\n47\n" =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0ArbitraryInteger :: Either String ()
+testHaskell2010Core0ArbitraryInteger = do
+  coreModule <- typecheckHaskell2010 haskell2010ArbitraryIntegerSource
+  (binder, _) <- lookupCoreBindingOccurrence "main" coreModule
+  expectEqual "arbitrary Integer result type" H2010Core.integerTy (H2010Core.coreBinderType binder)
+  assertBool "Prelude Num Integer instance dictionary is emitted" (containsBindingOccurrence "$fNumInteger" coreModule)
+  expectCoreEvalInt "arbitrary Integer Core oracle" arbitraryIntegerExpected =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
 testHaskell2010Core0NumericHierarchy :: Either String ()
 testHaskell2010Core0NumericHierarchy = do
@@ -2230,11 +2588,19 @@ testHaskell2010Core0NumericHierarchy = do
   assertBool "Prelude divMod selector is emitted" (containsBindingOccurrence "divMod" coreModule)
   expectCoreEvalIO "numeric hierarchy Core oracle" haskell2010NumericHierarchyOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0NumericModule :: Either String ()
+testHaskell2010Core0NumericModule = do
+  coreModule <- typecheckHaskell2010 haskell2010NumericModuleSource
+  assertBool "Numeric showIntAtBase binding is emitted" (containsBindingOccurrence "showIntAtBase" coreModule)
+  assertBool "Numeric readFloat binding is emitted" (containsBindingOccurrence "readFloat" coreModule)
+  assertBool "Numeric floatToDigits binding is emitted" (containsBindingOccurrence "floatToDigits" coreModule)
+  expectCoreEvalIO "Numeric module Core oracle" haskell2010NumericModuleOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010MonomorphismRestrictionDefaulting :: Either String ()
 testHaskell2010MonomorphismRestrictionDefaulting = do
   coreModule <- typecheckHaskell2010 haskell2010MonomorphismRestrictionSource
-  assertBool "MR defaulting emits Num Int dictionary" (containsBindingOccurrence "$fNumInt" coreModule)
-  assertBool "MR defaulting emits Eq Int dictionary" (containsBindingOccurrence "$fEqInt" coreModule)
+  assertBool "MR defaulting emits Num Integer dictionary" (containsBindingOccurrence "$fNumInteger" coreModule)
+  assertBool "MR defaulting emits Eq Integer dictionary" (containsBindingOccurrence "$fEqInteger" coreModule)
   expectCoreEvalInt "monomorphism restriction defaulting oracle" 1 =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
 testHaskell2010Core0MultiModuleImports :: Either String ()
@@ -2277,6 +2643,16 @@ testHaskell2010Core0IOGetLine = do
   assertBool "Prelude getLine binding is emitted" (containsBindingOccurrence "getLine" coreModule)
   assertBool "Prelude append binding is emitted for getLine output formatting" (containsBindingOccurrence "++" coreModule)
   expectCoreEvalIO "IO getLine empty-stdin Core oracle" haskell2010IOGetLineEmptyOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
+testHaskell2010Core0IOError :: Either String ()
+testHaskell2010Core0IOError = do
+  coreModule <- typecheckHaskell2010 haskell2010IOErrorSource
+  assertBool "Prelude ioError binding is emitted" (containsBindingOccurrence "ioError" coreModule)
+  assertBool "Prelude catch binding is emitted" (containsBindingOccurrence "catch" coreModule)
+  assertBool "System.IO.Error try binding is emitted" (containsBindingOccurrence "try" coreModule)
+  assertBool "IOErrorType Eq instance dictionary is emitted" (containsBindingOccurrence "$fEqIOErrorType" coreModule)
+  assertBool "IOErrorType Show instance dictionary is emitted" (containsBindingOccurrence "$fShowIOErrorType" coreModule)
+  expectCoreEvalIO "IO error Core oracle" haskell2010IOErrorOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
 testHaskell2010Core0Monad :: Either String ()
 testHaskell2010Core0Monad = do
@@ -2383,6 +2759,17 @@ testHaskell2010Core0DerivedShow = do
   assertBool "generic Show list dictionary is emitted" (containsBindingOccurrence "$fShowList" coreModule)
   expectCoreEvalIO "derived Show Core oracle" haskell2010DerivedShowOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
 
+testHaskell2010Core0DerivedRead :: Either String ()
+testHaskell2010Core0DerivedRead = do
+  coreModule <- typecheckHaskell2010 haskell2010DerivedReadSource
+  assertBool "Prelude Read dictionary constructor is recorded" (containsConstructorOccurrence "$MkReadDict" coreModule)
+  assertBool "derived Read Flag dictionary is emitted" (containsBindingPrefix "$fReadFlag" coreModule)
+  assertBool "derived Read Box dictionary is emitted" (containsBindingPrefix "$fReadBox" coreModule)
+  assertBool "derived Read Tree dictionary is emitted" (containsBindingPrefix "$fReadTree" coreModule)
+  assertBool "derived Read record dictionary is emitted" (containsBindingPrefix "$fReadPerson" coreModule)
+  assertBool "generic Read list dictionary is emitted" (containsBindingOccurrence "$fReadList" coreModule)
+  expectCoreEvalIO "derived Read Core oracle" haskell2010DerivedReadOutput =<< evalHaskell2010CoreModuleBinding "main" coreModule
+
 testHaskell2010Core0DerivedEnum :: Either String ()
 testHaskell2010Core0DerivedEnum = do
   coreModule <- typecheckHaskell2010 haskell2010DerivedEnumSource
@@ -2430,16 +2817,68 @@ testHaskell2010Core0RejectsInvalidDerivedBounded =
 
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries :: Either String ()
 testHaskell2010Core0RejectsInvalidTypeClassDictionaries =
-  expectTypecheckMessage "rejects duplicate concrete instances" "duplicate instance" duplicateInstanceSource
-    *> expectTypecheckMessage "rejects overlapping instances" "overlapping instance" overlappingInstanceSource
-    *> expectTypecheckMessage "rejects missing instance methods" "missing instance method" missingInstanceMethodSource
-    *> expectTypecheckMessage "rejects unsolved Prelude class dictionaries" "unsolved type-class constraint" unsolvedPreludeConstraintSource
+  expectInstanceDiagnostic
+    "rejects duplicate concrete instances"
+    "<haskell2010-renamer-test>:7:1-"
+    duplicateInstanceSource
+    ( \case
+        H2010Typecheck.DuplicateInstance {} -> True
+        _ -> False
+    )
+    "duplicate instance"
+    *> expectInstanceDiagnostic
+      "rejects overlapping instances"
+      "<haskell2010-renamer-test>:7:1-"
+      overlappingInstanceSource
+      ( \case
+          H2010Typecheck.OverlappingInstance {} -> True
+          _ -> False
+      )
+      "overlapping instance"
+    *> expectInstanceDiagnostic
+      "rejects missing instance methods"
+      "<haskell2010-renamer-test>:5:1-"
+      missingInstanceMethodSource
+      ( \case
+          H2010Typecheck.MissingInstanceMethod {} -> True
+          _ -> False
+      )
+      "missing instance method"
+    *> expectClassDiagnostic
+      "rejects unsolved Prelude class dictionaries"
+      unsolvedPreludeConstraintSource
+      ( \case
+          H2010Typecheck.UnsolvedClassConstraint {} -> True
+          _ -> False
+      )
+      "unsolved type-class constraint"
  where
-  expectTypecheckMessage label needle source =
+  expectInstanceDiagnostic label expectedSpanPrefix source predicate needle =
     case typecheckHaskell2010Raw source of
       Left err
-        | needle `Text.isInfixOf` H2010Typecheck.renderTypecheckError err -> Right ()
-      Left err -> Left (label <> ": expected type class dictionary diagnostic, got " <> show err)
+        | predicate (haskell2010TypecheckErrorDetail err) -> do
+            let rendered = H2010Typecheck.renderTypecheckError err
+            assertBool
+              (label <> ": renders instance severity")
+              (("instance error: " <> needle) `Text.isInfixOf` rendered)
+            assertBool
+              (label <> ": includes instance declaration span")
+              (Text.pack expectedSpanPrefix `Text.isInfixOf` rendered)
+      Left err -> Left (label <> ": expected instance diagnostic, got " <> show err)
+      Right coreModule -> Left (label <> ": typechecked unexpectedly: " <> show coreModule)
+
+  expectClassDiagnostic label source predicate needle =
+    case typecheckHaskell2010Raw source of
+      Left err
+        | predicate (haskell2010TypecheckErrorDetail err) -> do
+            let rendered = H2010Typecheck.renderTypecheckError err
+            assertBool
+              (label <> ": renders class severity")
+              (("class error: " <> needle) `Text.isInfixOf` rendered)
+            assertBool
+              (label <> ": includes use-site span")
+              ("<haskell2010-renamer-test>:3:" `Text.isInfixOf` rendered)
+      Left err -> Left (label <> ": expected class diagnostic, got " <> show err)
       Right coreModule -> Left (label <> ": typechecked unexpectedly: " <> show coreModule)
 
   duplicateInstanceSource =
@@ -2526,15 +2965,47 @@ testHaskell2010ForeignTypechecking = do
     "module Core0 where\n\
     \import Foreign.C.Types (CInt)\n\
     \foreign import ccall \"abs\" c_abs :: CInt -> IO CInt\n\
+    \main :: Int\n\
     \main = 1\n"
     "declare i32 @abs(i32)"
+  expectForeignImportDeclaration
+    "static import with Report-shaped header and default symbol"
+    "module Core0 where\n\
+    \foreign import ccall \"static ffi_helpers.h\" hegglog_ffi_current :: IO Int\n\
+    \main :: Int\n\
+    \main = 1\n"
+    "declare i64 @hegglog_ffi_current()"
   expectForeignImportDeclaration
     "static unsigned import over Foreign.C.Types"
     "module Core0 where\n\
     \import Foreign.C.Types (CUInt)\n\
     \foreign import ccall \"hegglog_ffi_identity_u32\" c_id_u32 :: CUInt -> IO CUInt\n\
+    \main :: Int\n\
     \main = 1\n"
     "declare i32 @hegglog_ffi_identity_u32(i32)"
+  expectForeignImportDeclaration
+    "static float import over Foreign.C.Types"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CFloat)\n\
+    \foreign import ccall \"hegglog_ffi_identity_float\" c_id_float :: CFloat -> IO CFloat\n\
+    \main :: Int\n\
+    \main = 1\n"
+    "declare float @hegglog_ffi_identity_float(float)"
+  expectForeignImportDeclaration
+    "static double import over Foreign.C.Types"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CDouble)\n\
+    \foreign import ccall \"hegglog_ffi_identity_double\" c_id_double :: CDouble -> IO CDouble\n\
+    \main :: Int\n\
+    \main = 1\n"
+    "declare double @hegglog_ffi_identity_double(double)"
+  expectForeignImportDeclaration
+    "static import over Haskell Float and Double"
+    "module Core0 where\n\
+    \foreign import ccall \"hegglog_ffi_mix_float_double\" c_mix :: Float -> Double -> IO Int\n\
+    \main :: Int\n\
+    \main = 1\n"
+    "declare i64 @hegglog_ffi_mix_float_double(float, double)"
   expectForeignImportCoreSTG
     "dynamic import shape"
     (ForeignCallIR False)
@@ -2542,6 +3013,7 @@ testHaskell2010ForeignTypechecking = do
     \import Foreign (FunPtr)\n\
     \import Foreign.C.Types (CInt)\n\
     \foreign import ccall \"dynamic\" mkFun :: FunPtr (CInt -> IO CInt) -> CInt -> IO CInt\n\
+    \main :: Int\n\
     \main = 1\n"
   expectForeignImportCoreSTG
     "wrapper import shape"
@@ -2550,6 +3022,25 @@ testHaskell2010ForeignTypechecking = do
     \import Foreign (FunPtr)\n\
     \import Foreign.C.Types (CInt)\n\
     \foreign import ccall \"wrapper\" wrapFun :: (CInt -> IO CInt) -> IO (FunPtr (CInt -> IO CInt))\n\
+    \main :: Int\n\
+    \main = 1\n"
+  expectForeignImportCoreSTG
+    "dynamic floating import shape"
+    (ForeignCallIR False)
+    "module Core0 where\n\
+    \import Foreign (FunPtr)\n\
+    \import Foreign.C.Types (CDouble)\n\
+    \foreign import ccall \"dynamic\" mkFun :: FunPtr (CDouble -> IO CDouble) -> CDouble -> IO CDouble\n\
+    \main :: Int\n\
+    \main = 1\n"
+  expectForeignImportCoreSTG
+    "wrapper floating import shape"
+    (ForeignCallIR False)
+    "module Core0 where\n\
+    \import Foreign (FunPtr)\n\
+    \import Foreign.C.Types (CDouble)\n\
+    \foreign import ccall \"wrapper\" wrapFun :: (CDouble -> IO CDouble) -> IO (FunPtr (CDouble -> IO CDouble))\n\
+    \main :: Int\n\
     \main = 1\n"
   expectForeignImportCoreSTG
     "address import shape"
@@ -2558,12 +3049,22 @@ testHaskell2010ForeignTypechecking = do
     \import Foreign (Ptr)\n\
     \import Foreign.C.Types (CInt)\n\
     \foreign import ccall \"&errno\" c_errno :: Ptr CInt\n\
+    \main :: Int\n\
     \main = 1\n"
   expectForeignImportValueDeclaration
     "address import native declaration"
     "module Core0 where\n\
     \import Foreign (Ptr)\n\
     \foreign import ccall \"&hegglog_ffi_global_i64\" c_global :: Ptr Int\n\
+    \main :: Int\n\
+    \main = 1\n"
+    "@hegglog_ffi_global_i64 = external global i8"
+  expectForeignImportValueDeclaration
+    "address import defaults to Haskell binder"
+    "module Core0 where\n\
+    \import Foreign (Ptr)\n\
+    \foreign import ccall \"&\" hegglog_ffi_global_i64 :: Ptr Int\n\
+    \main :: Int\n\
     \main = 1\n"
     "@hegglog_ffi_global_i64 = external global i8"
   expectForeignImportCoreSTG
@@ -2573,6 +3074,7 @@ testHaskell2010ForeignTypechecking = do
     \import Foreign (Ptr)\n\
     \import Foreign.C.Types (CFile)\n\
     \foreign import ccall \"&stdin\" c_stdin :: Ptr CFile\n\
+    \main :: Int\n\
     \main = 1\n"
   expectForeignImportCoreSTG
     "type synonym expansion and local newtype validation"
@@ -2582,6 +3084,7 @@ testHaskell2010ForeignTypechecking = do
     \type MyCInt = CInt\n\
     \newtype FD = FD MyCInt\n\
     \foreign import ccall \"fd\" c_fd :: FD -> IO MyCInt\n\
+    \main :: Int\n\
     \main = 1\n"
   expectForeignExportCoreSTG
     "foreign export metadata and native entrypoint"
@@ -2589,6 +3092,7 @@ testHaskell2010ForeignTypechecking = do
     \identity :: Int -> Int\n\
     \identity x = x\n\
     \foreign export ccall \"hs_identity\" identity :: Int -> Int\n\
+    \main :: Int\n\
     \main = 1\n"
     "hs_identity"
  where
@@ -2710,11 +3214,13 @@ testHaskell2010ForeignTypechecking = do
         ( typecheckHaskell2010Raw
             "module Core0 where\n\
             \foreign import ccall \"abs\" c_abs :: Int -> IO Int\n\
-            \bad = 1 / 0\n\
+            \bad :: Int\n\
+            \bad = div 1 0\n\
             \main = c_abs bad\n"
         )
     case H2010CoreEval.evalCoreModuleBindingByOccurrence "main" coreModule of
-      Left H2010CoreEval.CoreEvalDivisionByZero ->
+      Left err
+        | H2010CoreEval.CoreEvalDivisionByZero <- haskell2010CoreEvalErrorDetail err ->
         Right ()
       Left err ->
         Left ("foreign call Core argument strictness: expected division by zero, got " <> Text.unpack (H2010CoreEval.renderCoreEvalError err))
@@ -2725,7 +3231,8 @@ testHaskell2010ForeignTypechecking = do
         (Text.unpack . H2010STGLower.renderSTGLowerError)
         (H2010STGLower.lowerCoreModule coreModule)
     case H2010STGEval.evalSTGProgramBindingByOccurrence "main" stgProgram of
-      Left H2010STGEval.STGEvalDivisionByZero ->
+      Left err
+        | H2010STGEval.STGEvalDivisionByZero <- haskell2010STGEvalErrorDetail err ->
         Right ()
       Left err ->
         Left ("foreign call STG argument strictness: expected division by zero, got " <> Text.unpack (H2010STGEval.renderSTGEvalError err))
@@ -2776,7 +3283,7 @@ data ForeignIRExpectation
   deriving stock (Show, Eq)
 
 coreModuleHasForeignIR :: ForeignIRExpectation -> H2010Core.CoreModule -> Bool
-coreModuleHasForeignIR expected (H2010Core.CoreModule _ _ binds _foreignExports) =
+coreModuleHasForeignIR expected (H2010Core.CoreModule _ _ binds _foreignExports _runtimeSpans) =
   any (coreBindHasForeignIR expected) binds
 
 coreBindHasForeignIR :: ForeignIRExpectation -> H2010Core.CoreBind -> Bool
@@ -2788,6 +3295,8 @@ coreBindHasForeignIR expected = \case
 
 coreExprHasForeignIR :: ForeignIRExpectation -> H2010Core.CoreExpr -> Bool
 coreExprHasForeignIR expected = \case
+  H2010Core.CSpanned _ expression ->
+    coreExprHasForeignIR expected expression
   H2010Core.CForeignCall {} ->
     case expected of
       ForeignCallIR {} -> True
@@ -2822,7 +3331,7 @@ coreAltHasForeignIR expected (H2010Core.CoreAlt _ _ body) =
   coreExprHasForeignIR expected body
 
 coreModuleHasPrim :: H2010Core.CorePrimOp -> H2010Core.CoreModule -> Bool
-coreModuleHasPrim expected (H2010Core.CoreModule _ _ binds _foreignExports) =
+coreModuleHasPrim expected (H2010Core.CoreModule _ _ binds _foreignExports _runtimeSpans) =
   any (coreBindHasPrim expected) binds
 
 coreBindHasPrim :: H2010Core.CorePrimOp -> H2010Core.CoreBind -> Bool
@@ -2834,6 +3343,8 @@ coreBindHasPrim expected = \case
 
 coreExprHasPrim :: H2010Core.CorePrimOp -> H2010Core.CoreExpr -> Bool
 coreExprHasPrim expected = \case
+  H2010Core.CSpanned _ expression ->
+    coreExprHasPrim expected expression
   H2010Core.CPrimOp op arguments _ ->
     op == expected || any (coreExprHasPrim expected) arguments
   H2010Core.CLam _ body _ ->
@@ -2862,7 +3373,7 @@ coreAltHasPrim expected (H2010Core.CoreAlt _ _ body) =
   coreExprHasPrim expected body
 
 stgProgramHasForeignIR :: ForeignIRExpectation -> H2010STG.STGProgram -> Bool
-stgProgramHasForeignIR expected (H2010STG.STGProgram _ binds _foreignExports) =
+stgProgramHasForeignIR expected (H2010STG.STGProgram _ binds _foreignExports _runtimeSpans) =
   any (stgBindHasForeignIR expected) binds
 
 stgBindHasForeignIR :: ForeignIRExpectation -> H2010STG.STGBind -> Bool
@@ -2883,6 +3394,8 @@ stgRhsHasForeignIR expected = \case
 
 stgExprHasForeignIR :: ForeignIRExpectation -> H2010STG.STGExpr -> Bool
 stgExprHasForeignIR expected = \case
+  H2010STG.STGSpanned _ expression ->
+    stgExprHasForeignIR expected expression
   H2010STG.STGForeignCall {} ->
     case expected of
       ForeignCallIR {} -> True
@@ -2905,7 +3418,7 @@ stgAltHasForeignIR expected (H2010STG.STGAlt _ _ body) =
   stgExprHasForeignIR expected body
 
 stgProgramHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGProgram -> Bool
-stgProgramHasPrim expected (H2010STG.STGProgram _ binds _foreignExports) =
+stgProgramHasPrim expected (H2010STG.STGProgram _ binds _foreignExports _runtimeSpans) =
   any (stgBindHasPrim expected) binds
 
 stgBindHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGBind -> Bool
@@ -2926,6 +3439,8 @@ stgRhsHasPrim expected = \case
 
 stgExprHasPrim :: H2010Core.CorePrimOp -> H2010STG.STGExpr -> Bool
 stgExprHasPrim expected = \case
+  H2010STG.STGSpanned _ expression ->
+    stgExprHasPrim expected expression
   H2010STG.STGPrim op _ _ ->
     op == expected
   H2010STG.STGLet bind body _ ->
@@ -2977,6 +3492,21 @@ testHaskell2010RejectsInvalidForeignTypechecking = do
     "module Core0 where\n\
     \import Foreign.C.Types (CInt)\n\
     \foreign import jvm \"foreign\" foreign_value :: CInt -> CInt\n\
+    \main = 1\n"
+  expectForeignTypeError
+    "foreign import rejects invalid ccall header syntax"
+    "unknown foreign import entity"
+    "module Core0 where\n\
+    \import Foreign.C.Types (CInt)\n\
+    \foreign import ccall \"static ffi_helpers.txt hegglog_ffi_add_i64\" c_add :: CInt -> CInt -> CInt\n\
+    \main = 1\n"
+  expectForeignTypeError
+    "foreign export rejects invalid C identifiers"
+    "foreign export symbol `bad symbol` is not a valid C identifier"
+    "module Core0 where\n\
+    \identity :: Int -> Int\n\
+    \identity x = x\n\
+    \foreign export ccall \"bad symbol\" identity :: Int -> Int\n\
     \main = 1\n"
   expectForeignTypeError
     "foreign export type must match exported binding"
@@ -3187,6 +3717,13 @@ testHaskell2010Core0EvalBroadShow =
     haskell2010BroadShowOutput
     =<< evalHaskell2010Binding "main" haskell2010BroadShowSource
 
+testHaskell2010Core0EvalBroadRead :: Either String ()
+testHaskell2010Core0EvalBroadRead =
+  expectCoreEvalIO
+    "Core-0 broader Read evaluation"
+    haskell2010BroadReadOutput
+    =<< evalHaskell2010Binding "main" haskell2010BroadReadSource
+
 testHaskell2010Core0EvalAppend :: Either String ()
 testHaskell2010Core0EvalAppend =
   expectCoreEvalIO
@@ -3222,12 +3759,26 @@ testHaskell2010Core0EvalNumericDefaulting =
     "7\n47\n"
     =<< evalHaskell2010Binding "main" haskell2010NumericDefaultingSource
 
+testHaskell2010Core0EvalArbitraryInteger :: Either String ()
+testHaskell2010Core0EvalArbitraryInteger =
+  expectCoreEvalInt
+    "Core-0 arbitrary Integer evaluation"
+    arbitraryIntegerExpected
+    =<< evalHaskell2010Binding "main" haskell2010ArbitraryIntegerSource
+
 testHaskell2010Core0EvalNumericHierarchy :: Either String ()
 testHaskell2010Core0EvalNumericHierarchy =
   expectCoreEvalIO
     "Core-0 numeric hierarchy evaluation"
     haskell2010NumericHierarchyOutput
     =<< evalHaskell2010Binding "main" haskell2010NumericHierarchySource
+
+testHaskell2010Core0EvalNumericModule :: Either String ()
+testHaskell2010Core0EvalNumericModule =
+  expectCoreEvalIO
+    "Core-0 Numeric module evaluation"
+    haskell2010NumericModuleOutput
+    =<< evalHaskell2010Binding "main" haskell2010NumericModuleSource
 
 testHaskell2010Core0EvalMultiModuleImports :: Either String ()
 testHaskell2010Core0EvalMultiModuleImports =
@@ -3265,6 +3816,13 @@ testHaskell2010Core0EvalIOGetLine =
     "Core-0 IO getLine empty-stdin evaluation"
     haskell2010IOGetLineEmptyOutput
     =<< evalHaskell2010Binding "main" haskell2010IOGetLineSource
+
+testHaskell2010Core0EvalIOError :: Either String ()
+testHaskell2010Core0EvalIOError =
+  expectCoreEvalIO
+    "Core-0 IO error evaluation"
+    haskell2010IOErrorOutput
+    =<< evalHaskell2010Binding "main" haskell2010IOErrorSource
 
 testHaskell2010Core0EvalMonad :: Either String ()
 testHaskell2010Core0EvalMonad =
@@ -3329,6 +3887,13 @@ testHaskell2010Core0EvalDerivedShow =
     haskell2010DerivedShowOutput
     =<< evalHaskell2010Binding "main" haskell2010DerivedShowSource
 
+testHaskell2010Core0EvalDerivedRead :: Either String ()
+testHaskell2010Core0EvalDerivedRead =
+  expectCoreEvalIO
+    "Core-0 derived Read evaluation"
+    haskell2010DerivedReadOutput
+    =<< evalHaskell2010Binding "main" haskell2010DerivedReadSource
+
 testHaskell2010Core0EvalDerivedEnum :: Either String ()
 testHaskell2010Core0EvalDerivedEnum =
   expectCoreEvalIO
@@ -3339,7 +3904,8 @@ testHaskell2010Core0EvalDerivedEnum =
 testHaskell2010Core0EvalDerivedEnumRuntimeError :: Either String ()
 testHaskell2010Core0EvalDerivedEnumRuntimeError =
   case evalHaskell2010BindingRaw "main" haskell2010DerivedEnumRuntimeErrorSource of
-    Left (H2010CoreEval.CoreEvalNoMatchingAlternative _) -> Right ()
+    Left err
+      | H2010CoreEval.CoreEvalNoMatchingAlternative {} <- haskell2010CoreEvalErrorDetail err -> Right ()
     Left err -> Left ("expected derived Enum bounds runtime error, got: " <> show err)
     Right value -> Left ("derived Enum bounds error unexpectedly returned: " <> show value)
 
@@ -3366,7 +3932,7 @@ testHaskell2010Core0EvalLazyLet =
       "main"
       "module Eval where\n\
       \main = let\n\
-      \  x = 1 / 0\n\
+      \  x = div 1 0\n\
       \in 5\n"
 
 testHaskell2010Core0EvalLazyArgument :: Either String ()
@@ -3379,7 +3945,7 @@ testHaskell2010Core0EvalLazyArgument =
       "module Eval where\n\
       \const :: a -> b -> a\n\
       \const x y = x\n\
-      \main = const 1 (1 / 0)\n"
+      \main = const 1 (div 1 0)\n"
 
 testHaskell2010Core0EvalDivisionByZero :: Either String ()
 testHaskell2010Core0EvalDivisionByZero =
@@ -3387,16 +3953,42 @@ testHaskell2010Core0EvalDivisionByZero =
     evalHaskell2010BindingRaw
       "main"
       "module Eval where\n\
-      \main = 1 / 0\n"
+      \main = div 1 0\n"
     of
-      Left H2010CoreEval.CoreEvalDivisionByZero -> Right ()
+      Left err
+        | H2010CoreEval.CoreEvalDivisionByZero <- haskell2010CoreEvalErrorDetail err -> Right ()
       Left err -> Left ("expected Core-0 division by zero, got: " <> show err)
       Right value -> Left ("division by zero evaluated unexpectedly: " <> show value)
+
+testHaskell2010Core0EvalRuntimeSourceSpan :: Either String ()
+testHaskell2010Core0EvalRuntimeSourceSpan =
+  case evalHaskell2010BindingRaw "main" haskell2010RuntimeSourceAttributionSource of
+    Left err@(H2010CoreEval.CoreEvalErrorAt sourceRange _)
+      | H2010CoreEval.CoreEvalDivisionByZero <- haskell2010CoreEvalErrorDetail err -> do
+          expectSourceSpanStart "Core runtime source expression line" 2 9 sourceRange
+          assertBool
+            "Core runtime diagnostic includes severity and detail"
+            ("runtime error: division by zero" `Text.isInfixOf` H2010CoreEval.renderCoreEvalError err)
+    Left err -> Left ("expected spanned Core runtime division by zero, got: " <> show err)
+    Right value -> Left ("spanned runtime source evaluated unexpectedly: " <> show value)
+
+testHaskell2010Core0EvalNestedRuntimeSourceSpan :: Either String ()
+testHaskell2010Core0EvalNestedRuntimeSourceSpan =
+  case evalHaskell2010BindingRaw "main" haskell2010NestedRuntimeSourceAttributionSource of
+    Left err@(H2010CoreEval.CoreEvalErrorAt sourceRange _)
+      | H2010CoreEval.CoreEvalDivisionByZero <- haskell2010CoreEvalErrorDetail err -> do
+          expectSourceSpanStart "Core nested runtime source expression line" 2 13 sourceRange
+          assertBool
+            "Core nested runtime diagnostic includes severity and detail"
+            ("runtime error: division by zero" `Text.isInfixOf` H2010CoreEval.renderCoreEvalError err)
+    Left err -> Left ("expected nested spanned Core runtime division by zero, got: " <> show err)
+    Right value -> Left ("nested spanned runtime source evaluated unexpectedly: " <> show value)
 
 testHaskell2010Core0EvalGuardFallthrough :: Either String ()
 testHaskell2010Core0EvalGuardFallthrough =
   case evalHaskell2010BindingRaw "main" haskell2010GuardFallthroughSource of
-    Left H2010CoreEval.CoreEvalNoMatchingAlternative {} -> Right ()
+    Left err
+      | H2010CoreEval.CoreEvalNoMatchingAlternative {} <- haskell2010CoreEvalErrorDetail err -> Right ()
     Left err -> Left ("expected Core-0 guard fallthrough, got: " <> show err)
     Right value -> Left ("guard fallthrough evaluated unexpectedly: " <> show value)
 
@@ -3443,7 +4035,8 @@ testHaskell2010STGCaseForcesScrutinee =
           )
       )
     of
-      Left H2010STGEval.STGEvalDivisionByZero -> Right ()
+      Left err
+        | H2010STGEval.STGEvalDivisionByZero <- haskell2010STGEvalErrorDetail err -> Right ()
       Left err -> Left ("expected STG division by zero, got: " <> show err)
       Right value -> Left ("STG case scrutinee evaluated unexpectedly: " <> show value)
 
@@ -3535,7 +4128,7 @@ testHaskell2010CoreToSTGLazyLet =
     5
     "module Lower where\n\
     \main = let\n\
-    \  x = 1 / 0\n\
+    \  x = div 1 0\n\
     \in 5\n"
 
 testHaskell2010CoreToSTGLazyArgument :: Either String ()
@@ -3546,7 +4139,7 @@ testHaskell2010CoreToSTGLazyArgument =
     "module Lower where\n\
     \const :: a -> b -> a\n\
     \const x y = x\n\
-    \main = const 1 (1 / 0)\n"
+    \main = const 1 (div 1 0)\n"
 
 testHaskell2010CoreToSTGBoolCase :: Either String ()
 testHaskell2010CoreToSTGBoolCase =
@@ -3612,6 +4205,10 @@ testHaskell2010CoreToSTGBroadShow :: Either String ()
 testHaskell2010CoreToSTGBroadShow =
   checkCoreToSTGIO "Core-to-STG broader Show" haskell2010BroadShowOutput haskell2010BroadShowSource
 
+testHaskell2010CoreToSTGBroadRead :: Either String ()
+testHaskell2010CoreToSTGBroadRead =
+  checkCoreToSTGIO "Core-to-STG broader Read" haskell2010BroadReadOutput haskell2010BroadReadSource
+
 testHaskell2010CoreToSTGAppend :: Either String ()
 testHaskell2010CoreToSTGAppend =
   checkCoreToSTGIO "Core-to-STG Prelude append" haskell2010AppendOutput haskell2010AppendSource
@@ -3635,9 +4232,17 @@ testHaskell2010CoreToSTGNumericDefaulting :: Either String ()
 testHaskell2010CoreToSTGNumericDefaulting =
   checkCoreToSTGIO "Core-to-STG numeric defaulting" "7\n47\n" haskell2010NumericDefaultingSource
 
+testHaskell2010CoreToSTGArbitraryInteger :: Either String ()
+testHaskell2010CoreToSTGArbitraryInteger =
+  checkCoreToSTGInt "Core-to-STG arbitrary Integer" arbitraryIntegerExpected haskell2010ArbitraryIntegerSource
+
 testHaskell2010CoreToSTGNumericHierarchy :: Either String ()
 testHaskell2010CoreToSTGNumericHierarchy =
   checkCoreToSTGIO "Core-to-STG numeric hierarchy" haskell2010NumericHierarchyOutput haskell2010NumericHierarchySource
+
+testHaskell2010CoreToSTGNumericModule :: Either String ()
+testHaskell2010CoreToSTGNumericModule =
+  checkCoreToSTGIO "Core-to-STG Numeric module" haskell2010NumericModuleOutput haskell2010NumericModuleSource
 
 testHaskell2010CoreToSTGMultiModuleImports :: Either String ()
 testHaskell2010CoreToSTGMultiModuleImports = do
@@ -3657,6 +4262,10 @@ testHaskell2010CoreToSTGIONormalExamples =
 testHaskell2010CoreToSTGIOGetLine :: Either String ()
 testHaskell2010CoreToSTGIOGetLine =
   checkCoreToSTGIO "Core-to-STG IO getLine empty stdin" haskell2010IOGetLineEmptyOutput haskell2010IOGetLineSource
+
+testHaskell2010CoreToSTGIOError :: Either String ()
+testHaskell2010CoreToSTGIOError =
+  checkCoreToSTGIO "Core-to-STG IO error behavior" haskell2010IOErrorOutput haskell2010IOErrorSource
 
 testHaskell2010CoreToSTGGuardsAndAsPatterns :: Either String ()
 testHaskell2010CoreToSTGGuardsAndAsPatterns =
@@ -3690,6 +4299,10 @@ testHaskell2010CoreToSTGDerivedShow :: Either String ()
 testHaskell2010CoreToSTGDerivedShow =
   checkCoreToSTGIO "Core-to-STG derived Show" haskell2010DerivedShowOutput haskell2010DerivedShowSource
 
+testHaskell2010CoreToSTGDerivedRead :: Either String ()
+testHaskell2010CoreToSTGDerivedRead =
+  checkCoreToSTGIO "Core-to-STG derived Read" haskell2010DerivedReadOutput haskell2010DerivedReadSource
+
 testHaskell2010CoreToSTGDerivedEnum :: Either String ()
 testHaskell2010CoreToSTGDerivedEnum =
   checkCoreToSTGIO "Core-to-STG derived Enum" haskell2010DerivedEnumOutput haskell2010DerivedEnumSource
@@ -3708,16 +4321,42 @@ testHaskell2010CoreToSTGDivisionByZero =
     lowerAndEvalHaskell2010BindingRaw
       "main"
       "module Lower where\n\
-      \main = 1 / 0\n"
+      \main = div 1 0\n"
     of
-      Left (Right H2010STGEval.STGEvalDivisionByZero) -> Right ()
+      Left (Right err)
+        | H2010STGEval.STGEvalDivisionByZero <- haskell2010STGEvalErrorDetail err -> Right ()
       Left err -> Left ("expected lowered STG division by zero, got: " <> show err)
       Right value -> Left ("lowered division by zero evaluated unexpectedly: " <> show value)
+
+testHaskell2010CoreToSTGRuntimeSourceSpan :: Either String ()
+testHaskell2010CoreToSTGRuntimeSourceSpan =
+  case lowerAndEvalHaskell2010BindingRaw "main" haskell2010RuntimeSourceAttributionSource of
+    Left (Right err@(H2010STGEval.STGEvalErrorAt sourceRange _))
+      | H2010STGEval.STGEvalDivisionByZero <- haskell2010STGEvalErrorDetail err -> do
+          expectSourceSpanStart "STG runtime source expression line" 2 9 sourceRange
+          assertBool
+            "STG runtime diagnostic includes severity and detail"
+            ("runtime error: division by zero" `Text.isInfixOf` H2010STGEval.renderSTGEvalError err)
+    Left err -> Left ("expected lowered STG runtime source span, got: " <> show err)
+    Right value -> Left ("lowered spanned runtime source evaluated unexpectedly: " <> show value)
+
+testHaskell2010CoreToSTGNestedRuntimeSourceSpan :: Either String ()
+testHaskell2010CoreToSTGNestedRuntimeSourceSpan =
+  case lowerAndEvalHaskell2010BindingRaw "main" haskell2010NestedRuntimeSourceAttributionSource of
+    Left (Right err@(H2010STGEval.STGEvalErrorAt sourceRange _))
+      | H2010STGEval.STGEvalDivisionByZero <- haskell2010STGEvalErrorDetail err -> do
+          expectSourceSpanStart "STG nested runtime source expression line" 2 13 sourceRange
+          assertBool
+            "STG nested runtime diagnostic includes severity and detail"
+            ("runtime error: division by zero" `Text.isInfixOf` H2010STGEval.renderSTGEvalError err)
+    Left err -> Left ("expected lowered STG nested runtime source span, got: " <> show err)
+    Right value -> Left ("lowered nested spanned runtime source evaluated unexpectedly: " <> show value)
 
 testHaskell2010CoreToSTGGuardFallthrough :: Either String ()
 testHaskell2010CoreToSTGGuardFallthrough =
   case lowerAndEvalHaskell2010BindingRaw "main" haskell2010GuardFallthroughSource of
-    Left (Right H2010STGEval.STGEvalNoMatchingAlternative {}) -> Right ()
+    Left (Right err)
+      | H2010STGEval.STGEvalNoMatchingAlternative {} <- haskell2010STGEvalErrorDetail err -> Right ()
     Left err -> Left ("expected lowered STG guard fallthrough, got: " <> show err)
     Right value -> Left ("lowered guard fallthrough evaluated unexpectedly: " <> show value)
 
@@ -3730,7 +4369,7 @@ testHaskell2010CoreToSTGPartialApplication =
     \const :: a -> b -> a\n\
     \const x y = x\n\
     \one = const 1\n\
-    \main = one (1 / 0)\n"
+    \main = one (div 1 0)\n"
 
 testHaskell2010CoreToSTGRejectsInvalidCore :: Either String ()
 testHaskell2010CoreToSTGRejectsInvalidCore =
@@ -3779,7 +4418,7 @@ testHaskell2010NativeStringCharList = do
   assertBool "native LLVM boxes String literal chars" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
   assertBool "native LLVM converts show buffers to Char lists" ("@hegglog_hs_make_char_list_from_cstring" `Text.isInfixOf` llvmText)
   assertBool "native LLVM does not emit per-literal string globals" (not ("@haskell2010_str_" `Text.isInfixOf` llvmText))
-  assertBool "native LLVM does not call special string payload allocator" (not ("call ptr @hegglog_hs_make_string" `Text.isInfixOf` llvmText))
+  assertBool "native LLVM calls Char boxing for source String literals" ("call ptr @hegglog_hs_make_char" `Text.isInfixOf` llvmText)
   outputText <- compileHaskell2010NativeText haskell2010StringOutputSource
   assertBool "native output LLVM boxes direct String literal chars" ("@hegglog_hs_make_char" `Text.isInfixOf` outputText)
   assertBool "native output LLVM keeps direct String literals as Char lists" (not ("@haskell2010_str_" `Text.isInfixOf` outputText))
@@ -3796,6 +4435,12 @@ testHaskell2010NativeNumericHierarchy = do
   assertBool "native Integral quot/div emits signed division" ("sdiv i64" `Text.isInfixOf` llvmText)
   assertBool "native Integral rem/mod emits checked remainder arithmetic" ("@llvm.smul.with.overflow.i64" `Text.isInfixOf` llvmText)
   assertBool "native Integral div/mod emits checked adjustment arithmetic" ("@llvm.ssub.with.overflow.i64" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeNumericModule :: Either String ()
+testHaskell2010NativeNumericModule = do
+  llvmText <- compileHaskell2010NativeText haskell2010NumericModuleSource
+  assertBool "native Numeric module emits checked integer arithmetic" ("@llvm.smul.with.overflow.i64" `Text.isInfixOf` llvmText)
+  assertBool "native Numeric module emits floating operations" ("fdiv double" `Text.isInfixOf` llvmText || "fmul double" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeEnumBounded :: Either String ()
 testHaskell2010NativeEnumBounded = do
@@ -3820,6 +4465,12 @@ testHaskell2010NativeDerivedShow = do
   llvmText <- compileHaskell2010NativeText haskell2010DerivedShowSource
   assertBool "native derived Show emits synthesized append helpers" ("derived_ushow_uappend" `Text.isInfixOf` llvmText)
   assertBool "native derived Show keeps String fields as Char lists" ("@hegglog_hs_make_char" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeDerivedRead :: Either String ()
+testHaskell2010NativeDerivedRead = do
+  llvmText <- compileHaskell2010NativeText haskell2010DerivedReadSource
+  assertBool "native derived Read emits generated dictionaries" ("fReadBox" `Text.isInfixOf` llvmText)
+  assertBool "native derived Read emits lexical parser support" ("read_ulex" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeDerivedEnum :: Either String ()
 testHaskell2010NativeDerivedEnum = do
@@ -3859,6 +4510,28 @@ testHaskell2010NativeUserDefinedOperators = do
   assertBool "native LLVM emits prefix symbolic operator binding" ("_x3c__x2d__x3e_" `Text.isInfixOf` llvmText)
   assertBool "native LLVM emits backtick value operator binding" ("combine" `Text.isInfixOf` llvmText)
   assertBool "native LLVM emits local append-shadowing binding" ("_x2b__x2b_" `Text.isInfixOf` llvmText)
+
+testHaskell2010NativeFFILinkMetadata :: Either String ()
+testHaskell2010NativeFFILinkMetadata = do
+  result <-
+    compileHaskell2010Native
+      "module Main where\n\
+      \foreign import ccall \"static ffi_helpers.h hegglog_ffi_add_i64\" c_add :: Int -> Int -> IO Int\n\
+      \exported :: Int -> Int\n\
+      \exported value = value\n\
+      \foreign export ccall \"hegglog_hs_export_id\" exported :: Int -> Int\n\
+      \main = do\n\
+      \  value <- c_add 1 2\n\
+      \  print value\n"
+  let metadata = H2010Native.haskell2010LinkMetadata result
+      llvmText = H2010Native.haskell2010LLVMText result
+  expectEqual "foreign link headers" ["ffi_helpers.h"] (H2010Link.foreignLinkHeaders metadata)
+  expectEqual "foreign link import symbols" ["hegglog_ffi_add_i64"] (H2010Link.foreignLinkImportSymbols metadata)
+  expectEqual "foreign link address symbols" [] (H2010Link.foreignLinkAddressSymbols metadata)
+  expectEqual "foreign link export symbols" ["hegglog_hs_export_id"] (H2010Link.foreignLinkExportSymbols metadata)
+  assertBool "LLVM records foreign link header" ("; foreign link header: ffi_helpers.h" `Text.isInfixOf` llvmText)
+  assertBool "LLVM records foreign link import symbol" ("; foreign link import symbol: hegglog_ffi_add_i64" `Text.isInfixOf` llvmText)
+  assertBool "LLVM records foreign link export symbol" ("; foreign link export symbol: hegglog_hs_export_id" `Text.isInfixOf` llvmText)
 
 testHaskell2010NativeGetLine :: Either String ()
 testHaskell2010NativeGetLine = do
@@ -4036,6 +4709,86 @@ testHaskell2010NativeDynamicWrapperCCall = do
                       )
                   LLVMTools.NativeRunIOError message ->
                     Left ("Haskell 2010 dynamic/wrapper ccall execution I/O error for " <> outputPath <> ": " <> message)
+
+testHaskell2010NativeWrapperReclamation :: IO (Either String ())
+testHaskell2010NativeWrapperReclamation = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} ->
+      case compileHaskell2010Native haskell2010WrapperReclamationSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          createDirectoryIfMissing True ".context/native-tests"
+          let llvmText = H2010Native.haskell2010LLVMText result
+              outputPath = ".context/native-tests/haskell2010-wrapper-reclamation"
+              helperPath = "test/native/haskell2010/ffi_helpers.c"
+          pureChecks <-
+            pure $
+              assertBool
+                "freeHaskellFunPtr clears wrapper callback slots"
+                ("store ptr null" `Text.isInfixOf` llvmText)
+                *> assertBool
+                  "wrapper slot allocator no longer relies on monotonic next counters"
+                  (not ("wrapper_next" `Text.isInfixOf` llvmText))
+          case pureChecks of
+            Left err ->
+              pure (Left err)
+            Right () -> do
+              buildResult <- LLVMTools.buildNativeExecutableWithObjects tools llvmText [helperPath] outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    expectEqual "Haskell 2010 wrapper reclamation stdout" (Text.unpack haskell2010WrapperReclamationOutput) stdoutText
+                  LLVMTools.NativeRunFailed code stdoutText stderrText ->
+                    Left
+                      ( "Haskell 2010 wrapper reclamation execution failed for "
+                          <> outputPath
+                          <> " with "
+                          <> show code
+                          <> "\nstdout:\n"
+                          <> stdoutText
+                          <> "\nstderr:\n"
+                          <> stderrText
+                      )
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("Haskell 2010 wrapper reclamation execution I/O error for " <> outputPath <> ": " <> message)
+
+testHaskell2010NativeWrapperAfterFreeRuntimeError :: IO (Either String ())
+testHaskell2010NativeWrapperAfterFreeRuntimeError = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} ->
+      case compileHaskell2010Native haskell2010WrapperAfterFreeSource of
+        Left err ->
+          pure (Left err)
+        Right result -> do
+          createDirectoryIfMissing True ".context/native-tests"
+          let llvmText = H2010Native.haskell2010LLVMText result
+              outputPath = ".context/native-tests/haskell2010-wrapper-after-free"
+              helperPath = "test/native/haskell2010/ffi_helpers.c"
+          pureChecks <-
+            pure $
+              assertBool
+                "wrapper callback entry checks for freed slots"
+                ("call void @abort()" `Text.isInfixOf` llvmText)
+          case pureChecks of
+            Left err ->
+              pure (Left err)
+            Right () -> do
+              buildResult <- LLVMTools.buildNativeExecutableWithObjects tools llvmText [helperPath] outputPath
+              runBuiltNative outputPath buildResult $ \runResult ->
+                case runResult of
+                  LLVMTools.NativeRunFailed {} ->
+                    Right ()
+                  LLVMTools.NativeRunSucceeded stdoutText ->
+                    Left ("expected wrapper callback after free to fail, got stdout:\n" <> stdoutText)
+                  LLVMTools.NativeRunIOError message ->
+                    Left ("Haskell 2010 wrapper after-free execution I/O error for " <> outputPath <> ": " <> message)
 
 testHaskell2010NativeForeignExportCCall :: IO (Either String ())
 testHaskell2010NativeForeignExportCCall = do
@@ -4338,7 +5091,8 @@ testHaskell2010CoreEgglogPreservesKnownConstructorLaziness = do
 
   forcedFieldResult <- optimizeHaskell2010Core haskell2010KnownConstructorForcedFieldSource
   case evalHaskell2010CoreModuleBindingRaw "main" (H2010CoreEgglog.coreEgglogOptimizedModule forcedFieldResult) of
-    Left H2010CoreEval.CoreEvalDivisionByZero -> Right ()
+    Left err
+      | H2010CoreEval.CoreEvalDivisionByZero <- haskell2010CoreEvalErrorDetail err -> Right ()
     Left err ->
       Left ("expected optimized known-constructor projection to preserve forced division by zero, got: " <> show err)
     Right value ->
@@ -4363,9 +5117,10 @@ testHaskell2010CoreEgglogPreservesStrictBottom = do
     optimizeHaskell2010Core
       "module Optimize where\n\
       \f x = x * 0\n\
-      \main = f (1 / 0)\n"
+      \main = f (div 1 0)\n"
   case evalHaskell2010CoreModuleBindingRaw "main" (H2010CoreEgglog.coreEgglogOptimizedModule result) of
-    Left H2010CoreEval.CoreEvalDivisionByZero -> Right ()
+    Left err
+      | H2010CoreEval.CoreEvalDivisionByZero <- haskell2010CoreEvalErrorDetail err -> Right ()
     Left err ->
       Left ("expected optimized Core to preserve forced division by zero, got: " <> show err)
     Right value ->
@@ -4622,6 +5377,411 @@ testParserDiagnosticIncludesLocation =
     Right parsed ->
       Left ("expected parser to fail, got " <> show parsed)
 
+testCLICommandModelParsesSupportedForms :: Either String ()
+testCLICommandModelParsesSupportedForms = do
+  expectEqual
+    "general help"
+    (Right CommandCLI.CommandGeneralHelp)
+    (CommandCLI.parseCLICommand ["--help"])
+  expectEqual
+    "compile help"
+    (Right CommandCLI.CommandCompileHelp)
+    (CommandCLI.parseCLICommand ["compile", "--help"])
+  expectEqual
+    "check help"
+    (Right CommandCLI.CommandCheckHelp)
+    (CommandCLI.parseCLICommand ["check", "--help"])
+  expectEqual
+    "emit-core help"
+    (Right CommandCLI.CommandEmitCoreHelp)
+    (CommandCLI.parseCLICommand ["emit-core", "--help"])
+  expectEqual
+    "emit-stg help"
+    (Right CommandCLI.CommandEmitSTGHelp)
+    (CommandCLI.parseCLICommand ["emit-stg", "--help"])
+  expectEqual
+    "run help"
+    (Right CommandCLI.CommandRunHelp)
+    (CommandCLI.parseCLICommand ["run", "--help"])
+  expectEqual
+    "report help"
+    (Right CommandCLI.CommandReportHelp)
+    (CommandCLI.parseCLICommand ["report", "--help"])
+  expectEqual
+    "explicit compile command"
+    (Right (CommandCLI.CommandCompile "Main.hs" (compileOptions (CompileCLI.EmitLLVM (Just "out.ll")))))
+    (CommandCLI.parseCLICommand ["compile", "Main.hs", "--emit-llvm", "-o", "out.ll"])
+  expectEqual
+    "legacy compile invocation"
+    (Right (CommandCLI.CommandCompile "Main.hs" (compileOptions (CompileCLI.EmitLLVM Nothing))))
+    (CommandCLI.parseCLICommand ["Main.hs", "--emit-llvm"])
+  expectEqual
+    "explicit check command"
+    (Right (CommandCLI.CommandCheck "Lib.hs" checkOptions))
+    (CommandCLI.parseCLICommand ["check", "Lib.hs", "--no-egglog", "-i", "src-hs"])
+  expectEqual
+    "explicit emit-core command"
+    (Right (CommandCLI.CommandEmitCore "Main.hs" emitCoreOptions))
+    (CommandCLI.parseCLICommand ["emit-core", "Main.hs", "--both", "--no-egglog", "--import-path=src-hs", "-o", "core.txt"])
+  expectEqual
+    "explicit emit-stg command"
+    (Right (CommandCLI.CommandEmitSTG "Main.hs" emitSTGOptions))
+    (CommandCLI.parseCLICommand ["emit-stg", "Main.hs", "--no-egglog", "--import-path=src-hs", "-o", "stg.txt"])
+  expectEqual
+    "explicit run command"
+    (Right (CommandCLI.CommandRun "Main.hs" runOptions))
+    (CommandCLI.parseCLICommand ["run", "Main.hs", "--no-egglog", "--import-path=src-hs", "--link-library", "m"])
+  expectEqual
+    "explicit report command"
+    (Right (CommandCLI.CommandReport "examples/test.hg" CompileCLI.defaultReportCLIOptions))
+    (CommandCLI.parseCLICommand ["report", "examples/test.hg"])
+  expectEqual
+    "explicit Haskell report command"
+    (Right (CommandCLI.CommandReport "Main.hs" reportOptions))
+    (CommandCLI.parseCLICommand ["report", "Main.hs", "--no-egglog", "-i", "src-hs"])
+  expectEqual
+    "legacy report invocation"
+    (Right (CommandCLI.CommandReport "examples/test.hg" CompileCLI.defaultReportCLIOptions))
+    (CommandCLI.parseCLICommand ["examples/test.hg"])
+ where
+  compileOptions outputMode =
+    CompileCLI.CompileCLIOptions
+      { CompileCLI.cliOutputMode = outputMode
+      , CompileCLI.cliUseEgglog = True
+      , CompileCLI.cliStrictEgglog = False
+      , CompileCLI.cliImportPaths = []
+      , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+      , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+      , CompileCLI.cliKeepIntermediates = False
+      }
+  checkOptions =
+    CompileCLI.CheckCLIOptions
+      { CompileCLI.checkUseEgglog = False
+      , CompileCLI.checkStrictEgglog = False
+      , CompileCLI.checkImportPaths = ["src-hs"]
+      , CompileCLI.checkDumpOptions = CompileCLI.emptyDumpCLIOptions
+      }
+  emitCoreOptions =
+    CompileCLI.EmitCoreCLIOptions
+      { CompileCLI.emitCoreUseEgglog = False
+      , CompileCLI.emitCoreStrictEgglog = False
+      , CompileCLI.emitCoreImportPaths = ["src-hs"]
+      , CompileCLI.emitCoreOutput = Just "core.txt"
+      , CompileCLI.emitCoreSelection = CompileCLI.EmitCoreBoth
+      }
+  emitSTGOptions =
+    CompileCLI.EmitSTGCLIOptions
+      { CompileCLI.emitSTGUseEgglog = False
+      , CompileCLI.emitSTGStrictEgglog = False
+      , CompileCLI.emitSTGImportPaths = ["src-hs"]
+      , CompileCLI.emitSTGOutput = Just "stg.txt"
+      }
+  runOptions =
+    CompileCLI.RunCLIOptions
+      { CompileCLI.runUseEgglog = False
+      , CompileCLI.runStrictEgglog = False
+      , CompileCLI.runImportPaths = ["src-hs"]
+      , CompileCLI.runLinkOptions =
+          CompileCLI.emptyCompileLinkOptions
+            { CompileCLI.cliLinkLibraries = ["m"]
+            }
+      , CompileCLI.runDumpOptions = CompileCLI.emptyDumpCLIOptions
+      , CompileCLI.runKeepIntermediates = False
+      }
+  reportOptions =
+    CompileCLI.ReportCLIOptions
+      { CompileCLI.reportUseEgglog = False
+      , CompileCLI.reportStrictEgglog = False
+      , CompileCLI.reportImportPaths = ["src-hs"]
+      }
+
+testCLICommandModelRejectsInvalidForms :: Either String ()
+testCLICommandModelRejectsInvalidForms =
+  expectCommandError "missing command" CommandCLI.GeneralUsage "missing command" (CommandCLI.parseCLICommand [])
+    *> expectCommandError "missing check source" CommandCLI.CheckUsage "check requires a source file" (CommandCLI.parseCLICommand ["check"])
+    *> expectCommandError "missing compile source" CommandCLI.CompileUsage "compile requires a source file" (CommandCLI.parseCLICommand ["compile"])
+    *> expectCommandError "missing emit-core source" CommandCLI.EmitCoreUsage "emit-core requires a source file" (CommandCLI.parseCLICommand ["emit-core"])
+    *> expectCommandError "missing emit-stg source" CommandCLI.EmitSTGUsage "emit-stg requires a source file" (CommandCLI.parseCLICommand ["emit-stg"])
+    *> expectCommandError "missing report source" CommandCLI.ReportUsage "report requires a source file" (CommandCLI.parseCLICommand ["report"])
+    *> expectCommandError "missing run source" CommandCLI.RunUsage "run requires a source file" (CommandCLI.parseCLICommand ["run"])
+    *> expectCommandError "extra report args" CommandCLI.ReportUsage "report accepts exactly one source file" (CommandCLI.parseCLICommand ["report", "a.hg", "b.hg"])
+    *> expectCommandError "unknown top-level command" CommandCLI.GeneralUsage "unknown command" (CommandCLI.parseCLICommand ["frobnicate", "--bad"])
+    *> expectCommandError "invalid check flags stay in check usage" CommandCLI.CheckUsage "not valid for check" (CommandCLI.parseCLICommand ["check", "Main.hs", "--link-library", "m"])
+    *> expectCommandError "invalid compile flags stay in compile usage" CommandCLI.CompileUsage "--run requires -o/--output" (CommandCLI.parseCLICommand ["compile", "Main.hs", "--run"])
+    *> expectCommandError "invalid emit-core flags stay in emit-core usage" CommandCLI.EmitCoreUsage "not valid for emit-core" (CommandCLI.parseCLICommand ["emit-core", "Main.hs", "--link-library", "m"])
+    *> expectCommandError "invalid emit-stg flags stay in emit-stg usage" CommandCLI.EmitSTGUsage "not valid for emit-stg" (CommandCLI.parseCLICommand ["emit-stg", "Main.hs", "--link-library", "m"])
+    *> expectCommandError "invalid run flags stay in run usage" CommandCLI.RunUsage "not valid for run" (CommandCLI.parseCLICommand ["run", "Main.hs", "--emit-llvm"])
+ where
+  expectCommandError label expectedTopic expectedMessage = \case
+    Left err ->
+      expectEqual (label <> " usage topic") expectedTopic (CommandCLI.commandErrorUsageTopic err)
+        *> assertBool (label <> " message") (expectedMessage `Text.isInfixOf` CommandCLI.commandErrorMessage err)
+    Right command ->
+      Left (label <> ": expected command parse failure, got " <> show command)
+
+testCLICommandModelUsageText :: Either String ()
+testCLICommandModelUsageText =
+  assertBool "general usage documents compile command" ("hegglog compile FILE" `Text.isInfixOf` CommandCLI.generalUsage)
+    *> assertBool "general usage documents check command" ("hegglog check FILE" `Text.isInfixOf` CommandCLI.generalUsage)
+    *> assertBool "general usage documents emit-core command" ("hegglog emit-core FILE" `Text.isInfixOf` CommandCLI.generalUsage)
+    *> assertBool "general usage documents emit-stg command" ("hegglog emit-stg FILE" `Text.isInfixOf` CommandCLI.generalUsage)
+    *> assertBool "general usage documents run command" ("hegglog run FILE" `Text.isInfixOf` CommandCLI.generalUsage)
+    *> assertBool "general usage documents report command" ("hegglog report FILE" `Text.isInfixOf` CommandCLI.generalUsage)
+    *> assertBool "general usage documents legacy report invocation" ("hegglog FILE" `Text.isInfixOf` CommandCLI.generalUsage)
+    *> assertBool "check usage documents no-codegen validation" ("without emitting LLVM IR" `Text.isInfixOf` CommandCLI.checkUsage)
+    *> assertBool "check usage documents dump flags" ("--dump-core" `Text.isInfixOf` CommandCLI.checkUsage && "--dump-stg" `Text.isInfixOf` CommandCLI.checkUsage)
+    *> assertBool "check usage documents strict egglog" ("--strict-egglog" `Text.isInfixOf` CommandCLI.checkUsage)
+    *> assertBool "emit-core usage documents typed Core" ("typed Haskell 2010 Core" `Text.isInfixOf` CommandCLI.emitCoreUsage)
+    *> assertBool "emit-core usage documents original output" ("--original" `Text.isInfixOf` CommandCLI.emitCoreUsage)
+    *> assertBool "emit-stg usage documents STG output" ("emit Haskell 2010 STG" `Text.isInfixOf` CommandCLI.emitSTGUsage)
+    *> assertBool "emit-stg usage documents output files" ("--output PATH" `Text.isInfixOf` CommandCLI.emitSTGUsage)
+    *> assertBool "run usage documents output forwarding" ("forward program stdout/stderr" `Text.isInfixOf` CommandCLI.runUsage)
+    *> assertBool "run usage documents dump flags" ("--dump-optimized-core" `Text.isInfixOf` CommandCLI.runUsage)
+    *> assertBool "run usage documents keep intermediates" ("--keep-intermediates" `Text.isInfixOf` CommandCLI.runUsage)
+    *> assertBool "run usage documents strict egglog" ("--strict-egglog" `Text.isInfixOf` CommandCLI.runUsage)
+    *> assertBool "compile usage documents link objects" ("--link-object PATH" `Text.isInfixOf` CommandCLI.compileUsage)
+    *> assertBool "compile usage documents import paths" ("--import-path PATH" `Text.isInfixOf` CommandCLI.compileUsage)
+    *> assertBool "compile usage documents dump flags" ("--dump-optimized-core" `Text.isInfixOf` CommandCLI.compileUsage)
+    *> assertBool "compile usage documents keep intermediates" ("--keep-intermediates" `Text.isInfixOf` CommandCLI.compileUsage)
+    *> assertBool "compile usage documents strict egglog" ("--strict-egglog" `Text.isInfixOf` CommandCLI.compileUsage)
+    *> assertBool "report usage documents .hg mode" ("legacy .hg" `Text.isInfixOf` CommandCLI.reportUsage)
+    *> assertBool "report usage documents Haskell 2010 mode" ("Haskell 2010 .hs reports" `Text.isInfixOf` CommandCLI.reportUsage)
+    *> assertBool "report usage documents strict egglog" ("--strict-egglog" `Text.isInfixOf` CommandCLI.reportUsage)
+
+testCLIHelpTextGolden :: IO (Either String ())
+testCLIHelpTextGolden = do
+  results <- traverse checkHelpGolden cliHelpGoldenCases
+  pure $
+    case [message | Left message <- results] of
+      [] -> Right ()
+      messages -> Left (List.intercalate "\n\n" messages)
+ where
+  checkHelpGolden (label, path, actual) = do
+    expected <- Text.IO.readFile path
+    pure (expectEqualText (label <> " help golden") expected actual)
+
+cliHelpGoldenCases :: [(String, FilePath, Text)]
+cliHelpGoldenCases =
+  [ ("general", "test/golden/cli-help/general.txt", CommandCLI.generalUsage)
+  , ("check", "test/golden/cli-help/check.txt", CommandCLI.checkUsage)
+  , ("compile", "test/golden/cli-help/compile.txt", CommandCLI.compileUsage)
+  , ("emit-core", "test/golden/cli-help/emit-core.txt", CommandCLI.emitCoreUsage)
+  , ("emit-stg", "test/golden/cli-help/emit-stg.txt", CommandCLI.emitSTGUsage)
+  , ("report", "test/golden/cli-help/report.txt", CommandCLI.reportUsage)
+  , ("run", "test/golden/cli-help/run.txt", CommandCLI.runUsage)
+  ]
+
+testCheckEmitCoreRunFlags :: Either String ()
+testCheckEmitCoreRunFlags = do
+  expectEqual
+    "check flags"
+    ( Right
+        ( CompileCLI.CheckCLIOptions
+          { CompileCLI.checkUseEgglog = False
+          , CompileCLI.checkStrictEgglog = False
+          , CompileCLI.checkImportPaths = ["src-hs", "generated-hs"]
+          , CompileCLI.checkDumpOptions = CompileCLI.emptyDumpCLIOptions
+          }
+        )
+    )
+    (CompileCLI.parseCheckFlags ["--no-egglog", "-i", "src-hs", "--import-path=generated-hs"])
+  expectEqual
+    "check dump flags"
+    ( Right
+        ( CompileCLI.CheckCLIOptions
+          { CompileCLI.checkUseEgglog = True
+          , CompileCLI.checkStrictEgglog = False
+          , CompileCLI.checkImportPaths = []
+          , CompileCLI.checkDumpOptions =
+              CompileCLI.emptyDumpCLIOptions
+                { CompileCLI.dumpCore = True
+                , CompileCLI.dumpSTG = True
+                }
+          }
+        )
+    )
+    (CompileCLI.parseCheckFlags ["--dump-core", "--dump-stg"])
+  expectEqual
+    "check strict egglog flag"
+    ( Right
+        ( CompileCLI.CheckCLIOptions
+          { CompileCLI.checkUseEgglog = True
+          , CompileCLI.checkStrictEgglog = True
+          , CompileCLI.checkImportPaths = []
+          , CompileCLI.checkDumpOptions = CompileCLI.emptyDumpCLIOptions
+          }
+        )
+    )
+    (CompileCLI.parseCheckFlags ["--strict-egglog"])
+  expectEqual
+    "emit-core flags"
+    ( Right
+        ( CompileCLI.EmitCoreCLIOptions
+          { CompileCLI.emitCoreUseEgglog = False
+          , CompileCLI.emitCoreStrictEgglog = False
+          , CompileCLI.emitCoreImportPaths = ["src-hs", "generated-hs"]
+          , CompileCLI.emitCoreOutput = Just "Core.out"
+          , CompileCLI.emitCoreSelection = CompileCLI.EmitCoreOriginal
+          }
+        )
+    )
+    (CompileCLI.parseEmitCoreFlags ["--no-egglog", "--original", "-i", "src-hs", "--import-path=generated-hs", "--output=Core.out"])
+  expectEqual
+    "emit-core strict egglog flag"
+    ( Right
+        ( CompileCLI.EmitCoreCLIOptions
+          { CompileCLI.emitCoreUseEgglog = True
+          , CompileCLI.emitCoreStrictEgglog = True
+          , CompileCLI.emitCoreImportPaths = []
+          , CompileCLI.emitCoreOutput = Nothing
+          , CompileCLI.emitCoreSelection = CompileCLI.EmitCoreOptimized
+          }
+        )
+    )
+    (CompileCLI.parseEmitCoreFlags ["--strict-egglog"])
+  expectEqual
+    "emit-stg flags"
+    ( Right
+        ( CompileCLI.EmitSTGCLIOptions
+          { CompileCLI.emitSTGUseEgglog = False
+          , CompileCLI.emitSTGStrictEgglog = False
+          , CompileCLI.emitSTGImportPaths = ["src-hs", "generated-hs"]
+          , CompileCLI.emitSTGOutput = Just "STG.out"
+          }
+        )
+    )
+    (CompileCLI.parseEmitSTGFlags ["--no-egglog", "-i", "src-hs", "--import-path=generated-hs", "--output=STG.out"])
+  expectEqual
+    "run flags"
+    ( Right
+        ( CompileCLI.RunCLIOptions
+          { CompileCLI.runUseEgglog = False
+          , CompileCLI.runStrictEgglog = False
+          , CompileCLI.runImportPaths = ["src-hs"]
+          , CompileCLI.runLinkOptions =
+              CompileCLI.CompileLinkOptions
+                { CompileCLI.cliLinkObjects = ["ffi.o"]
+                , CompileCLI.cliLinkLibraries = ["m"]
+                , CompileCLI.cliLinkLibraryPaths = ["native"]
+                , CompileCLI.cliLinkFrameworks = ["CoreFoundation"]
+                }
+          , CompileCLI.runDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.runKeepIntermediates = False
+          }
+        )
+    )
+    ( CompileCLI.parseRunFlags
+        [ "--no-egglog"
+        , "-isrc-hs"
+        , "--link-object"
+        , "ffi.o"
+        , "--library-path"
+        , "native"
+        , "--link-library"
+        , "m"
+        , "--framework"
+        , "CoreFoundation"
+        ]
+    )
+  expectEqual
+    "run dump flags"
+    ( Right
+        ( CompileCLI.RunCLIOptions
+          { CompileCLI.runUseEgglog = True
+          , CompileCLI.runStrictEgglog = False
+          , CompileCLI.runImportPaths = []
+          , CompileCLI.runLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.runDumpOptions =
+              CompileCLI.emptyDumpCLIOptions
+                { CompileCLI.dumpOptimizedCore = True
+                }
+          , CompileCLI.runKeepIntermediates = False
+          }
+        )
+    )
+    (CompileCLI.parseRunFlags ["--dump-optimized-core"])
+  expectEqual
+    "run keep intermediates flag"
+    ( Right
+        ( CompileCLI.RunCLIOptions
+          { CompileCLI.runUseEgglog = True
+          , CompileCLI.runStrictEgglog = False
+          , CompileCLI.runImportPaths = []
+          , CompileCLI.runLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.runDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.runKeepIntermediates = True
+          }
+        )
+    )
+    (CompileCLI.parseRunFlags ["--keep-intermediates"])
+  expectEqual
+    "run strict egglog flag"
+    ( Right
+        ( CompileCLI.RunCLIOptions
+          { CompileCLI.runUseEgglog = True
+          , CompileCLI.runStrictEgglog = True
+          , CompileCLI.runImportPaths = []
+          , CompileCLI.runLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.runDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.runKeepIntermediates = False
+          }
+        )
+    )
+    (CompileCLI.parseRunFlags ["--strict-egglog"])
+  expectEqual
+    "report flags"
+    ( Right
+        ( CompileCLI.ReportCLIOptions
+          { CompileCLI.reportUseEgglog = False
+          , CompileCLI.reportStrictEgglog = False
+          , CompileCLI.reportImportPaths = ["src-hs", "generated-hs"]
+          }
+        )
+    )
+    (CompileCLI.parseReportFlags ["--no-egglog", "-i", "src-hs", "--import-path=generated-hs"])
+  expectEqual
+    "report strict egglog flag"
+    ( Right
+        ( CompileCLI.ReportCLIOptions
+          { CompileCLI.reportUseEgglog = True
+          , CompileCLI.reportStrictEgglog = True
+          , CompileCLI.reportImportPaths = []
+          }
+        )
+    )
+    (CompileCLI.parseReportFlags ["--strict-egglog"])
+  assertLeftContains "check rejects native link flag" "not valid for check" (CompileCLI.parseCheckFlags ["--link-object", "ffi.o"])
+  assertLeftContains "check rejects output flag" "not valid for check" (CompileCLI.parseCheckFlags ["-o", "program"])
+  assertLeftContains "check rejects keep intermediates" "not valid for check" (CompileCLI.parseCheckFlags ["--keep-intermediates"])
+  assertLeftContains "check rejects conflicting egglog flags" "cannot be combined" (CompileCLI.parseCheckFlags ["--no-egglog", "--strict-egglog"])
+  assertLeftContains "emit-core rejects dump flag" "already an IR output command" (CompileCLI.parseEmitCoreFlags ["--dump-core"])
+  assertLeftContains "emit-core rejects keep intermediates" "not valid for emit-core" (CompileCLI.parseEmitCoreFlags ["--keep-intermediates"])
+  assertLeftContains "emit-core rejects conflicting egglog flags" "cannot be combined" (CompileCLI.parseEmitCoreFlags ["--no-egglog", "--strict-egglog"])
+  assertLeftContains "emit-core rejects native link flag" "not valid for emit-core" (CompileCLI.parseEmitCoreFlags ["--framework", "CoreFoundation"])
+  assertLeftContains "emit-core rejects run flag" "not valid for emit-core" (CompileCLI.parseEmitCoreFlags ["--run"])
+  assertLeftContains "emit-core rejects duplicate output" "provided more than once" (CompileCLI.parseEmitCoreFlags ["-o", "a", "--output", "b"])
+  assertLeftContains "emit-core rejects duplicate selection" "cannot be combined" (CompileCLI.parseEmitCoreFlags ["--original", "--both"])
+  assertLeftContains "emit-stg rejects native link flag" "not valid for emit-stg" (CompileCLI.parseEmitSTGFlags ["--framework", "CoreFoundation"])
+  assertLeftContains "emit-stg rejects run flag" "not valid for emit-stg" (CompileCLI.parseEmitSTGFlags ["--run"])
+  assertLeftContains "emit-stg rejects dump flag" "already an IR output command" (CompileCLI.parseEmitSTGFlags ["--dump-stg"])
+  assertLeftContains "emit-stg rejects keep intermediates" "not valid for emit-stg" (CompileCLI.parseEmitSTGFlags ["--keep-intermediates"])
+  assertLeftContains "emit-stg rejects conflicting egglog flags" "cannot be combined" (CompileCLI.parseEmitSTGFlags ["--no-egglog", "--strict-egglog"])
+  assertLeftContains "emit-stg rejects duplicate output" "provided more than once" (CompileCLI.parseEmitSTGFlags ["-o", "a", "--output", "b"])
+  assertLeftContains "emit-stg rejects Core selection" "not valid for emit-stg" (CompileCLI.parseEmitSTGFlags ["--both"])
+  assertLeftContains "run rejects LLVM mode" "not valid for run" (CompileCLI.parseRunFlags ["--emit-llvm"])
+  assertLeftContains "run rejects output flag" "temporary native executable" (CompileCLI.parseRunFlags ["--output", "program"])
+  assertLeftContains "run rejects conflicting egglog flags" "cannot be combined" (CompileCLI.parseRunFlags ["--no-egglog", "--strict-egglog"])
+  assertLeftContains "report rejects dump flag" "not valid for report" (CompileCLI.parseReportFlags ["--dump-core"])
+  assertLeftContains "report rejects native link flag" "not valid for report" (CompileCLI.parseReportFlags ["--link-library", "m"])
+  assertLeftContains "report rejects output flag" "not valid for report" (CompileCLI.parseReportFlags ["--output", "report.txt"])
+  assertLeftContains "report rejects conflicting egglog flags" "cannot be combined" (CompileCLI.parseReportFlags ["--no-egglog", "--strict-egglog"])
+ where
+  assertLeftContains label needle = \case
+    Left message ->
+      assertBool label (needle `Text.isInfixOf` message)
+    Right value ->
+      Left (label <> ": expected parse failure, got " <> show value)
+
 testCompileFlagsOutputModes :: Either String ()
 testCompileFlagsOutputModes = do
   expectEqual
@@ -4630,6 +5790,11 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.EmitLLVM (Just "out.ll")
           , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliStrictEgglog = False
+          , CompileCLI.cliImportPaths = []
+          , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.cliKeepIntermediates = False
           }
         )
     )
@@ -4640,6 +5805,11 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.EmitAndRunLLVM Nothing
           , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliStrictEgglog = False
+          , CompileCLI.cliImportPaths = []
+          , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.cliKeepIntermediates = False
           }
         )
     )
@@ -4650,6 +5820,11 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.BuildExecutable "program"
           , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliStrictEgglog = False
+          , CompileCLI.cliImportPaths = []
+          , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.cliKeepIntermediates = False
           }
         )
     )
@@ -4660,10 +5835,107 @@ testCompileFlagsOutputModes = do
         ( CompileCLI.CompileCLIOptions
           { CompileCLI.cliOutputMode = CompileCLI.BuildAndRunExecutable "program"
           , CompileCLI.cliUseEgglog = False
+          , CompileCLI.cliStrictEgglog = False
+          , CompileCLI.cliImportPaths = []
+          , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.cliKeepIntermediates = False
           }
         )
     )
     (CompileCLI.parseCompileFlags ["--output", "program", "--run", "--no-egglog"])
+  expectEqual
+    "compile dump flags"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.EmitLLVM Nothing
+          , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliStrictEgglog = False
+          , CompileCLI.cliImportPaths = []
+          , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.cliDumpOptions =
+              CompileCLI.emptyDumpCLIOptions
+                { CompileCLI.dumpCore = True
+                , CompileCLI.dumpOptimizedCore = True
+                , CompileCLI.dumpSTG = True
+                }
+          , CompileCLI.cliKeepIntermediates = False
+          }
+        )
+    )
+    (CompileCLI.parseCompileFlags ["--emit-llvm", "--dump-core", "--dump-optimized-core", "--dump-stg"])
+  expectEqual
+    "compile keep intermediates flag"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.EmitLLVM Nothing
+          , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliStrictEgglog = False
+          , CompileCLI.cliImportPaths = []
+          , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.cliKeepIntermediates = True
+          }
+        )
+    )
+    (CompileCLI.parseCompileFlags ["--emit-llvm", "--keep-intermediates"])
+  expectEqual
+    "compile strict egglog flag"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.EmitLLVM Nothing
+          , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliStrictEgglog = True
+          , CompileCLI.cliImportPaths = []
+          , CompileCLI.cliLinkOptions = CompileCLI.emptyCompileLinkOptions
+          , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.cliKeepIntermediates = False
+          }
+        )
+    )
+    (CompileCLI.parseCompileFlags ["--emit-llvm", "--strict-egglog"])
+
+testCompileFlagsLinkOptions :: Either String ()
+testCompileFlagsLinkOptions =
+  expectEqual
+    "native link flags"
+    ( Right
+        ( CompileCLI.CompileCLIOptions
+          { CompileCLI.cliOutputMode = CompileCLI.BuildExecutable "program"
+          , CompileCLI.cliUseEgglog = True
+          , CompileCLI.cliStrictEgglog = False
+          , CompileCLI.cliImportPaths = ["src-hs", "vendor-hs", "generated-hs"]
+          , CompileCLI.cliLinkOptions =
+              CompileCLI.CompileLinkOptions
+                { CompileCLI.cliLinkObjects = ["ffi.o", "more.o"]
+                , CompileCLI.cliLinkLibraries = ["m"]
+                , CompileCLI.cliLinkLibraryPaths = ["native"]
+                , CompileCLI.cliLinkFrameworks = ["CoreFoundation"]
+                }
+          , CompileCLI.cliDumpOptions = CompileCLI.emptyDumpCLIOptions
+          , CompileCLI.cliKeepIntermediates = False
+          }
+        )
+    )
+    ( CompileCLI.parseCompileFlags
+        [ "-o"
+        , "program"
+        , "-i"
+        , "src-hs"
+        , "-ivendor-hs"
+        , "--import-path=generated-hs"
+        , "--link-object"
+        , "ffi.o"
+        , "--link-object"
+        , "more.o"
+        , "--library-path"
+        , "native"
+        , "--link-library"
+        , "m"
+        , "--framework"
+        , "CoreFoundation"
+        ]
+    )
 
 testCompileFlagsRejectInvalidRunModes :: Either String ()
 testCompileFlagsRejectInvalidRunModes =
@@ -4671,6 +5943,14 @@ testCompileFlagsRejectInvalidRunModes =
     *> assertLeftContains "native run conflicts with emit LLVM" "--run builds and runs a native executable" (CompileCLI.parseCompileFlags ["--emit-llvm", "--run"])
     *> assertLeftContains "native and LLVM run conflict" "--run and --run-llvm cannot be combined" (CompileCLI.parseCompileFlags ["--run", "--run-llvm", "-o", "program"])
     *> assertLeftContains "duplicate output rejected" "provided more than once" (CompileCLI.parseCompileFlags ["-o", "a", "--output", "b"])
+    *> assertLeftContains "missing import path rejected" "-i requires a directory path" (CompileCLI.parseCompileFlags ["-i"])
+    *> assertLeftContains "missing long import path rejected" "--import-path requires a directory path" (CompileCLI.parseCompileFlags ["--import-path"])
+    *> assertLeftContains "empty long import path rejected" "--import-path requires a directory path" (CompileCLI.parseCompileFlags ["--import-path="])
+    *> assertLeftContains "missing link object path rejected" "--link-object requires a file path" (CompileCLI.parseCompileFlags ["--link-object"])
+    *> assertLeftContains "missing link library name rejected" "--link-library requires a library name" (CompileCLI.parseCompileFlags ["--link-library"])
+    *> assertLeftContains "missing library path rejected" "--library-path requires a directory path" (CompileCLI.parseCompileFlags ["--library-path"])
+    *> assertLeftContains "missing framework name rejected" "--framework requires a framework name" (CompileCLI.parseCompileFlags ["--framework"])
+    *> assertLeftContains "conflicting egglog flags rejected" "cannot be combined" (CompileCLI.parseCompileFlags ["--no-egglog", "--strict-egglog"])
  where
   assertLeftContains label needle = \case
     Left message ->
@@ -6256,6 +7536,36 @@ testNativeBuildToolchainMissing = do
       other ->
         Left ("expected missing native toolchain, got " <> show other)
 
+testNativeBuildLinkOptionsMissingObject :: IO (Either String ())
+testNativeBuildLinkOptionsMissingObject = do
+  tools <- LLVMTools.findLLVMTools
+  case LLVMTools.llvmClang tools of
+    Nothing ->
+      pure (Right ())
+    Just {} -> do
+      createDirectoryIfMissing True ".context/native-tests"
+      let missingPath = ".context/native-tests/missing-ffi-object.o"
+          outputPath = ".context/native-tests/missing-link-input"
+          linkOptions =
+            LLVMTools.defaultNativeLinkOptions
+              { LLVMTools.nativeLinkObjects = [missingPath]
+              }
+      result <-
+        LLVMTools.buildNativeExecutableWithLinkOptions
+          tools
+          "define i32 @main() {\nentry:\n  ret i32 0\n}\n"
+          linkOptions
+          outputPath
+      pure $
+        case result of
+          LLVMTools.NativeBuildFailed _clangPath args _code _stdoutText stderrText ->
+            assertBool "clang argv includes missing link object" (missingPath `elem` args)
+              *> assertBool "clang stderr names missing link object" (Text.pack missingPath `Text.isInfixOf` Text.pack stderrText)
+          LLVMTools.NativeBuildSucceeded ->
+            Left "expected native link to fail for missing object input"
+          other ->
+            Left ("expected native link failure for missing object input, got " <> show other)
+
 testNativeExecutionMatchesInterpreter :: IO (Either String ())
 testNativeExecutionMatchesInterpreter = do
   tools <- LLVMTools.findLLVMTools
@@ -7060,6 +8370,7 @@ haskell2010InferenceProgramSource expectedType expression =
   Text.unlines
     [ "module Main where"
     , "idp x = x"
+    , "value :: " <> renderHaskell2010PropType expectedType
     , "value = " <> generatedHaskell2010ExprText expression
     , "main :: " <> renderHaskell2010PropType expectedType
     , "main = idp value"
@@ -7075,7 +8386,9 @@ haskell2010DictionaryInferenceProgramSource lhs rhs =
     , "  same x y = x == y"
     , "instance Same Bool where"
     , "  same x y = x == y"
+    , "left :: " <> renderHaskell2010PropType (generatedHaskell2010ExprType lhs)
     , "left = " <> generatedHaskell2010ExprText lhs
+    , "right :: " <> renderHaskell2010PropType (generatedHaskell2010ExprType rhs)
     , "right = " <> generatedHaskell2010ExprText rhs
     , "main :: Bool"
     , "main = same left right"
@@ -7357,7 +8670,16 @@ renameHaskell2010 source =
 renameHaskell2010Raw :: Text -> Either H2010Renamer.RenameError H2010Renamed.RHsModule
 renameHaskell2010Raw source = do
   parsed <- mapLeft (error . errorBundlePretty) (H2010Parser.parseSourceModule "<haskell2010-renamer-test>" source)
-  H2010Renamer.renameModule parsed
+  virtualModules <-
+    mapLeft
+      (error . Text.unpack . H2010ModuleGraph.renderModuleGraphError)
+      (H2010ModuleGraph.loadVirtualStandardModuleClosure parsed)
+  case virtualModules of
+    [] ->
+      H2010Renamer.renameModule parsed
+    _ ->
+      H2010ModuleGraph.wholeProgramModule
+        <$> H2010Renamer.renameModuleGraph (map H2010ModuleGraph.loadedModuleParsed virtualModules <> [parsed])
 
 parseHaskell2010ModuleSources :: [(FilePath, Text)] -> Either String [H2010.HsModule]
 parseHaskell2010ModuleSources =
@@ -7371,8 +8693,15 @@ renameHaskell2010ModulesRaw sources = do
 expectRenameError :: String -> H2010Renamer.RenameError -> Text -> Either String ()
 expectRenameError label expected source =
   case renameHaskell2010Raw source of
-    Left actual -> expectEqual label expected actual
+    Left actual -> expectEqual label expected (haskell2010RenameErrorDetail actual)
     Right renamed -> Left (label <> "\nexpected rename error, got module:\n" <> show renamed)
+
+haskell2010RenameErrorDetail :: H2010Renamer.RenameError -> H2010Renamer.RenameError
+haskell2010RenameErrorDetail = \case
+  H2010Renamer.RenameErrorAt _ err ->
+    haskell2010RenameErrorDetail err
+  err ->
+    err
 
 typecheckHaskell2010 :: Text -> Either String H2010Core.CoreModule
 typecheckHaskell2010 source =
@@ -7396,6 +8725,25 @@ haskell2010TypecheckErrorDetail = \case
     haskell2010TypecheckErrorDetail err
   err ->
     err
+
+haskell2010CoreEvalErrorDetail :: H2010CoreEval.CoreEvalError -> H2010CoreEval.CoreEvalError
+haskell2010CoreEvalErrorDetail = \case
+  H2010CoreEval.CoreEvalErrorAt _ err ->
+    haskell2010CoreEvalErrorDetail err
+  err ->
+    err
+
+haskell2010STGEvalErrorDetail :: H2010STGEval.STGEvalError -> H2010STGEval.STGEvalError
+haskell2010STGEvalErrorDetail = \case
+  H2010STGEval.STGEvalErrorAt _ err ->
+    haskell2010STGEvalErrorDetail err
+  err ->
+    err
+
+expectSourceSpanStart :: String -> Int -> Int -> SourceSpan -> Either String ()
+expectSourceSpanStart label expectedLine expectedColumn sourceRange =
+  expectEqual (label <> " line") expectedLine (spanStartLine sourceRange)
+    *> expectEqual (label <> " column") expectedColumn (spanStartColumn sourceRange)
 
 typecheckHaskell2010Modules :: [(FilePath, Text)] -> Either String H2010Core.CoreModule
 typecheckHaskell2010Modules sources = do
@@ -7443,10 +8791,12 @@ expectCoreEvalInt :: String -> Integer -> H2010CoreEval.CoreValue -> Either Stri
 expectCoreEvalInt label expected = \case
   H2010CoreEval.CoreInt actual ->
     expectEqual label expected (hintToInteger actual)
+  H2010CoreEval.CoreInteger actual ->
+    expectEqual label expected actual
   actual ->
     Left
       ( label
-          <> ": expected Core Int "
+          <> ": expected Core integral value "
           <> show expected
           <> ", got "
           <> Text.unpack (H2010CoreEval.renderCoreValue actual)
@@ -7566,12 +8916,14 @@ haskell2010NativeSuccessExamples =
   , ("string-show-output", haskell2010StringShowOutputSource, "42\nFalse\n")
   , ("string-char-patterns", haskell2010StringCharPatternsSource, "6\n")
   , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
+  , ("broad-read", haskell2010BroadReadSource, Text.unpack haskell2010BroadReadOutput)
   , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
   , ("prelude-foldl", haskell2010FoldlSource, Text.unpack haskell2010FoldlOutput)
   , ("prelude-functions", haskell2010PreludeFunctionsSource, Text.unpack haskell2010PreludeFunctionsOutput)
   , ("standard-library-modules", haskell2010StandardLibraryModulesSource, Text.unpack haskell2010StandardLibraryModulesOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("numeric-hierarchy", haskell2010NumericHierarchySource, Text.unpack haskell2010NumericHierarchyOutput)
+  , ("numeric-module", haskell2010NumericModuleSource, Text.unpack haskell2010NumericModuleOutput)
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("io-normal-examples", haskell2010IONormalExamplesSource, Text.unpack haskell2010IONormalExamplesOutput)
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
@@ -7584,6 +8936,7 @@ haskell2010NativeSuccessExamples =
   , ("derived-eq", haskell2010DerivedEqSource, "10\n")
   , ("derived-ord", haskell2010DerivedOrdSource, "11\n")
   , ("derived-show", haskell2010DerivedShowSource, Text.unpack haskell2010DerivedShowOutput)
+  , ("derived-read", haskell2010DerivedReadSource, Text.unpack haskell2010DerivedReadOutput)
   , ("derived-enum", haskell2010DerivedEnumSource, Text.unpack haskell2010DerivedEnumOutput)
   , ("derived-bounded", haskell2010DerivedBoundedSource, Text.unpack haskell2010DerivedBoundedOutput)
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
@@ -7611,12 +8964,14 @@ haskell2010NativeExecutableExamples =
   , ("string-show-output", haskell2010StringShowOutputSource, "42\nFalse\n")
   , ("string-char-patterns", haskell2010StringCharPatternsSource, "6\n")
   , ("broad-show", haskell2010BroadShowSource, Text.unpack haskell2010BroadShowOutput)
+  , ("broad-read", haskell2010BroadReadSource, Text.unpack haskell2010BroadReadOutput)
   , ("prelude-append", haskell2010AppendSource, Text.unpack haskell2010AppendOutput)
   , ("prelude-foldl", haskell2010FoldlSource, Text.unpack haskell2010FoldlOutput)
   , ("prelude-functions", haskell2010PreludeFunctionsSource, Text.unpack haskell2010PreludeFunctionsOutput)
   , ("standard-library-modules", haskell2010StandardLibraryModulesSource, Text.unpack haskell2010StandardLibraryModulesOutput)
   , ("numeric-defaulting", haskell2010NumericDefaultingSource, "7\n47\n")
   , ("numeric-hierarchy", haskell2010NumericHierarchySource, Text.unpack haskell2010NumericHierarchyOutput)
+  , ("numeric-module", haskell2010NumericModuleSource, Text.unpack haskell2010NumericModuleOutput)
   , ("io-printing", haskell2010IOPrintingSource, "ok\nanswer\n42\nTrue\n")
   , ("io-normal-examples", haskell2010IONormalExamplesSource, Text.unpack haskell2010IONormalExamplesOutput)
   , ("guards-as-patterns", haskell2010GuardAsPatternSource, "15\n")
@@ -7629,6 +8984,7 @@ haskell2010NativeExecutableExamples =
   , ("derived-eq", haskell2010DerivedEqSource, "10\n")
   , ("derived-ord", haskell2010DerivedOrdSource, "11\n")
   , ("derived-show", haskell2010DerivedShowSource, Text.unpack haskell2010DerivedShowOutput)
+  , ("derived-read", haskell2010DerivedReadSource, Text.unpack haskell2010DerivedReadOutput)
   , ("derived-enum", haskell2010DerivedEnumSource, Text.unpack haskell2010DerivedEnumOutput)
   , ("derived-bounded", haskell2010DerivedBoundedSource, Text.unpack haskell2010DerivedBoundedOutput)
   , ("list-comprehensions", haskell2010ListComprehensionsSource, Text.unpack haskell2010ListComprehensionsOutput)
@@ -7726,6 +9082,46 @@ haskell2010DynamicWrapperCCallOutput :: Text
 haskell2010DynamicWrapperCCallOutput =
   "11\n21\n40\n42\n15\n22\n3\n4\n11\n"
 
+haskell2010WrapperReclamationSource :: Text
+haskell2010WrapperReclamationSource =
+  "module Main where\n\
+  \import Foreign (FunPtr, freeHaskellFunPtr)\n\
+  \foreign import ccall \"wrapper\" wrapIntFun :: (Int -> IO Int) -> IO (FunPtr (Int -> IO Int))\n\
+  \foreign import ccall \"hegglog_ffi_apply_i64\" c_apply :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
+  \callback :: Int -> IO Int\n\
+  \callback value = return (value + 1)\n\
+  \callback2 :: Int -> IO Int\n\
+  \callback2 value = return (value + 20)\n\
+  \fill count = if count == 0 then return () else do\n\
+  \  unused <- wrapIntFun callback\n\
+  \  fill (count - 1)\n\
+  \main = do\n\
+  \  first <- wrapIntFun callback\n\
+  \  fill 63\n\
+  \  freeHaskellFunPtr first\n\
+  \  freeHaskellFunPtr first\n\
+  \  reused <- wrapIntFun callback2\n\
+  \  value <- c_apply reused 10\n\
+  \  print value\n"
+
+haskell2010WrapperReclamationOutput :: Text
+haskell2010WrapperReclamationOutput =
+  "30\n"
+
+haskell2010WrapperAfterFreeSource :: Text
+haskell2010WrapperAfterFreeSource =
+  "module Main where\n\
+  \import Foreign (FunPtr, freeHaskellFunPtr)\n\
+  \foreign import ccall \"wrapper\" wrapIntFun :: (Int -> IO Int) -> IO (FunPtr (Int -> IO Int))\n\
+  \foreign import ccall \"hegglog_ffi_apply_i64\" c_apply :: FunPtr (Int -> IO Int) -> Int -> IO Int\n\
+  \callback :: Int -> IO Int\n\
+  \callback value = return (value + 1)\n\
+  \main = do\n\
+  \  callbackPtr <- wrapIntFun callback\n\
+  \  freeHaskellFunPtr callbackPtr\n\
+  \  value <- c_apply callbackPtr 10\n\
+  \  print value\n"
+
 haskell2010ForeignExportCCallSource :: Text
 haskell2010ForeignExportCCallSource =
   "module Main where\n\
@@ -7754,9 +9150,11 @@ haskell2010StableForeignPtrFinalizersSource =
   "module Main where\n\
   \import Foreign (Ptr, FunPtr, StablePtr, ForeignPtr, newStablePtr, deRefStablePtr, freeStablePtr, castStablePtrToPtr, castPtrToStablePtr, newForeignPtr, addForeignPtrFinalizer, finalizeForeignPtr, withForeignPtr, touchForeignPtr)\n\
   \foreign import ccall \"&hegglog_ffi_global_i64\" c_global :: Ptr Int\n\
-  \foreign import ccall \"&hegglog_ffi_count_i64_finalizer\" c_finalizer :: FunPtr (Ptr Int -> IO ())\n\
+  \foreign import ccall \"&hegglog_ffi_count_i64_finalizer_one\" c_finalizer_one :: FunPtr (Ptr Int -> IO ())\n\
+  \foreign import ccall \"&hegglog_ffi_count_i64_finalizer_two\" c_finalizer_two :: FunPtr (Ptr Int -> IO ())\n\
   \foreign import ccall \"hegglog_ffi_reset_finalizers\" c_reset_finalizers :: IO ()\n\
   \foreign import ccall \"hegglog_ffi_finalizer_total_value\" c_finalizer_total :: IO Int\n\
+  \foreign import ccall \"hegglog_ffi_finalizer_order_value\" c_finalizer_order :: IO Int\n\
   \foreign import ccall \"hegglog_ffi_expect_i64\" c_expect :: Int -> Int -> IO ()\n\
   \foreign import ccall \"hegglog_ffi_read_i64_ptr\" c_read :: Ptr Int -> IO Int\n\
   \foreign import ccall \"hegglog_ffi_write_i64_ptr\" c_write :: Ptr Int -> Int -> IO ()\n\
@@ -7772,14 +9170,16 @@ haskell2010StableForeignPtrFinalizersSource =
   \foreignRoundTrip = do\n\
   \  c_reset_finalizers\n\
   \  c_write c_global 5\n\
-  \  managed <- newForeignPtr c_finalizer c_global\n\
+  \  managed <- newForeignPtr c_finalizer_one c_global\n\
   \  first <- withForeignPtr managed c_read\n\
   \  c_write c_global 7\n\
-  \  addForeignPtrFinalizer c_finalizer managed\n\
+  \  addForeignPtrFinalizer c_finalizer_two managed\n\
   \  touchForeignPtr managed\n\
   \  finalizeForeignPtr managed\n\
   \  finalizeForeignPtr managed\n\
   \  total <- c_finalizer_total\n\
+  \  order <- c_finalizer_order\n\
+  \  c_expect order 21\n\
   \  return (first + total)\n\
   \main = do\n\
   \  stable <- stableRoundTrip 21\n\
@@ -7814,6 +9214,7 @@ haskell2010PrimitiveArithmeticCoreModule =
             )
         ]
     , H2010Core.coreModuleForeignExports = []
+    , H2010Core.coreModuleRuntimeSpans = Map.empty
     }
 
 haskell2010KnownBoolCaseCoreModule :: H2010Core.CoreModule
@@ -7834,6 +9235,7 @@ haskell2010KnownBoolCaseCoreModule =
             )
         ]
     , H2010Core.coreModuleForeignExports = []
+    , H2010Core.coreModuleRuntimeSpans = Map.empty
     }
 
 haskell2010PolymorphicIdentitySource :: Text
@@ -7847,7 +9249,7 @@ haskell2010LazyLetSource :: Text
 haskell2010LazyLetSource =
   "module Main where\n\
   \main = let\n\
-  \  x = 1 / 0\n\
+  \  x = div 1 0\n\
   \in 5\n"
 
 haskell2010LazyArgumentSource :: Text
@@ -7855,7 +9257,7 @@ haskell2010LazyArgumentSource =
   "module Main where\n\
   \const :: a -> b -> a\n\
   \const x y = x\n\
-  \main = const 1 (1 / 0)\n"
+  \main = const 1 (div 1 0)\n"
 
 haskell2010BoolCaseSource :: Text
 haskell2010BoolCaseSource =
@@ -7911,14 +9313,14 @@ haskell2010KnownConstructorLazyFieldSource :: Text
 haskell2010KnownConstructorLazyFieldSource =
   "module Main where\n\
   \data Pair = Pair Int Int\n\
-  \main = case Pair (1 / 0) 5 of\n\
+  \main = case Pair (div 1 0) 5 of\n\
   \  Pair _ y -> y\n"
 
 haskell2010KnownConstructorForcedFieldSource :: Text
 haskell2010KnownConstructorForcedFieldSource =
   "module Main where\n\
   \data Box = Box Int\n\
-  \main = case Box (1 / 0) of\n\
+  \main = case Box (div 1 0) of\n\
   \  Box x -> x\n"
 
 haskell2010TupleCaseSource :: Text
@@ -7953,7 +9355,7 @@ haskell2010PreludeMaybeOrderingSource =
 haskell2010ShortCircuitSource :: Text
 haskell2010ShortCircuitSource =
   "module Main where\n\
-  \main = if (False && ((1 / 0) == 0)) || True then 7 else 1\n"
+  \main = if (False && ((div 1 0) == 0)) || True then 7 else 1\n"
 
 haskell2010SectionsSource :: Text
 haskell2010SectionsSource =
@@ -7966,7 +9368,7 @@ haskell2010SectionsSource =
   \over = (> 3)\n\
   \short :: Bool -> Bool\n\
   \short = (False &&)\n\
-  \main = if short ((1 / 0) == 0) then 0 else if over (right 3) then left (right 4) else 0\n"
+  \main = if short ((div 1 0) == 0) then 0 else if over (right 3) then left (right 4) else 0\n"
 
 haskell2010UserDefinedOperatorsSource :: Text
 haskell2010UserDefinedOperatorsSource =
@@ -8125,17 +9527,71 @@ haskell2010DerivedShowSource =
   \  putStrLn (show (Years 7))\n\
   \  putStrLn (show (Person { label = \"Ada\", age = 42 }))\n\
   \  putStrLn (show [Box True, Box False])\n\
+  \  putStrLn (showsPrec 11 (Box True) \"!\")\n\
+  \  putStrLn (shows (Box False) \"!\")\n\
+  \  putStrLn (showList [Box True, Box False] \"!\")\n\
   \  return ()\n"
 
 haskell2010DerivedShowOutput :: Text
 haskell2010DerivedShowOutput =
   "Off\n\
-  \Box ('x')\n\
-  \Name (\"aa\")\n\
-  \Node (Leaf ('a')) (Leaf ('b'))\n\
-  \Years (7)\n\
-  \Person { age = (42), label = (\"Ada\") }\n\
-  \[Box (True),Box (False)]\n"
+  \Box 'x'\n\
+  \Name \"aa\"\n\
+  \Node (Leaf 'a') (Leaf 'b')\n\
+  \Years 7\n\
+  \Person {age = 42, label = \"Ada\"}\n\
+  \[Box True,Box False]\n\
+  \(Box True)!\n\
+  \Box False!\n\
+  \[Box True,Box False]!\n"
+
+haskell2010DerivedReadSource :: Text
+haskell2010DerivedReadSource =
+  "module Main where\n\
+  \data Flag = Off | On deriving (Read, Show)\n\
+  \data Box a = Box a deriving (Read, Show)\n\
+  \data Name = Name String deriving (Read, Show)\n\
+  \data Tree a = Leaf a | Node (Tree a) (Tree a) deriving (Read, Show)\n\
+  \data Person = Person { age :: Int, label :: String } deriving (Read, Show)\n\
+  \newtype Years = Years Int deriving (Read, Show)\n\
+  \mandatoryScore :: Int\n\
+  \mandatoryScore = case (readsPrec 11 \"(Box True)!\" :: [(Box Bool, String)]) of\n\
+  \  (Box True, \"!\") : [] -> 1\n\
+  \  _ -> 0\n\
+  \unparenthesizedScore :: Int\n\
+  \unparenthesizedScore = case (readsPrec 11 \"Box True!\" :: [(Box Bool, String)]) of\n\
+  \  [] -> 1\n\
+  \  _ -> 0\n\
+  \lexicalScore :: Int\n\
+  \lexicalScore = case (reads \"Boxy True\" :: [(Box Bool, String)]) of\n\
+  \  [] -> 1\n\
+  \  _ -> 0\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  putStrLn (show (read \"Off\" :: Flag))\n\
+  \  putStrLn (show (read \"Box 'x'\" :: Box Char))\n\
+  \  putStrLn (show (read \"Name \\\"aa\\\"\" :: Name))\n\
+  \  putStrLn (show (read \"Node (Leaf 'a') (Leaf 'b')\" :: Tree Char))\n\
+  \  putStrLn (show (read \"Years 7\" :: Years))\n\
+  \  putStrLn (show (read \"Person {age = 42, label = \\\"Ada\\\"}\" :: Person))\n\
+  \  putStrLn (show (read \"[Box True,Box False]\" :: [Box Bool]))\n\
+  \  print mandatoryScore\n\
+  \  print unparenthesizedScore\n\
+  \  print lexicalScore\n\
+  \  return ()\n"
+
+haskell2010DerivedReadOutput :: Text
+haskell2010DerivedReadOutput =
+  "Off\n\
+  \Box 'x'\n\
+  \Name \"aa\"\n\
+  \Node (Leaf 'a') (Leaf 'b')\n\
+  \Years 7\n\
+  \Person {age = 42, label = \"Ada\"}\n\
+  \[Box True,Box False]\n\
+  \1\n\
+  \1\n\
+  \1\n"
 
 haskell2010DerivedEnumSource :: Text
 haskell2010DerivedEnumSource =
@@ -8210,12 +9666,12 @@ haskell2010DerivedBoundedOutput :: Text
 haskell2010DerivedBoundedOutput =
   "0\n\
   \3\n\
-  \Pair (False) (North)\n\
-  \Pair (True) (West)\n\
-  \Record { low = (False), high = (North) }\n\
-  \Record { low = (True), high = (West) }\n\
-  \Flag (False)\n\
-  \Flag (True)\n"
+  \Pair False North\n\
+  \Pair True West\n\
+  \Record {low = False, high = North}\n\
+  \Record {low = True, high = West}\n\
+  \Flag False\n\
+  \Flag True\n"
 
 haskell2010InvalidDerivedBoundedSource :: Text
 haskell2010InvalidDerivedBoundedSource =
@@ -8388,13 +9844,73 @@ haskell2010BroadShowSource =
   \  putStrLn (show [1, 2, 3])\n\
   \  putStrLn (show [True, False])\n\
   \  putStrLn (show [\"a\", \"b\"])\n\
+  \  putStrLn (shows 'Z' \"!\")\n\
+  \  putStrLn (showsPrec 0 \"hi\" \"!\")\n\
+  \  putStrLn (showList ['a', 'b'] \"!\")\n\
+  \  putStrLn (showList [1, 2] \"!\")\n\
+  \  putStrLn (show '\\NUL')\n\
+  \  putStrLn (show \"\\n\\\"\\\\\")\n\
+  \  putStrLn (show ['\\SO', 'H'])\n\
   \  print 'Q'\n\
   \  print \"ok\"\n\
   \  return ()\n"
 
 haskell2010BroadShowOutput :: Text
 haskell2010BroadShowOutput =
-  "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Q'\n\"ok\"\n"
+  "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Z'!\n\"hi\"!\n\"ab\"!\n[1,2]!\n'\\NUL'\n\"\\n\\\"\\\\\"\n\"\\SO\\&H\"\n'Q'\n\"ok\"\n"
+
+haskell2010BroadReadSource :: Text
+haskell2010BroadReadSource =
+  "module Main where\n\
+  \readScore :: Int\n\
+  \readScore = case (reads \"False trailing\" :: [(Bool, String)]) of\n\
+  \  (False, \" trailing\") : [] -> 1\n\
+  \  _ -> 0\n\
+  \lexScore :: Int\n\
+  \lexScore = case lex \"  Foo 123\" of\n\
+  \  (\"Foo\", \" 123\") : _ -> 1\n\
+  \  _ -> 0\n\
+  \boundaryScore :: Int\n\
+  \boundaryScore = case (reads \"Truex\" :: [(Bool, String)]) of\n\
+  \  [] -> 1\n\
+  \  _ -> 0\n\
+  \orderingScore :: Int\n\
+  \orderingScore = case (read \"LT\" :: Ordering) of\n\
+  \  LT -> 1\n\
+  \  _ -> 0\n\
+  \unitScore :: Int\n\
+  \unitScore = case (read \"()\" :: ()) of\n\
+  \  () -> 1\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  print (read \"123\" :: Int)\n\
+  \  print (read \"-45\" :: Int)\n\
+  \  print (read \"True\" :: Bool)\n\
+  \  print (read \"'Z'\" :: Char)\n\
+  \  putStrLn (read \"\\\"hi\\\"\" :: String)\n\
+  \  print (read \"[1,2,3]\" :: [Int])\n\
+  \  print (if read \"'\\\\n'\" == '\\n' then 1 else 0)\n\
+  \  print readScore\n\
+  \  print lexScore\n\
+  \  print boundaryScore\n\
+  \  print orderingScore\n\
+  \  print unitScore\n\
+  \  return ()\n"
+
+haskell2010BroadReadOutput :: Text
+haskell2010BroadReadOutput =
+  "123\n\
+  \-45\n\
+  \True\n\
+  \'Z'\n\
+  \hi\n\
+  \[1,2,3]\n\
+  \1\n\
+  \1\n\
+  \1\n\
+  \1\n\
+  \1\n\
+  \1\n"
 
 haskell2010AppendSource :: Text
 haskell2010AppendSource =
@@ -8438,7 +9954,7 @@ haskell2010FoldlSource =
   \count :: Int -> Bool -> Int\n\
   \count acc flag = if flag then acc + 1 else acc\n\
   \explode :: Int -> Bool -> Int\n\
-  \explode _ _ = 1 / 0\n\
+  \explode _ _ = div 1 0\n\
   \ignoreLeft :: Int -> Int -> Int\n\
   \ignoreLeft _ x = x\n\
   \main :: IO ()\n\
@@ -8448,7 +9964,7 @@ haskell2010FoldlSource =
   \  putStrLn (foldl snoc \"\" ['a', 'b', 'c', 'd'])\n\
   \  print (foldl count 0 [True, False, True])\n\
   \  print (foldl explode 7 [])\n\
-  \  print (foldl ignoreLeft (1 / 0) [5])\n\
+  \  print (foldl ignoreLeft (div 1 0) [5])\n\
   \  return ()\n"
 
 haskell2010FoldlOutput :: Text
@@ -8537,7 +10053,7 @@ haskell2010NumericDefaultingSource =
   "module Main where\n\
   \twice x = x + x\n\
   \defaulted = 6\n\
-  \viaFromInteger :: Int\n\
+  \viaFromInteger :: Integer\n\
   \viaFromInteger = fromInteger 35\n\
   \main :: IO ()\n\
   \main = do\n\
@@ -8545,9 +10061,21 @@ haskell2010NumericDefaultingSource =
   \  print (twice defaulted + viaFromInteger)\n\
   \  return ()\n"
 
+arbitraryIntegerExpected :: Integer
+arbitraryIntegerExpected =
+  170141183460469231731687303715884105859
+
+haskell2010ArbitraryIntegerSource :: Text
+haskell2010ArbitraryIntegerSource =
+  "module Main where\n\
+  \huge :: Integer\n\
+  \huge = 170141183460469231731687303715884105727\n\
+  \main = huge + 132\n"
+
 haskell2010NumericHierarchySource :: Text
 haskell2010NumericHierarchySource =
   "module Main where\n\
+  \import Data.Ratio (denominator, numerator)\n\
   \default (Integer, Int)\n\
   \main :: IO ()\n\
   \main = do\n\
@@ -8565,10 +10093,9 @@ haskell2010NumericHierarchySource =
   \    (d, m) -> do\n\
   \      print d\n\
   \      print m\n\
-  \  case toRational (7 :: Int) of\n\
-  \    (n, d) -> do\n\
-  \      print n\n\
-  \      print d\n\
+  \  let r = toRational (7 :: Int)\n\
+  \  print (numerator r)\n\
+  \  print (denominator r)\n\
   \  print (toInteger (7 :: Int))\n\
   \  return ()\n"
 
@@ -8587,6 +10114,74 @@ haskell2010NumericHierarchyOutput =
   \7\n\
   \1\n\
   \7\n"
+
+haskell2010NumericModuleSource :: Text
+haskell2010NumericModuleSource =
+  "module Main where\n\
+  \import Data.Ratio ((%))\n\
+  \import Numeric\n\
+  \showIntS :: Int -> ShowS\n\
+  \showIntS = showInt\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  putStrLn (showInt 255 \"\")\n\
+  \  putStrLn (showHex 255 \"\")\n\
+  \  putStrLn (showOct 64 \"\")\n\
+  \  putStrLn (showSigned showIntS 7 (negate 12) \"\")\n\
+  \  putStrLn (showIntAtBase 2 binaryDigit 6 \"\")\n\
+  \  case (readDec \"123x\" :: [(Int, String)]) of\n\
+  \    (n, rest) : [] -> do\n\
+  \      print n\n\
+  \      putStrLn rest\n\
+  \    _ -> print 0\n\
+  \  case (readHex \"3f!\" :: [(Int, String)]) of\n\
+  \    (n, rest) : [] -> do\n\
+  \      print n\n\
+  \      putStrLn rest\n\
+  \    _ -> print 0\n\
+  \  case (readSigned readDec \"(- 45)!\" :: [(Int, String)]) of\n\
+  \    (n, rest) : [] -> do\n\
+  \      print n\n\
+  \      putStrLn rest\n\
+  \    _ -> print 0\n\
+  \  case (readFloat \"12.5e1!\" :: [(Double, String)]) of\n\
+  \    (x, rest) : [] -> do\n\
+  \      putStrLn (showFFloat (Just 1) x \"\")\n\
+  \      putStrLn rest\n\
+  \    _ -> print 0\n\
+  \  putStrLn (showFFloat (Just 2) (1.2 :: Double) \"\")\n\
+  \  putStrLn (showEFloat (Just 2) (123.4 :: Double) \"\")\n\
+  \  putStrLn (showGFloat (Just 2) (123.4 :: Double) \"\")\n\
+  \  putStrLn (showFloat (12.0 :: Double) \"\")\n\
+  \  print (fst (floatToDigits 10 (12.0 :: Double)))\n\
+  \  print (snd (floatToDigits 10 (12.0 :: Double)))\n\
+  \  putStrLn (showFFloat (Just 2) (fromRat (3 % 2) :: Double) \"\")\n\
+  \  return ()\n\
+  \binaryDigit :: Int -> Char\n\
+  \binaryDigit d = if d == 0 then '0' else '1'\n"
+
+haskell2010NumericModuleOutput :: Text
+haskell2010NumericModuleOutput =
+  "255\n\
+  \ff\n\
+  \100\n\
+  \(-12)\n\
+  \110\n\
+  \123\n\
+  \x\n\
+  \63\n\
+  \!\n\
+  \-45\n\
+  \!\n\
+  \125.0\n\
+  \!\n\
+  \1.20\n\
+  \1.23e2\n\
+  \123.40\n\
+  \12.000000\n\
+  \[1,2]\n\
+  \2\n\
+  \1.50\n"
 
 haskell2010MonomorphismRestrictionSource :: Text
 haskell2010MonomorphismRestrictionSource =
@@ -8727,6 +10322,63 @@ haskell2010IOGetLineEmptyOutput :: Text
 haskell2010IOGetLineEmptyOutput =
   "first=\nsecond=\n0\n"
 
+haskell2010IOErrorSource :: Text
+haskell2010IOErrorSource =
+  "module Main where\n\
+  \import System.IO.Error (annotateIOError, doesNotExistErrorType, ioeGetErrorString, ioeGetFileName, isDoesNotExistError, isIllegalOperation, isUserError, mkIOError, try, userErrorType)\n\
+  \import System.Exit (ExitCode (..), exitWith)\n\
+  \missingAction :: IO Int\n\
+  \missingAction = ioError (mkIOError doesNotExistErrorType \"missing\" Nothing (Just \"path.txt\"))\n\
+  \okAction :: IO Int\n\
+  \okAction = return 7\n\
+  \failAction :: IO Int\n\
+  \failAction = fail \"failed\"\n\
+  \zeroExitAction :: IO Int\n\
+  \zeroExitAction = exitWith (ExitFailure 0)\n\
+  \main :: IO ()\n\
+  \main = do\n\
+  \  catch (ioError (userError \"boom\")) (\\err -> putStrLn (\"caught:\" ++ ioeGetErrorString err))\n\
+  \  missingResult <- try missingAction\n\
+  \  case missingResult of\n\
+  \    Left err -> do\n\
+  \      print (isDoesNotExistError err)\n\
+  \      putStrLn (ioeGetErrorString err)\n\
+  \      case ioeGetFileName err of\n\
+  \        Just path -> putStrLn path\n\
+  \        Nothing -> putStrLn \"missing file\"\n\
+  \    Right value -> print value\n\
+  \  okResult <- try okAction\n\
+  \  case okResult of\n\
+  \    Left err -> putStrLn (ioeGetErrorString err)\n\
+  \    Right value -> print value\n\
+  \  failResult <- try failAction\n\
+  \  case failResult of\n\
+  \    Left err -> do\n\
+  \      print (isUserError err)\n\
+  \      putStrLn (ioeGetErrorString err)\n\
+  \    Right value -> print value\n\
+  \  zeroExitResult <- try zeroExitAction\n\
+  \  case zeroExitResult of\n\
+  \    Left err -> do\n\
+  \      print (isIllegalOperation err)\n\
+  \      putStrLn (ioeGetErrorString err)\n\
+  \    Right value -> print value\n\
+  \  let annotated = annotateIOError (userError \"old\") \"new\" Nothing (Just \"ann.txt\")\n\
+  \  print (isUserError annotated)\n\
+  \  putStrLn (ioeGetErrorString annotated)\n\
+  \  case ioeGetFileName annotated of\n\
+  \    Just path -> putStrLn path\n\
+  \    Nothing -> putStrLn \"missing file\"\n\
+  \  putStrLn (show userErrorType)\n\
+  \  putStrLn (show doesNotExistErrorType)\n\
+  \  print (userErrorType == userErrorType)\n\
+  \  print (userErrorType /= doesNotExistErrorType)\n\
+  \  return ()\n"
+
+haskell2010IOErrorOutput :: Text
+haskell2010IOErrorOutput =
+  "caught:boom\nTrue\nmissing\npath.txt\n7\nTrue\nfailed\nTrue\nExitFailure 0\nTrue\nnew\nann.txt\nuser error\ndoes not exist\nTrue\nTrue\n"
+
 haskell2010MonadSource :: Text
 haskell2010MonadSource =
   "module Main where\n\
@@ -8782,6 +10434,17 @@ haskell2010GuardFallthroughSource =
   "module Main where\n\
   \main | False = 1\n"
 
+haskell2010RuntimeSourceAttributionSource :: Text
+haskell2010RuntimeSourceAttributionSource =
+  "module Main where\n\
+  \bad x = div x 0\n\
+  \main = bad 1\n"
+
+haskell2010NestedRuntimeSourceAttributionSource :: Text
+haskell2010NestedRuntimeSourceAttributionSource =
+  "module Main where\n\
+  \main = 10 + div 1 0\n"
+
 haskell2010IrrefutablePatternSource :: Text
 haskell2010IrrefutablePatternSource =
   "module Main where\n\
@@ -8789,8 +10452,8 @@ haskell2010IrrefutablePatternSource =
   \ignore ~(Just x) = 5\n\
   \pick :: (Int, Int) -> Int\n\
   \pick ~(x, _) = x\n\
-  \main = case (1 / 0) of\n\
-  \  z@(~x) -> ignore Nothing + pick (2, 1 / 0)\n"
+  \main = case (div (1 :: Int) 0) of\n\
+  \  z@(~x) -> ignore Nothing + pick (2, div (1 :: Int) 0)\n"
 
 haskell2010IrrefutablePatternDemandSource :: Text
 haskell2010IrrefutablePatternDemandSource =
@@ -8848,7 +10511,7 @@ haskell2010LazyADTFieldSource :: Text
 haskell2010LazyADTFieldSource =
   "module Main where\n\
   \data Box = Box Int\n\
-  \main = case Box (1 / 0) of\n\
+  \main = case Box (div 1 0) of\n\
   \  Box _ -> 5\n"
 
 haskell2010PartialApplicationSource :: Text
@@ -8857,21 +10520,23 @@ haskell2010PartialApplicationSource =
   \const :: a -> b -> a\n\
   \const x y = x\n\
   \one = const 1\n\
-  \main = one (1 / 0)\n"
+  \main = one (div 1 0)\n"
 
 haskell2010DivisionByZeroSource :: Text
 haskell2010DivisionByZeroSource =
   "module Main where\n\
-  \main = 1 / 0\n"
+  \main = div 1 0\n"
 
 expectSTGInt :: String -> Integer -> H2010STGEval.STGValue -> Either String ()
 expectSTGInt label expected = \case
   H2010STGEval.STGInt actual ->
     expectEqual label expected (hintToInteger actual)
+  H2010STGEval.STGInteger actual ->
+    expectEqual label expected actual
   actual ->
     Left
       ( label
-          <> ": expected STG Int "
+          <> ": expected STG integral value "
           <> show expected
           <> ", got "
           <> Text.unpack (H2010STGEval.renderSTGValue actual)
@@ -8932,7 +10597,7 @@ stgThunkBinding binder updateFlag expression =
 
 stgMainProgram :: H2010STG.STGExpr -> H2010STG.STGProgram
 stgMainProgram expression =
-  H2010STG.STGProgram Map.empty [stgThunkBinding stgMainBinder H2010STG.Updatable expression] []
+  H2010STG.STGProgram Map.empty [stgThunkBinding stgMainBinder H2010STG.Updatable expression] [] Map.empty
 
 stgMainBinder :: H2010STG.STGBinder
 stgMainBinder =
@@ -8950,6 +10615,7 @@ stgLazyFunctionArgumentProgram =
     , stgThunkBinding stgMainBinder H2010STG.Updatable mainBody
     ]
     []
+    Map.empty
  where
   constBinder =
     stgBinder
@@ -9003,6 +10669,7 @@ stgBlackHoleProgram =
     , stgThunkBinding stgMainBinder H2010STG.Updatable (H2010STG.STGAtom (stgVar stgRecursiveBinder))
     ]
     []
+    Map.empty
 
 expectCoreValidationError ::
   String ->
@@ -9021,8 +10688,51 @@ isForallType = \case
   H2010Core.CTyForall {} -> True
   _ -> False
 
+stripCoreBindSpans :: H2010Core.CoreBind -> H2010Core.CoreBind
+stripCoreBindSpans = \case
+  H2010Core.CoreNonRec binder rhs ->
+    H2010Core.CoreNonRec binder (stripCoreExprSpans rhs)
+  H2010Core.CoreRec pairs ->
+    H2010Core.CoreRec [(binder, stripCoreExprSpans rhs) | (binder, rhs) <- pairs]
+
+stripCoreExprSpans :: H2010Core.CoreExpr -> H2010Core.CoreExpr
+stripCoreExprSpans = \case
+  H2010Core.CSpanned _ expression ->
+    stripCoreExprSpans expression
+  H2010Core.CLam binder body ty ->
+    H2010Core.CLam binder (stripCoreExprSpans body) ty
+  H2010Core.CApp callee argument ty ->
+    H2010Core.CApp (stripCoreExprSpans callee) (stripCoreExprSpans argument) ty
+  H2010Core.CTypeLam variables body ty ->
+    H2010Core.CTypeLam variables (stripCoreExprSpans body) ty
+  H2010Core.CTypeApp callee arguments ty ->
+    H2010Core.CTypeApp (stripCoreExprSpans callee) arguments ty
+  H2010Core.CLet bind body ty ->
+    H2010Core.CLet (stripCoreBindSpans bind) (stripCoreExprSpans body) ty
+  H2010Core.CCase scrutinee binder alternatives ty ->
+    H2010Core.CCase (stripCoreExprSpans scrutinee) binder (map stripCoreAltSpans alternatives) ty
+  H2010Core.CCoerce expression ty ->
+    H2010Core.CCoerce (stripCoreExprSpans expression) ty
+  H2010Core.CPrimOp op arguments ty ->
+    H2010Core.CPrimOp op (map stripCoreExprSpans arguments) ty
+  H2010Core.CForeignCall foreignImport arguments ty ->
+    H2010Core.CForeignCall foreignImport (map stripCoreExprSpans arguments) ty
+  expression@H2010Core.CVar {} ->
+    expression
+  expression@H2010Core.CLit {} ->
+    expression
+  expression@H2010Core.CCon {} ->
+    expression
+  expression@H2010Core.CForeignImportValue {} ->
+    expression
+
+stripCoreAltSpans :: H2010Core.CoreAlt -> H2010Core.CoreAlt
+stripCoreAltSpans (H2010Core.CoreAlt altCon binders body) =
+  H2010Core.CoreAlt altCon binders (stripCoreExprSpans body)
+
 containsTypeLambda :: H2010Core.CoreExpr -> Bool
 containsTypeLambda = \case
+  H2010Core.CSpanned _ expression -> containsTypeLambda expression
   H2010Core.CTypeLam {} -> True
   H2010Core.CLam _ body _ -> containsTypeLambda body
   H2010Core.CApp callee arg _ -> containsTypeLambda callee || containsTypeLambda arg
@@ -9036,6 +10746,7 @@ containsTypeLambda = \case
 
 containsTermLambda :: H2010Core.CoreExpr -> Bool
 containsTermLambda = \case
+  H2010Core.CSpanned _ expression -> containsTermLambda expression
   H2010Core.CLam {} -> True
   H2010Core.CApp callee arg _ -> containsTermLambda callee || containsTermLambda arg
   H2010Core.CTypeLam _ body _ -> containsTermLambda body
@@ -9067,6 +10778,7 @@ altContainsTermLambda (H2010Core.CoreAlt _ _ body) =
 
 containsCase :: H2010Core.CoreExpr -> Bool
 containsCase = \case
+  H2010Core.CSpanned _ expression -> containsCase expression
   H2010Core.CCase {} -> True
   H2010Core.CLam _ body _ -> containsCase body
   H2010Core.CApp callee arg _ -> containsCase callee || containsCase arg
@@ -9084,6 +10796,7 @@ bindContainsCase = \case
 
 countCases :: H2010Core.CoreExpr -> Int
 countCases = \case
+  H2010Core.CSpanned _ expression -> countCases expression
   H2010Core.CCase scrutinee _ alternatives _ ->
     1 + countCases scrutinee + sum (map altCountCases alternatives)
   H2010Core.CLam _ body _ -> countCases body
@@ -9110,6 +10823,7 @@ altCountCases (H2010Core.CoreAlt _ _ body) =
 
 containsConstructorAlt :: Text -> H2010Core.CoreExpr -> Bool
 containsConstructorAlt occurrence = \case
+  H2010Core.CSpanned _ expression -> containsConstructorAlt occurrence expression
   H2010Core.CCase scrutinee _ alternatives _ ->
     containsConstructorAlt occurrence scrutinee
       || any (altContainsConstructorAlt occurrence) alternatives
@@ -9124,6 +10838,8 @@ containsConstructorAlt occurrence = \case
 
 containsConstructorExpr :: Text -> H2010Core.CoreExpr -> Bool
 containsConstructorExpr occurrence = \case
+  H2010Core.CSpanned _ expression ->
+    containsConstructorExpr occurrence expression
   H2010Core.CCon name _ ->
     H2010Names.nameOcc name == occurrence
   H2010Core.CLam _ body _ -> containsConstructorExpr occurrence body
@@ -9157,6 +10873,8 @@ bindContainsStringLiteral = \case
 
 containsStringLiteral :: H2010Core.CoreExpr -> Bool
 containsStringLiteral = \case
+  H2010Core.CSpanned _ expression ->
+    containsStringLiteral expression
   H2010Core.CLit (H2010.LString {}) _ ->
     True
   H2010Core.CLam _ body _ ->
@@ -9184,6 +10902,7 @@ altContainsStringLiteral (H2010Core.CoreAlt _ _ body) =
 
 containsCoerce :: H2010Core.CoreExpr -> Bool
 containsCoerce = \case
+  H2010Core.CSpanned _ expression -> containsCoerce expression
   H2010Core.CCoerce _ _ -> True
   H2010Core.CLam _ body _ -> containsCoerce body
   H2010Core.CApp callee arg _ -> containsCoerce callee || containsCoerce arg
@@ -9254,6 +10973,8 @@ containsBindingPrefix prefix coreModule =
 
 containsVarOccurrence :: Text -> H2010Core.CoreExpr -> Bool
 containsVarOccurrence occurrence = \case
+  H2010Core.CSpanned _ expression ->
+    containsVarOccurrence occurrence expression
   H2010Core.CVar name _ ->
     H2010Names.nameOcc name == occurrence
   H2010Core.CLam binder body _ ->
@@ -9297,6 +11018,7 @@ altContainsVarOccurrence occurrence (H2010Core.CoreAlt _ binders body) =
 
 countTypeApps :: H2010Core.CoreExpr -> Int
 countTypeApps = \case
+  H2010Core.CSpanned _ expression -> countTypeApps expression
   H2010Core.CTypeApp callee _ _ -> 1 + countTypeApps callee
   H2010Core.CLam _ body _ -> countTypeApps body
   H2010Core.CApp callee arg _ -> countTypeApps callee + countTypeApps arg

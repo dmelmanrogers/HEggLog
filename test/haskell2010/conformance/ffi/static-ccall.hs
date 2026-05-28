@@ -1,6 +1,6 @@
 module Main where
 
-foreign import ccall "hegglog_ffi_add_i64" c_add :: Int -> Int -> Int
+foreign import ccall "static ffi_helpers.h hegglog_ffi_add_i64" c_add :: Int -> Int -> Int
 foreign import ccall "hegglog_ffi_reset" c_reset :: IO ()
 foreign import ccall "hegglog_ffi_accum" c_accum :: Int -> IO Int
 foreign import ccall "hegglog_ffi_current" c_current :: IO Int

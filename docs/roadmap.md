@@ -55,13 +55,21 @@ The next chunk is Prelude, deriving, and typeclass library completion.
 TEST-CONF-014 source matrix closure is complete and now enforced by the
 conformance validator.
 
-The next library chunk is TC-029, TC-030, and TEST-CONF-015.
+The next library chunk is the numbered LIB follow-ups from TEST-CONF-015;
+TC-029 is complete for Report-shaped `Show`, and TC-030 is complete for
+Report-shaped `Read`.
 PRELUDE-019 is complete for the current high-value function slice, and
 PRELUDE-020 is complete for the current generated standard-library module
-interface slice. TEST-CONF-015 must reconcile Chapter 9 Prelude and the Part
-II Haskell 2010 Libraries module inventory against the tracker before any
-additional standard-library surface is treated as supported. Remaining FFI
-closure is FFI-010 through FFI-013.
+interface slice. TEST-CONF-015 is complete: Chapter 9 Prelude and the Part II
+Haskell 2010 Libraries module inventory are reconciled against manifest-backed
+coverage and numbered remaining tasks. FFI-010 is complete for floating-point
+FFI marshalling across static calls, dynamic calls, wrapper callbacks, and
+foreign export entrypoints. FFI-011 is complete for FFI link metadata and
+explicit native link inputs. FFI-012 is complete for explicit wrapper
+callback/finalizer lifetime behavior: `freeHaskellFunPtr`, slot reclamation,
+callback-after-free rejection, idempotent double-free, and reverse-order manual
+ForeignPtr finalization are covered. FFI-013 is complete for the previously
+documented errno, Storable, allocation, array, and C-string library gaps.
 
 Completed Haskell 2010 roadmap work:
 
@@ -75,10 +83,27 @@ Completed Haskell 2010 roadmap work:
   used by MOD-009.
 - PRELUDE-020 standard library module expansion: implemented with generated
   importable interfaces for `Control.Monad`, `Data.Int`, `Data.List`,
-  `Data.Maybe`, `Data.Word`, `System.IO`, and implemented `Foreign.*` module
+  `Data.Maybe`, `Data.Char`, `Data.Word`, `System.IO`, and implemented `Foreign.*` module
   slices, including real `Functor(fmap)` support for `[]`, `Maybe`, and `IO`,
-  while keeping reserved Report modules unimportable until they have real
-  support.
+  plus source-backed Report APIs for `Data.List`, `Data.Maybe`, and `Data.Char`,
+  while keeping reserved Report modules unimportable until they have real support.
+- FFI-013 Foreign library surface completion: implemented for the current
+  runtime-supported `Foreign`, `Foreign.C`, `Foreign.C.Error`,
+  `Foreign.C.String`, `Foreign.C.Types`, `Foreign.Ptr`,
+  `Foreign.StablePtr`, `Foreign.ForeignPtr`, `Foreign.Marshal`,
+  `Foreign.Marshal.Alloc`, `Foreign.Marshal.Array`,
+  `Foreign.Marshal.Error`, `Foreign.Marshal.Utils`, and
+  `Foreign.Storable` slices with native fixture coverage, including errno,
+  raw allocation, array marshalling, typed memory access, and C/CW string
+  conversion.
+- FFI-012 callback and finalizer lifetime completion: implemented
+  `freeHaskellFunPtr`, reclaimable wrapper callback slots, idempotent
+  double-free for wrapper pointers, callback-after-free runtime failure, and
+  explicit reverse-order/idempotent ForeignPtr finalization under the
+  process-lifetime runtime model.
+- FFI-011 FFI link metadata: implemented with native-result link metadata,
+  emitted LLVM comments for headers/imports/addresses/exports, CLI link flags,
+  toolchain propagation to clang, and conformance harness link-object coverage.
 - PRELUDE-002/MOD-010 implicit Prelude import behavior: implemented with
   synthetic `import Prelude` insertion only when no explicit `Prelude` import
   exists, explicit Prelude import-list/hiding/qualified filtering, and native
@@ -148,8 +173,8 @@ Completed Haskell 2010 roadmap work:
   dictionary arguments, STG/native lowering, and default/no-egglog wet tests.
 - Haskell 2010 built-in Prelude class dictionaries: implemented for `Eq Int`,
   `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, executable `Num Int`,
-  executable `Real Int`, executable `Integral Int`, `Show Int`, `Show Bool`,
-  `Show Char`, exact `Show String`, and generated
+  executable `Real Int`, executable `Integral Int`, Report-shaped `Show Int`,
+  `Show Bool`, `Show Char`, exact `Show String`, and generated
   structural list `Show` methods, including overloaded comparison/arithmetic/show method
   desugaring, Core/STG/native lowering, and default/no-egglog wet tests.
 - Haskell 2010 numeric literals/defaulting: implemented for dictionary-backed

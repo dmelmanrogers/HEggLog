@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               hegglog
-version:            1.0.0.0
+version:            1.1.0.0
 build-type:         Simple
 license:            MIT
 license-file:       LICENSE
@@ -15,8 +15,10 @@ description:
     its supported runtime fragment.
 category:           Language
 extra-source-files:
+    test/native/haskell2010/ffi_helpers.h
     test/native/haskell2010/ffi_helpers.c
     test/native/haskell2010/ffi_export_helpers.c
+    test/native/haskell2010/ffi_floating_export_helpers.c
 
 common warnings
   ghc-options:
@@ -60,6 +62,7 @@ executable hegglog
       Backend.Lower
       Backend.Pretty
       Backend.Validate
+      CLI.Command
       CLI.Compile
       CLI.Report
       Egglog.Database
@@ -81,6 +84,9 @@ executable hegglog
       Haskell2010.Core.Subst
       Haskell2010.Core.Syntax
       Haskell2010.Core.Validate
+      Haskell2010.Diagnostics
+      Haskell2010.FFI.LinkMetadata
+      Haskell2010.FixedWidth
       Haskell2010.Layout
       Haskell2010.Lexer
       Haskell2010.ModuleGraph
@@ -94,6 +100,7 @@ executable hegglog
       Haskell2010.STG.Eval
       Haskell2010.STG.LLVM
       Haskell2010.STG.Lower
+      Haskell2010.STG.Pretty
       Haskell2010.STG.Syntax
       Haskell2010.STG.Validate
       Haskell2010.StandardLibrary
@@ -160,6 +167,7 @@ test-suite hegglog-test
       Backend.Lower
       Backend.Pretty
       Backend.Validate
+      CLI.Command
       CLI.Compile
       CLI.Report
       Egglog.Database
@@ -181,6 +189,9 @@ test-suite hegglog-test
       Haskell2010.Core.Subst
       Haskell2010.Core.Syntax
       Haskell2010.Core.Validate
+      Haskell2010.Diagnostics
+      Haskell2010.FFI.LinkMetadata
+      Haskell2010.FixedWidth
       Haskell2010.Layout
       Haskell2010.Lexer
       Haskell2010.ModuleGraph
@@ -194,6 +205,7 @@ test-suite hegglog-test
       Haskell2010.STG.Eval
       Haskell2010.STG.LLVM
       Haskell2010.STG.Lower
+      Haskell2010.STG.Pretty
       Haskell2010.STG.Syntax
       Haskell2010.STG.Validate
       Haskell2010.StandardLibrary

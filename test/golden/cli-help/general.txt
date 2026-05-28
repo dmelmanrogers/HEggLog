@@ -1,0 +1,45 @@
+HeggLog compiler
+
+usage:
+  hegglog FILE
+  hegglog check FILE [check options]
+  hegglog emit-core FILE [emit-core options]
+  hegglog emit-stg FILE [emit-stg options]
+  hegglog report FILE [report options]
+  hegglog run FILE [run options]
+  hegglog compile FILE [compile options]
+  hegglog FILE --emit-llvm [compile options]
+
+commands:
+  FILE
+      Run legacy .hg report/interpreter mode for a source file.
+  check FILE
+      Parse, typecheck, and validate a source file without LLVM or native codegen.
+  emit-core FILE
+      Emit validated typed Haskell 2010 Core without LLVM or native codegen.
+  emit-stg FILE
+      Emit validated Haskell 2010 STG without LLVM or native codegen.
+  report FILE
+      Emit a diagnostic/status report for a source file.
+  run FILE
+      Compile a source file to a temporary native executable and run it.
+  compile FILE -o PROGRAM
+      Build a native executable with clang.
+  compile FILE --emit-llvm [-o FILE.ll]
+      Emit textual LLVM IR.
+
+examples:
+  cabal run hegglog -- examples/test.hg
+  cabal run hegglog -- check test/e2e/programs/haskell2010/lazy-argument.hs
+  cabal run hegglog -- check test/e2e/programs/haskell2010/lazy-argument.hs --dump-core --dump-stg
+  cabal run hegglog -- emit-core test/e2e/programs/haskell2010/lazy-argument.hs
+  cabal run hegglog -- emit-stg test/e2e/programs/haskell2010/lazy-argument.hs
+  cabal run hegglog -- report examples/test.hg
+  cabal run hegglog -- report test/e2e/programs/haskell2010/lazy-argument.hs
+  cabal run hegglog -- run test/e2e/programs/haskell2010/lazy-argument.hs
+  cabal run hegglog -- run test/e2e/programs/haskell2010/lazy-argument.hs --keep-intermediates
+  cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithmetic
+  cabal run hegglog -- compile examples/llvm/arithmetic.hg -o /tmp/hegglog-arithmetic --run
+  cabal run hegglog -- compile examples/llvm/arithmetic.hg --emit-llvm -o /tmp/hegglog.ll
+
+run `hegglog COMMAND --help` for command-specific options.

@@ -9,9 +9,11 @@ names have real parser, renamer, typechecker, Core/STG, and native support.
 
 ## Implemented Boundary
 
-`Haskell2010.StandardLibrary` owns every generated standard-library module
-interface. The renamer consumes those interfaces through `ModuleInterface`,
-the same data model used by source modules:
+`Haskell2010.StandardLibrary` owns every implemented standard-library module
+boundary. Generated interfaces and source-backed virtual modules both flow
+through the normal module graph and renamer; the renamer consumes their
+interfaces through `ModuleInterface`, the same data model used by source
+modules:
 
 - exported names
 - parent-to-child exports for `Thing(..)` data constructors and class methods
@@ -25,19 +27,36 @@ graph path until that module has an implemented surface.
 | Module | Status | Generated surface |
 | --- | --- | --- |
 | `Prelude` | implemented for current executable subset | supported built-in data constructors, classes, class methods, list functions, IO functions, tuple/list/unit types, `Thing(..)` children, and Prelude fixities |
-| `Control.Monad` | partial generated interface | `Functor(fmap)` plus `Monad(..)` for `return`, `(>>=)`, `(>>)`, and `fail`, with method fixities where applicable |
-| `Data.Int` | partial generated interface | `Int8`, `Int16`, `Int32`, `Int64` type names for the supported scalar foreign-type surface |
-| `Data.List` | partial generated interface | `(++)`, `head`, `tail`, `null`, `length`, `map`, `reverse`, `foldl`, `foldr`, and `filter`, plus `(++)` fixity |
-| `Data.Maybe` | partial generated interface | `Maybe(..)` with `Nothing` and `Just` |
-| `Data.Word` | partial generated interface | `Word8`, `Word16`, `Word32`, `Word64` type names for the supported scalar foreign-type surface |
-| `System.IO` | partial generated interface | `IO`, `putStrLn`, `getLine`, and `print` |
-| `Foreign` | partial generated interface | supported scalar/pointer foreign type names plus `StablePtr` and manual `ForeignPtr` ownership APIs |
-| `Foreign.C` | partial generated interface | `CString`, `CWString`, and supported `Foreign.C.Types` type names |
-| `Foreign.C.String` | partial generated interface | `CString` and `CWString` type names |
-| `Foreign.C.Types` | partial generated interface | supported C scalar type names used by FFI typechecking and native ABI lowering |
-| `Foreign.ForeignPtr` | partial generated interface | `ForeignPtr`, `newForeignPtr`, `newForeignPtr_`, `addForeignPtrFinalizer`, `finalizeForeignPtr`, `withForeignPtr`, and `touchForeignPtr` |
-| `Foreign.Ptr` | partial generated interface | `Ptr` and `FunPtr` |
+| `Control.Monad` | implemented for supported monads | `Functor(fmap)`, `Monad(..)`, `MonadPlus(..)`, and the Haskell 2010 monadic combinator surface (`mapM`, `mapM_`, `forM`, `forM_`, `sequence`, `sequence_`, `(=<<)`, `(>=>)`, `(<=<)`, `forever`, `void`, `join`, `msum`, `filterM`, `mapAndUnzipM`, `zipWithM`, `zipWithM_`, `foldM`, `foldM_`, `replicateM`, `replicateM_`, `guard`, `when`, `unless`, `liftM` through `liftM5`, and `ap`) for the supported `IO`, `Maybe`, and list instances |
+| `Data.Array` | source-backed native module | `Array`, immutable non-strict array construction/access/update functions (`array`, `listArray`, `accumArray`, `(!)`, `bounds`, `indices`, `elems`, `assocs`, `(//)`, `accum`, and `ixmap`), `Data.Ix` re-export, `!`/`//` fixities, and `Functor`/`Eq`/`Ord`/`Show`/`Read` instances for supported element types |
+| `Data.Bits` | generated class interface plus native integral dictionaries | `Bits(..)` with Haskell 2010 method exports and fixities, a `Num` superclass edge, `Bits Int` plus fixed-width `Int*`/`Word*` instances, Core/STG interpreter support, and native LLVM lowering for bitwise operations, shifts, rotates, bit constructors, bit predicates, and Report-specified oversized shift behavior |
+| `Data.Int` | generated native fixed-width module | `Int8`, `Int16`, `Int32`, and `Int64` have real modulo fixed-width representations, `Eq`/`Ord`/`Num`/`Real`/`Integral`/`Enum`/`Bounded`/`Ix`/`Bits`/`Show`/`Read` dictionaries, native scalar FFI marshalling for Report basic foreign types, and generated `Storable` support under `FFI-013` |
+| `Data.Char` | source-backed native module | `Char`, `String`, `GeneralCategory(..)`, classification predicates, ASCII digit predicates, `generalCategory`, case conversion, `digitToInt`, `intToDigit`, `ord`, `chr`, `showLitChar`, `lexLitChar`, and `readLitChar`; compact character-table policy covers the Haskell lexical ASCII surface, Latin-1, common Greek letters, combining marks, Unicode separators needed by `isSpace`, and the Euro sign |
+| `Data.Complex` | source-backed native module | `Complex((:+))`, `realPart`, `imagPart`, `conjugate`, `mkPolar`, `cis`, `polar`, `magnitude`, `phase`, `:+` fixity, and generic `RealFloat a`-constrained `Eq`/`Num`/`Fractional`/`Floating`/`Show`/`Read` instances under `LIB-008` |
+| `Data.Ix` | generated class interface plus native dictionaries | `Ix(range, index, inRange, rangeSize)`, scalar instances for `Int`, `Char`, `Bool`, `Ordering`, and `()`, structural tuple instances, and derived `Ix` for supported enumeration and single-constructor product data types |
+| `Data.List` | source-backed native module | Haskell 2010 Report list API: shared Prelude list functions plus transformations, folds/scans, map accumulators, infinite-list producers, sublists, predicates, searches, indexing, zips/unzips, text helpers, set-like list operations, ordered-list helpers, `By` variants, and generic functions; `(++)`, `(!!)`, and `(\\)` fixities are imported |
+| `Data.Maybe` | source-backed native module | `Maybe(..)`, `maybe`, `isJust`, `isNothing`, `fromJust`, `fromMaybe`, `listToMaybe`, `maybeToList`, `catMaybes`, and `mapMaybe` |
+| `Data.Ratio` | generated interface plus native `Ratio Integer` representation | `Ratio`, `Rational`, `(%)`, `numerator`, `denominator`, `approxRational`, `%` fixity, normalized `Rational = Ratio Integer`, and built-in `Eq`/`Ord`/`Num`/`Real`/`Show`/`Read` dictionaries for that representation |
+| `Numeric` | source-backed native module | `showSigned`, `showIntAtBase`, `showInt`, `showHex`, `showOct`, `showEFloat`, `showFFloat`, `showGFloat`, `showFloat`, `floatToDigits`, `readSigned`, `readInt`, `readDec`, `readOct`, `readHex`, `readFloat`, `lexDigits`, and `fromRat`; native coverage exercises integral bases, signed parses/renders, finite `Double` float parsing/formatting, `floatToDigits`, and `Rational` conversion over the current executable numeric tower |
+| `Data.Word` | generated native fixed-width module | `Word`, `Word8`, `Word16`, `Word32`, and `Word64` have real unsigned modulo representations, `Eq`/`Ord`/`Num`/`Real`/`Integral`/`Enum`/`Bounded`/`Ix`/`Bits`/`Show`/`Read` dictionaries, unsigned `Word64` rendering, native scalar FFI marshalling for `Word8`/`Word16`/`Word32`/`Word64`, and generated `Storable` support under `FFI-013`; plain `Word` remains deliberately outside Haskell 2010 basic FFI type validation even though it has a native memory representation |
+| `System.Environment` | generated native process module | `getArgs`, `getProgName`, and `getEnv`; native executables store C `argc`/`argv`, convert argument and environment strings to `[Char]`, expose basename-style program names, and report missing variables as catchable `DoesNotExistError` `IOError`s |
+| `System.Exit` | generated native process-exit module | `ExitCode(ExitSuccess, ExitFailure)`, `exitWith`, `exitFailure`, and `exitSuccess`; `ExitCode` has built-in `Eq`, `Ord`, `Show`, and `Read` dictionaries, native valid exits propagate a distinct IO-exit result that is not caught by `System.IO.Error.catch`, POSIX-prohibited `ExitFailure 0` surfaces as a catchable illegal-operation `IOError`, and `main` returns the requested process status |
+| `System.IO` | expanded generated interface with native standard-handle and file-backed text IO | Haskell 2010 `System.IO` exports are importable, including `IOMode(..)`, `BufferMode(..)`, `SeekMode(..)`, `Handle`, `HandlePosn`, standard handles, open/close, buffering, position, handle property, text input/output, Prelude IO aliases, `readIO`, and `readLn`. Native execution is covered for standard-handle and file-backed text IO, `readFile`, `writeFile`, `appendFile`, buffering metadata, `hShow`, `hPrint`, line and character input, `hLookAhead`, semi-closed lazy `hGetContents`, EOF checks, seek/position, file sizing/truncation, handle predicates, and productive `fixIO`. |
+| `System.IO.Error` | generated interface with recoverable native errors | `IOError`, `IOErrorType`, error-type constants, `userError`, `mkIOError`, `annotateIOError`, classifiers, accessors, `ioError`, `catch`, and `try`; EOF-producing handle/text primitives now create `EOFError` failures in the Core/STG/native result model where supported. |
+| `Foreign` | generated native FFI interface | supported scalar/floating/pointer foreign type names, pointer null/cast helpers, `StablePtr`, manual `ForeignPtr` ownership APIs, errno helpers, C string helpers, raw allocation, array marshalling, guard helpers, `Maybe` pointer helpers, and `Storable` |
+| `Foreign.C` | generated native FFI interface | `Foreign.C.Types`, `Foreign.C.String`, and `Foreign.C.Error` surfaces re-exported through ordinary module imports |
+| `Foreign.C.Error` | generated native errno interface | `Errno(Errno)`, all Haskell 2010 Report errno constants exposed with target-runtime values, `isValidErrno`, `getErrno`, `resetErrno`, `errnoToIOError`, `throwErrno`, all Report `throwErrnoIf`/`throwErrnoIfMinus1`/`throwErrnoIfNull` retry and may-block variants, and the Report path-carrying errno helpers |
+| `Foreign.C.String` | generated native C string interface | `CString = Ptr CChar`, `CStringLen = (CString, Int)`, `CWString = Ptr CWchar`, `CWStringLen = (CWString, Int)`, C/CW string peek/new/with helpers, and length-preserving conversion variants |
+| `Foreign.C.Types` | partial generated interface | supported C scalar type names used by FFI typechecking and native ABI lowering, including `CFloat`/`CDouble` floating-point ABI values |
+| `Foreign.ForeignPtr` | partial generated interface | `ForeignPtr`, `FinalizerPtr`, `FinalizerEnvPtr`, `newForeignPtr`, `newForeignPtr_`, `addForeignPtrFinalizer`, `finalizeForeignPtr`, `unsafeForeignPtrToPtr`, `withForeignPtr`, `touchForeignPtr`, and `castForeignPtr` |
+| `Foreign.Marshal` | generated native marshalling interface | `Foreign.Marshal.Alloc`, `Foreign.Marshal.Array`, `Foreign.Marshal.Error`, and `Foreign.Marshal.Utils` surfaces re-exported through ordinary module imports |
+| `Foreign.Marshal.Alloc` | generated native allocation interface | `malloc`, `mallocBytes`, `alloca`, `allocaBytes`, `realloc`, `reallocBytes`, `free`, and `finalizerFree` |
+| `Foreign.Marshal.Array` | generated native array-marshalling interface | `mallocArray`, `mallocArray0`, `allocaArray`, `allocaArray0`, `reallocArray`, `reallocArray0`, `peekArray`, `peekArray0`, `pokeArray`, `pokeArray0`, `newArray`, `newArray0`, `withArray`, `withArray0`, `withArrayLen`, `withArrayLen0`, `copyArray`, `moveArray`, `lengthArray0`, and `advancePtr` |
+| `Foreign.Marshal.Error` | partial generated interface | `throwIf`, `throwIf_`, `throwIfNull`, and `void` |
+| `Foreign.Marshal.Utils` | partial generated interface | `maybeNew`, `maybeWith`, and `maybePeek` |
+| `Foreign.Ptr` | partial generated interface | `Ptr`, `FunPtr`, `nullPtr`, `castPtr`, `nullFunPtr`, `castFunPtr`, `castFunPtrToPtr`, and `castPtrToFunPtr` |
 | `Foreign.StablePtr` | partial generated interface | `StablePtr`, `newStablePtr`, `deRefStablePtr`, `freeStablePtr`, `castStablePtrToPtr`, and `castPtrToStablePtr` |
+| `Foreign.Storable` | generated native memory interface | `Storable(..)` with `sizeOf`, `alignment`, `peek`, `poke`, element offsets, and byte offsets for supported scalar, pointer, and fixed-width runtime representations |
 
 The generated interfaces reuse the same external names as the corresponding
 `Prelude` surface where names overlap. That keeps cumulative imports such as
@@ -46,34 +65,50 @@ imports refer to the same implemented standard binding.
 
 ## Reserved Report Modules
 
-These Haskell 2010 Libraries modules are reserved: they are documented as part
-of the full target, but are not importable until implemented because their
-exported value/type/class surface is not yet real in the compiler.
+No Report library module is reserved solely by `FFI-013` anymore. The former
+`Foreign.C.Error`, `Foreign.Marshal.Alloc`, `Foreign.Marshal.Array`, and
+`Foreign.Storable` reservations now have generated/importable surfaces with
+native conformance fixtures. Future reserved entries must name a concrete
+missing module or runtime contract rather than a placeholder import.
 
-| Module | Status | Owner task |
-| --- | --- | --- |
-| `Data.Array` | reserved | future array/Ix library task |
-| `Data.Bits` | reserved | future bit operations task |
-| `Data.Char` | reserved | future character classification/conversion task |
-| `Data.Complex` | reserved | future numeric tower task |
-| `Data.Ix` | reserved | future `Ix` class/array indexing task |
-| `Data.Ratio` | reserved | future `Ratio`/`Rational` implementation task |
-| `Foreign.C.Error` | reserved | `FFI-013` or narrower error marshalling task |
-| `Foreign.Marshal` | reserved | `FFI-013` |
-| `Foreign.Marshal.Alloc` | reserved | `FFI-013` |
-| `Foreign.Marshal.Array` | reserved | `FFI-013` |
-| `Foreign.Marshal.Error` | reserved | `FFI-013` |
-| `Foreign.Marshal.Utils` | reserved | `FFI-013` |
-| `Foreign.Storable` | reserved | `FFI-013` |
-| `Numeric` | reserved | `TC-029`, `TC-030`, and later numeric formatting/parsing tasks |
-| `System.Environment` | reserved | future system/environment IO task |
-| `System.Exit` | reserved | future system/exit IO task |
-| `System.IO.Error` | reserved | future rich IO error task |
+`LIB-002` moved `Data.List` from a generated subset to a source-backed virtual
+standard-library module. The virtual module is parsed, renamed, typechecked,
+lowered, and compiled by the same frontend/Core/STG/native path as user source,
+which keeps the broad list API out of ad hoc compiler-internal Core builders
+while preserving explicit import/export and fixity behavior.
 
-`TEST-CONF-015` owns the next Report-wide reconciliation for this table. That
-pass must turn each reserved module and each partial generated interface into
-either implemented support with fixtures or a narrower numbered tracker item
-before the compiler claims more standard-library conformance.
+`LIB-003` moved `Data.Maybe` from a constructor-only generated interface to a
+source-backed virtual standard-library module. The virtual module re-exports
+the built-in `Maybe` type and constructors and implements the Haskell 2010
+helper functions in ordinary source so the same parser, renamer, typechecker,
+Core/STG, and native paths validate the module.
+
+`LIB-004` moved `Data.Char` from a reserved module to a source-backed virtual
+standard-library module. The module owns `GeneralCategory(..)` and the
+Report-shaped character classification, conversion, digit, ordinal, and
+literal read/show helper surface. The compact table is intentionally explicit:
+it covers the executable Haskell lexical ASCII/Latin-1 surface plus selected
+validated Unicode ranges, and unlisted code points classify as `NotAssigned`
+until a generated Unicode database table is introduced.
+
+`LIB-005` moved `Data.Ix` and `Data.Array` out of the reserved set. `Data.Ix`
+is represented as the built-in Report class plus generated/native dictionaries
+for scalar, tuple, and derived instances. `Data.Array` is a source-backed
+virtual module compiled through the normal frontend/Core/STG/native path, so
+array construction, lookup, updates, accumulation, `ixmap`, and instances are
+validated as ordinary standard-library code rather than as fake import names.
+
+`LIB-007` moved `Data.Ratio` out of the reserved set. The module is importable
+through a generated interface and its runtime representation is a real
+`Ratio Integer` constructor, not the old executable pair encoding. The boundary
+is still explicit: generic `Ratio a` dictionaries beyond
+`Rational = Ratio Integer` and native out-of-i64 `Integer` payloads remain in
+later numeric-runtime tasks.
+
+`TEST-CONF-015` completed the Report-wide reconciliation for this table. Each
+reserved module and each partial generated interface now points to implemented
+support with fixtures or to a narrower numbered tracker item before the
+compiler claims more standard-library conformance.
 
 ## Instance Boundary
 
@@ -100,3 +135,15 @@ References:
   <https://www.haskell.org/onlinereport/haskell2010/haskellch9.html>
 - Haskell 2010 Libraries contents:
   <https://www.haskell.org/onlinereport/haskell2010/haskellli1.html>
+- Haskell 2010 Libraries, `Data.List`:
+  <https://www.haskell.org/onlinereport/haskell2010/haskellch20.html>
+- Haskell 2010 Libraries, `Data.Maybe`:
+  <https://www.haskell.org/onlinereport/haskell2010/haskellch21.html>
+- Haskell 2010 Libraries, `Data.Char`:
+  <https://www.haskell.org/onlinereport/haskell2010/haskellch16.html>
+- Haskell 2010 Libraries, `Data.Array`:
+  <https://www.haskell.org/onlinereport/haskell2010/haskellch14.html>
+- Haskell 2010 Libraries, `Data.Ix`:
+  <https://www.haskell.org/onlinereport/haskell2010/haskellch19.html>
+- Haskell 2010 Libraries, `Data.Ratio`:
+  <https://www.haskell.org/onlinereport/haskell2010/haskellch22.html>

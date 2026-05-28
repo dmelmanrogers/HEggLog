@@ -53,8 +53,8 @@ The compiler must preserve this distinction in the IR and runtime contract.
 
 For `ccall` imports, entity strings cover:
 
-- static functions: `"static [header.h] symbol"` or just `"symbol"`
-- static addresses: `"[header.h] &symbol"`
+- static functions: `"static header.h symbol"` or just `"symbol"`
+- static addresses: `"header.h &symbol"`
 - dynamic stubs: `"dynamic"`
 - wrapper stubs: `"wrapper"`
 
@@ -228,9 +228,16 @@ semantics:
   touches the owner record after forcing the result. `touchForeignPtr` is a
   liveness barrier for generated code; it does not itself schedule or run
   finalizers.
+- `freeHaskellFunPtr` releases only `FunPtr` values returned by Haskell
+  `wrapper` imports. Release clears the callback closure slot, double-free of
+  the same wrapper pointer is idempotent, unknown function pointers abort, and
+  any later C call through a freed wrapper aborts before re-entering Haskell.
+  Freed slots are eligible for reuse by later wrapper allocations.
 
-Automatic GC-triggered finalizer scheduling, heap reclamation, and
-`freeHaskellFunPtr`/callback-slot reclamation remain later runtime work.
+Automatic GC-triggered finalizer scheduling and heap reclamation are not
+claimed by the current backend; explicit `finalizeForeignPtr` and
+`freeHaskellFunPtr` are the supported lifetime controls under the
+process-lifetime allocation model.
 
 ### LLVM And Linking
 
@@ -243,10 +250,16 @@ LLVM lowering should emit:
 - generated callback trampolines and process-lifetime callback slots for
   `wrapper` `FunPtr` interop
 - ABI-accurate scalar argument and result types
-- link metadata or CLI hooks for user-supplied object files and libraries
+- link metadata and CLI hooks for user-supplied object files and libraries
 
 Headers are not semantically required by LLVM lowering, but the compiler should
-preserve them for possible C stub generation and diagnostics.
+preserve them for possible C stub generation and diagnostics. The current
+implementation carries `ForeignLinkMetadata` in the Haskell 2010 native result
+and emits LLVM comments for header-qualified imports, static/address symbols,
+and exported C symbols. Build-time objects and libraries are explicit CLI
+inputs: `--link-object`, `--link-library`, `--library-path`, and `--framework`
+are passed through to clang, so the frontend does not guess non-Report library
+or object requirements from a foreign entity string.
 
 ## Implementation Order
 
@@ -263,7 +276,7 @@ are not scoped-down product slices.
    explicit ownership/finalizer term APIs.
 3. Typecheck the full foreign type grammar, including synonyms and visible
    newtypes. Status: complete for the current typechecker boundary:
-   `ccall`/`stdcall` validation, marshallable scalar/pointer/synonym/local
+   `ccall`/`stdcall` validation, marshallable scalar/floating/pointer/synonym/local
    visible-newtype validation, `static`/address/`dynamic`/`wrapper` import
    shape checks, and foreign export target type matching.
 4. Add explicit Core/STG foreign-import/export IR. Status: complete for static,
@@ -277,10 +290,11 @@ are not scoped-down product slices.
    static, dynamic, wrapper, and export `ccall` forms.
 5. Implement `foreign import ccall` static functions for scalar pure and `IO`
    functions by adding ABI marshalling and native call lowering. Status:
-   complete for direct C symbols with boxed `Int`/`Bool`/`Char` values,
-   `Ptr`/`FunPtr` pointer values, signed/unsigned integer C ABI declarations
-   and range-checked integer marshalling, LLVM `declare`/`call` emission, and
-   `IO` sequencing through the existing native `IO` runtime.
+   complete for direct C symbols with boxed `Int`/`Bool`/`Char`/`Float`/`Double`
+   values, `Ptr`/`FunPtr` pointer values, signed/unsigned integer C ABI
+   declarations and range-checked integer marshalling, `CFloat`/`CDouble`
+   floating-point ABI lowering, LLVM `declare`/`call` emission, and `IO`
+   sequencing through the existing native `IO` runtime.
 6. Add native wet tests that compile/link a C helper object with Haskell code.
    Status: complete for static scalar `ccall` calls covering pure results,
    `IO ()`, result-carrying `IO`, Bool and Char scalar conversion, and ordered
@@ -290,22 +304,24 @@ are not scoped-down product slices.
    covering indirect `FunPtr` invocation, multiple live callback wrappers, and
    Haskell callback re-entry with `IO` and result marshalling; and for
    `foreign export ccall` entrypoints covering C-to-Haskell calls into exported
-   pure and `IO` functions; and for explicit `StablePtr`/`ForeignPtr`
+   pure and `IO` functions; and for floating-point `Float`/`Double`,
+   `CFloat`, and `CDouble` marshalling across static calls, dynamic calls, wrapper callbacks,
+   and foreign export entrypoints; and for explicit `StablePtr`/`ForeignPtr`
    ownership, finalizer ordering, and idempotent finalization behavior.
 7. Implement static address imports with `Ptr`/`FunPtr`. Status: complete for
    direct C data symbols as boxed `Ptr a` values and direct C function symbols
-   as boxed `FunPtr ft` values. Header-driven include/link planning remains
-   deferred; the native wet tests link explicit helper objects.
+   as boxed `FunPtr ft` values. Header/symbol link metadata is preserved, and
+   native wet tests link explicit helper objects through the compile CLI.
 8. Implement `dynamic` imports and `wrapper` imports. Status: complete for the
-   current scalar/pointer ABI slice. `dynamic` imports unbox `FunPtr ft` and
-   emit typed indirect LLVM calls. `wrapper` imports allocate process-lifetime
-   callback slots, return C-callable `FunPtr ft` trampolines, box C arguments
-   before entering Haskell closures, force callback `IO` results, and marshal
-   results back to the C ABI. The current backend uses a bounded per-import
-   wrapper pool and aborts on exhaustion until `freeHaskellFunPtr`/richer
-   callback lifetime management is implemented.
+   current scalar/floating/pointer ABI slice. `dynamic` imports unbox `FunPtr ft` and
+   emit typed indirect LLVM calls. `wrapper` imports allocate reclaimable
+   process-lifetime callback slots, return C-callable `FunPtr ft` trampolines,
+   box C arguments before entering Haskell closures, force callback `IO`
+   results, and marshal results back to the C ABI. The current backend uses a
+   bounded per-import wrapper pool, reuses slots released by
+   `freeHaskellFunPtr`, and aborts on callback-after-free or pool exhaustion.
 9. Implement `foreign export ccall` generated entrypoints. Status: complete
-   for the current scalar/pointer ABI slice. Exported entrypoints box incoming
+   for the current scalar/floating/pointer ABI slice. Exported entrypoints box incoming
    C arguments, allocate the module closure graph, enter the exported Haskell
    closure, force pure or `IO` results, and unbox results back to C. Current
    entrypoints are emitted as normal externally visible LLVM functions for
@@ -316,11 +332,22 @@ are not scoped-down product slices.
    primitive representation, validators, evaluators, native LLVM runtime
    records, stable pointer dereference/free checks, `withForeignPtr`, bounded
    finalizer registration, reverse-order finalizer dispatch, idempotent
-   finalization, and native C-helper wet tests. Automatic GC finalization and
-   callback-slot reclamation remain later work.
+   finalization, `freeHaskellFunPtr` wrapper slot reclamation, and native
+   C-helper wet tests. Automatic GC finalization remains scoped out under the
+   current process-lifetime runtime model.
 11. Add `stdcall` where the target ABI exposes it and target-specific
    diagnostics where it does not.
 12. Fill out `Foreign.*` marshalling modules and conformance fixtures.
+    Status: complete for generated/importable `Foreign.C.Error`,
+    `Foreign.C.String`, `Foreign.Marshal`, `Foreign.Marshal.Alloc`,
+    `Foreign.Marshal.Array`, `Foreign.Marshal.Error`,
+    `Foreign.Marshal.Utils`, and `Foreign.Storable` slices that fit the
+    current runtime model, with native fixtures for null-pointer guards,
+    `void`, `throwIf`, `throwIf_`, `maybeNew`, `maybeWith`, `maybePeek`,
+    all Report errno constants, `Errno(Errno)`, `isValidErrno`,
+    errno access/reset, retry/may-block/path errno guards, raw allocation,
+    reallocation, free, typed peek/poke/offset access, byte copy/move,
+    array marshalling, and C/CW string conversion.
 
 ## Tests
 
@@ -335,6 +362,8 @@ Required test layers:
 - native wet tests for static addresses
 - native wet tests for callbacks through `wrapper` and C-to-Haskell calls
   through `foreign export`
+- native wet tests for `freeHaskellFunPtr`, wrapper slot reclamation,
+  idempotent double-free, and callback-after-free runtime failure
 - native wet tests for `StablePtr`, `ForeignPtr`, finalizer ordering,
   idempotent explicit finalization, and `withForeignPtr` liveness barriers
 - negative tests for unsupported calling conventions and invalid entity strings

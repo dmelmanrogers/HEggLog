@@ -6970,8 +6970,8 @@
     },
     {
       "id": "TC-016",
-      "title": "Read, if implemented or documented deviation",
-      "status": "documented deviation",
+      "title": "Close Read documented deviation",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TYPE-016",
@@ -6980,9 +6980,11 @@
       "blocks": [],
       "milestone": "M11",
       "acceptance_criteria": [
-        "Read is explicitly documented as a Haskell 2010 Prelude/typeclass deviation according to status `documented deviation`.",
+        "TC-016 is marked complete rather than documented deviation.",
+        "Read is no longer listed as an active Haskell 2010 Prelude/typeclass deviation.",
+        "The old unsupported Read conformance fixture is removed and replaced by positive standard and derived Read coverage.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to TC-030 for implemented Read work and to concrete LIB tasks for remaining library gaps."
       ],
       "required_tests": [
         "typechecker unit tests",
@@ -6994,7 +6996,8 @@
         "docs/type-inference.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. TC-016 is closed as an active deviation: Read is no longer represented as unsupported in the current Haskell 2010 tracker, matrix, or conformance manifest. TC-030 owns the implemented Read surface, including Read dictionaries, lexical read helpers, standard supported instances, and derived Read; the old unsupported fixture has been replaced by positive native conformance coverage."
     },
     {
       "id": "TC-017",
@@ -7340,7 +7343,7 @@
     {
       "id": "TC-029",
       "title": "report-shaped Show hierarchy",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TC-015",
@@ -7366,12 +7369,13 @@
         "docs/type-inference.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. The generated Prelude now exposes `shows` and the `Show` class uses the Report-shaped `showsPrec`, `show`, and `showList` dictionary layout. Built-in `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, generated structural list dictionaries, and supported derived data/newtype dictionaries all use the same method hierarchy. Derived product constructors honor application precedence, nested constructor fields use `showsPrec 11`, records render with record-construction syntax, `ShowS` continuations are respected for lists, and native/conformance coverage locks scalar, list, string, product, record, recursive, precedence-sensitive, and supported escaping behavior."
     },
     {
       "id": "TC-030",
       "title": "Read implementation",
-      "status": "not started",
+      "status": "complete",
       "category": "typechecker",
       "depends_on": [
         "TC-016",
@@ -7398,7 +7402,8 @@
         "docs/type-inference.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete for the current executable subset: the generated Prelude exposes ReadS, readsPrec, readList, reads, read, lex, and readParen; built-in dictionaries cover Int, Bool, Char, String, structural lists, Ordering, and unit; derived Read synthesizes dictionaries for supported data/newtype declarations including nullary constructors, products, records, recursive data, String fields, list-backed contexts, and precedence-sensitive nested constructors. Core/STG/native unit tests and manifest-backed native fixtures cover successful parsing, partial-read behavior, token-boundary rejection, and derived constructor parsing. Remaining richer numeric read helpers and broader library exports stay owned by their LIB tasks."
     },
     {
       "id": "TC-031",
@@ -7495,7 +7500,7 @@
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
       ],
-      "notes": "Complete. The built-in numeric hierarchy now includes report-shaped `Real` and `Integral` classes above the existing executable `Num Int` path. The `Int` dictionaries implement `toRational`, `quot`, `rem`, `div`, `mod`, `quotRem`, `divMod`, and `toInteger`, with Core/STG/native lowering for a checked remainder primitive and Haskell 2010 `quot`/`rem` versus `div`/`mod` semantics. Defaulting recognizes `Real` and `Integral` constraints in the supported standard-class numeric universe, `Integer` defaults continue to map to the checked executable `Int` representation, and invalid default declarations remain explicit compile errors. Fractional, floating, arbitrary-precision `Integer`, and full `Ratio`/`Rational` behavior remain tracked as future library/runtime work rather than being silently claimed."
+      "notes": "Complete. The built-in numeric hierarchy now includes report-shaped `Real` and `Integral` classes above the existing executable `Num Int` path. The `Int` dictionaries implement `toRational`, `quot`, `rem`, `div`, `mod`, `quotRem`, `divMod`, and `toInteger`, with Core/STG/native lowering for a checked remainder primitive and Haskell 2010 `quot`/`rem` versus `div`/`mod` semantics. Defaulting recognizes `Real` and `Integral` constraints in the supported standard-class numeric universe, `Integer` defaults now select the distinct `Integer` type, and invalid default declarations remain explicit compile errors. Core and STG execution carry arbitrary-precision `Integer` values through host `Integer` semantics; native LLVM still uses the existing i64 boxed payload path for `Integer` values and rejects out-of-payload literals explicitly instead of silently truncating them. Fractional and floating behavior are covered by `LIB-008`/`LIB-010`; `LIB-007` now supplies the current `Ratio Integer`/`Rational` representation used by `toRational`."
     },
     {
       "id": "PRELUDE-001",
@@ -8017,7 +8022,7 @@
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
       ],
-      "notes": "Complete. The generated Prelude now claims and emits ordinary Core bindings for `($)`, `(.)`, `flip`, `head`, `tail`, `null`, `fst`, and `snd`. `($)`, `(.)`, and `flip` are lazy higher-order wrappers; `head`, `tail`, and `null` case-analyze ordinary lists; `head` and `tail` intentionally preserve empty-list no-match runtime failure; `fst` and `snd` case-analyze ordinary pair tuples and force only the tuple header plus the selected field. No list-fusion rewrites are introduced. Core, STG, LLVM/native, e2e, and conformance fixtures cover successful use plus empty-list `head` native runtime failure. Remaining Prelude functions stay unclaimed and continue under PRELUDE-020, TC-029, TC-030, TEST-CONF-015, or later dedicated library tasks."
+      "notes": "Complete. The generated Prelude now claims and emits ordinary Core bindings for `($)`, `(.)`, `flip`, `head`, `tail`, `null`, `fst`, and `snd`. `($)`, `(.)`, and `flip` are lazy higher-order wrappers; `head`, `tail`, and `null` case-analyze ordinary lists; `head` and `tail` intentionally preserve empty-list no-match runtime failure; `fst` and `snd` case-analyze ordinary pair tuples and force only the tuple header plus the selected field. No list-fusion rewrites are introduced. Core, STG, LLVM/native, e2e, and conformance fixtures cover successful use plus empty-list `head` native runtime failure. Remaining Prelude functions stay unclaimed and continue under PRELUDE-020, TEST-CONF-015, or later dedicated library tasks."
     },
     {
       "id": "PRELUDE-020",
@@ -8048,7 +8053,348 @@
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
       ],
-      "notes": "Complete. `Haskell2010.StandardLibrary` now exposes generated/importable interfaces for `Prelude`, `Control.Monad`, `Data.Int`, `Data.List`, `Data.Maybe`, `Data.Word`, `System.IO`, and the implemented `Foreign`, `Foreign.C`, `Foreign.C.String`, `Foreign.C.Types`, `Foreign.ForeignPtr`, `Foreign.Ptr`, and `Foreign.StablePtr` slices. The generated modules use the shared `ModuleInterface` export, child-export, fixity, and instance slots; no reserved module is importable as an empty placeholder. Native e2e and conformance fixtures cover explicit imports from `Data.List`, `Data.Maybe`, `Control.Monad`, and `System.IO`, including `Functor(fmap)` execution for lists, `Maybe`, and `IO`; the unsupported package/search-path fixture now targets reserved `Data.Char` so unsupported standard-library modules still fail explicitly. The standard-library layout doc identifies every Haskell 2010 Libraries module as implemented, partial, reserved, or owned by a follow-up task."
+      "notes": "Complete. `Haskell2010.StandardLibrary` now exposes generated/importable interfaces for `Prelude`, `Control.Monad`, `Data.Int`, `Data.List`, `Data.Maybe`, `Data.Char`, `Data.Word`, `System.IO`, and the implemented `Foreign`, `Foreign.C`, `Foreign.C.String`, `Foreign.C.Types`, `Foreign.ForeignPtr`, `Foreign.Ptr`, and `Foreign.StablePtr` slices. The generated and source-backed modules use the shared `ModuleInterface` export, child-export, fixity, and instance slots; no reserved module is importable as an empty placeholder. Native e2e and conformance fixtures cover explicit imports from `Data.List`, `Data.Maybe`, `Data.Char`, `Control.Monad`, and `System.IO`, including `Functor(fmap)` execution for lists, `Maybe`, `IO`, and the Data.Char classification/literal-helper surface; the unsupported package/search-path fixture now targets reserved `Data.Array` so unsupported standard-library modules still fail explicitly. The standard-library layout doc identifies every Haskell 2010 Libraries module as implemented, partial, reserved, or owned by a follow-up task."
+    },
+    {
+      "id": "LIB-001",
+      "title": "Control.Monad report completion",
+      "status": "complete",
+      "category": "libraries",
+      "depends_on": [
+        "TC-020",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Control.Monad exports the full Haskell 2010 report surface for Functor, Monad, and standard monadic combinators.",
+        "mapM, mapM_, sequence, sequence_, (=<<), and related combinators compile through Core/STG/native for supported Monad instances.",
+        "Generated module interfaces, Prelude exports, fixities, conformance matrix rows, and fixtures agree on the supported surface."
+      ],
+      "required_tests": [
+        "module import conformance tests",
+        "Monad native wet tests",
+        "negative unsupported-boundary tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ],
+      "notes": "Complete. Control.Monad now exports Functor(fmap), Monad(..), MonadPlus(..), and the Haskell 2010 monadic combinator surface for supported IO, Maybe, and list instances. Prelude exposes the Report monadic exports mapM, mapM_, sequence, sequence_, and (=<<). Generated Core bindings, built-in MonadPlus dictionaries, module/fixity interface checks, conformance coverage, and a broad native e2e fixture cover the supported behavior."
+    },
+    {
+      "id": "LIB-002",
+      "title": "Data.List report completion",
+      "status": "complete",
+      "category": "libraries",
+      "depends_on": [
+        "PRELUDE-019",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Data.List exports the Haskell 2010 list API beyond the current generated slice.",
+        "List transformations, folds, scans, sublists, searches, indexing, zips, unzips, special-list helpers, and generic functions have real implementations or explicit narrower deviations.",
+        "Partial functions and bottom behavior are documented and tested through native or runtime-error fixtures."
+      ],
+      "required_tests": [
+        "Data.List conformance fixtures",
+        "native wet tests",
+        "runtime-error tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ],
+      "notes": "Complete. Data.List is now a source-backed virtual standard-library module loaded through the module graph before generated-only builtin module handling. It exports the Haskell 2010 Report list API beyond the previous generated subset, including transformations, folds/scans, map accumulators, infinite-list producers, sublists, predicates, searches, indexing, zips/unzips, text helpers, set-like list operations, ordered-list helpers, By variants, and generic functions. The virtual module is parsed, renamed, typechecked, lowered through Core/STG, and compiled natively like ordinary source. Native e2e and conformance fixtures cover the broad success surface, imported fixities, default and no-egglog modes, emit-LLVM output, and empty-list partial selector runtime failure."
+    },
+    {
+      "id": "LIB-003",
+      "title": "Data.Maybe report completion",
+      "status": "complete",
+      "category": "libraries",
+      "depends_on": [
+        "PRELUDE-DATA-003",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Data.Maybe exports Maybe(..), maybe, isJust, isNothing, fromJust, fromMaybe, maybeToList, listToMaybe, catMaybes, and mapMaybe where required by the Haskell 2010 Libraries Report.",
+        "Partial fromJust behavior has an explicit runtime-error fixture.",
+        "Prelude and Data.Maybe imports share the same implemented definitions without ambiguity."
+      ],
+      "required_tests": [
+        "Data.Maybe conformance fixtures",
+        "native wet tests",
+        "runtime-error tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ],
+      "notes": "Complete. Data.Maybe is now a source-backed virtual standard-library module loaded through the module graph before generated-only builtin module handling. It re-exports the built-in Maybe(..) constructors and implements the Haskell 2010 Report helper surface: maybe, isJust, isNothing, fromJust, fromMaybe, listToMaybe, maybeToList, catMaybes, and mapMaybe. The virtual module is parsed, renamed, typechecked, lowered through Core/STG, and compiled natively like ordinary source. Native e2e and conformance fixtures cover the positive helper surface, default and no-egglog modes, emit-LLVM output, and fromJust Nothing runtime failure."
+    },
+    {
+      "id": "LIB-004",
+      "title": "Data.Char report completion",
+      "status": "complete",
+      "category": "libraries",
+      "depends_on": [
+        "PRELUDE-DATA-007",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Data.Char exports report-compatible character classification, case conversion, digit, numeric representation, and string representation functions.",
+        "Character ordinal behavior, escape rendering, and lexical read helpers agree with Show/Read tasks where they overlap.",
+        "Reserved Data.Char imports are replaced by positive and negative fixtures once implemented."
+      ],
+      "required_tests": [
+        "Data.Char conformance fixtures",
+        "Show/Read character tests",
+        "native wet tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ],
+      "notes": "Complete. Data.Char is now a source-backed virtual standard-library module loaded through the module graph before generated-only builtin module handling. It re-exports Char and String, defines GeneralCategory(..), and implements classification predicates, ASCII digit predicates, ord, chr, digitToInt, intToDigit, simple Unicode case conversion, showLitChar, lexLitChar, and readLitChar in ordinary source. The character table policy is explicit: the compact table covers the Haskell lexical ASCII surface, Latin-1, common Greek letter ranges, combining mark ranges, Unicode separator code points required by isSpace, and the Euro sign; unlisted code points classify as NotAssigned until a generated Unicode database table is introduced. Native e2e and conformance fixtures cover positive classification/conversion/literal behavior, default and no-egglog modes, emit-LLVM output, and invalid digitToInt runtime failure."
+    },
+    {
+      "id": "LIB-005",
+      "title": "Data.Array and Data.Ix report completion",
+      "status": "complete",
+      "category": "libraries",
+      "depends_on": [
+        "PRELUDE-020",
+        "TC-031"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Data.Ix exports the Ix class and range/index/inRange/rangeSize behavior with derived Ix support where required.",
+        "Data.Array exports immutable non-strict arrays, construction, access, updates, derived arrays, and report-specified errors.",
+        "Array and Ix semantics are covered by native and negative conformance fixtures."
+      ],
+      "required_tests": [
+        "Data.Ix conformance fixtures",
+        "Data.Array native wet tests",
+        "negative bounds/error tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ],
+      "notes": "Complete. Data.Ix is importable and exports the Report Ix class with scalar instances for Int, Char, Bool, Ordering, and (), structural tuple instances, and derived Ix support for enumerations and single constructor product types. Data.Array is a source-backed virtual module implementing immutable non-strict arrays, array, listArray, accumArray, (!), bounds, indices, elems, assocs, (//), accum, ixmap, and Functor/Eq/Ord/Show/Read instances for supported element types. Positive native fixtures cover Ix ranges/indexing, derived Ix, array construction/access/update/accumulation/ixmap/fmap/comparison/show/read, and negative wet fixtures cover out-of-range and duplicate association runtime failures."
+    },
+    {
+      "id": "LIB-006",
+      "title": "Data.Bits report completion",
+      "status": "complete",
+      "category": "libraries",
+      "depends_on": [
+        "TC-033",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Data.Bits exports the Haskell 2010 Bits(..) class and all report methods through the generated standard-library interface.",
+        "Bits Int is implemented with the required Num superclass, Core/STG interpreter behavior, and native LLVM lowering for bitwise operators, shifts, rotates, bit, setters/clearers/toggles, predicates, bitSize, and isSigned.",
+        "Directional operations reject negative bit counts explicitly, and native lowering guards large shift counts so LLVM never receives undefined shift amounts.",
+        "Fixed-width Int*/Word* instances are implemented by LIB-009; plain Word remains intentionally outside the Haskell 2010 basic FFI type set."
+      ],
+      "required_tests": [
+        "test/haskell2010/conformance/modules/data-bits.hs",
+        "test/haskell2010/conformance/modules/data-bits-negative-shift-partial.hs",
+        "native wet tests through default, no-egglog, and emit-LLVM modes"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ],
+      "notes": "Complete. Data.Bits is importable and exports the report-shaped Bits class for Int and, through LIB-009, fixed-width Int*/Word* representations. The implementation includes Num superclass dictionary resolution, Core/STG interpreter semantics, native LLVM lowering for all report methods, explicit negative directional bit-count failures, guarded oversized shifts, and conformance fixtures for positive and partial behavior."
+    },
+    {
+      "id": "LIB-007",
+      "title": "Data.Ratio and Rational report completion",
+      "status": "complete",
+      "category": "libraries",
+      "depends_on": [
+        "TC-033",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Data.Ratio exports Ratio, Rational, (%), numerator, denominator, and report-compatible normalization behavior.",
+        "Prelude Rational and toRational use the same representation instead of the current executable-subset pair encoding.",
+        "Zero denominator and sign normalization behavior are tested explicitly."
+      ],
+      "required_tests": [
+        "test/haskell2010/conformance/modules/data-ratio.hs",
+        "test/haskell2010/conformance/modules/data-ratio-zero-denominator-partial.hs",
+        "native wet tests through default, no-egglog, emit-LLVM, and x86 clang paths"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ],
+      "notes": "Complete for the current Rational surface. Data.Ratio is importable and exports Ratio, Rational, (%), numerator, denominator, and approxRational. The executable runtime represents Rational as normalized Ratio Integer, normalizes signs and common divisors, rejects zero denominators at runtime, and backs toRational with the same constructor instead of the old (Int, Int) pair. Built-in Ratio Integer dictionaries cover Eq, Ord, Num, Real, Show, and Read, including precedence-aware show/read round trips and list Read/Show. approxRational implements the Report simplest-rational algorithm for the currently supported Rational input type. Generic Ratio a dictionaries beyond the standard Rational = Ratio Integer path remain a broader typeclass/library generality task; floating/fractional integration is covered by LIB-008."
+    },
+    {
+      "id": "LIB-008",
+      "title": "Data.Complex and floating numeric tower",
+      "status": "complete",
+      "category": "libraries",
+      "depends_on": [
+        "FFI-010",
+        "LIB-007",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Float and Double representations support Fractional, Floating, RealFrac, and RealFloat methods required by Prelude.",
+        "Data.Complex exports Complex and rectangular, polar, magnitude, phase, conjugate, and numeric instances.",
+        "Floating edge cases and native lowering are tested for supported targets."
+      ],
+      "required_tests": [
+        "floating numeric conformance fixtures",
+        "Data.Complex native wet tests",
+        "backend/FFI marshalling tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ],
+      "notes": "Complete. Float and Double are represented through Core/STG/native literals and boxed runtime values, participate in defaulting, and provide executable Eq, Ord, Num, Real, Fractional, Floating, RealFrac, RealFloat, and Show dictionaries. Floating primitives cover arithmetic, comparisons, conversion from integer/rational input in the supported Ratio Integer representation, elementary and hyperbolic functions, power/atan2, integral conversions, and IEEE predicates used by the Prelude classes. Data.Complex is now an importable source-backed standard module exporting Complex((:+)), rectangular accessors, conjugation, polar construction/decomposition, magnitude, and phase, with generic RealFloat a-constrained Eq, Num, Fractional, Floating, Show, and Read instances. Native default/no-egglog fixtures cover the floating Prelude tower and Data.Complex; FFI floating ABI coverage remains under FFI-010. LIB-010 now provides the importable Numeric module and native coverage for finite floating read/show helpers over the current executable Double path."
+    },
+    {
+      "id": "LIB-009",
+      "title": "Data.Int and Data.Word report completion",
+      "status": "complete",
+      "category": "libraries",
+      "depends_on": [
+        "TC-033",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Data.Word.Word and the fixed-width Data.Int/Data.Word types have real runtime representations, numeric instances, bounds, enum behavior, and conversions rather than only importable type names.",
+        "Overflow, bounds, show/read, enum, bits, and FFI interactions are specified and tested.",
+        "Generated module interfaces expose only implemented types and instances."
+      ],
+      "required_tests": [
+        "fixed-width numeric conformance fixtures",
+        "native wet tests",
+        "FFI scalar tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ],
+      "notes": "Complete for the fixed-width Data.Int/Data.Word surface owned by this task. Data.Int and Data.Word now use shared fixed-width runtime representations for Int8, Int16, Int32, Int64, Word, Word8, Word16, Word32, and Word64, with Core/STG/native primitives for modulo arithmetic, signed and unsigned comparisons, quotient/remainder, bounds, Show, Read through the arbitrary Integer lexer, Enum, Ix, and Bits. Native conformance covers overflow, bounds, unsigned Word64 rendering, signed shift edge cases, fixed-width list/range behavior, and static FFI scalar marshalling for Int8, Word8, and Word64. Plain Word remains intentionally rejected as a Haskell 2010 basic FFI type; the Report basic FFI word types are Word8/Word16/Word32/Word64. FFI-013 adds generated Storable support for the fixed-width and pointer-shaped runtime representations. Core/STG fixed-width conversions consume arbitrary Integer values and normalize modulo the target width; the native path remains bounded by the current i64 Integer payload representation."
+    },
+    {
+      "id": "LIB-010",
+      "title": "Numeric report completion",
+      "status": "complete",
+      "category": "libraries",
+      "depends_on": [
+        "TC-029",
+        "TC-030",
+        "LIB-007",
+        "LIB-008"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "Numeric exports report-compatible showing, reading, and miscellaneous numeric formatting/parsing helpers.",
+        "showSigned/showInt/readSigned/readDec/showFloat/readFloat/lexDigits integrate with Show and Read implementation choices.",
+        "Positive and negative fixtures cover representative bases, signs, floats, and malformed inputs."
+      ],
+      "required_tests": [
+        "Numeric conformance fixtures",
+        "Show/Read integration tests",
+        "native wet tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ],
+      "notes": "Complete for the current executable Haskell 2010 numeric tower. Numeric is now an importable source-backed virtual module with report-named exports for integral bases, signed reads/shows, finite floating renders/parses, floatToDigits, lexDigits, and fromRat. Coverage runs through Core typechecking/evaluation, Core-to-STG preservation, LLVM emission, a native wet fixture, and the conformance manifest. Floating parser coverage targets the supported Double execution path and the current Integer/Ratio Integer representation; exact shortest-roundtrip floating lexical polish beyond the finite helper surface remains tracked separately from this module-level closure."
+    },
+    {
+      "id": "LIB-011",
+      "title": "System.Environment and System.Exit report completion",
+      "status": "complete",
+      "category": "libraries",
+      "depends_on": [
+        "IO-014",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "System.Environment exports argument, program name, environment lookup, and environment mutation/query APIs where required by the Libraries Report.",
+        "System.Exit exports ExitCode and process exit actions with deterministic native behavior.",
+        "Command-line and environment-sensitive tests isolate process state and document platform limitations."
+      ],
+      "required_tests": [
+        "System.Environment conformance fixtures",
+        "System.Exit native wet tests",
+        "CLI integration tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ],
+      "notes": "Complete as a generated native process module pair. System.Environment imports expose getArgs, getProgName, and getEnv backed by C argc/argv, basename extraction, environment lookup, [Char]/C-string conversion, and DoesNotExistError failures for missing variables. System.Exit imports expose ExitCode(ExitSuccess, ExitFailure), exitWith, exitFailure, and exitSuccess; ExitCode has built-in Eq/Ord/Show/Read, valid native exitWith calls propagate a distinct non-catchable IO-exit result so System.IO.Error.catch does not intercept process termination, and POSIX-prohibited ExitFailure 0 surfaces as a catchable illegal-operation IOError. Covered by modules.system-environment, modules.system-exit, modules.system-exit-failure, modules.system-exit-catch, and modules.system-exit-zero-catch conformance fixtures."
+    },
+    {
+      "id": "LIB-012",
+      "title": "System.IO report completion",
+      "status": "complete",
+      "category": "libraries",
+      "depends_on": [
+        "IO-011",
+        "IO-014",
+        "PRELUDE-020"
+      ],
+      "blocks": [],
+      "milestone": "M12",
+      "acceptance_criteria": [
+        "System.IO expands from the line-oriented stdin/stdout subset to the report handle, file open/close, buffering, seek, text input/output, and error behavior surface at the import/typechecking/Core/STG boundary.",
+        "System.IO.Error integration is coordinated with IO-011 and tested through recoverable and unrecoverable IO cases.",
+        "Native tests cover standard handles, file-backed handles, seek/position behavior, semi-closed hGetContents, productive fixIO, and report-shaped text IO behavior deterministically."
+      ],
+      "required_tests": [
+        "System.IO conformance fixtures",
+        "System.IO.Error conformance fixtures",
+        "native wet tests"
+      ],
+      "docs": [
+        "docs/haskell2010-standard-library-layout.md",
+        "docs/haskell2010-conformance-matrix.md",
+        "docs/haskell2010-todo.md"
+      ],
+      "notes": "Completed for the native Haskell 2010 text IO runtime model. The generated System.IO interface now exposes the Haskell 2010 Report names for IOMode, BufferMode, SeekMode, Handle, HandlePosn, standard handles, open/close, buffering, positioning, handle properties, text IO, Prelude IO aliases, readIO, and readLn. Core/STG/native primitives and validators cover the expanded surface, and native conformance covers standard handles, file-backed handles, open/close, readFile, writeFile, appendFile, buffering metadata, line and character input, hLookAhead, getContents, semi-closed hGetContents, EOF checks, hFileSize, hSetFileSize, hGetPosn, hSetPosn, hSeek, hTell, handle predicates, hPrint, hShow, and productive fixIO in default and no-egglog modes."
     },
     {
       "id": "IO-001",
@@ -8325,7 +8671,7 @@
     {
       "id": "IO-011",
       "title": "IO error behavior",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "RTS-017",
@@ -8334,7 +8680,9 @@
       "blocks": [],
       "milestone": "M13",
       "acceptance_criteria": [
-        "IO error behavior is implemented, completed, or explicitly documented according to status `not started`.",
+        "Core, STG, and native IO actions represent success and failure explicitly so `ioError`, `catch`, `try`, and `fail` compose instead of aborting before handlers run.",
+        "System.IO.Error exposes IOError, IOErrorType constants, mkIOError, annotateIOError, classifiers, accessors, userError, ioError, catch, and try for the supported executable subset.",
+        "Uncaught native IO failures terminate nonzero, while caught failures preserve IOError payloads through `catch` and `try`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -8487,7 +8835,7 @@
     {
       "id": "MOD-003",
       "title": "import search path",
-      "status": "not started",
+      "status": "complete",
       "category": "modules",
       "depends_on": [
         "REN-015",
@@ -8496,7 +8844,7 @@
       "blocks": [],
       "milestone": "M14",
       "acceptance_criteria": [
-        "import search path is implemented, completed, or explicitly documented according to status `not started`.",
+        "import search path is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -8509,7 +8857,8 @@
         "docs/haskell2010-frontend-spec.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. Haskell 2010 source import resolution is root-directory-first over the root module directory plus ordered repeated CLI -i/--import-path source roots. Missing imports report every searched path, while read, parse, module-name mismatch, duplicate-module, and cycle failures remain hard diagnostics. Unit, conformance, and native e2e fixtures cover cross-directory imports, including default and --no-egglog native execution plus emit-LLVM coverage. Package databases, interface-file roots, and unimplemented library modules remain documented outside MOD-003."
     },
     {
       "id": "MOD-004",
@@ -8706,7 +9055,7 @@
     {
       "id": "MOD-011",
       "title": "separate compilation decision/documentation",
-      "status": "not started",
+      "status": "complete",
       "category": "modules",
       "depends_on": [
         "REN-015",
@@ -8715,7 +9064,7 @@
       "blocks": [],
       "milestone": "M14",
       "acceptance_criteria": [
-        "separate compilation decision/documentation is implemented, completed, or explicitly documented according to status `not started`.",
+        "separate compilation decision/documentation is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -8727,13 +9076,14 @@
       "docs": [
         "docs/haskell2010-frontend-spec.md",
         "docs/haskell2010-conformance-matrix.md",
-        "docs/haskell2010-todo.md"
+        "docs/haskell2010-todo.md",
+        "docs/haskell2010-module-compilation-boundary.md"
       ]
     },
     {
       "id": "MOD-012",
       "title": "interface file future plan",
-      "status": "not started",
+      "status": "complete",
       "category": "modules",
       "depends_on": [
         "REN-015",
@@ -8742,7 +9092,7 @@
       "blocks": [],
       "milestone": "M14",
       "acceptance_criteria": [
-        "interface file future plan is implemented, completed, or explicitly documented according to status `not started`.",
+        "interface file future plan is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -8754,7 +9104,8 @@
       "docs": [
         "docs/haskell2010-frontend-spec.md",
         "docs/haskell2010-conformance-matrix.md",
-        "docs/haskell2010-todo.md"
+        "docs/haskell2010-todo.md",
+        "docs/haskell2010-module-compilation-boundary.md"
       ]
     },
     {
@@ -8897,7 +9248,7 @@
     {
       "id": "FFI-004",
       "title": "C calling convention representation",
-      "status": "in progress",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -8909,7 +9260,7 @@
         "The FFI typechecker accepts Haskell 2010 `ccall`/`stdcall` declarations and rejects non-Haskell-2010 calling conventions before lowering.",
         "The supported ccall ABI slice links to native runtime lowering; stdcall remains represented and typechecked but target-specific native lowering remains an explicit gap.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps."
       ],
       "required_tests": [
         "parser unit tests",
@@ -8924,12 +9275,12 @@
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
       ],
-      "notes": "Milestone M15 (FFI). In progress: ccall/stdcall are represented structurally, unsupported conventions are rejected before lowering, and the supported ccall native ABI slice is implemented; stdcall target-specific native lowering remains explicit future work."
+      "notes": "Milestone M15 (FFI). Complete. ccall/stdcall and reserved calling-convention identifiers are represented structurally, unsupported conventions are rejected before native lowering, Report-shaped ccall entity strings with unbracketed .h headers/defaulted symbols are parsed, and the supported ccall native ABI slice is implemented; target-specific non-ccall native ABI lowering remains an explicit future boundary rather than an open representation gap."
     },
     {
       "id": "FFI-005",
       "title": "primitive marshalling",
-      "status": "in progress",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -8941,9 +9292,9 @@
         "The typechecker validates marshallable scalar, pointer, type-synonym, and local visible-newtype foreign types.",
         "Static, address, `dynamic`, and `wrapper` import signatures receive shape-specific diagnostics.",
         "`foreign export` declarations validate that the exported binding can instantiate to the declared foreign type.",
-        "Runtime primitive marshalling and ABI conversion are implemented for the supported scalar integer/Bool/Char and pointer ABI slice; floating-point and broader Foreign library marshalling remain explicit future work.",
+        "Runtime primitive marshalling and ABI conversion are implemented for the supported scalar integer/Bool/Char/Float/Double and pointer ABI slice, including the current Foreign library marshalling surface for Storable, allocation, arrays, errno, and C strings.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps."
       ],
       "required_tests": [
         "typechecker unit tests",
@@ -8957,12 +9308,12 @@
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
       ],
-      "notes": "Milestone M15 (FFI). In progress: generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, and export validation are implemented; floating-point and broader Foreign library marshalling remain explicit future work."
+      "notes": "Milestone M15 (FFI). Complete for the current native runtime model. Generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/Float/Double/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, export validation, and the FFI-013 Foreign library surface are implemented, including Storable, allocation, arrays, errno, and C strings."
     },
     {
       "id": "FFI-006",
       "title": "runtime integration",
-      "status": "in progress",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -8974,10 +9325,10 @@
         "Address imports lower to explicit inert Core/STG foreign-import value nodes.",
         "Core/STG validators, pretty-printers, evaluators, optimizer traversal, and native backend boundaries preserve the foreign IR without silently dropping imports.",
         "Core/STG evaluation reports explicit unsupported runtime diagnostics when foreign calls are reached outside native lowering.",
-        "Supported `foreign import ccall` nodes lower to native LLVM declarations/direct calls or indirect `FunPtr` calls with scalar integer/Bool/Char marshalling, `Ptr`/`FunPtr` pointer marshalling, static `&symbol` address boxing, `wrapper` callback trampolines, and `IO` sequencing.",
-        "Explicit `StablePtr` ownership and manual `ForeignPtr` finalizer APIs are implemented and wet-tested; automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, broader callback lifetime management, and floating-point marshalling remain pending.",
+        "Supported `foreign import ccall` nodes lower to native LLVM declarations/direct calls or indirect `FunPtr` calls with scalar integer/Bool/Char/Float/Double marshalling, `Ptr`/`FunPtr` pointer marshalling, static `&symbol` address boxing, `wrapper` callback trampolines, and `IO` sequencing.",
+        "Explicit `StablePtr` ownership, manual `ForeignPtr` finalizer APIs, `freeHaskellFunPtr`, wrapper callback-slot reclamation, callback-after-free rejection, and reverse-order/idempotent finalization are implemented and wet-tested; automatic GC finalizer scheduling remains scoped out under the process-lifetime runtime model.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps."
       ],
       "required_tests": [
         "runtime unit tests",
@@ -8989,12 +9340,12 @@
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
       ],
-      "notes": "Milestone M15 (FFI). In progress: Core/STG IR is complete for imports and export metadata, scalar/pointer/static-address/dynamic/wrapper/export ccall native runtime integration is implemented and wet-tested, and unsupported FFI entities still fail at explicit boundaries."
+      "notes": "Milestone M15 (FFI). Complete. Core/STG IR is complete for imports and export metadata, scalar/floating/pointer/static-address/dynamic/wrapper/export ccall native runtime integration is implemented and wet-tested, explicit StablePtr/manual ForeignPtr/freeHaskellFunPtr ownership paths are wired through the runtime, and unsupported FFI entities still fail at explicit boundaries."
     },
     {
       "id": "FFI-007",
       "title": "LLVM external declaration lowering",
-      "status": "in progress",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -9006,11 +9357,11 @@
         "Static scalar and pointer calls emit direct LLVM `call` instructions and link successfully against C helper objects in native wet tests.",
         "Static `&symbol` imports for `Ptr a` and `FunPtr ft` emit external data/function declarations and box the raw address as a pointer value.",
         "`dynamic` imports emit typed indirect calls through unboxed `FunPtr` values.",
-        "`wrapper` imports emit process-lifetime callback slots and C-callable trampoline functions for the supported scalar/pointer ABI slice.",
+        "`wrapper` imports emit reclaimable process-lifetime callback slots and C-callable trampoline functions for the supported scalar/floating/pointer ABI slice.",
         "Unsupported FFI entities still report explicit native ABI diagnostics instead of being silently dropped.",
-        "Broader link metadata, floating-point marshalling, automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, and broader callback lifetime APIs remain pending.",
+        "Automatic GC finalization remains scoped out under the process-lifetime runtime model; explicit wrapper callback release is implemented through `freeHaskellFunPtr`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps."
       ],
       "required_tests": [
         "runtime unit tests",
@@ -9022,12 +9373,12 @@
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
       ],
-      "notes": "Milestone M15 (FFI). In progress: static scalar/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks, and foreign export ccall entrypoints are implemented; link metadata, floating-point, and callback-slot reclamation remain open."
+      "notes": "Milestone M15 (FFI). Complete. Static scalar/floating/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks with freeHaskellFunPtr reclamation, foreign export ccall entrypoints, and FFI link metadata are implemented with explicit native ABI diagnostics for unsupported entities."
     },
     {
       "id": "FFI-008",
       "title": "FFI native tests",
-      "status": "in progress",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -9035,12 +9386,12 @@
       "blocks": [],
       "milestone": "M15",
       "acceptance_criteria": [
-        "Static scalar `ccall` native tests compile/link generated LLVM with a C helper and assert stdout.",
+        "Static scalar and floating `ccall` native tests compile/link generated LLVM with a C helper and assert stdout.",
         "Static pointer/address native tests cover `Ptr`, `FunPtr`, data `&symbol`, function `&symbol`, pointer arguments, pointer results, and ordered pointer mutation through `IO`.",
-        "Dynamic/wrapper native tests cover indirect `FunPtr` calls, multiple live wrapped callbacks, C-to-Haskell callback re-entry, callback `IO`, and result marshalling.",
+        "Dynamic/wrapper native tests cover indirect `FunPtr` calls, multiple live wrapped callbacks, C-to-Haskell callback re-entry, callback `IO`, result marshalling, explicit wrapper release, double-free/idempotence, slot reclamation, and callback-after-free runtime failure.",
         "Foreign export native tests cover C helpers calling exported pure and `IO` Haskell functions; remaining FFI forms add native tests as each ABI feature lands.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps."
       ],
       "required_tests": [
         "runtime unit tests",
@@ -9052,7 +9403,7 @@
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
       ],
-      "notes": "Milestone M15 (FFI). In progress: static scalar, pointer/address, dynamic/wrapper, and foreign-export native C-helper wet tests are implemented; floating-point, link metadata, finalizer lifetime, and broader library coverage remain open."
+      "notes": "Milestone M15 (FFI). Complete. Static scalar, floating, pointer/address, dynamic/wrapper lifetime, foreign-export, StablePtr, ForeignPtr finalizer, link metadata, explicit link-object, and FFI-013 Foreign library native C-helper coverage are implemented for the current runtime model in default and no-egglog conformance modes."
     },
     {
       "id": "FFI-009",
@@ -9085,7 +9436,7 @@
     {
       "id": "FFI-010",
       "title": "floating-point FFI marshalling",
-      "status": "not started",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "FFI-005",
@@ -9097,7 +9448,7 @@
         "Foreign imports and exports validate and marshal `Float`, `Double`, `CFloat`, and `CDouble` according to the supported C ABI.",
         "Core/STG/LLVM types distinguish floating-point ABI values from boxed runtime values without corrupting existing integer/pointer marshalling.",
         "Native C-helper fixtures cover direct calls, callbacks, exports, and result marshalling for floating-point values.",
-        "Unsupported floating ABI combinations fail explicitly until implemented.",
+        "Unsupported foreign ABI combinations continue to fail explicitly until implemented.",
         "Docs and matrix remove floating-point FFI from the remaining-gap list only after native coverage passes."
       ],
       "required_tests": [
@@ -9110,12 +9461,13 @@
         "docs/haskell2010-ffi-design.md",
         "docs/haskell2010-conformance-matrix.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. Native floating FFI marshalling maps `Float`/`CFloat` to LLVM `float` and `Double`/`CDouble` to LLVM `double`, boxes runtime `Float`/`Double` values separately from integer/pointer objects, and covers static calls, dynamic `FunPtr` calls, wrapper callbacks, and `foreign export` through `ffi.floating-ccall` in default and no-egglog modes."
     },
     {
       "id": "FFI-011",
       "title": "FFI link metadata",
-      "status": "not started",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "FFI-002",
@@ -9141,12 +9493,13 @@
         "docs/haskell2010-ffi-design.md",
         "docs/llvm-backend-spec.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. Foreign import/export lowering now carries ForeignLinkMetadata through the Haskell 2010 native result and emits LLVM comments for header-qualified imports, static/address symbols, and exported C symbols. The CLI and LLVM toolchain accept repeated --link-object, --link-library, --library-path, and --framework flags and pass them to clang. The conformance harness now builds FFI helper fixtures through those link flags instead of a side-channel manual clang path, and tests cover header-qualified ccall metadata plus missing link-input diagnostics."
     },
     {
       "id": "FFI-012",
       "title": "callback and finalizer lifetime completion",
-      "status": "not started",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "FFI-006",
@@ -9172,12 +9525,13 @@
         "docs/haskell2010-ffi-design.md",
         "docs/runtime-spec.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete. freeHaskellFunPtr is now a generated Foreign/Foreign.Ptr binding that lowers through Core, STG, validation, evaluation, optimization boundaries, and native LLVM. Wrapper imports allocate from reclaimable per-import callback slots, double-free of a wrapper pointer is idempotent, unknown frees and callback-after-free paths abort instead of re-entering stale closures, and freed slots can be reused after the fixed pool is saturated. Manual ForeignPtr finalization remains explicit under the process-lifetime allocation model: automatic GC scheduling is not claimed, while finalizeForeignPtr is idempotent and finalizers run in reverse registration order. Unit/native and conformance fixtures cover wrapper reclamation, callback-after-free runtime failure, double-free/idempotence, finalizer ordering, StablePtr round trips, and withForeignPtr/touchForeignPtr liveness barriers."
     },
     {
       "id": "FFI-013",
       "title": "Foreign library surface completion",
-      "status": "not started",
+      "status": "complete",
       "category": "libraries",
       "depends_on": [
         "FFI-005",
@@ -9202,7 +9556,8 @@
         "docs/haskell2010-standard-library-layout.md",
         "docs/haskell2010-ffi-design.md",
         "docs/haskell2010-todo.md"
-      ]
+      ],
+      "notes": "Complete for the current generated/importable Foreign library surface. `Foreign.Ptr` exposes null pointer values and pointer/function-pointer casts; `Foreign.ForeignPtr` exposes `FinalizerPtr`, `FinalizerEnvPtr`, `unsafeForeignPtrToPtr`, and `castForeignPtr`; `Foreign.Marshal.Error` and `Foreign.Marshal.Utils` expose guard and Maybe pointer helpers; `Foreign.C.Error` exposes `Errno(Errno)`, all Report errno constants with target-runtime values, `isValidErrno`, errno access/reset, `errnoToIOError`, retry/may-block guards, and path-carrying errno helpers; `Foreign.Storable` exposes generated dictionaries for supported scalar, pointer, and fixed-width runtime representations; `Foreign.Marshal.Alloc` and `Foreign.Marshal.Array` expose raw allocation, reallocation, free, byte copy/move, pointer advancement, and list/sentinel array helpers; and `Foreign.C.String` exposes C/CW string conversion helpers. Native conformance fixtures `ffi.foreign-library-surface`, `ffi.foreign-storable`, `ffi.foreign-marshal-array`, `ffi.foreign-c-string`, and `ffi.foreign-c-error` cover the surface in default and no-egglog modes."
     },
     {
       "id": "EGG-CORE-001",
@@ -9753,7 +10108,7 @@
     {
       "id": "DIAG-002",
       "title": "lexer diagnostics",
-      "status": "in progress",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -9762,14 +10117,15 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "lexer diagnostics is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Haskell 2010 lexical parse failures render as stable `file:line:column-end: Haskell 2010 parse error: ...` diagnostics without raw Megaparsec caret bundles on native/module paths.",
+        "Invalid character-literal coverage verifies source attribution and one-line diagnostic normalization.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
-        "diagnostic golden tests",
-        "negative conformance tests",
-        "CLI rendering tests"
+        "parser unit diagnostics",
+        "negative conformance diagnostics",
+        "CLI/native rendering checks through existing compile-error cases"
       ],
       "docs": [
         "docs/diagnostics-spec.md",
@@ -9779,7 +10135,7 @@
     {
       "id": "DIAG-003",
       "title": "layout diagnostics",
-      "status": "in progress",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -9788,14 +10144,16 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "layout diagnostics is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Implicit layout blocks validate misaligned continuation items against their layout keyword reference column and emit explicit layout messages rather than unrelated parse-token expectations.",
+        "Layout diagnostics render as stable `file:line:column-end: Haskell 2010 layout error: ...` messages on native/module paths.",
+        "Existing malformed layout conformance fixtures assert layout categories and concrete source-span prefixes.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
-        "diagnostic golden tests",
-        "negative conformance tests",
-        "CLI rendering tests"
+        "parser layout diagnostic unit tests",
+        "negative conformance layout tests",
+        "CLI/native rendering checks through compile-error layout fixtures"
       ],
       "docs": [
         "docs/diagnostics-spec.md",
@@ -9883,7 +10241,7 @@
     {
       "id": "DIAG-007",
       "title": "kind diagnostics",
-      "status": "not started",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -9892,14 +10250,16 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "kind diagnostics is implemented, completed, or explicitly documented according to status `not started`.",
+        "Kind mismatches and kind occurs-check failures render with `kind error` severity instead of the generic `type error` severity.",
+        "Kind diagnostics preserve the source span of the offending source type or class-constraint argument.",
+        "The conformance manifest checks the kind-error category and concrete source-span prefix for partial type-constructor use.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
-        "diagnostic golden tests",
-        "negative conformance tests",
-        "CLI rendering tests"
+        "typechecker kind diagnostic unit tests",
+        "negative kind conformance tests",
+        "CLI/native rendering checks through compile-error kind fixtures"
       ],
       "docs": [
         "docs/diagnostics-spec.md",
@@ -9909,7 +10269,7 @@
     {
       "id": "DIAG-008",
       "title": "class/instance diagnostics",
-      "status": "in progress",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -9918,14 +10278,16 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "class/instance diagnostics is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Class-constraint failures render as `class error` diagnostics with source spans for explicit constraint positions and overloaded use-site dictionary obligations.",
+        "Instance declaration conflicts and malformed instance method sets render as `instance error` diagnostics from structured typechecker constructors rather than generic unsupported-form text.",
+        "Negative and unsupported conformance fixtures lock the class/instance diagnostic categories and source-span prefixes.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to this task for implemented work."
       ],
       "required_tests": [
-        "diagnostic golden tests",
-        "negative conformance tests",
-        "CLI rendering tests"
+        "typechecker class/instance diagnostic unit tests",
+        "negative class/instance conformance tests",
+        "CLI/native rendering checks through compile-error class/instance fixtures"
       ],
       "docs": [
         "docs/diagnostics-spec.md",
@@ -9961,7 +10323,7 @@
     {
       "id": "DIAG-010",
       "title": "module/import diagnostics",
-      "status": "in progress",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -9970,14 +10332,18 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "module/import diagnostics is implemented, completed, or explicitly documented according to status `in progress`.",
+        "Import declarations carry source spans from parsing through module graph loading and renaming.",
+        "Missing source modules render as `module/import error` diagnostics at the responsible import declaration and report the searched paths.",
+        "Explicit import lists that name non-exported entities render as structured `MissingImportName` diagnostics at the import declaration.",
+        "Negative and unsupported conformance fixtures lock module/import diagnostic categories and source-span prefixes.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to this task for implemented work."
       ],
       "required_tests": [
-        "diagnostic golden tests",
-        "negative conformance tests",
-        "CLI rendering tests"
+        "parser import-span unit tests",
+        "renamer import-list diagnostic unit tests",
+        "module graph negative conformance tests",
+        "CLI/native rendering checks through compile-error module/import fixtures"
       ],
       "docs": [
         "docs/diagnostics-spec.md",
@@ -10039,7 +10405,7 @@
     {
       "id": "DIAG-013",
       "title": "runtime source attribution",
-      "status": "not started",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -10048,14 +10414,15 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "runtime source attribution is implemented, completed, or explicitly documented according to status `not started`.",
+        "runtime source attribution is implemented for source-defined top-level Core and STG runtime closures and renders through the standard `runtime error` source diagnostic.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
         "diagnostic golden tests",
-        "negative conformance tests",
-        "CLI rendering tests"
+        "Core evaluator runtime attribution unit tests",
+        "Core-to-STG runtime attribution unit tests",
+        "negative conformance tests"
       ],
       "docs": [
         "docs/diagnostics-spec.md",
@@ -10065,7 +10432,7 @@
     {
       "id": "DIAG-014",
       "title": "nested runtime spans",
-      "status": "not started",
+      "status": "complete",
       "category": "diagnostics",
       "depends_on": [
         "FRONT-032",
@@ -10074,14 +10441,15 @@
       "blocks": [],
       "milestone": "M17",
       "acceptance_criteria": [
-        "nested runtime spans is implemented, completed, or explicitly documented according to status `not started`.",
+        "nested runtime spans are implemented for Core and STG interpreter runtime errors, including delayed failures through lazy thunks and lowered partial-application chains.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
       "required_tests": [
         "diagnostic golden tests",
-        "negative conformance tests",
-        "CLI rendering tests"
+        "Core evaluator nested runtime attribution unit tests",
+        "Core-to-STG nested runtime attribution unit tests",
+        "negative conformance tests"
       ],
       "docs": [
         "docs/diagnostics-spec.md",
@@ -10160,7 +10528,7 @@
     {
       "id": "CLI-001",
       "title": "command model",
-      "status": "in progress",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10168,7 +10536,7 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "command model is implemented, completed, or explicitly documented according to status `in progress`.",
+        "command model is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10186,7 +10554,7 @@
     {
       "id": "CLI-002",
       "title": "`hegglog check`",
-      "status": "not started",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10194,7 +10562,7 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "`hegglog check` is implemented, completed, or explicitly documented according to status `not started`.",
+        "`hegglog check` is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10212,7 +10580,7 @@
     {
       "id": "CLI-003",
       "title": "`hegglog run`",
-      "status": "not started",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10220,7 +10588,7 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "`hegglog run` is implemented, completed, or explicitly documented according to status `not started`.",
+        "`hegglog run` is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10277,7 +10645,7 @@
     {
       "id": "CLI-005",
       "title": "`hegglog report`",
-      "status": "in progress",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10285,7 +10653,10 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "`hegglog report` is implemented, completed, or explicitly documented according to status `in progress`.",
+        "`hegglog report` emits source-aware diagnostic/status reports for legacy `.hg` and Haskell 2010 `.hs` sources.",
+        "Report mode supports `--no-egglog`, `--strict-egglog`, and repeated `-i`/`--import-path` flags with scoped command diagnostics.",
+        "Haskell 2010 reports parse, rename, typecheck, optimize according to flags, validate Core/STG, and render stable warnings, optimization, typed Core, and STG sections.",
+        "Legacy `.hg` reports preserve parser/typechecker/interpreter/ANF/facts/rewrite/EGraph/Egglog/Core output and make strict Egglog fallback failures explicit.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10303,7 +10674,7 @@
     {
       "id": "CLI-006",
       "title": "`hegglog emit-core`",
-      "status": "not started",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10311,7 +10682,7 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "`hegglog emit-core` is implemented, completed, or explicitly documented according to status `not started`.",
+        "`hegglog emit-core` emits validated typed Haskell 2010 Core to stdout or `-o`/`--output` files, with `--original`, `--optimized`, `--both`, `--no-egglog`, and import-path support.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10329,7 +10700,7 @@
     {
       "id": "CLI-007",
       "title": "`hegglog emit-stg`",
-      "status": "not started",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10337,7 +10708,7 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "`hegglog emit-stg` is implemented, completed, or explicitly documented according to status `not started`.",
+        "`hegglog emit-stg` emits validated Haskell 2010 STG to stdout or `-o`/`--output` files, with `--no-egglog` and import-path support.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10407,7 +10778,7 @@
     {
       "id": "CLI-010",
       "title": "`--strict-egglog`",
-      "status": "not started",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10415,7 +10786,9 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "`--strict-egglog` is implemented, completed, or explicitly documented according to status `not started`.",
+        "`--strict-egglog` is accepted by check, compile, emit-core, emit-stg, and run.",
+        "`--strict-egglog` is rejected when combined with `--no-egglog`.",
+        "Strict mode requires Egglog support and fails instead of falling back to unoptimized ANF/Core when nontrivial optimizer input is unsupported.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10433,7 +10806,7 @@
     {
       "id": "CLI-011",
       "title": "`--keep-intermediates`",
-      "status": "not started",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10441,7 +10814,9 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "`--keep-intermediates` is implemented, completed, or explicitly documented according to status `not started`.",
+        "`--keep-intermediates` is accepted by compile and run and rejected by non-codegen commands with scoped diagnostics.",
+        "LLVM intermediates are preserved under `.context/hegglog/intermediates` for LLVM output modes.",
+        "Native keep mode preserves generated LLVM, object, and temporary run executable artifacts under `.context/hegglog/intermediates`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10459,7 +10834,7 @@
     {
       "id": "CLI-012",
       "title": "dump flags",
-      "status": "not started",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10467,7 +10842,9 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "dump flags is implemented, completed, or explicitly documented according to status `not started`.",
+        "`--dump-core`, `--dump-optimized-core`, and `--dump-stg` are accepted by check, compile, and run.",
+        "Dump output uses stable section headers on stderr so LLVM stdout and program stdout remain machine-readable.",
+        "Dump flags reject legacy .hg sources with a clear diagnostic because that pipeline has no typed Haskell 2010 Core/STG artifacts.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10563,7 +10940,7 @@
     {
       "id": "CLI-016",
       "title": "help text tests",
-      "status": "in progress",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10571,7 +10948,9 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "help text tests is implemented, completed, or explicitly documented according to status `in progress`.",
+        "All public help topics are locked by exact golden fixtures.",
+        "The executable CLI help paths compare stdout exactly against the same public golden fixtures and verify stderr remains empty.",
+        "Help emission writes the stored usage text directly so each topic has one intentional trailing newline rather than an accidental extra blank line.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10992,16 +11371,9 @@
     {
       "id": "TEST-CONF-015",
       "title": "library conformance closure",
-      "status": "not started",
+      "status": "complete",
       "category": "testing",
       "depends_on": [
-        "PRELUDE-018",
-        "TC-029",
-        "TC-030",
-        "TC-031",
-        "TC-032",
-        "TC-033",
-        "PRELUDE-019",
         "PRELUDE-020"
       ],
       "blocks": [],
@@ -11026,7 +11398,7 @@
         "docs/haskell2010-conformance-results.md",
         "docs/haskell2010-todo.md"
       ],
-      "notes": "This is the Report-facing library closure task. It must use the Haskell 2010 Chapter 9 Prelude and Part II Libraries inventory as the source of truth, turning every unsupported class, function, module, or FFI library surface into an explicit tracker/matrix entry before further library support is claimed."
+      "notes": "Complete. Reconciled the Haskell 2010 Chapter 9 Prelude and Part II Libraries inventory against the generated standard-library boundary, conformance matrix, manifest, and tracker. Added a validator-backed Library Conformance Closure table, explicit unsupported-documented fixtures for reserved Report modules, a positive scalar type import fixture for Data.Int/Data.Word/Foreign.C.Types, and numbered LIB follow-up tasks for every previously unnumbered library gap. Further library implementation must update the table, matrix, manifest, and generated module boundary together."
     },
     {
       "id": "DOC-001",

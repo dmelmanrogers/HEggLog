@@ -22,9 +22,9 @@ semantic input for ANF, interpreters, optimizers, and backend lowering.
 
 ## Parser Diagnostics
 
-Parser diagnostics are Megaparsec `ParseErrorBundle` output. They include the
-source path, line, and column reported by Megaparsec, followed by the parser's
-expected-token summary.
+The legacy `.hg` parser still reports Megaparsec `ParseErrorBundle` output. It
+includes the source path, line, and column reported by Megaparsec, followed by
+the parser's expected-token summary.
 
 Example:
 
@@ -37,8 +37,30 @@ unexpected end of input
 expecting letter or '_'
 ```
 
-Parser diagnostics are not yet normalized into the same one-line source-range
-format used by later compiler phases.
+The Haskell 2010 frontend normalizes parse and lexical failures through
+`Haskell2010.Diagnostics.renderParseDiagnostic` before they escape native
+compilation or module-graph loading. These diagnostics use the same one-line
+source-range shape as later compiler phases:
+
+```text
+Main.hs:2:8-9: Haskell 2010 parse error: unexpected 'q' expecting ...
+```
+
+When Megaparsec reports more than one parse failure, each failure is rendered as
+one source-spanned diagnostic line.
+
+## Layout Diagnostics
+
+The Haskell 2010 layout parser validates implicit `let`, `where`, `do`, and
+`case ... of` blocks against the layout keyword's reference column. Misaligned
+items that are still indented inside the block produce explicit layout
+diagnostics instead of falling through to unrelated token expectations.
+
+Example:
+
+```text
+Main.hs:5:6-7: Haskell 2010 layout error: layout item is indented to column 6; expected column 7 for another item, or column 3 or less to close the block
+```
 
 ## Typechecker Diagnostics
 
@@ -59,21 +81,74 @@ The CLI report mode wraps these lines in a section header:
 examples/type-errors/add-bool.hg:1:5-9: type error: operator + expects Int operands, got Bool
 ```
 
-## Runtime Diagnostics
+## Kind Diagnostics
 
-Runtime diagnostics currently attach to the root source expression. This is
-stable enough to identify the failing input, but it is not yet an exact
-subexpression trace for nested runtime failures.
+Haskell 2010 kind failures use the same source-span mechanism as type errors,
+but render with `kind error` severity so partial type-constructor application and
+higher-kinded class-argument mistakes are distinguishable from ordinary term
+type mismatches.
 
 Example:
 
 ```text
-<test>:1:1-24: runtime error: checked Int + overflowed: 9223372036854775807 + 1
+Main.hs:5:8-12: kind error: kind mismatch: expected *, got * -> *
 ```
 
-Future interpreter work should preserve evaluation source positions so
-division-by-zero and overflow diagnostics can point to the exact primitive
-operation.
+## Class And Instance Diagnostics
+
+Haskell 2010 class-constraint failures render with `class error` severity.
+Explicit constraint positions report the offending constraint span, while
+dictionary obligations created by overloaded variable use preserve the source
+span of that use site.
+
+Example:
+
+```text
+Main.hs:7:15-30: class error: unsolved type-class constraint Measure Box
+```
+
+Instance declaration conflicts and malformed instance bodies render with
+`instance error` severity. Explicit instance declarations carry their
+declaration span, and duplicate/overlapping built-in or user instances are
+represented by structured typechecker errors instead of generic unsupported-form
+messages.
+
+Example:
+
+```text
+Main.hs:3:1-9:1: instance error: duplicate built-in instance for `Monad IO`
+```
+
+## Module And Import Diagnostics
+
+Haskell 2010 import declarations carry source spans from parsing through module
+graph loading and import-list resolution. Missing source modules and missing
+exported names selected by explicit import lists render with `module/import
+error` severity at the import declaration that caused the failure.
+
+Examples:
+
+```text
+Main.hs:3:1-21: module/import error: could not read Haskell 2010 module `MissingModule`: no source file found; searched: ./MissingModule.hs
+Main.hs:2:1-29: module/import error: module `Prelude` does not export term name `notExported`
+```
+
+## Runtime Diagnostics
+
+Haskell 2010 Core and STG interpreter diagnostics preserve source attribution
+for source-defined runtime closures and nested source expressions. When a
+forced top-level binding fails through a helper binding, the runtime error is
+reported at the helper expression rather than only at the requested entry point.
+Expression spans survive typed elaboration, Core optimization, STG lowering,
+lazy thunk allocation, and partial-application thunks so delayed failures use
+the innermost surviving source span. The attribution uses the same one-line
+`runtime error` diagnostic shape as the rest of the compiler.
+
+Example:
+
+```text
+<haskell2010-renamer-test>:2:9-16: runtime error: division by zero
+```
 
 ## LLVM Diagnostics
 
@@ -120,15 +195,26 @@ The Haskell 2010 target will need additional diagnostic classes:
 - runtime source attribution for lazy evaluation
 - source spans through Core/STG where possible
 
-Current status: Haskell 2010 parser, renamer, typechecker, class/instance, and
-runtime no-matching-alternative errors exist for the executable subset, and
-guard fallthrough is covered by Core/STG/native tests. The Haskell 2010
-typechecker now emits source-spanned warnings for supported non-exhaustive
-`case`, function, and lambda pattern matches, including finite constructor
-witnesses such as `False` or `Nothing` where the checker can identify them. It
-also emits source-spanned redundant-alternative warnings for supported
-unreachable alternatives. Native compilation carries those warnings through
-`Haskell2010LLVMResult`, and the CLI renders them to stderr before emit/build/run
-output. Runtime source attribution through lazy evaluation remains planned. The
+Current status: Haskell 2010 parse/lex errors are normalized into one-line
+source-spanned diagnostics on native and module-loading paths. Implicit layout
+failures in `let`, `where`, `do`, and `case ... of` blocks are classified as
+layout errors with explicit indentation expectations. Kind mismatches render as
+source-spanned `kind error` diagnostics. Class constraints and instance
+declaration failures render as source-spanned `class error` and `instance error`
+diagnostics for the executable subset. Module graph and explicit import-list
+failures render as source-spanned `module/import error` diagnostics at the
+responsible import declaration. Core and STG interpreter runtime failures carry
+top-level source binding attribution for source-defined closures. The parser,
+renamer, typechecker, class/instance, and runtime no-matching-alternative
+errors exist for the executable subset, and guard fallthrough is covered by
+Core/STG/native tests.
+The Haskell 2010 typechecker now emits source-spanned warnings for supported
+non-exhaustive `case`, function, and lambda pattern matches, including finite
+constructor witnesses such as `False` or `Nothing` where the checker can
+identify them. It also emits source-spanned redundant-alternative warnings for
+supported unreachable alternatives. Native compilation carries those warnings
+through `Haskell2010LLVMResult`, and the CLI renders them to stderr before
+emit/build/run output. Core and STG runtime diagnostics now retain nested
+source-expression spans through lazy evaluation and partial application. The
 existing located `.hg` parser/typechecker and LLVM unsupported-source
 diagnostics are the carry-forward baseline.

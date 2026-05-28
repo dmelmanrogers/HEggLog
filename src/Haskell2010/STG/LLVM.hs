@@ -16,10 +16,12 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Core.Pretty (renderCorePrimOp, renderCoreType)
 import Haskell2010.Core.Syntax
+import Haskell2010.FFI.LinkMetadata (foreignLinkMetadataForImportsExports, renderForeignLinkMetadataComments)
+import Haskell2010.FixedWidth
 import Haskell2010.Names (RName, nameOcc, nameUnique, renderRName)
 import Haskell2010.STG.Syntax
 import qualified Haskell2010.STG.Validate as STGValidate
-import Haskell2010.Syntax (Literal (..))
+import Haskell2010.Syntax (Literal (LChar, LInt, LInteger, LString))
 import qualified Haskell2010.Syntax as S
 import Backend.LLVM.IR
 import Backend.LLVM.Validate
@@ -61,6 +63,7 @@ data ForeignIntegerSignedness
 
 data ForeignABIType
   = ForeignABIInteger LLVMType ForeignIntegerSignedness
+  | ForeignABIFloating LLVMType
   | ForeignABIBool
   | ForeignABIChar
   | ForeignABIPointer
@@ -78,6 +81,7 @@ data ModuleState = ModuleState
   { nextClosureFunction :: Int
   , generatedFunctions :: [LLVMFunction]
   , generatedForeignWrappers :: Map.Map RName [Text]
+  , moduleWrapperImports :: [CoreForeignImport]
   }
   deriving stock (Show, Eq)
 
@@ -114,7 +118,7 @@ lowerSTGProgramToLLVMByName mainName program =
 lowerValidatedSTGProgram :: STGBinder -> STGProgram -> Either STGLLVMError LLVMModule
 lowerValidatedSTGProgram mainBinder program = do
   foreignDeclarations <- foreignImportDeclarations program
-  (mainFunction, mainModuleState) <- runStateT (lowerMainFunction program mainBinder) initialModuleState
+  (mainFunction, mainModuleState) <- runStateT (lowerMainFunction program mainBinder) (initialModuleState program)
   (foreignExportFunctions, moduleState) <-
     runStateT
       (traverse (lowerForeignExportFunction program) (stgProgramForeignExports program))
@@ -126,6 +130,8 @@ lowerValidatedSTGProgram mainBinder program = do
               , "values are boxed; thunks are forced through a lazy enter/apply runtime"
               , "heap objects use process-lifetime allocation; generated programs do not free or collect them"
               ]
+                <> renderForeignLinkMetadataComments
+                  (foreignLinkMetadataForImportsExports (foreignImportsInProgram program) (stgProgramForeignExports program))
           , moduleGlobals = formatGlobals
           , moduleDeclarations = uniqueTexts (runtimeDeclarations <> foreignDeclarations)
           , moduleFunctions = runtimeFunctions <> generatedFunctions moduleState <> foreignExportFunctions <> [mainFunction]
@@ -133,52 +139,56 @@ lowerValidatedSTGProgram mainBinder program = do
   mapLeft STGLLVMInvalidLLVM (validateLLVMModule llvmModule)
   pure llvmModule
 
-initialModuleState :: ModuleState
-initialModuleState =
+initialModuleState :: STGProgram -> ModuleState
+initialModuleState program =
   ModuleState
     { nextClosureFunction = 0
     , generatedFunctions = []
     , generatedForeignWrappers = Map.empty
+    , moduleWrapperImports = wrapperImportsInProgram program
     }
 
 findMain :: Text -> STGProgram -> Either STGLLVMError STGBinder
-findMain occurrence (STGProgram _ binds _foreignExports) =
+findMain occurrence (STGProgram _ binds _foreignExports _runtimeSpans) =
   case [binder | bind <- binds, binder <- stgBindersOf bind, nameOcc (stgBinderName binder) == occurrence] of
     [] -> Left (STGLLVMUnknownMain occurrence)
     [binder] -> Right binder
     binders -> Left (STGLLVMAmbiguousMain occurrence (map stgBinderName binders))
 
 lowerMainFunction :: STGProgram -> STGBinder -> ModuleM LLVMFunction
-lowerMainFunction (STGProgram _ binds _foreignExports) mainBinder =
-  runFunction "main" LI32 [] $ do
+lowerMainFunction (STGProgram _ binds _foreignExports _runtimeSpans) mainBinder =
+  runFunction "main" LI32 [(LI32, Register "argc"), (LPtr, Register "argv")] $ do
+    emit (IStore LI32 (OLocal LI32 (Register "argc")) (OGlobal LPtr argcGlobalName))
+    emit (IStore LPtr (OLocal LPtr (Register "argv")) (OGlobal LPtr argvGlobalName))
     env <- emitRecursiveGroup Map.empty (concatMap bindPairs binds)
     mainObject <- resolveName env (stgBinderName mainBinder)
     if stgBinderType mainBinder == ioTy unitTy
       then do
-        _ <- emitForce mainObject
-        pure ()
+        ioResult <- emitForce mainObject
+        emitIOResultExitCode ioResult
       else do
         printedValue <- printableMainValue (stgBinderType mainBinder) mainObject
         fmt <- formatPointer (stgBinderType mainBinder)
         printedReg <- freshRegister "printed"
         emit (ICall (Just printedReg) LI32 (DirectCall "printf") True [(LPtr, fmt), (operandType printedValue, printedValue)])
-    pure (OConstInt LI32 0)
+        pure (OConstInt LI32 0)
 
 lowerForeignExportFunction :: STGProgram -> CoreForeignExport -> ModuleM LLVMFunction
 lowerForeignExportFunction program foreignExport = do
   abi <- liftEitherModule (foreignExportFunctionABI foreignExport)
-  let params = foreignABIParameters abi
+  let (_argumentTypes, declaredResultTy) = splitForeignFunctionType (coreForeignExportType foreignExport)
+      params = foreignABIParameters abi
       symbol = foreignFunctionSymbol abi
   case foreignFunctionResult abi of
     ForeignABIVoid ->
       runVoidFunction symbol params $ do
         resultObject <- emitForeignExportResult program foreignExport abi params
-        _ <- emitForce resultObject
+        _ <- emitForeignReturnValue declaredResultTy resultObject
         pure ()
     resultABI ->
       runFunction symbol (foreignABITypeLLVM resultABI) params $ do
         resultObject <- emitForeignExportResult program foreignExport abi params
-        forcedResult <- emitForce resultObject
+        forcedResult <- emitForeignReturnValue declaredResultTy resultObject
         emitUnboxForeignReturn resultABI forcedResult
 
 emitForeignExportResult :: STGProgram -> CoreForeignExport -> ForeignFunctionABI -> [(LLVMType, Register)] -> FunctionM LLVMOperand
@@ -199,6 +209,10 @@ printableMainValue ty value
       reg <- freshRegister "main_int"
       emit (ICall (Just reg) LI64 (DirectCall expectIntFunctionName) False [(LPtr, value)])
       pure (OLocal LI64 reg)
+  | ty == integerTy = do
+      reg <- freshRegister "main_integer"
+      emit (ICall (Just reg) LI64 (DirectCall expectIntFunctionName) False [(LPtr, value)])
+      pure (OLocal LI64 reg)
   | ty == boolTy = do
       boolReg <- freshRegister "main_bool"
       emit (ICall (Just boolReg) LI1 (DirectCall expectBoolFunctionName) False [(LPtr, value)])
@@ -209,8 +223,20 @@ printableMainValue ty value
       charReg <- freshRegister "main_char"
       emit (ICall (Just charReg) LI32 (DirectCall expectCharFunctionName) False [(LPtr, value)])
       pure (OLocal LI32 charReg)
+  | ty == floatTy = do
+      floatReg <- freshRegister "main_float"
+      emit (ICall (Just floatReg) LFloat (DirectCall expectFloatFunctionName) False [(LPtr, value)])
+      doubleReg <- freshRegister "main_float_double"
+      emit (IFPExt doubleReg (OLocal LFloat floatReg) LDouble)
+      pure (OLocal LDouble doubleReg)
+  | ty == doubleTy = do
+      doubleReg <- freshRegister "main_double"
+      emit (ICall (Just doubleReg) LDouble (DirectCall expectDoubleFunctionName) False [(LPtr, value)])
+      pure (OLocal LDouble doubleReg)
+  | Just fixed <- fixedIntegralTypeByCoreType ty =
+      emitExpectObjectInt value >>= emitNormalizeFixed fixed
   | otherwise =
-      throwSTGLLVM (STGLLVMUnsupported ("native Haskell 2010 main must be Int, Bool, or Char, got " <> renderCoreType ty))
+      throwSTGLLVM (STGLLVMUnsupported ("native Haskell 2010 main must be Int, Integer, fixed-width integral, Bool, Char, Float, or Double, got " <> renderCoreType ty))
 
 formatPointer :: CoreType -> FunctionM LLVMOperand
 formatPointer ty = do
@@ -218,6 +244,8 @@ formatPointer ty = do
   let formatSpec
         | ty == boolTy = ("haskell2010_fmt_i1", boolFormatBytes)
         | ty == charTy = ("haskell2010_fmt_char", charFormatBytes)
+        | ty == floatTy || ty == doubleTy = ("haskell2010_fmt_double", doubleFormatBytes)
+        | Just fixed <- fixedIntegralTypeByCoreType ty, not (fixedIntegralIsSigned fixed) = ("haskell2010_fmt_u64", wordFormatBytes)
         | otherwise = ("haskell2010_fmt_i64", intFormatBytes)
       (globalName, bytes) = formatSpec
       arrayType = LArray (Text.length bytes) LI8
@@ -232,6 +260,8 @@ formatPointer ty = do
 
 emitExpr :: ValueEnv -> STGExpr -> FunctionM LLVMOperand
 emitExpr env = \case
+  STGSpanned _ expression ->
+    emitExpr env expression
   STGAtom atom ->
     emitAtomValue env atom
   STGApp callee arguments _ -> do
@@ -383,6 +413,14 @@ emitLiteral = \case
     case mkHIntLiteral value of
       Right intValue -> emitMakeInt (hintToInteger intValue)
       Left err -> throwSTGLLVM (STGLLVMUnsupported ("native Int literal is out of range: " <> renderIntError err))
+  LInteger value ->
+    case mkHIntLiteral value of
+      Right intValue -> emitMakeInt (hintToInteger intValue)
+      Left err -> throwSTGLLVM (STGLLVMUnsupported ("native Integer literal is outside the current native i64 payload path: " <> renderIntError err))
+  S.LFloat value ->
+    doubleToFloating FloatWidth (OConstFloat LDouble (Text.pack (show (realToFrac value :: Double)))) >>= emitMakeFloat
+  S.LDouble value ->
+    emitMakeDouble (OConstFloat LDouble (Text.pack (show value)))
   LChar value ->
     emitMakeChar (fromIntegral (ord value))
   LString value ->
@@ -436,6 +474,109 @@ emitPrim env op arguments =
     (PrimNegate, [value]) -> do
       valueOperand <- emitExpectAtomInt env value
       emitCheckedSub (OConstInt LI64 0) valueOperand >>= emitMakeIntOperand
+    (PrimBitAnd, [lhs, rhs]) ->
+      emitIntBitBinary env "bit_and" IAnd lhs rhs >>= emitMakeIntOperand
+    (PrimBitOr, [lhs, rhs]) ->
+      emitIntBitBinary env "bit_or" IOr lhs rhs >>= emitMakeIntOperand
+    (PrimBitXor, [lhs, rhs]) ->
+      emitIntBitBinary env "bit_xor" IXor lhs rhs >>= emitMakeIntOperand
+    (PrimBitComplement, [value]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      reg <- freshRegister "bit_complement"
+      emit (IXor reg LI64 valueOperand (OConstInt LI64 (-1)))
+      emitMakeIntOperand (OLocal LI64 reg)
+    (PrimShift, [value, amount]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      amountOperand <- emitExpectAtomInt env amount
+      emitSafeShift valueOperand amountOperand >>= emitMakeIntOperand
+    (PrimShiftL, [value, amount]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      amountOperand <- emitExpectAtomInt env amount
+      emitAbortIfNegativeBitCount "shift_l" amountOperand
+      emitSafeShiftLeftNonNegative valueOperand amountOperand >>= emitMakeIntOperand
+    (PrimShiftR, [value, amount]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      amountOperand <- emitExpectAtomInt env amount
+      emitAbortIfNegativeBitCount "shift_r" amountOperand
+      emitSafeShiftRightNonNegative valueOperand amountOperand >>= emitMakeIntOperand
+    (PrimRotate, [value, amount]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      amountOperand <- emitExpectAtomInt env amount
+      rotateAmount <- emitModulo64 "rotate" amountOperand
+      emitRotateLeftNormalized valueOperand rotateAmount >>= emitMakeIntOperand
+    (PrimRotateL, [value, amount]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      amountOperand <- emitExpectAtomInt env amount
+      emitAbortIfNegativeBitCount "rotate_l" amountOperand
+      rotateAmount <- emitModulo64 "rotate_l" amountOperand
+      emitRotateLeftNormalized valueOperand rotateAmount >>= emitMakeIntOperand
+    (PrimRotateR, [value, amount]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      amountOperand <- emitExpectAtomInt env amount
+      emitAbortIfNegativeBitCount "rotate_r" amountOperand
+      rotateAmount <- emitModulo64 "rotate_r" amountOperand
+      emitRotateRightNormalized valueOperand rotateAmount >>= emitMakeIntOperand
+    (PrimBit, [amount]) -> do
+      amountOperand <- emitExpectAtomInt env amount
+      emitAbortIfNegativeBitCount "bit" amountOperand
+      emitBitValue amountOperand >>= emitMakeIntOperand
+    (PrimTestBit, [value, amount]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      amountOperand <- emitExpectAtomInt env amount
+      emitAbortIfNegativeBitCount "test_bit" amountOperand
+      bitSet <- emitTestBitValue valueOperand amountOperand
+      emitMakeBool bitSet
+    (PrimIntegerAdd, [lhs, rhs]) -> emitIntBinary env "llvm.sadd.with.overflow.i64" lhs rhs >>= emitMakeIntOperand
+    (PrimIntegerSub, [lhs, rhs]) -> emitIntBinary env "llvm.ssub.with.overflow.i64" lhs rhs >>= emitMakeIntOperand
+    (PrimIntegerMul, [lhs, rhs]) -> emitIntBinary env "llvm.smul.with.overflow.i64" lhs rhs >>= emitMakeIntOperand
+    (PrimIntegerQuot, [lhs, rhs]) -> emitCheckedDiv env lhs rhs >>= emitMakeIntOperand
+    (PrimIntegerRem, [lhs, rhs]) -> emitCheckedRem env lhs rhs >>= emitMakeIntOperand
+    (PrimIntegerEq, [lhs, rhs]) -> do
+      lhsValue <- emitExpectAtomInt env lhs
+      rhsValue <- emitExpectAtomInt env rhs
+      reg <- freshRegister "integer_eq"
+      emit (IIcmp reg ICmpEq LI64 lhsValue rhsValue)
+      emitMakeBool (OLocal LI1 reg)
+    (PrimIntegerLt, [lhs, rhs]) -> do
+      lhsValue <- emitExpectAtomInt env lhs
+      rhsValue <- emitExpectAtomInt env rhs
+      reg <- freshRegister "integer_lt"
+      emit (IIcmp reg ICmpSlt LI64 lhsValue rhsValue)
+      emitMakeBool (OLocal LI1 reg)
+    (PrimIntegerNegate, [value]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      emitCheckedSub (OConstInt LI64 0) valueOperand >>= emitMakeIntOperand
+    (PrimIntegerAbs, [value]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      negativeReg <- freshRegister "integer_abs_negative"
+      emit (IIcmp negativeReg ICmpSlt LI64 valueOperand (OConstInt LI64 0))
+      result <- emitValueIf "integer_abs" LI64 (OLocal LI1 negativeReg) (emitCheckedSub (OConstInt LI64 0) valueOperand) (pure valueOperand)
+      emitMakeIntOperand result
+    (PrimIntegerSignum, [value]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      zeroReg <- freshRegister "integer_signum_zero"
+      negativeReg <- freshRegister "integer_signum_negative"
+      emit (IIcmp zeroReg ICmpEq LI64 valueOperand (OConstInt LI64 0))
+      emit (IIcmp negativeReg ICmpSlt LI64 valueOperand (OConstInt LI64 0))
+      nonZero <- emitValueIf "integer_signum_nonzero" LI64 (OLocal LI1 negativeReg) (pure (OConstInt LI64 (-1))) (pure (OConstInt LI64 1))
+      emitValueIf "integer_signum" LI64 (OLocal LI1 zeroReg) (pure (OConstInt LI64 0)) (pure nonZero) >>= emitMakeIntOperand
+    (PrimIntegerToInt, [value]) ->
+      emitAtomValue env value
+    (PrimIntToInteger, [value]) ->
+      emitAtomValue env value
+    (PrimIntegerToFloat width, [value]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      let targetTy = floatingLLVMType width
+      reg <- freshRegister "integer_to_float"
+      emit (ISIToFP reg valueOperand targetTy)
+      case width of
+        FloatWidth -> emitMakeFloat (OLocal LFloat reg)
+        DoubleWidth -> emitMakeDouble (OLocal LDouble reg)
+    (PrimShowInteger, [value]) -> do
+      valueOperand <- emitExpectAtomInt env value
+      resultReg <- freshRegister "show_integer"
+      emit (ICall (Just resultReg) LPtr (DirectCall showIntFunctionName) False [(LI64, valueOperand)])
+      pure (OLocal LPtr resultReg)
     (PrimCharToInt, [value]) -> do
       valueOperand <- emitExpectAtomChar env value
       extendedReg <- freshRegister "char_i64"
@@ -453,71 +594,240 @@ emitPrim env op arguments =
     (PrimShowBool, [value]) -> do
       valueOperand <- emitExpectAtomBool env value
       emitShowBool valueOperand
+    (PrimFixedIntegral fixed fixedOp, args) ->
+      emitFixedIntegralPrim env fixed fixedOp args
+    (PrimFloat width floatingOp, args) ->
+      emitFloatingPrim env width floatingOp args
+    (PrimFloatInt width floatingOp, args) ->
+      emitFloatingIntPrim env width floatingOp args
     (PrimPutStrLn, [value]) -> do
       valueObject <- emitAtomAddress env value
       emit (ICall Nothing LVoid (DirectCall putStrLnFunctionName) False [(LPtr, valueObject)])
-      emitConstructorObject unitDataConName unitTy []
+      unitObject <- emitConstructorObject unitDataConName unitTy []
+      emitMakeIOSuccess unitObject
     (PrimGetLine, []) -> do
       resultReg <- freshRegister "getline"
       emit (ICall (Just resultReg) LPtr (DirectCall getLineFunctionName) False [])
-      pure (OLocal LPtr resultReg)
+      emitMakeIOSuccess (OLocal LPtr resultReg)
+    (PrimGetArgs, []) -> do
+      resultReg <- freshRegister "getargs"
+      emit (ICall (Just resultReg) LPtr (DirectCall getArgsFunctionName) False [])
+      emitMakeIOSuccess (OLocal LPtr resultReg)
+    (PrimGetProgName, []) -> do
+      resultReg <- freshRegister "getprogname"
+      emit (ICall (Just resultReg) LPtr (DirectCall getProgNameFunctionName) False [])
+      emitMakeIOSuccess (OLocal LPtr resultReg)
+    (PrimGetEnv, [name]) -> do
+      nameObject <- emitAtomAddress env name
+      envResult <- emitGetEnv nameObject
+      pure envResult
+    (PrimExitWith, [exitCode]) -> do
+      exitCodeObject <- emitAtomAddress env exitCode
+      emitExitWithResult exitCodeObject
+    (PrimStdHandle handle, []) ->
+      emitStdHandle handle
+    (PrimOpenFile, [path, mode]) ->
+      emitRuntimeIOCall2 systemIOOpenFileFunctionName env path mode
+    (PrimHClose, [handle]) ->
+      emitRuntimeIOCall1 systemIOHCloseFunctionName env handle
+    (PrimReadFile, [path]) ->
+      emitRuntimeIOCall1 systemIOReadFileFunctionName env path
+    (PrimWriteFile, [path, contents]) ->
+      emitRuntimeIOCall2 systemIOWriteFileFunctionName env path contents
+    (PrimAppendFile, [path, contents]) ->
+      emitRuntimeIOCall2 systemIOAppendFileFunctionName env path contents
+    (PrimHFileSize, [handle]) ->
+      emitRuntimeIOCall1 systemIOHFileSizeFunctionName env handle
+    (PrimHSetFileSize, [handle, size]) ->
+      emitRuntimeIOCall2 systemIOHSetFileSizeFunctionName env handle size
+    (PrimHIsEOF, [handle]) ->
+      emitRuntimeIOCall1 systemIOHIsEOFFunctionName env handle
+    (PrimHSetBuffering, [handle, mode]) ->
+      emitRuntimeIOCall2 systemIOHSetBufferingFunctionName env handle mode
+    (PrimHGetBuffering, [handle]) ->
+      emitRuntimeIOCall1 systemIOHGetBufferingFunctionName env handle
+    (PrimHFlush, [handle]) ->
+      emitRuntimeIOCall1 systemIOHFlushFunctionName env handle
+    (PrimHGetPosn, [handle]) ->
+      emitRuntimeIOCall1 systemIOHGetPosnFunctionName env handle
+    (PrimHSetPosn, [posn]) ->
+      emitRuntimeIOCall1 systemIOHSetPosnFunctionName env posn
+    (PrimHSeek, [handle, mode, offset]) ->
+      emitRuntimeIOCall3 systemIOHSeekFunctionName env handle mode offset
+    (PrimHTell, [handle]) ->
+      emitRuntimeIOCall1 systemIOHTellFunctionName env handle
+    (PrimHIsOpen, [handle]) ->
+      emitRuntimeIOCall1 systemIOHIsOpenFunctionName env handle
+    (PrimHIsClosed, [handle]) ->
+      emitRuntimeIOCall1 systemIOHIsClosedFunctionName env handle
+    (PrimHIsReadable, [handle]) ->
+      emitRuntimeIOCall1 systemIOHIsReadableFunctionName env handle
+    (PrimHIsWritable, [handle]) ->
+      emitRuntimeIOCall1 systemIOHIsWritableFunctionName env handle
+    (PrimHIsSeekable, [handle]) ->
+      emitRuntimeIOCall1 systemIOHIsSeekableFunctionName env handle
+    (PrimHIsTerminalDevice, [handle]) ->
+      emitRuntimeIOCall1 systemIOHIsTerminalDeviceFunctionName env handle
+    (PrimHSetEcho, [handle, enabled]) ->
+      emitRuntimeIOCall2 systemIOHSetEchoFunctionName env handle enabled
+    (PrimHGetEcho, [handle]) ->
+      emitRuntimeIOCall1 systemIOHGetEchoFunctionName env handle
+    (PrimHShow, [handle]) ->
+      emitRuntimeIOCall1 systemIOHShowFunctionName env handle
+    (PrimHWaitForInput, [handle, timeout]) ->
+      emitRuntimeIOCall2 systemIOHWaitForInputFunctionName env handle timeout
+    (PrimHReady, [handle]) ->
+      emitRuntimeIOCall1 systemIOHReadyFunctionName env handle
+    (PrimHGetChar, [handle]) ->
+      emitRuntimeIOCall1 systemIOHGetCharFunctionName env handle
+    (PrimHGetLine, [handle]) ->
+      emitRuntimeIOCall1 systemIOHGetLineFunctionName env handle
+    (PrimHLookAhead, [handle]) ->
+      emitRuntimeIOCall1 systemIOHLookAheadFunctionName env handle
+    (PrimHGetContents, [handle]) ->
+      emitRuntimeIOCall1 systemIOHGetContentsFunctionName env handle
+    (PrimHPutChar, [handle, value]) ->
+      emitRuntimeIOCall2 systemIOHPutCharFunctionName env handle value
+    (PrimHPutStr, [handle, value]) ->
+      emitRuntimeIOCall2 systemIOHPutStrFunctionName env handle value
+    (PrimHPutStrLn, [handle, value]) ->
+      emitRuntimeIOCall2 systemIOHPutStrLnFunctionName env handle value
     (PrimIOThen, [firstAction, secondAction]) -> do
       firstObject <- emitAtomAddress env firstAction
-      _ <- emitForce firstObject
-      secondObject <- emitAtomAddress env secondAction
-      emitForce secondObject
+      firstResult <- emitForce firstObject
+      emitIOResultSuccessBranch
+        firstResult
+        (pure firstResult)
+        (emitAtomAddress env secondAction >>= emitForce)
     (PrimIOBind, [firstAction, continuation]) -> do
       firstObject <- emitAtomAddress env firstAction
       firstResult <- emitForce firstObject
-      continuationObject <- emitAtomAddress env continuation
-      functionObject <- emitExpectFunction continuationObject
-      secondAction <- enterFunction functionObject firstResult
-      emitForce secondAction
+      emitIOResultSuccessBranch firstResult (pure firstResult) $ do
+        firstPayload <- emitIOResultPayload firstResult
+        continuationObject <- emitAtomAddress env continuation
+        functionObject <- emitExpectFunction continuationObject
+        secondAction <- enterFunction functionObject firstPayload
+        emitForce secondAction
     (PrimIOReturn, [value]) ->
-      emitAtomAddress env value
-    (PrimIOFail, [_message]) -> do
-      emitAbort
-      continueLabel <- freshBlockLabel "io_fail_unreachable"
-      startBlock continueLabel
-      pure OConstNull
+      emitAtomAddress env value >>= emitMakeIOSuccess
+    (PrimIOFail, [message]) -> do
+      messageObject <- emitAtomAddress env message
+      errorObject <- emitUserIOError messageObject
+      emitMakeIOFailure errorObject
+    (PrimIOError, [value]) ->
+      emitAtomAddress env value >>= emitMakeIOFailure
+    (PrimNullPtr, []) ->
+      emitMakePointer OConstNull
+    (PrimCastPtr, [pointer]) ->
+      emitAtomValue env pointer
+    (PrimIsNullPtr, [pointer]) -> do
+      pointerValue <- emitExpectAtomPointer env pointer
+      reg <- freshRegister "is_null_ptr"
+      emit (IIcmp reg ICmpEq LPtr pointerValue OConstNull)
+      emitMakeBool (OLocal LI1 reg)
+    (PrimIOCatch, [action, handler]) -> do
+      actionObject <- emitAtomAddress env action
+      actionResult <- emitForce actionObject
+      emitIOResultBranch actionResult
+        ( do
+            errorObject <- emitIOResultPayload actionResult
+            handlerObject <- emitAtomAddress env handler
+            functionObject <- emitExpectFunction handlerObject
+            handledAction <- enterFunction functionObject errorObject
+            emitForce handledAction
+        )
+        (pure actionResult)
+    (PrimPtrPlus, [pointer, offset]) ->
+      emitRuntimeCall2 ffiPtrPlusFunctionName env pointer offset
+    (PrimPtrMinus, [left, right]) ->
+      emitRuntimeCall2 ffiPtrMinusFunctionName env left right
+    (PrimPtrAlign, [pointer, alignment]) ->
+      emitRuntimeCall2 ffiPtrAlignFunctionName env pointer alignment
+    (PrimMallocBytes, [size]) ->
+      emitRuntimeIOCall1 ffiMallocBytesFunctionName env size
+    (PrimReallocBytes, [pointer, size]) ->
+      emitRuntimeIOCall2 ffiReallocBytesFunctionName env pointer size
+    (PrimFree, [pointer]) ->
+      emitRuntimeIOCall1 ffiFreeFunctionName env pointer
+    (PrimFinalizerFree, []) ->
+      emitMakePointer (OGlobal LPtr ffiFinalizerFreeFunctionName)
+    (PrimPeek kind, [pointer, offset]) ->
+      emitRuntimeIOCall2 (ffiPeekFunctionName kind) env pointer offset
+    (PrimPoke kind, [pointer, offset, value]) ->
+      emitRuntimeIOCall3 (ffiPokeFunctionName kind) env pointer offset value
+    (PrimCopyBytes, [dest, source, size]) ->
+      emitRuntimeIOCall3 ffiCopyBytesFunctionName env dest source size
+    (PrimMoveBytes, [dest, source, size]) ->
+      emitRuntimeIOCall3 ffiMoveBytesFunctionName env dest source size
+    (PrimGetErrno, []) ->
+      emitRuntimeIOCall0 ffiGetErrnoFunctionName
+    (PrimResetErrno, []) ->
+      emitRuntimeIOCall0 ffiResetErrnoFunctionName
+    (PrimPeekCString, [pointer]) ->
+      emitRuntimeIOCall1 ffiPeekCStringFunctionName env pointer
+    (PrimPeekCStringLen, [pointer, lengthValue]) ->
+      emitRuntimeIOCall2 ffiPeekCStringLenFunctionName env pointer lengthValue
+    (PrimNewCString, [value]) ->
+      emitRuntimeIOCall1 ffiNewCStringFunctionName env value
+    (PrimPeekCWString, [pointer]) ->
+      emitRuntimeIOCall1 ffiPeekCWStringFunctionName env pointer
+    (PrimPeekCWStringLen, [pointer, lengthValue]) ->
+      emitRuntimeIOCall2 ffiPeekCWStringLenFunctionName env pointer lengthValue
+    (PrimNewCWString, [value]) ->
+      emitRuntimeIOCall1 ffiNewCWStringFunctionName env value
+    (PrimIOTry, [action]) -> do
+      actionObject <- emitAtomAddress env action
+      actionResult <- emitForce actionObject
+      resultTy <- ioTryResultType action
+      emitIOTryResult resultTy actionResult
+    (PrimIOFix, [function]) ->
+      emitRuntimeIOCall1 systemIOFixFunctionName env function
     (PrimNewStablePtr, [value]) -> do
       valueObject <- emitAtomAddress env value
       reg <- freshRegister "stable_ptr"
       emit (ICall (Just reg) LPtr (DirectCall newStablePtrFunctionName) False [(LPtr, valueObject)])
-      pure (OLocal LPtr reg)
+      emitMakeIOSuccess (OLocal LPtr reg)
     (PrimDeRefStablePtr, [stable]) -> do
       stableObject <- emitAtomAddress env stable
       reg <- freshRegister "stable_value"
       emit (ICall (Just reg) LPtr (DirectCall deRefStablePtrFunctionName) False [(LPtr, stableObject)])
-      pure (OLocal LPtr reg)
+      emitMakeIOSuccess (OLocal LPtr reg)
     (PrimFreeStablePtr, [stable]) -> do
       stableObject <- emitAtomAddress env stable
       emit (ICall Nothing LVoid (DirectCall freeStablePtrFunctionName) False [(LPtr, stableObject)])
-      emitConstructorObject unitDataConName unitTy []
+      unitObject <- emitConstructorObject unitDataConName unitTy []
+      emitMakeIOSuccess unitObject
     (PrimCastStablePtrToPtr, [stable]) ->
       emitAtomValue env stable
     (PrimCastPtrToStablePtr, [pointer]) ->
       emitAtomValue env pointer
+    (PrimFreeHaskellFunPtr, [functionPointer]) -> do
+      rawFunctionPointer <- emitExpectAtomPointer env functionPointer
+      emitFreeHaskellFunPtr rawFunctionPointer
+      unitObject <- emitConstructorObject unitDataConName unitTy []
+      emitMakeIOSuccess unitObject
     (PrimNewForeignPtr, [finalizer, pointer]) -> do
       finalizerPointer <- emitExpectAtomPointer env finalizer
       rawPointer <- emitExpectAtomPointer env pointer
       reg <- freshRegister "foreign_ptr"
       emit (ICall (Just reg) LPtr (DirectCall makeForeignPtrFunctionName) False [(LPtr, rawPointer), (LPtr, finalizerPointer)])
-      pure (OLocal LPtr reg)
+      emitMakeIOSuccess (OLocal LPtr reg)
     (PrimNewForeignPtr_, [pointer]) -> do
       rawPointer <- emitExpectAtomPointer env pointer
       reg <- freshRegister "foreign_ptr"
       emit (ICall (Just reg) LPtr (DirectCall makeForeignPtrFunctionName) False [(LPtr, rawPointer), (LPtr, OConstNull)])
-      pure (OLocal LPtr reg)
+      emitMakeIOSuccess (OLocal LPtr reg)
     (PrimAddForeignPtrFinalizer, [finalizer, foreignPtr]) -> do
       finalizerPointer <- emitExpectAtomPointer env finalizer
       foreignPtrObject <- emitAtomAddress env foreignPtr
       emit (ICall Nothing LVoid (DirectCall addForeignPtrFinalizerFunctionName) False [(LPtr, foreignPtrObject), (LPtr, finalizerPointer)])
-      emitConstructorObject unitDataConName unitTy []
+      unitObject <- emitConstructorObject unitDataConName unitTy []
+      emitMakeIOSuccess unitObject
     (PrimFinalizeForeignPtr, [foreignPtr]) -> do
       foreignPtrObject <- emitAtomAddress env foreignPtr
       emit (ICall Nothing LVoid (DirectCall finalizeForeignPtrFunctionName) False [(LPtr, foreignPtrObject)])
-      emitConstructorObject unitDataConName unitTy []
+      unitObject <- emitConstructorObject unitDataConName unitTy []
+      emitMakeIOSuccess unitObject
     (PrimWithForeignPtr, [foreignPtr, continuation]) -> do
       foreignPtrObject <- emitAtomAddress env foreignPtr
       rawPointerReg <- freshRegister "foreign_ptr_payload"
@@ -532,7 +842,15 @@ emitPrim env op arguments =
     (PrimTouchForeignPtr, [foreignPtr]) -> do
       foreignPtrObject <- emitAtomAddress env foreignPtr
       emit (ICall Nothing LVoid (DirectCall touchForeignPtrFunctionName) False [(LPtr, foreignPtrObject)])
-      emitConstructorObject unitDataConName unitTy []
+      unitObject <- emitConstructorObject unitDataConName unitTy []
+      emitMakeIOSuccess unitObject
+    (PrimUnsafeForeignPtrToPtr, [foreignPtr]) -> do
+      foreignPtrObject <- emitAtomAddress env foreignPtr
+      rawPointerReg <- freshRegister "foreign_ptr_payload"
+      emit (ICall (Just rawPointerReg) LPtr (DirectCall foreignPtrAddressFunctionName) False [(LPtr, foreignPtrObject)])
+      emitMakePointer (OLocal LPtr rawPointerReg)
+    (PrimCastForeignPtr, [foreignPtr]) ->
+      emitAtomValue env foreignPtr
     _ ->
       throwSTGLLVM
         ( STGLLVMUnsupported
@@ -542,6 +860,419 @@ emitPrim env op arguments =
                 <> Text.pack (show (length arguments))
             )
         )
+
+emitFixedIntegralPrim :: ValueEnv -> FixedIntegral -> FixedIntegralOp -> [STGAtom] -> FunctionM LLVMOperand
+emitFixedIntegralPrim env fixed op arguments =
+  case (op, arguments) of
+    (FixedAdd, [lhs, rhs]) -> emitFixedBinary env fixed "fixed_add" IAdd lhs rhs
+    (FixedSub, [lhs, rhs]) -> emitFixedBinary env fixed "fixed_sub" ISub lhs rhs
+    (FixedMul, [lhs, rhs]) -> emitFixedBinary env fixed "fixed_mul" IMul lhs rhs
+    (FixedQuot, [lhs, rhs]) -> emitFixedQuotRem env fixed True lhs rhs
+    (FixedRem, [lhs, rhs]) -> emitFixedQuotRem env fixed False lhs rhs
+    (FixedEq, [lhs, rhs]) -> emitFixedEq env fixed lhs rhs
+    (FixedLt, [lhs, rhs]) -> emitFixedLt env fixed lhs rhs
+    (FixedNegate, [value]) -> do
+      valueOperand <- emitExpectFixedAtom env fixed value
+      resultReg <- freshRegister "fixed_negate"
+      emit (ISub resultReg LI64 (OConstInt LI64 0) valueOperand)
+      emitMakeFixedOperand fixed (OLocal LI64 resultReg)
+    (FixedAbs, [value]) -> do
+      valueOperand <- emitExpectFixedAtom env fixed value
+      if fixedIntegralIsSigned fixed
+        then do
+          negativeReg <- freshRegister "fixed_abs_negative"
+          emit (IIcmp negativeReg ICmpSlt LI64 valueOperand (OConstInt LI64 0))
+          result <- emitValueIf "fixed_abs" LI64 (OLocal LI1 negativeReg) (emitFixedNegatedOperand fixed valueOperand) (pure valueOperand)
+          emitMakeFixedOperand fixed result
+        else emitMakeFixedOperand fixed valueOperand
+    (FixedSignum, [value]) -> do
+      valueOperand <- emitExpectFixedAtom env fixed value
+      zeroReg <- freshRegister "fixed_signum_zero"
+      emit (IIcmp zeroReg ICmpEq LI64 valueOperand (OConstInt LI64 0))
+      nonZero <-
+        if fixedIntegralIsSigned fixed
+          then do
+            negativeReg <- freshRegister "fixed_signum_negative"
+            emit (IIcmp negativeReg ICmpSlt LI64 valueOperand (OConstInt LI64 0))
+            emitValueIf "fixed_signum_nonzero" LI64 (OLocal LI1 negativeReg) (pure (OConstInt LI64 (-1))) (pure (OConstInt LI64 1))
+          else pure (OConstInt LI64 1)
+      emitValueIf "fixed_signum" LI64 (OLocal LI1 zeroReg) (pure (OConstInt LI64 0)) (pure nonZero) >>= emitMakeFixedOperand fixed
+    (FixedFromInteger, [value]) ->
+      emitExpectAtomInt env value >>= emitMakeFixedOperand fixed
+    (FixedToInteger, [value]) ->
+      (if fixedIntegralIsSigned fixed then emitExpectFixedAtom env fixed value else emitExpectFixedBitsAtom env fixed value) >>= emitMakeIntOperand
+    (FixedShow, [value]) -> do
+      valueOperand <-
+        if fixedIntegralIsSigned fixed
+          then emitExpectFixedAtom env fixed value
+          else emitExpectFixedBitsAtom env fixed value
+      resultReg <- freshRegister "show_fixed"
+      emit
+        ( ICall
+            (Just resultReg)
+            LPtr
+            (DirectCall (if fixedIntegralIsSigned fixed then showIntFunctionName else showWordFunctionName))
+            False
+            [(LI64, valueOperand)]
+        )
+      pure (OLocal LPtr resultReg)
+    (FixedBitAnd, [lhs, rhs]) -> emitFixedBinary env fixed "fixed_and" IAnd lhs rhs
+    (FixedBitOr, [lhs, rhs]) -> emitFixedBinary env fixed "fixed_or" IOr lhs rhs
+    (FixedBitXor, [lhs, rhs]) -> emitFixedBinary env fixed "fixed_xor" IXor lhs rhs
+    (FixedBitComplement, [value]) -> do
+      valueOperand <- emitExpectFixedAtom env fixed value
+      resultReg <- freshRegister "fixed_complement"
+      emit (IXor resultReg LI64 valueOperand (OConstInt LI64 (-1)))
+      emitMakeFixedOperand fixed (OLocal LI64 resultReg)
+    (FixedShift, [value, amount]) -> emitFixedShift env fixed value amount
+    (FixedShiftL, [value, amount]) -> emitFixedShiftDirected env fixed True value amount
+    (FixedShiftR, [value, amount]) -> emitFixedShiftDirected env fixed False value amount
+    (FixedRotate, [value, amount]) -> emitFixedRotate env fixed True False value amount
+    (FixedRotateL, [value, amount]) -> emitFixedRotate env fixed True True value amount
+    (FixedRotateR, [value, amount]) -> emitFixedRotate env fixed False True value amount
+    (FixedBit, [amount]) -> emitFixedBit env fixed amount
+    (FixedTestBit, [value, amount]) -> emitFixedTestBit env fixed value amount
+    (FixedMinBound, []) -> emitMakeInt (fixedPayloadLiteral fixed (fixedIntegralMinValue fixed))
+    (FixedMaxBound, []) -> emitMakeInt (fixedPayloadLiteral fixed (fixedIntegralMaxValue fixed))
+    _ ->
+      throwSTGLLVM
+        ( STGLLVMUnsupported
+            ( "native fixed-width primitive lowering received unsupported arity for "
+                <> fixedIntegralOccurrence fixed
+                <> "."
+                <> Text.pack (show op)
+                <> ": "
+                <> Text.pack (show (length arguments))
+            )
+        )
+
+emitFixedBinary :: ValueEnv -> FixedIntegral -> Text -> (Register -> LLVMType -> LLVMOperand -> LLVMOperand -> LLVMInstruction) -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedBinary env fixed prefix instruction lhs rhs = do
+  lhsValue <- emitExpectFixedAtom env fixed lhs
+  rhsValue <- emitExpectFixedAtom env fixed rhs
+  resultReg <- freshRegister prefix
+  emit (instruction resultReg LI64 lhsValue rhsValue)
+  emitMakeFixedOperand fixed (OLocal LI64 resultReg)
+
+emitFixedQuotRem :: ValueEnv -> FixedIntegral -> Bool -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedQuotRem env fixed quotient lhs rhs = do
+  lhsValue <- emitExpectFixedAtom env fixed lhs
+  rhsValue <- emitExpectFixedAtom env fixed rhs
+  emitAbortIfZero64 prefix rhsValue
+  result <-
+    if fixedIntegralIsSigned fixed
+      then emitSigned lhsValue rhsValue
+      else emitUnsigned lhsValue rhsValue
+  emitMakeFixedOperand fixed result
+ where
+  prefix = if quotient then "fixed_quot" else "fixed_rem"
+  emitSigned lhsValue rhsValue =
+    if fixedIntegralBitSize fixed == 64
+      then do
+        minReg <- freshRegister (prefix <> "_min")
+        negOneReg <- freshRegister (prefix <> "_neg_one")
+        overflowReg <- freshRegister (prefix <> "_overflow")
+        emit (IIcmp minReg ICmpEq LI64 lhsValue (OConstInt LI64 (fixedPayloadLiteral fixed (fixedIntegralMinValue fixed))))
+        emit (IIcmp negOneReg ICmpEq LI64 rhsValue (OConstInt LI64 (-1)))
+        emit (IAnd overflowReg LI1 (OLocal LI1 minReg) (OLocal LI1 negOneReg))
+        emitValueIf
+          prefix
+          LI64
+          (OLocal LI1 overflowReg)
+          (pure (if quotient then OConstInt LI64 (fixedPayloadLiteral fixed (fixedIntegralMinValue fixed)) else OConstInt LI64 0))
+          (emitPlainSigned lhsValue rhsValue)
+      else emitPlainSigned lhsValue rhsValue
+  emitPlainSigned lhsValue rhsValue = do
+    resultReg <- freshRegister prefix
+    emit ((if quotient then IDiv else IRem) resultReg LI64 lhsValue rhsValue)
+    pure (OLocal LI64 resultReg)
+  emitUnsigned lhsValue rhsValue = do
+    lhsBits <- emitFixedBitsOperand fixed lhsValue
+    rhsBits <- emitFixedBitsOperand fixed rhsValue
+    resultReg <- freshRegister prefix
+    emit ((if quotient then IUDiv else IURem) resultReg LI64 lhsBits rhsBits)
+    pure (OLocal LI64 resultReg)
+
+emitFixedEq :: ValueEnv -> FixedIntegral -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedEq env fixed lhs rhs = do
+  lhsValue <- emitExpectFixedAtom env fixed lhs
+  rhsValue <- emitExpectFixedAtom env fixed rhs
+  resultReg <- freshRegister "fixed_eq"
+  emit (IIcmp resultReg ICmpEq LI64 lhsValue rhsValue)
+  emitMakeBool (OLocal LI1 resultReg)
+
+emitFixedLt :: ValueEnv -> FixedIntegral -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedLt env fixed lhs rhs = do
+  lhsValue <- if fixedIntegralIsSigned fixed then emitExpectFixedAtom env fixed lhs else emitExpectFixedBitsAtom env fixed lhs
+  rhsValue <- if fixedIntegralIsSigned fixed then emitExpectFixedAtom env fixed rhs else emitExpectFixedBitsAtom env fixed rhs
+  resultReg <- freshRegister "fixed_lt"
+  emit (IIcmp resultReg (if fixedIntegralIsSigned fixed then ICmpSlt else ICmpUlt) LI64 lhsValue rhsValue)
+  emitMakeBool (OLocal LI1 resultReg)
+
+emitFixedNegatedOperand :: FixedIntegral -> LLVMOperand -> FunctionM LLVMOperand
+emitFixedNegatedOperand fixed value = do
+  resultReg <- freshRegister "fixed_negated"
+  emit (ISub resultReg LI64 (OConstInt LI64 0) value)
+  emitNormalizeFixed fixed (OLocal LI64 resultReg)
+
+emitFixedShift :: ValueEnv -> FixedIntegral -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedShift env fixed value amount = do
+  valueOperand <- emitExpectFixedAtom env fixed value
+  amountOperand <- emitExpectAtomInt env amount
+  negativeReg <- freshRegister "fixed_shift_negative"
+  emit (IIcmp negativeReg ICmpSlt LI64 amountOperand (OConstInt LI64 0))
+  shifted <-
+    emitValueIf
+      "fixed_shift"
+      LI64
+      (OLocal LI1 negativeReg)
+      ( do
+          positiveReg <- freshRegister "fixed_shift_positive_amount"
+          emit (ISub positiveReg LI64 (OConstInt LI64 0) amountOperand)
+          emitFixedShiftRightNonNegative fixed valueOperand (OLocal LI64 positiveReg)
+      )
+      (emitFixedShiftLeftNonNegative fixed valueOperand amountOperand)
+  emitMakeFixedOperand fixed shifted
+
+emitFixedShiftDirected :: ValueEnv -> FixedIntegral -> Bool -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedShiftDirected env fixed left value amount = do
+  valueOperand <- emitExpectFixedAtom env fixed value
+  amountOperand <- emitExpectAtomInt env amount
+  emitAbortIfNegativeBitCount (if left then "fixed_shift_l" else "fixed_shift_r") amountOperand
+  shifted <-
+    if left
+      then emitFixedShiftLeftNonNegative fixed valueOperand amountOperand
+      else emitFixedShiftRightNonNegative fixed valueOperand amountOperand
+  emitMakeFixedOperand fixed shifted
+
+emitFixedShiftLeftNonNegative :: FixedIntegral -> LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitFixedShiftLeftNonNegative fixed value amount = do
+  inRangeReg <- freshRegister "fixed_shift_l_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amount (OConstInt LI64 (fixedIntegralBitSize fixed)))
+  emitValueIf
+    "fixed_shift_l"
+    LI64
+    (OLocal LI1 inRangeReg)
+    ( do
+        resultReg <- freshRegister "fixed_shift_l"
+        emit (IShl resultReg LI64 value amount)
+        pure (OLocal LI64 resultReg)
+    )
+    (emitFixedLargeShiftResult fixed value)
+
+emitFixedShiftRightNonNegative :: FixedIntegral -> LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitFixedShiftRightNonNegative fixed value amount = do
+  inRangeReg <- freshRegister "fixed_shift_r_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amount (OConstInt LI64 (fixedIntegralBitSize fixed)))
+  emitValueIf
+    "fixed_shift_r"
+    LI64
+    (OLocal LI1 inRangeReg)
+    ( do
+        resultReg <- freshRegister "fixed_shift_r"
+        shiftValue <- if fixedIntegralIsSigned fixed then pure value else emitFixedBitsOperand fixed value
+        emit ((if fixedIntegralIsSigned fixed then IAshr else ILshr) resultReg LI64 shiftValue amount)
+        pure (OLocal LI64 resultReg)
+    )
+    (emitFixedLargeShiftResult fixed value)
+
+emitFixedLargeShiftResult :: FixedIntegral -> LLVMOperand -> FunctionM LLVMOperand
+emitFixedLargeShiftResult fixed value
+  | not (fixedIntegralIsSigned fixed) =
+      pure (OConstInt LI64 0)
+  | otherwise = do
+      negativeReg <- freshRegister "fixed_shift_value_negative"
+      emit (IIcmp negativeReg ICmpSlt LI64 value (OConstInt LI64 0))
+      emitValueIf "fixed_shift_large" LI64 (OLocal LI1 negativeReg) (pure (OConstInt LI64 (-1))) (pure (OConstInt LI64 0))
+
+emitFixedRotate :: ValueEnv -> FixedIntegral -> Bool -> Bool -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedRotate env fixed left rejectNegative value amount = do
+  valueOperand <- emitExpectFixedAtom env fixed value
+  amountOperand <- emitExpectAtomInt env amount
+  if rejectNegative then emitAbortIfNegativeBitCount (if left then "fixed_rotate_l" else "fixed_rotate_r") amountOperand else pure ()
+  normalizedAmount <- emitModuloFixedWidth (if left then "fixed_rotate_l" else "fixed_rotate_r") fixed amountOperand
+  bits <- emitFixedBitsOperand fixed valueOperand
+  rotated <-
+    if left
+      then emitFixedRotateLeftBits fixed bits normalizedAmount
+      else emitFixedRotateRightBits fixed bits normalizedAmount
+  emitMakeFixedOperand fixed rotated
+
+emitFixedRotateLeftBits :: FixedIntegral -> LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitFixedRotateLeftBits fixed value amount = do
+  zeroReg <- freshRegister "fixed_rotate_l_zero"
+  emit (IIcmp zeroReg ICmpEq LI64 amount (OConstInt LI64 0))
+  emitValueIf
+    "fixed_rotate_l"
+    LI64
+    (OLocal LI1 zeroReg)
+    (pure value)
+    ( do
+        leftReg <- freshRegister "fixed_rotate_l_left"
+        rightAmountReg <- freshRegister "fixed_rotate_l_right_amount"
+        rightReg <- freshRegister "fixed_rotate_l_right"
+        resultReg <- freshRegister "fixed_rotate_l_result"
+        emit (IShl leftReg LI64 value amount)
+        emit (ISub rightAmountReg LI64 (OConstInt LI64 (fixedIntegralBitSize fixed)) amount)
+        emit (ILshr rightReg LI64 value (OLocal LI64 rightAmountReg))
+        emit (IOr resultReg LI64 (OLocal LI64 leftReg) (OLocal LI64 rightReg))
+        pure (OLocal LI64 resultReg)
+    )
+
+emitFixedRotateRightBits :: FixedIntegral -> LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitFixedRotateRightBits fixed value amount = do
+  zeroReg <- freshRegister "fixed_rotate_r_zero"
+  emit (IIcmp zeroReg ICmpEq LI64 amount (OConstInt LI64 0))
+  emitValueIf
+    "fixed_rotate_r"
+    LI64
+    (OLocal LI1 zeroReg)
+    (pure value)
+    ( do
+        rightReg <- freshRegister "fixed_rotate_r_right"
+        leftAmountReg <- freshRegister "fixed_rotate_r_left_amount"
+        leftReg <- freshRegister "fixed_rotate_r_left"
+        resultReg <- freshRegister "fixed_rotate_r_result"
+        emit (ILshr rightReg LI64 value amount)
+        emit (ISub leftAmountReg LI64 (OConstInt LI64 (fixedIntegralBitSize fixed)) amount)
+        emit (IShl leftReg LI64 value (OLocal LI64 leftAmountReg))
+        emit (IOr resultReg LI64 (OLocal LI64 rightReg) (OLocal LI64 leftReg))
+        pure (OLocal LI64 resultReg)
+    )
+
+emitFixedBit :: ValueEnv -> FixedIntegral -> STGAtom -> FunctionM LLVMOperand
+emitFixedBit env fixed amount = do
+  amountOperand <- emitExpectAtomInt env amount
+  emitAbortIfNegativeBitCount "fixed_bit" amountOperand
+  inRangeReg <- freshRegister "fixed_bit_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amountOperand (OConstInt LI64 (fixedIntegralBitSize fixed)))
+  bitValue <-
+    emitValueIf
+      "fixed_bit"
+      LI64
+      (OLocal LI1 inRangeReg)
+      ( do
+          resultReg <- freshRegister "fixed_bit"
+          emit (IShl resultReg LI64 (OConstInt LI64 1) amountOperand)
+          pure (OLocal LI64 resultReg)
+      )
+      (pure (OConstInt LI64 0))
+  emitMakeFixedOperand fixed bitValue
+
+emitFixedTestBit :: ValueEnv -> FixedIntegral -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitFixedTestBit env fixed value amount = do
+  valueOperand <- emitExpectFixedBitsAtom env fixed value
+  amountOperand <- emitExpectAtomInt env amount
+  emitAbortIfNegativeBitCount "fixed_test_bit" amountOperand
+  inRangeReg <- freshRegister "fixed_test_bit_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amountOperand (OConstInt LI64 (fixedIntegralBitSize fixed)))
+  result <-
+    emitValueIf
+      "fixed_test_bit"
+      LI1
+      (OLocal LI1 inRangeReg)
+      ( do
+          shiftedReg <- freshRegister "fixed_test_bit_shifted"
+          lowBitReg <- freshRegister "fixed_test_bit_low"
+          resultReg <- freshRegister "fixed_test_bit_result"
+          emit (ILshr shiftedReg LI64 valueOperand amountOperand)
+          emit (IAnd lowBitReg LI64 (OLocal LI64 shiftedReg) (OConstInt LI64 1))
+          emit (IIcmp resultReg ICmpEq LI64 (OLocal LI64 lowBitReg) (OConstInt LI64 1))
+          pure (OLocal LI1 resultReg)
+      )
+      (pure (OConstInt LI1 0))
+  emitMakeBool result
+
+emitExpectFixedAtom :: ValueEnv -> FixedIntegral -> STGAtom -> FunctionM LLVMOperand
+emitExpectFixedAtom env fixed atom =
+  emitExpectAtomInt env atom >>= emitNormalizeFixed fixed
+
+emitExpectFixedBitsAtom :: ValueEnv -> FixedIntegral -> STGAtom -> FunctionM LLVMOperand
+emitExpectFixedBitsAtom env fixed atom =
+  emitExpectAtomInt env atom >>= emitFixedBitsOperand fixed
+
+emitMakeFixedOperand :: FixedIntegral -> LLVMOperand -> FunctionM LLVMOperand
+emitMakeFixedOperand fixed value =
+  emitNormalizeFixed fixed value >>= emitMakeIntOperand
+
+emitNormalizeFixed :: FixedIntegral -> LLVMOperand -> FunctionM LLVMOperand
+emitNormalizeFixed fixed value
+  | fixedIntegralBitSize fixed == 64 =
+      pure value
+  | otherwise = do
+      narrowed <- emitTruncateToFixed fixed value
+      extendedRegister <- freshRegister "fixed_normalized"
+      emit ((if fixedIntegralIsSigned fixed then ISext else IZext) extendedRegister narrowed LI64)
+      pure (OLocal LI64 extendedRegister)
+
+emitFixedBitsOperand :: FixedIntegral -> LLVMOperand -> FunctionM LLVMOperand
+emitFixedBitsOperand fixed value
+  | fixedIntegralBitSize fixed == 64 =
+      pure value
+  | otherwise = do
+      narrowed <- emitTruncateToFixed fixed value
+      extendedRegister <- freshRegister "fixed_bits"
+      emit (IZext extendedRegister narrowed LI64)
+      pure (OLocal LI64 extendedRegister)
+
+emitTruncateToFixed :: FixedIntegral -> LLVMOperand -> FunctionM LLVMOperand
+emitTruncateToFixed fixed value = do
+  narrowedRegister <- freshRegister "fixed_narrowed"
+  emit (ITrunc narrowedRegister value (fixedLLVMType fixed))
+  pure (OLocal (fixedLLVMType fixed) narrowedRegister)
+
+emitModuloFixedWidth :: Text -> FixedIntegral -> LLVMOperand -> FunctionM LLVMOperand
+emitModuloFixedWidth prefix fixed amount = do
+  remainderReg <- freshRegister (prefix <> "_mod")
+  emit (IRem remainderReg LI64 amount (OConstInt LI64 (fixedIntegralBitSize fixed)))
+  let remainder = OLocal LI64 remainderReg
+  negativeReg <- freshRegister (prefix <> "_mod_negative")
+  emit (IIcmp negativeReg ICmpSlt LI64 remainder (OConstInt LI64 0))
+  emitValueIf
+    (prefix <> "_mod")
+    LI64
+    (OLocal LI1 negativeReg)
+    ( do
+        adjustedReg <- freshRegister (prefix <> "_mod_adjusted")
+        emit (IAdd adjustedReg LI64 remainder (OConstInt LI64 (fixedIntegralBitSize fixed)))
+        pure (OLocal LI64 adjustedReg)
+    )
+    (pure remainder)
+
+emitAbortIfZero64 :: Text -> LLVMOperand -> FunctionM ()
+emitAbortIfZero64 prefix value = do
+  zeroReg <- freshRegister (prefix <> "_zero")
+  emit (IIcmp zeroReg ICmpEq LI64 value (OConstInt LI64 0))
+  abortLabel <- freshBlockLabel (prefix <> "_zero_abort")
+  okLabel <- freshBlockLabel (prefix <> "_nonzero")
+  terminateCurrent (TCondBr (OLocal LI1 zeroReg) abortLabel okLabel)
+
+  startBlock abortLabel
+  emitAbort
+
+  startBlock okLabel
+
+fixedLLVMType :: FixedIntegral -> LLVMType
+fixedLLVMType fixed =
+  case fixedIntegralBitSize fixed of
+    8 -> LI8
+    16 -> LI16
+    32 -> LI32
+    64 -> LI64
+    width -> error ("unsupported fixed-width integer size " <> show width)
+
+fixedPayloadLiteral :: FixedIntegral -> Integer -> Integer
+fixedPayloadLiteral fixed value
+  | bits >= 2 ^ (runtimeWordSize - 1) = bits - 2 ^ runtimeWordSize
+  | otherwise = bits
+ where
+  bits = fixedIntegralToBits fixed value
+  runtimeWordSize = 64 :: Integer
+
+fixedIntegralTypeByCoreType :: CoreType -> Maybe FixedIntegral
+fixedIntegralTypeByCoreType = \case
+  CTyCon name -> fixedIntegralTypeByOccurrence (nameOcc name)
+  _ -> Nothing
 
 emitForeignCall :: ValueEnv -> CoreForeignImport -> [STGAtom] -> FunctionM LLVMOperand
 emitForeignCall env foreignImport arguments =
@@ -556,7 +1287,8 @@ emitForeignCall env foreignImport arguments =
 emitStaticForeignCall :: ValueEnv -> CoreForeignImport -> [STGAtom] -> FunctionM LLVMOperand
 emitStaticForeignCall env foreignImport arguments = do
   abi <- liftEitherSTGLLVM (foreignFunctionABI foreignImport)
-  let expectedArity = length (foreignFunctionArguments abi)
+  let (_argumentTypes, declaredResultTy) = splitForeignFunctionType (coreForeignImportType foreignImport)
+      expectedArity = length (foreignFunctionArguments abi)
       actualArity = length arguments
   if expectedArity == actualArity
     then pure ()
@@ -578,7 +1310,8 @@ emitStaticForeignCall env foreignImport arguments = do
   case foreignFunctionResult abi of
     ForeignABIVoid -> do
       emit (ICall Nothing LVoid (DirectCall (foreignFunctionSymbol abi)) False marshalledArguments)
-      emitConstructorObject unitDataConName unitTy []
+      unitObject <- emitConstructorObject unitDataConName unitTy []
+      emitForeignResult declaredResultTy unitObject
     resultABI -> do
       resultRegister <- freshRegister "foreign_result"
       emit
@@ -589,12 +1322,14 @@ emitStaticForeignCall env foreignImport arguments = do
             False
             marshalledArguments
         )
-      emitBoxForeignResult resultABI (OLocal (foreignABITypeLLVM resultABI) resultRegister)
+      boxedResult <- emitBoxForeignResult resultABI (OLocal (foreignABITypeLLVM resultABI) resultRegister)
+      emitForeignResult declaredResultTy boxedResult
 
 emitForeignDynamicCall :: ValueEnv -> CoreForeignImport -> [STGAtom] -> FunctionM LLVMOperand
 emitForeignDynamicCall env foreignImport arguments = do
   abi <- liftEitherSTGLLVM (foreignDynamicFunctionABI foreignImport)
-  let expectedArity = 1 + length (foreignFunctionArguments abi)
+  let (_argumentTypes, declaredResultTy) = splitForeignFunctionType (coreForeignImportType foreignImport)
+      expectedArity = 1 + length (foreignFunctionArguments abi)
       actualArity = length arguments
   if expectedArity == actualArity
     then pure ()
@@ -619,7 +1354,8 @@ emitForeignDynamicCall env foreignImport arguments = do
       case foreignFunctionResult abi of
         ForeignABIVoid -> do
           emit (ICall Nothing LVoid (IndirectCall functionPointer) False marshalledArguments)
-          emitConstructorObject unitDataConName unitTy []
+          unitObject <- emitConstructorObject unitDataConName unitTy []
+          emitForeignResult declaredResultTy unitObject
         resultABI -> do
           resultRegister <- freshRegister "foreign_dynamic_result"
           emit
@@ -630,7 +1366,8 @@ emitForeignDynamicCall env foreignImport arguments = do
                 False
                 marshalledArguments
             )
-          emitBoxForeignResult resultABI (OLocal (foreignABITypeLLVM resultABI) resultRegister)
+          boxedResult <- emitBoxForeignResult resultABI (OLocal (foreignABITypeLLVM resultABI) resultRegister)
+          emitForeignResult declaredResultTy boxedResult
     [] ->
       throwSTGLLVM (STGLLVMUnsupported ("foreign dynamic call `" <> renderRName (coreForeignImportName foreignImport) <> "` is missing its FunPtr argument"))
 
@@ -639,13 +1376,15 @@ emitForeignWrapperCall env foreignImport arguments = do
   _ <- liftEitherSTGLLVM (foreignWrapperFunctionABI foreignImport)
   case arguments of
     [callbackAtom] -> do
+      let (_argumentTypes, declaredResultTy) = splitForeignFunctionType (coreForeignImportType foreignImport)
       wrapperFunctions <- ensureForeignWrapperFunctions foreignImport
       callbackObject <- emitAtomAddress env callbackAtom
       wrapperIndex <- emitClaimForeignWrapperSlot foreignImport
       slotPointer <- emitForeignWrapperSlotPointer (foreignWrapperSlotsName foreignImport) wrapperIndex
       emit (IStore LPtr callbackObject slotPointer)
       functionPointer <- emitForeignWrapperFunctionPointer wrapperIndex wrapperFunctions
-      emitMakePointer functionPointer
+      pointerObject <- emitMakePointer functionPointer
+      emitForeignResult declaredResultTy pointerObject
     _ ->
       throwSTGLLVM
         ( STGLLVMUnsupported
@@ -665,12 +1404,13 @@ ensureForeignWrapperFunctions foreignImport =
         pure functionNames
       Nothing -> do
         abi <- liftEitherModule (foreignWrapperFunctionABI foreignImport)
+        targetTy <- liftEitherModule (foreignWrapperTargetType foreignImport)
         let functionNames = foreignWrapperFunctionNames foreignImport
             slotsName = foreignWrapperSlotsName foreignImport
         functions <-
           traverse
             ( \(index, functionName) ->
-                buildForeignWrapperFunction slotsName index functionName abi
+                buildForeignWrapperFunction slotsName index functionName targetTy abi
             )
             (zip [0 :: Int ..] functionNames)
         modify' $
@@ -683,22 +1423,36 @@ ensureForeignWrapperFunctions foreignImport =
 
 emitClaimForeignWrapperSlot :: CoreForeignImport -> FunctionM LLVMOperand
 emitClaimForeignWrapperSlot foreignImport = do
+  claimedLabel <- freshBlockLabel "wrapper_slot_claimed"
+  incoming <- scan claimedLabel [] [0 .. foreignWrapperPoolSize - 1]
+  startBlock claimedLabel
   indexRegister <- freshRegister "wrapper_index"
-  emit (ILoad indexRegister LI64 (OGlobal LPtr (foreignWrapperNextName foreignImport)))
-  exhaustedRegister <- freshRegister "wrapper_exhausted"
-  emit (IIcmp exhaustedRegister ICmpEq LI64 (OLocal LI64 indexRegister) (OConstInt LI64 (fromIntegral foreignWrapperPoolSize)))
-  abortLabel <- freshBlockLabel "wrapper_pool_exhausted"
-  okLabel <- freshBlockLabel "wrapper_pool_ok"
-  terminateCurrent (TCondBr (OLocal LI1 exhaustedRegister) abortLabel okLabel)
-
-  startBlock abortLabel
-  emitAbort
-
-  startBlock okLabel
-  nextRegister <- freshRegister "wrapper_next"
-  emit (IAdd nextRegister LI64 (OLocal LI64 indexRegister) (OConstInt LI64 1))
-  emit (IStore LI64 (OLocal LI64 nextRegister) (OGlobal LPtr (foreignWrapperNextName foreignImport)))
+  emit (IPhi indexRegister LI64 incoming)
   pure (OLocal LI64 indexRegister)
+ where
+  slotsName =
+    foreignWrapperSlotsName foreignImport
+
+  scan claimedLabel incoming = \case
+    [] -> do
+      emitAbort
+      pure incoming
+    slotIndex : rest -> do
+      slotPointer <- emitForeignWrapperSlotPointer slotsName (OConstInt LI64 (fromIntegral slotIndex))
+      callbackRegister <- freshRegister "wrapper_slot_value"
+      emit (ILoad callbackRegister LPtr slotPointer)
+      freeRegister <- freshRegister "wrapper_slot_free"
+      emit (IIcmp freeRegister ICmpEq LPtr (OLocal LPtr callbackRegister) OConstNull)
+      freeLabel <- freshBlockLabel "wrapper_slot_free"
+      nextLabel <- freshBlockLabel "wrapper_slot_next"
+      terminateCurrent (TCondBr (OLocal LI1 freeRegister) freeLabel nextLabel)
+
+      startBlock freeLabel
+      freePredecessor <- getsCurrentLabel
+      terminateCurrent (TBr claimedLabel)
+
+      startBlock nextLabel
+      scan claimedLabel (incoming <> [(OConstInt LI64 (fromIntegral slotIndex), freePredecessor)]) rest
 
 emitForeignWrapperSlotPointer :: Text -> LLVMOperand -> FunctionM LLVMOperand
 emitForeignWrapperSlotPointer slotsName index = do
@@ -739,22 +1493,24 @@ emitForeignWrapperFunctionPointer index functionNames = do
       startBlock nextLabel
       go joinLabel (incoming <> [(OGlobal LPtr functionName, matchedPredecessor)]) rest
 
-buildForeignWrapperFunction :: Text -> Int -> Text -> ForeignFunctionABI -> ModuleM LLVMFunction
-buildForeignWrapperFunction slotsName slotIndex functionName abi =
+buildForeignWrapperFunction :: Text -> Int -> Text -> CoreType -> ForeignFunctionABI -> ModuleM LLVMFunction
+buildForeignWrapperFunction slotsName slotIndex functionName targetTy abi =
   case foreignFunctionResult abi of
     ForeignABIVoid ->
       runVoidFunction functionName params $ do
         resultObject <- emitForeignWrapperCallbackResult slotsName slotIndex abi params
-        _ <- emitForce resultObject
+        _ <- emitForeignReturnValue declaredResultTy resultObject
         pure ()
     resultABI ->
       runFunction functionName (foreignABITypeLLVM resultABI) params $ do
         resultObject <- emitForeignWrapperCallbackResult slotsName slotIndex abi params
-        forcedResult <- emitForce resultObject
+        forcedResult <- emitForeignReturnValue declaredResultTy resultObject
         emitUnboxForeignReturn resultABI forcedResult
  where
   params =
     foreignABIParameters abi
+  (_argumentTypes, declaredResultTy) =
+    splitForeignFunctionType targetTy
 
 foreignABIParameters :: ForeignFunctionABI -> [(LLVMType, Register)]
 foreignABIParameters abi =
@@ -767,6 +1523,16 @@ emitForeignWrapperCallbackResult slotsName slotIndex abi params = do
   callbackSlot <- emitForeignWrapperSlotPointer slotsName (OConstInt LI64 (fromIntegral slotIndex))
   callbackRegister <- freshRegister "callback"
   emit (ILoad callbackRegister LPtr callbackSlot)
+  freedRegister <- freshRegister "callback_freed"
+  emit (IIcmp freedRegister ICmpEq LPtr (OLocal LPtr callbackRegister) OConstNull)
+  freedLabel <- freshBlockLabel "callback_freed"
+  liveLabel <- freshBlockLabel "callback_live"
+  terminateCurrent (TCondBr (OLocal LI1 freedRegister) freedLabel liveLabel)
+
+  startBlock freedLabel
+  emitAbort
+
+  startBlock liveLabel
   boxedArguments <-
     traverse
       ( \(argumentABI, (argumentTy, argumentRegister)) ->
@@ -774,6 +1540,37 @@ emitForeignWrapperCallbackResult slotsName slotIndex abi params = do
       )
       (zip (foreignFunctionArguments abi) params)
   applyHaskellFunction (OLocal LPtr callbackRegister) boxedArguments
+
+emitFreeHaskellFunPtr :: LLVMOperand -> FunctionM ()
+emitFreeHaskellFunPtr functionPointer = do
+  state <- lift get
+  doneLabel <- freshBlockLabel "free_haskell_fun_ptr_done"
+  scan doneLabel (wrapperCandidates (moduleWrapperImports state))
+  startBlock doneLabel
+ where
+  wrapperCandidates imports =
+    [ (foreignImport, slotIndex, functionName)
+    | foreignImport <- imports
+    , (slotIndex, functionName) <- zip [0 :: Int ..] (foreignWrapperFunctionNames foreignImport)
+    ]
+
+  scan doneLabel = \case
+    [] ->
+      emitAbort
+    (foreignImport, slotIndex, functionName) : rest -> do
+      matchedRegister <- freshRegister "free_haskell_fun_ptr_matched"
+      emit (IIcmp matchedRegister ICmpEq LPtr functionPointer (OGlobal LPtr functionName))
+      matchedLabel <- freshBlockLabel "free_haskell_fun_ptr_matched"
+      nextLabel <- freshBlockLabel "free_haskell_fun_ptr_next"
+      terminateCurrent (TCondBr (OLocal LI1 matchedRegister) matchedLabel nextLabel)
+
+      startBlock matchedLabel
+      slotPointer <- emitForeignWrapperSlotPointer (foreignWrapperSlotsName foreignImport) (OConstInt LI64 (fromIntegral slotIndex))
+      emit (IStore LPtr OConstNull slotPointer)
+      terminateCurrent (TBr doneLabel)
+
+      startBlock nextLabel
+      scan doneLabel rest
 
 applyHaskellFunction :: LLVMOperand -> [LLVMOperand] -> FunctionM LLVMOperand
 applyHaskellFunction functionObject = \case
@@ -790,6 +1587,13 @@ emitUnboxForeignReturn abi object =
     ForeignABIInteger targetTy signedness -> do
       intValue <- emitExpectObjectInt object
       emitNarrowForeignInteger targetTy signedness intValue
+    ForeignABIFloating targetTy
+      | targetTy == LFloat ->
+          emitExpectObjectFloat object
+      | targetTy == LDouble ->
+          emitExpectObjectDouble object
+      | otherwise ->
+          throwSTGLLVM (STGLLVMUnsupported ("unsupported foreign floating ABI type " <> renderLLVMType targetTy))
     ForeignABIBool ->
       emitExpectObjectBool object
     ForeignABIChar ->
@@ -806,6 +1610,15 @@ emitMarshalForeignArgument env abi atom =
       value <- emitExpectAtomInt env atom
       marshalled <- emitNarrowForeignInteger targetTy signedness value
       pure (targetTy, marshalled)
+    ForeignABIFloating targetTy
+      | targetTy == LFloat -> do
+          value <- emitExpectAtomFloat env atom
+          pure (LFloat, value)
+      | targetTy == LDouble -> do
+          value <- emitExpectAtomDouble env atom
+          pure (LDouble, value)
+      | otherwise ->
+          throwSTGLLVM (STGLLVMUnsupported ("unsupported foreign floating ABI type " <> renderLLVMType targetTy))
     ForeignABIBool -> do
       value <- emitExpectAtomBool env atom
       pure (LI1, value)
@@ -822,10 +1635,8 @@ emitNarrowForeignInteger :: LLVMType -> ForeignIntegerSignedness -> LLVMOperand 
 emitNarrowForeignInteger targetTy signedness value
   | targetTy == LI64 = do
       case signedness of
-        ForeignSigned ->
-          pure ()
-        ForeignUnsigned ->
-          emitCheckIntegerRange value (0, maxInt64Value)
+        ForeignSigned -> pure ()
+        ForeignUnsigned -> pure ()
       pure value
   | targetTy `elem` [LI32, LI16, LI8] = do
       range <- liftEitherSTGLLVM (foreignIntegerRange signedness targetTy)
@@ -842,6 +1653,13 @@ emitBoxForeignResult abi value =
     ForeignABIInteger sourceTy signedness -> do
       value64 <- emitWidenForeignInteger sourceTy signedness value
       emitMakeIntOperand value64
+    ForeignABIFloating sourceTy
+      | sourceTy == LFloat ->
+          emitMakeFloat value
+      | sourceTy == LDouble ->
+          emitMakeDouble value
+      | otherwise ->
+          throwSTGLLVM (STGLLVMUnsupported ("unsupported foreign floating ABI type " <> renderLLVMType sourceTy))
     ForeignABIBool ->
       emitMakeBool value
     ForeignABIChar -> do
@@ -877,10 +1695,8 @@ emitWidenForeignInteger :: LLVMType -> ForeignIntegerSignedness -> LLVMOperand -
 emitWidenForeignInteger sourceTy signedness value
   | sourceTy == LI64 = do
       case signedness of
-        ForeignSigned ->
-          pure ()
-        ForeignUnsigned ->
-          emitCheckIntegerRange value (0, maxInt64Value)
+        ForeignSigned -> pure ()
+        ForeignUnsigned -> pure ()
       pure value
   | sourceTy `elem` [LI32, LI16, LI8] =
       case signedness of
@@ -952,6 +1768,20 @@ emitIntBinary env intrinsic lhs rhs = do
   rhsValue <- emitExpectAtomInt env rhs
   emitCheckedIntPrim intrinsic lhsValue rhsValue
 
+emitIntBitBinary ::
+  ValueEnv ->
+  Text ->
+  (Register -> LLVMType -> LLVMOperand -> LLVMOperand -> LLVMInstruction) ->
+  STGAtom ->
+  STGAtom ->
+  FunctionM LLVMOperand
+emitIntBitBinary env prefix instruction lhs rhs = do
+  lhsValue <- emitExpectAtomInt env lhs
+  rhsValue <- emitExpectAtomInt env rhs
+  reg <- freshRegister prefix
+  emit (instruction reg LI64 lhsValue rhsValue)
+  pure (OLocal LI64 reg)
+
 emitExpectAtomInt :: ValueEnv -> STGAtom -> FunctionM LLVMOperand
 emitExpectAtomInt env atom = do
   object <- emitAtomAddress env atom
@@ -962,6 +1792,28 @@ emitExpectObjectInt object = do
   reg <- freshRegister "int"
   emit (ICall (Just reg) LI64 (DirectCall expectIntFunctionName) False [(LPtr, object)])
   pure (OLocal LI64 reg)
+
+emitExpectAtomFloat :: ValueEnv -> STGAtom -> FunctionM LLVMOperand
+emitExpectAtomFloat env atom = do
+  object <- emitAtomAddress env atom
+  emitExpectObjectFloat object
+
+emitExpectObjectFloat :: LLVMOperand -> FunctionM LLVMOperand
+emitExpectObjectFloat object = do
+  reg <- freshRegister "float"
+  emit (ICall (Just reg) LFloat (DirectCall expectFloatFunctionName) False [(LPtr, object)])
+  pure (OLocal LFloat reg)
+
+emitExpectAtomDouble :: ValueEnv -> STGAtom -> FunctionM LLVMOperand
+emitExpectAtomDouble env atom = do
+  object <- emitAtomAddress env atom
+  emitExpectObjectDouble object
+
+emitExpectObjectDouble :: LLVMOperand -> FunctionM LLVMOperand
+emitExpectObjectDouble object = do
+  reg <- freshRegister "double"
+  emit (ICall (Just reg) LDouble (DirectCall expectDoubleFunctionName) False [(LPtr, object)])
+  pure (OLocal LDouble reg)
 
 emitExpectAtomBool :: ValueEnv -> STGAtom -> FunctionM LLVMOperand
 emitExpectAtomBool env atom = do
@@ -1018,6 +1870,194 @@ emitShowBool value = do
   emit (IPhi resultReg LPtr [(trueObject, truePredecessor), (falseObject, falsePredecessor)])
   pure (OLocal LPtr resultReg)
 
+emitFloatingPrim :: ValueEnv -> FloatingWidth -> FloatingPrimOp -> [STGAtom] -> FunctionM LLVMOperand
+emitFloatingPrim env width op args =
+  case (op, args) of
+    (FloatAdd, [lhs, rhs]) -> binary IFAdd lhs rhs >>= makeFloating width
+    (FloatSub, [lhs, rhs]) -> binary IFSub lhs rhs >>= makeFloating width
+    (FloatMul, [lhs, rhs]) -> binary IFMul lhs rhs >>= makeFloating width
+    (FloatDiv, [lhs, rhs]) -> binary IFDiv lhs rhs >>= makeFloating width
+    (FloatEq, [lhs, rhs]) -> compareFloating FCmpOeq lhs rhs >>= emitMakeBool
+    (FloatLt, [lhs, rhs]) -> compareFloating FCmpOlt lhs rhs >>= emitMakeBool
+    (FloatNegate, [value]) -> unaryNegate value >>= makeFloating width
+    (FloatAbs, [value]) -> unaryCall "fabs" value >>= makeFloating width
+    (FloatSignum, [value]) -> signumFloating value >>= makeFloating width
+    (FloatFromInt, [value]) -> fromInt value >>= makeFloating width
+    (FloatShow, [value]) -> showFloating value
+    (FloatExp, [value]) -> unaryCall "exp" value >>= makeFloating width
+    (FloatLog, [value]) -> unaryCall "log" value >>= makeFloating width
+    (FloatSqrt, [value]) -> unaryCall "sqrt" value >>= makeFloating width
+    (FloatSin, [value]) -> unaryCall "sin" value >>= makeFloating width
+    (FloatCos, [value]) -> unaryCall "cos" value >>= makeFloating width
+    (FloatTan, [value]) -> unaryCall "tan" value >>= makeFloating width
+    (FloatAsin, [value]) -> unaryCall "asin" value >>= makeFloating width
+    (FloatAcos, [value]) -> unaryCall "acos" value >>= makeFloating width
+    (FloatAtan, [value]) -> unaryCall "atan" value >>= makeFloating width
+    (FloatSinh, [value]) -> unaryCall "sinh" value >>= makeFloating width
+    (FloatCosh, [value]) -> unaryCall "cosh" value >>= makeFloating width
+    (FloatTanh, [value]) -> unaryCall "tanh" value >>= makeFloating width
+    (FloatAsinh, [value]) -> unaryCall "asinh" value >>= makeFloating width
+    (FloatAcosh, [value]) -> unaryCall "acosh" value >>= makeFloating width
+    (FloatAtanh, [value]) -> unaryCall "atanh" value >>= makeFloating width
+    (FloatPow, [lhs, rhs]) -> binaryCall "pow" lhs rhs >>= makeFloating width
+    (FloatAtan2, [lhs, rhs]) -> binaryCall "atan2" lhs rhs >>= makeFloating width
+    _ -> throwSTGLLVM (STGLLVMUnsupported ("unsupported floating primitive shape for " <> Text.pack (show op)))
+ where
+  llvmTy = floatingLLVMType width
+  expect = expectFloatingAtom width
+
+  binary instruction lhs rhs = do
+    lhsValue <- expect env lhs
+    rhsValue <- expect env rhs
+    reg <- freshRegister "float_bin"
+    emit (instruction reg llvmTy lhsValue rhsValue)
+    pure (OLocal llvmTy reg)
+
+  compareFloating predicate lhs rhs = do
+    lhsValue <- expect env lhs
+    rhsValue <- expect env rhs
+    reg <- freshRegister "float_cmp"
+    emit (IIcmp reg predicate llvmTy lhsValue rhsValue)
+    pure (OLocal LI1 reg)
+
+  unaryNegate value = do
+    valueOperand <- expect env value
+    reg <- freshRegister "float_neg"
+    emit (IFSub reg llvmTy (OConstFloat llvmTy "0.0") valueOperand)
+    pure (OLocal llvmTy reg)
+
+  fromInt value = do
+    intValue <- emitExpectAtomInt env value
+    reg <- freshRegister "float_from_int"
+    emit (ISIToFP reg intValue llvmTy)
+    pure (OLocal llvmTy reg)
+
+  unaryCall name value = do
+    valueOperand <- floatingToDouble width =<< expect env value
+    reg <- freshRegister ("call_" <> name)
+    emit (ICall (Just reg) LDouble (DirectCall name) False [(LDouble, valueOperand)])
+    doubleToFloating width (OLocal LDouble reg)
+
+  binaryCall name lhs rhs = do
+    lhsValue <- floatingToDouble width =<< expect env lhs
+    rhsValue <- floatingToDouble width =<< expect env rhs
+    reg <- freshRegister ("call_" <> name)
+    emit (ICall (Just reg) LDouble (DirectCall name) False [(LDouble, lhsValue), (LDouble, rhsValue)])
+    doubleToFloating width (OLocal LDouble reg)
+
+  signumFloating value = do
+    valueOperand <- expect env value
+    ltReg <- freshRegister "float_sign_lt"
+    eqReg <- freshRegister "float_sign_eq"
+    emit (IIcmp ltReg FCmpOlt llvmTy valueOperand (OConstFloat llvmTy "0.0"))
+    emit (IIcmp eqReg FCmpOeq llvmTy valueOperand (OConstFloat llvmTy "0.0"))
+    emitValueIf
+      "float_sign"
+      llvmTy
+      (OLocal LI1 ltReg)
+      (pure (OConstFloat llvmTy "-1.0"))
+      ( emitValueIf
+          "float_sign_zero"
+          llvmTy
+          (OLocal LI1 eqReg)
+          (pure (OConstFloat llvmTy "0.0"))
+          (pure (OConstFloat llvmTy "1.0"))
+      )
+
+  showFloating value = do
+    valueOperand <- expect env value
+    doubleValue <- floatingToDouble width valueOperand
+    reg <- freshRegister "show_float"
+    emit (ICall (Just reg) LPtr (DirectCall showDoubleFunctionName) False [(LDouble, doubleValue)])
+    pure (OLocal LPtr reg)
+
+emitFloatingIntPrim :: ValueEnv -> FloatingWidth -> FloatingIntPrimOp -> [STGAtom] -> FunctionM LLVMOperand
+emitFloatingIntPrim env width op args =
+  case (op, args) of
+    (FloatTruncate, [value]) -> toInt value >>= emitMakeIntOperand
+    (FloatRound, [value]) -> rounded value >>= emitMakeIntOperand
+    (FloatCeiling, [value]) -> unaryIntegralCall "ceil" value >>= emitMakeIntOperand
+    (FloatFloor, [value]) -> unaryIntegralCall "floor" value >>= emitMakeIntOperand
+    (FloatIsNaN, [value]) -> isNaNValue value >>= emitMakeBool
+    (FloatIsInfinite, [value]) -> isInfiniteValue value >>= emitMakeBool
+    (FloatIsDenormalized, [_]) -> emitMakeBool (OConstInt LI1 0)
+    (FloatIsNegativeZero, [_]) -> emitMakeBool (OConstInt LI1 0)
+    _ -> throwSTGLLVM (STGLLVMUnsupported ("unsupported floating/int primitive shape for " <> Text.pack (show op)))
+ where
+  expect = expectFloatingAtom width
+
+  toInt value = do
+    valueOperand <- expect env value
+    reg <- freshRegister "float_to_int"
+    emit (IFPToSI reg valueOperand LI64)
+    pure (OLocal LI64 reg)
+
+  rounded value = do
+    valueOperand <- floatingToDouble width =<< expect env value
+    adjusted <- emitRoundDouble valueOperand
+    reg <- freshRegister "round_to_int"
+    emit (IFPToSI reg adjusted LI64)
+    pure (OLocal LI64 reg)
+
+  unaryIntegralCall name value = do
+    valueOperand <- floatingToDouble width =<< expect env value
+    reg <- freshRegister ("call_" <> name)
+    emit (ICall (Just reg) LDouble (DirectCall name) False [(LDouble, valueOperand)])
+    intReg <- freshRegister (name <> "_to_int")
+    emit (IFPToSI intReg (OLocal LDouble reg) LI64)
+    pure (OLocal LI64 intReg)
+
+  isNaNValue value = do
+    valueOperand <- expect env value
+    reg <- freshRegister "float_is_nan"
+    emit (IIcmp reg FCmpUno (floatingLLVMType width) valueOperand valueOperand)
+    pure (OLocal LI1 reg)
+
+  isInfiniteValue value = do
+    valueOperand <- floatingToDouble width =<< expect env value
+    absReg <- freshRegister "float_inf_abs"
+    emit (ICall (Just absReg) LDouble (DirectCall "fabs") False [(LDouble, valueOperand)])
+    reg <- freshRegister "float_is_inf"
+    emit (IIcmp reg FCmpOeq LDouble (OLocal LDouble absReg) (OConstFloat LDouble "0x7FF0000000000000"))
+    pure (OLocal LI1 reg)
+
+emitRoundDouble :: LLVMOperand -> FunctionM LLVMOperand
+emitRoundDouble value = do
+  halfReg <- freshRegister "round_plus_half"
+  emit (IFAdd halfReg LDouble value (OConstFloat LDouble "0.5"))
+  pure (OLocal LDouble halfReg)
+
+floatingLLVMType :: FloatingWidth -> LLVMType
+floatingLLVMType = \case
+  FloatWidth -> LFloat
+  DoubleWidth -> LDouble
+
+expectFloatingAtom :: FloatingWidth -> ValueEnv -> STGAtom -> FunctionM LLVMOperand
+expectFloatingAtom = \case
+  FloatWidth -> emitExpectAtomFloat
+  DoubleWidth -> emitExpectAtomDouble
+
+makeFloating :: FloatingWidth -> LLVMOperand -> FunctionM LLVMOperand
+makeFloating = \case
+  FloatWidth -> emitMakeFloat
+  DoubleWidth -> emitMakeDouble
+
+floatingToDouble :: FloatingWidth -> LLVMOperand -> FunctionM LLVMOperand
+floatingToDouble = \case
+  DoubleWidth -> pure
+  FloatWidth -> \value -> do
+    reg <- freshRegister "float_to_double"
+    emit (IFPExt reg value LDouble)
+    pure (OLocal LDouble reg)
+
+doubleToFloating :: FloatingWidth -> LLVMOperand -> FunctionM LLVMOperand
+doubleToFloating = \case
+  DoubleWidth -> pure
+  FloatWidth -> \value -> do
+    reg <- freshRegister "double_to_float"
+    emit (IFPTrunc reg value LFloat)
+    pure (OLocal LFloat reg)
+
 emitCheckedIntPrim :: Text -> LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
 emitCheckedIntPrim intrinsic lhs rhs = do
   pairReg <- freshRegister "checked"
@@ -1041,6 +2081,202 @@ emitCheckedIntPrim intrinsic lhs rhs = do
 emitCheckedSub :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
 emitCheckedSub =
   emitCheckedIntPrim "llvm.ssub.with.overflow.i64"
+
+emitAbortIfNegativeBitCount :: Text -> LLVMOperand -> FunctionM ()
+emitAbortIfNegativeBitCount prefix amount = do
+  negativeReg <- freshRegister (prefix <> "_negative")
+  emit (IIcmp negativeReg ICmpSlt LI64 amount (OConstInt LI64 0))
+  abortLabel <- freshBlockLabel (prefix <> "_negative_abort")
+  okLabel <- freshBlockLabel (prefix <> "_nonnegative")
+  terminateCurrent (TCondBr (OLocal LI1 negativeReg) abortLabel okLabel)
+
+  startBlock abortLabel
+  emitAbort
+
+  startBlock okLabel
+
+emitSafeShift :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitSafeShift value amount = do
+  negativeReg <- freshRegister "shift_negative"
+  emit (IIcmp negativeReg ICmpSlt LI64 amount (OConstInt LI64 0))
+  emitValueIf
+    "shift"
+    LI64
+    (OLocal LI1 negativeReg)
+    (emitSafeNegativeShift value amount)
+    (emitSafeShiftLeftNonNegative value amount)
+
+emitSafeNegativeShift :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitSafeNegativeShift value amount = do
+  largeNegativeReg <- freshRegister "shift_negative_large"
+  emit (IIcmp largeNegativeReg ICmpSlt LI64 amount (OConstInt LI64 (-63)))
+  emitValueIf
+    "shift_negative"
+    LI64
+    (OLocal LI1 largeNegativeReg)
+    (emitLargeRightShiftResult value)
+    ( do
+        positiveAmountReg <- freshRegister "shift_negative_amount"
+        emit (ISub positiveAmountReg LI64 (OConstInt LI64 0) amount)
+        emitSafeShiftRightNonNegative value (OLocal LI64 positiveAmountReg)
+    )
+
+emitSafeShiftLeftNonNegative :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitSafeShiftLeftNonNegative value amount = do
+  inRangeReg <- freshRegister "shift_l_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amount (OConstInt LI64 intBitSize))
+  emitValueIf
+    "shift_l"
+    LI64
+    (OLocal LI1 inRangeReg)
+    ( do
+        resultReg <- freshRegister "shift_l"
+        emit (IShl resultReg LI64 value amount)
+        pure (OLocal LI64 resultReg)
+    )
+    (pure (OConstInt LI64 0))
+
+emitSafeShiftRightNonNegative :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitSafeShiftRightNonNegative value amount = do
+  inRangeReg <- freshRegister "shift_r_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amount (OConstInt LI64 intBitSize))
+  emitValueIf
+    "shift_r"
+    LI64
+    (OLocal LI1 inRangeReg)
+    ( do
+        resultReg <- freshRegister "shift_r"
+        emit (IAshr resultReg LI64 value amount)
+        pure (OLocal LI64 resultReg)
+    )
+    (emitLargeRightShiftResult value)
+
+emitLargeRightShiftResult :: LLVMOperand -> FunctionM LLVMOperand
+emitLargeRightShiftResult value = do
+  negativeReg <- freshRegister "shift_r_value_negative"
+  emit (IIcmp negativeReg ICmpSlt LI64 value (OConstInt LI64 0))
+  emitValueIf
+    "shift_r_large"
+    LI64
+    (OLocal LI1 negativeReg)
+    (pure (OConstInt LI64 (-1)))
+    (pure (OConstInt LI64 0))
+
+emitModulo64 :: Text -> LLVMOperand -> FunctionM LLVMOperand
+emitModulo64 prefix amount = do
+  remainderReg <- freshRegister (prefix <> "_mod")
+  emit (IRem remainderReg LI64 amount (OConstInt LI64 intBitSize))
+  let remainder = OLocal LI64 remainderReg
+  negativeReg <- freshRegister (prefix <> "_mod_negative")
+  emit (IIcmp negativeReg ICmpSlt LI64 remainder (OConstInt LI64 0))
+  emitValueIf
+    (prefix <> "_mod")
+    LI64
+    (OLocal LI1 negativeReg)
+    ( do
+        adjustedReg <- freshRegister (prefix <> "_mod_adjusted")
+        emit (IAdd adjustedReg LI64 remainder (OConstInt LI64 intBitSize))
+        pure (OLocal LI64 adjustedReg)
+    )
+    (pure remainder)
+
+emitRotateLeftNormalized :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitRotateLeftNormalized value amount = do
+  zeroReg <- freshRegister "rotate_l_zero"
+  emit (IIcmp zeroReg ICmpEq LI64 amount (OConstInt LI64 0))
+  emitValueIf
+    "rotate_l"
+    LI64
+    (OLocal LI1 zeroReg)
+    (pure value)
+    ( do
+        leftReg <- freshRegister "rotate_l_left"
+        rightAmountReg <- freshRegister "rotate_l_right_amount"
+        rightReg <- freshRegister "rotate_l_right"
+        resultReg <- freshRegister "rotate_l_result"
+        emit (IShl leftReg LI64 value amount)
+        emit (ISub rightAmountReg LI64 (OConstInt LI64 intBitSize) amount)
+        emit (ILshr rightReg LI64 value (OLocal LI64 rightAmountReg))
+        emit (IOr resultReg LI64 (OLocal LI64 leftReg) (OLocal LI64 rightReg))
+        pure (OLocal LI64 resultReg)
+    )
+
+emitRotateRightNormalized :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitRotateRightNormalized value amount = do
+  zeroReg <- freshRegister "rotate_r_zero"
+  emit (IIcmp zeroReg ICmpEq LI64 amount (OConstInt LI64 0))
+  emitValueIf
+    "rotate_r"
+    LI64
+    (OLocal LI1 zeroReg)
+    (pure value)
+    ( do
+        rightReg <- freshRegister "rotate_r_right"
+        leftAmountReg <- freshRegister "rotate_r_left_amount"
+        leftReg <- freshRegister "rotate_r_left"
+        resultReg <- freshRegister "rotate_r_result"
+        emit (ILshr rightReg LI64 value amount)
+        emit (ISub leftAmountReg LI64 (OConstInt LI64 intBitSize) amount)
+        emit (IShl leftReg LI64 value (OLocal LI64 leftAmountReg))
+        emit (IOr resultReg LI64 (OLocal LI64 leftReg) (OLocal LI64 rightReg))
+        pure (OLocal LI64 resultReg)
+    )
+
+emitBitValue :: LLVMOperand -> FunctionM LLVMOperand
+emitBitValue amount = do
+  inRangeReg <- freshRegister "bit_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amount (OConstInt LI64 intBitSize))
+  emitValueIf
+    "bit"
+    LI64
+    (OLocal LI1 inRangeReg)
+    ( do
+        resultReg <- freshRegister "bit"
+        emit (IShl resultReg LI64 (OConstInt LI64 1) amount)
+        pure (OLocal LI64 resultReg)
+    )
+    (pure (OConstInt LI64 0))
+
+emitTestBitValue :: LLVMOperand -> LLVMOperand -> FunctionM LLVMOperand
+emitTestBitValue value amount = do
+  inRangeReg <- freshRegister "test_bit_in_range"
+  emit (IIcmp inRangeReg ICmpSlt LI64 amount (OConstInt LI64 intBitSize))
+  emitValueIf
+    "test_bit"
+    LI1
+    (OLocal LI1 inRangeReg)
+    ( do
+        shiftedReg <- freshRegister "test_bit_shifted"
+        lowBitReg <- freshRegister "test_bit_low"
+        resultReg <- freshRegister "test_bit_result"
+        emit (ILshr shiftedReg LI64 value amount)
+        emit (IAnd lowBitReg LI64 (OLocal LI64 shiftedReg) (OConstInt LI64 1))
+        emit (IIcmp resultReg ICmpEq LI64 (OLocal LI64 lowBitReg) (OConstInt LI64 1))
+        pure (OLocal LI1 resultReg)
+    )
+    (pure (OConstInt LI1 0))
+
+emitValueIf :: Text -> LLVMType -> LLVMOperand -> FunctionM LLVMOperand -> FunctionM LLVMOperand -> FunctionM LLVMOperand
+emitValueIf prefix ty condition onTrue onFalse = do
+  trueLabel <- freshBlockLabel (prefix <> "_true")
+  falseLabel <- freshBlockLabel (prefix <> "_false")
+  joinLabel <- freshBlockLabel (prefix <> "_join")
+  terminateCurrent (TCondBr condition trueLabel falseLabel)
+
+  startBlock trueLabel
+  trueValue <- onTrue
+  truePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock falseLabel
+  falseValue <- onFalse
+  falsePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  resultReg <- freshRegister prefix
+  emit (IPhi resultReg ty [(trueValue, truePredecessor), (falseValue, falsePredecessor)])
+  pure (OLocal ty resultReg)
 
 emitCheckCharCode :: LLVMOperand -> FunctionM ()
 emitCheckCharCode value = do
@@ -1235,8 +2471,20 @@ literalMatchCondition tagValue = \case
     reg <- freshRegister "case_char_match"
     emit (IIcmp reg ICmpEq LI64 tagValue (OConstInt LI64 (fromIntegral (ord expected))))
     pure (OLocal LI1 reg)
+  LInteger value ->
+    case mkHIntLiteral value of
+      Right intValue -> do
+        reg <- freshRegister "case_integer_match"
+        emit (IIcmp reg ICmpEq LI64 tagValue (OConstInt LI64 (hintToInteger intValue)))
+        pure (OLocal LI1 reg)
+      Left err ->
+        throwSTGLLVM (STGLLVMUnsupported ("native Integer case literal is outside the current native i64 payload path: " <> renderIntError err))
   LString {} ->
     throwSTGLLVM (STGLLVMUnsupported "native String case alternatives are not implemented for Core-0")
+  S.LFloat {} ->
+    throwSTGLLVM (STGLLVMUnsupported "native Float case alternatives are not implemented for Core-0")
+  S.LDouble {} ->
+    throwSTGLLVM (STGLLVMUnsupported "native Double case alternatives are not implemented for Core-0")
 
 resolveName :: ValueEnv -> RName -> FunctionM LLVMOperand
 resolveName env name =
@@ -1285,6 +2533,18 @@ emitMakeIntOperand value = do
   emit (ICall (Just reg) LPtr (DirectCall makeIntFunctionName) False [(LI64, value)])
   pure (OLocal LPtr reg)
 
+emitMakeFloat :: LLVMOperand -> FunctionM LLVMOperand
+emitMakeFloat value = do
+  reg <- freshRegister "boxed_float"
+  emit (ICall (Just reg) LPtr (DirectCall makeFloatFunctionName) False [(LFloat, value)])
+  pure (OLocal LPtr reg)
+
+emitMakeDouble :: LLVMOperand -> FunctionM LLVMOperand
+emitMakeDouble value = do
+  reg <- freshRegister "boxed_double"
+  emit (ICall (Just reg) LPtr (DirectCall makeDoubleFunctionName) False [(LDouble, value)])
+  pure (OLocal LPtr reg)
+
 emitMakeBool :: LLVMOperand -> FunctionM LLVMOperand
 emitMakeBool value = do
   reg <- freshRegister "boxed_bool"
@@ -1306,6 +2566,388 @@ emitMakePointer value = do
   reg <- freshRegister "boxed_ptr"
   emit (ICall (Just reg) LPtr (DirectCall makePointerFunctionName) False [(LPtr, value)])
   pure (OLocal LPtr reg)
+
+emitStdHandle :: StdHandle -> FunctionM LLVMOperand
+emitStdHandle handle =
+  emitMakePointer (OGlobal LPtr (stdHandleGlobalName handle))
+
+emitRuntimeCall2 :: Text -> ValueEnv -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitRuntimeCall2 functionName env first second = do
+  firstObject <- emitAtomAddress env first
+  secondObject <- emitAtomAddress env second
+  resultReg <- freshRegister "runtime"
+  emit (ICall (Just resultReg) LPtr (DirectCall functionName) False [(LPtr, firstObject), (LPtr, secondObject)])
+  pure (OLocal LPtr resultReg)
+
+emitRuntimeIOCall0 :: Text -> FunctionM LLVMOperand
+emitRuntimeIOCall0 functionName = do
+  resultReg <- freshRegister "runtime_io"
+  emit (ICall (Just resultReg) LPtr (DirectCall functionName) False [])
+  pure (OLocal LPtr resultReg)
+
+emitRuntimeIOCall1 :: Text -> ValueEnv -> STGAtom -> FunctionM LLVMOperand
+emitRuntimeIOCall1 functionName env first = do
+  firstObject <- emitAtomAddress env first
+  resultReg <- freshRegister "runtime_io"
+  emit (ICall (Just resultReg) LPtr (DirectCall functionName) False [(LPtr, firstObject)])
+  pure (OLocal LPtr resultReg)
+
+emitRuntimeIOCall2 :: Text -> ValueEnv -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitRuntimeIOCall2 functionName env first second = do
+  firstObject <- emitAtomAddress env first
+  secondObject <- emitAtomAddress env second
+  resultReg <- freshRegister "runtime_io"
+  emit (ICall (Just resultReg) LPtr (DirectCall functionName) False [(LPtr, firstObject), (LPtr, secondObject)])
+  pure (OLocal LPtr resultReg)
+
+emitRuntimeIOCall3 :: Text -> ValueEnv -> STGAtom -> STGAtom -> STGAtom -> FunctionM LLVMOperand
+emitRuntimeIOCall3 functionName env first second third = do
+  firstObject <- emitAtomAddress env first
+  secondObject <- emitAtomAddress env second
+  thirdObject <- emitAtomAddress env third
+  resultReg <- freshRegister "runtime_io"
+  emit (ICall (Just resultReg) LPtr (DirectCall functionName) False [(LPtr, firstObject), (LPtr, secondObject), (LPtr, thirdObject)])
+  pure (OLocal LPtr resultReg)
+
+emitMakeIOSuccess :: LLVMOperand -> FunctionM LLVMOperand
+emitMakeIOSuccess value = do
+  reg <- freshRegister "io_success"
+  emit (ICall (Just reg) LPtr (DirectCall makeIOSuccessFunctionName) False [(LPtr, value)])
+  pure (OLocal LPtr reg)
+
+emitMakeIOFailure :: LLVMOperand -> FunctionM LLVMOperand
+emitMakeIOFailure value = do
+  reg <- freshRegister "io_failure"
+  emit (ICall (Just reg) LPtr (DirectCall makeIOFailureFunctionName) False [(LPtr, value)])
+  pure (OLocal LPtr reg)
+
+emitMakeIOExit :: LLVMOperand -> FunctionM LLVMOperand
+emitMakeIOExit code = do
+  reg <- freshRegister "io_exit"
+  emit (ICall (Just reg) LPtr (DirectCall makeIOExitFunctionName) False [(LI64, code)])
+  pure (OLocal LPtr reg)
+
+emitGetEnv :: LLVMOperand -> FunctionM LLVMOperand
+emitGetEnv nameObject = do
+  cString <- freshRegister "getenv_name"
+  emit (ICall (Just cString) LPtr (DirectCall charListToCStringFunctionName) False [(LPtr, nameObject)])
+  value <- freshRegister "getenv_value"
+  emit (ICall (Just value) LPtr (DirectCall "getenv") False [(LPtr, OLocal LPtr cString)])
+  isMissing <- freshRegister "getenv_missing"
+  emit (IIcmp isMissing ICmpEq LPtr (OLocal LPtr value) OConstNull)
+  missingLabel <- freshBlockLabel "getenv_missing"
+  foundLabel <- freshBlockLabel "getenv_found"
+  joinLabel <- freshBlockLabel "getenv_join"
+  terminateCurrent (TCondBr (OLocal LI1 isMissing) missingLabel foundLabel)
+
+  startBlock missingLabel
+  missingResult <- emitDoesNotExistIOFailure "environment variable not found"
+  missingPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock foundLabel
+  stringObject <- freshRegister "getenv_string"
+  emit (ICall (Just stringObject) LPtr (DirectCall makeCharListFromCStringFunctionName) False [(LPtr, OLocal LPtr value)])
+  foundResult <- emitMakeIOSuccess (OLocal LPtr stringObject)
+  foundPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  result <- freshRegister "getenv_result"
+  emit (IPhi result LPtr [(missingResult, missingPredecessor), (foundResult, foundPredecessor)])
+  pure (OLocal LPtr result)
+
+emitExitWithResult :: LLVMOperand -> FunctionM LLVMOperand
+emitExitWithResult exitCodeObject = do
+  forced <- emitForce exitCodeObject
+  tag <- loadObjectI64Field forced 0 "exitcode_tag"
+  isData <- freshRegister "exitcode_is_data"
+  emit (IIcmp isData ICmpEq LI64 tag (OConstInt LI64 tagData))
+  dataLabel <- freshBlockLabel "exitcode_data"
+  abortLabel <- freshBlockLabel "exitcode_abort"
+  successLabel <- freshBlockLabel "exitcode_success"
+  failureCheckLabel <- freshBlockLabel "exitcode_failure_check"
+  failureLabel <- freshBlockLabel "exitcode_failure"
+  failureZeroLabel <- freshBlockLabel "exitcode_failure_zero"
+  failureNonZeroLabel <- freshBlockLabel "exitcode_failure_nonzero"
+  joinLabel <- freshBlockLabel "exitcode_join"
+  terminateCurrent (TCondBr (OLocal LI1 isData) dataLabel abortLabel)
+
+  startBlock abortLabel
+  emitAbort
+
+  startBlock dataLabel
+  constructor <- loadObjectI64Field forced 1 "exitcode_constructor"
+  isSuccess <- freshRegister "exitcode_is_success"
+  emit (IIcmp isSuccess ICmpEq LI64 constructor (OConstInt LI64 (constructorRuntimeTag exitSuccessDataConName)))
+  terminateCurrent (TCondBr (OLocal LI1 isSuccess) successLabel failureCheckLabel)
+
+  startBlock successLabel
+  successResult <- emitMakeIOExit (OConstInt LI64 0)
+  successPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock failureCheckLabel
+  isFailure <- freshRegister "exitcode_is_failure"
+  emit (IIcmp isFailure ICmpEq LI64 constructor (OConstInt LI64 (constructorRuntimeTag exitFailureDataConName)))
+  terminateCurrent (TCondBr (OLocal LI1 isFailure) failureLabel abortLabel)
+
+  startBlock failureLabel
+  arity <- loadObjectI64Field forced 5 "exitcode_arity"
+  arityOk <- freshRegister "exitcode_arity_ok"
+  emit (IIcmp arityOk ICmpEq LI64 arity (OConstInt LI64 1))
+  arityAbortLabel <- freshBlockLabel "exitcode_arity_abort"
+  arityOkLabel <- freshBlockLabel "exitcode_arity_ok"
+  terminateCurrent (TCondBr (OLocal LI1 arityOk) arityOkLabel arityAbortLabel)
+
+  startBlock arityAbortLabel
+  emitAbort
+
+  startBlock arityOkLabel
+  fieldsPointer <- loadObjectPtrField forced 2 "exitcode_fields"
+  codeSlot <- envSlotPointer 1 fieldsPointer 0
+  codeObjectRegister <- freshRegister "exitcode_code_object"
+  emit (ILoad codeObjectRegister LPtr codeSlot)
+  codeValue <- emitExpectObjectInt (OLocal LPtr codeObjectRegister)
+  isZero <- freshRegister "exitcode_failure_is_zero"
+  emit (IIcmp isZero ICmpEq LI64 codeValue (OConstInt LI64 0))
+  terminateCurrent (TCondBr (OLocal LI1 isZero) failureZeroLabel failureNonZeroLabel)
+
+  startBlock failureZeroLabel
+  failureZeroResult <- emitIllegalOperationIOFailure "ExitFailure 0"
+  failureZeroPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock failureNonZeroLabel
+  failureResult <- emitMakeIOExit codeValue
+  failurePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  result <- freshRegister "exitcode_result"
+  emit
+    ( IPhi
+        result
+        LPtr
+        [ (successResult, successPredecessor)
+        , (failureZeroResult, failureZeroPredecessor)
+        , (failureResult, failurePredecessor)
+        ]
+    )
+  pure (OLocal LPtr result)
+
+emitDoesNotExistIOFailure :: Text -> FunctionM LLVMOperand
+emitDoesNotExistIOFailure message = do
+  errorType <- emitConstructorObject ioErrorDoesNotExistTypeDataConName ioErrorTypeTy []
+  messageObject <- emitMakeStringLiteral message
+  nothingHandle <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) handleTy) []
+  nothingFile <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) stringTy) []
+  errorObject <- emitConstructorObject ioErrorDataConName ioErrorTy [errorType, messageObject, nothingHandle, nothingFile]
+  emitMakeIOFailure errorObject
+
+emitIllegalOperationIOFailure :: Text -> FunctionM LLVMOperand
+emitIllegalOperationIOFailure message = do
+  errorType <- emitConstructorObject ioErrorIllegalOperationTypeDataConName ioErrorTypeTy []
+  messageObject <- emitMakeStringLiteral message
+  nothingHandle <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) handleTy) []
+  nothingFile <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) stringTy) []
+  errorObject <- emitConstructorObject ioErrorDataConName ioErrorTy [errorType, messageObject, nothingHandle, nothingFile]
+  emitMakeIOFailure errorObject
+
+emitUserIOError :: LLVMOperand -> FunctionM LLVMOperand
+emitUserIOError messageObject = do
+  errorType <- emitConstructorObject ioErrorUserTypeDataConName ioErrorTypeTy []
+  nothingHandle <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) handleTy) []
+  nothingFile <- emitConstructorObject maybeNothingDataConName (CTyApp (CTyCon maybeTyConName) stringTy) []
+  emitConstructorObject ioErrorDataConName ioErrorTy [errorType, messageObject, nothingHandle, nothingFile]
+
+emitIOResultSuccessBranch :: LLVMOperand -> FunctionM LLVMOperand -> FunctionM LLVMOperand -> FunctionM LLVMOperand
+emitIOResultSuccessBranch result onNonSuccess onSuccess = do
+  isSuccess <- emitIOResultIsSuccess result
+  nonSuccessLabel <- freshBlockLabel "io_non_success"
+  successLabel <- freshBlockLabel "io_success"
+  joinLabel <- freshBlockLabel "io_join"
+  terminateCurrent (TCondBr isSuccess successLabel nonSuccessLabel)
+
+  startBlock successLabel
+  successResult <- onSuccess
+  successPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock nonSuccessLabel
+  nonSuccessResult <- onNonSuccess
+  nonSuccessPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  resultRegister <- freshRegister "io_result"
+  emit (IPhi resultRegister LPtr [(successResult, successPredecessor), (nonSuccessResult, nonSuccessPredecessor)])
+  pure (OLocal LPtr resultRegister)
+
+emitIOResultBranch :: LLVMOperand -> FunctionM LLVMOperand -> FunctionM LLVMOperand -> FunctionM LLVMOperand
+emitIOResultBranch result onFailure onSuccess = do
+  isFailure <- emitIOResultIsFailure result
+  failureLabel <- freshBlockLabel "io_failure"
+  successLabel <- freshBlockLabel "io_success"
+  joinLabel <- freshBlockLabel "io_join"
+  terminateCurrent (TCondBr isFailure failureLabel successLabel)
+
+  startBlock failureLabel
+  failureResult <- onFailure
+  failurePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock successLabel
+  successResult <- onSuccess
+  successPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  resultRegister <- freshRegister "io_result"
+  emit (IPhi resultRegister LPtr [(failureResult, failurePredecessor), (successResult, successPredecessor)])
+  pure (OLocal LPtr resultRegister)
+
+emitIOTryResult :: CoreType -> LLVMOperand -> FunctionM LLVMOperand
+emitIOTryResult resultTy actionResult = do
+  isFailure <- emitIOResultIsFailure actionResult
+  failureLabel <- freshBlockLabel "io_try_failure"
+  nonFailureLabel <- freshBlockLabel "io_try_non_failure"
+  exitLabel <- freshBlockLabel "io_try_exit"
+  successLabel <- freshBlockLabel "io_try_success"
+  joinLabel <- freshBlockLabel "io_try_join"
+  terminateCurrent (TCondBr isFailure failureLabel nonFailureLabel)
+
+  startBlock failureLabel
+  errorObject <- emitIOResultPayload actionResult
+  leftObject <- emitConstructorObject eitherLeftDataConName resultTy [errorObject]
+  failureResult <- emitMakeIOSuccess leftObject
+  failurePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock nonFailureLabel
+  isExit <- emitIOResultIsExit actionResult
+  terminateCurrent (TCondBr isExit exitLabel successLabel)
+
+  startBlock exitLabel
+  exitPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock successLabel
+  valueObject <- emitIOResultPayload actionResult
+  rightObject <- emitConstructorObject eitherRightDataConName resultTy [valueObject]
+  successResult <- emitMakeIOSuccess rightObject
+  successPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  resultRegister <- freshRegister "io_try_result"
+  emit (IPhi resultRegister LPtr [(failureResult, failurePredecessor), (actionResult, exitPredecessor), (successResult, successPredecessor)])
+  pure (OLocal LPtr resultRegister)
+
+emitIOResultIsFailure :: LLVMOperand -> FunctionM LLVMOperand
+emitIOResultIsFailure result = do
+  tag <- loadObjectI64Field result 0 "io_result_tag"
+  failureRegister <- freshRegister "io_is_failure"
+  emit (IIcmp failureRegister ICmpEq LI64 tag (OConstInt LI64 tagIOFailure))
+  pure (OLocal LI1 failureRegister)
+
+emitIOResultIsSuccess :: LLVMOperand -> FunctionM LLVMOperand
+emitIOResultIsSuccess result = do
+  tag <- loadObjectI64Field result 0 "io_result_tag"
+  successRegister <- freshRegister "io_is_success"
+  emit (IIcmp successRegister ICmpEq LI64 tag (OConstInt LI64 tagIOSuccess))
+  pure (OLocal LI1 successRegister)
+
+emitIOResultIsExit :: LLVMOperand -> FunctionM LLVMOperand
+emitIOResultIsExit result = do
+  tag <- loadObjectI64Field result 0 "io_result_tag"
+  exitRegister <- freshRegister "io_is_exit"
+  emit (IIcmp exitRegister ICmpEq LI64 tag (OConstInt LI64 tagIOExit))
+  pure (OLocal LI1 exitRegister)
+
+emitIOResultPayload :: LLVMOperand -> FunctionM LLVMOperand
+emitIOResultPayload result =
+  loadObjectPtrField result 2 "io_result_payload"
+
+emitIOResultExitCode :: LLVMOperand -> FunctionM LLVMOperand
+emitIOResultExitCode result = do
+  isFailure <- emitIOResultIsFailure result
+  failureLabel <- freshBlockLabel "io_main_failure"
+  nonFailureLabel <- freshBlockLabel "io_main_non_failure"
+  exitLabel <- freshBlockLabel "io_main_exit"
+  successLabel <- freshBlockLabel "io_main_success"
+  joinLabel <- freshBlockLabel "io_main_join"
+  terminateCurrent (TCondBr isFailure failureLabel nonFailureLabel)
+
+  startBlock failureLabel
+  failurePredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock nonFailureLabel
+  isExit <- emitIOResultIsExit result
+  terminateCurrent (TCondBr isExit exitLabel successLabel)
+
+  startBlock exitLabel
+  exitCode <- loadObjectI64Field result 1 "io_exit_code"
+  exitCode32 <- freshRegister "io_exit_i32"
+  emit (ITrunc exitCode32 exitCode LI32)
+  exitPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock successLabel
+  successPredecessor <- getsCurrentLabel
+  terminateCurrent (TBr joinLabel)
+
+  startBlock joinLabel
+  exitRegister <- freshRegister "io_exit"
+  emit
+    ( IPhi
+        exitRegister
+        LI32
+        [ (OConstInt LI32 1, failurePredecessor)
+        , (OLocal LI32 exitCode32, exitPredecessor)
+        , (OConstInt LI32 0, successPredecessor)
+        ]
+    )
+  pure (OLocal LI32 exitRegister)
+
+emitIOResultSuccessPayloadOrAbort :: LLVMOperand -> FunctionM LLVMOperand
+emitIOResultSuccessPayloadOrAbort result = do
+  tag <- loadObjectI64Field result 0 "io_result_tag"
+  successRegister <- freshRegister "io_is_success"
+  emit (IIcmp successRegister ICmpEq LI64 tag (OConstInt LI64 tagIOSuccess))
+  successLabel <- freshBlockLabel "io_unwrap_success"
+  abortLabel <- freshBlockLabel "io_unwrap_failure"
+  terminateCurrent (TCondBr (OLocal LI1 successRegister) successLabel abortLabel)
+
+  startBlock abortLabel
+  emitAbort
+
+  startBlock successLabel
+  emitIOResultPayload result
+
+emitForeignResult :: CoreType -> LLVMOperand -> FunctionM LLVMOperand
+emitForeignResult resultTy value =
+  case foreignIOPayloadTypeMaybe resultTy of
+    Just _ -> emitMakeIOSuccess value
+    Nothing -> pure value
+
+emitForeignReturnValue :: CoreType -> LLVMOperand -> FunctionM LLVMOperand
+emitForeignReturnValue resultTy resultObject =
+  case foreignIOPayloadTypeMaybe resultTy of
+    Just _ -> do
+      ioResult <- emitForce resultObject
+      emitIOResultSuccessPayloadOrAbort ioResult
+    Nothing ->
+      emitForce resultObject
+
+ioTryResultType :: STGAtom -> FunctionM CoreType
+ioTryResultType action =
+  case foreignIOPayloadTypeMaybe (stgAtomType action) of
+    Just payloadTy ->
+      pure (CTyApp (CTyApp (CTyCon eitherTyConName) ioErrorTy) payloadTy)
+    Nothing ->
+      throwSTGLLVM (STGLLVMUnsupported ("try# expected IO action, got " <> renderCoreType (stgAtomType action)))
 
 emitMakeStringLiteral :: Text -> FunctionM LLVMOperand
 emitMakeStringLiteral value =
@@ -1550,6 +3192,8 @@ freeVarsRhs = \case
 
 freeVarsExpr :: STGExpr -> Set.Set RName
 freeVarsExpr = \case
+  STGSpanned _ expression ->
+    freeVarsExpr expression
   STGAtom atom ->
     freeVarsAtom atom
   STGApp callee arguments _ ->
@@ -1606,8 +3250,20 @@ foreignImportDeclarations program =
             Left (STGLLVMUnsupported ("foreign symbol `" <> symbol <> "` is imported with incompatible native ABI signatures"))
 
 foreignImportsInProgram :: STGProgram -> [CoreForeignImport]
-foreignImportsInProgram (STGProgram _ binds _foreignExports) =
+foreignImportsInProgram (STGProgram _ binds _foreignExports _runtimeSpans) =
   concatMap foreignImportsInBind binds
+
+wrapperImportsInProgram :: STGProgram -> [CoreForeignImport]
+wrapperImportsInProgram program =
+  uniqueForeignImportsByName
+    [ foreignImport
+    | foreignImport <- foreignImportsInProgram program
+    , S.foreignImportEntityKind (coreForeignImportEntity foreignImport) == S.ForeignImportWrapper
+    ]
+
+uniqueForeignImportsByName :: [CoreForeignImport] -> [CoreForeignImport]
+uniqueForeignImportsByName imports =
+  Map.elems (Map.fromList [(coreForeignImportName foreignImport, foreignImport) | foreignImport <- imports])
 
 foreignImportsInBind :: STGBind -> [CoreForeignImport]
 foreignImportsInBind = \case
@@ -1627,6 +3283,8 @@ foreignImportsInRhs = \case
 
 foreignImportsInExpr :: STGExpr -> [CoreForeignImport]
 foreignImportsInExpr = \case
+  STGSpanned _ expression ->
+    foreignImportsInExpr expression
   STGAtom {} ->
     []
   STGApp {} ->
@@ -1671,9 +3329,7 @@ foreignImportDeclarationsFor foreignImport =
       pure [(symbol, declaration)]
     S.ForeignImportWrapper ->
       pure
-        [ (foreignWrapperSlotsName foreignImport, foreignWrapperSlotsDeclaration foreignImport)
-        , (foreignWrapperNextName foreignImport, foreignWrapperNextDeclaration foreignImport)
-        ]
+        [(foreignWrapperSlotsName foreignImport, foreignWrapperSlotsDeclaration foreignImport)]
     other ->
       Left (STGLLVMUnsupported ("native FFI import declaration lowering is not implemented for `" <> renderForeignImportEntityKind other <> "`"))
 
@@ -1705,13 +3361,18 @@ foreignDynamicFunctionABI foreignImport = do
 
 foreignWrapperFunctionABI :: CoreForeignImport -> Either STGLLVMError ForeignFunctionABI
 foreignWrapperFunctionABI foreignImport = do
+  targetTy <- foreignWrapperTargetType foreignImport
+  foreignFunctionABIFromType (foreignDynamicTargetSymbolName foreignImport) targetTy
+
+foreignWrapperTargetType :: CoreForeignImport -> Either STGLLVMError CoreType
+foreignWrapperTargetType foreignImport = do
   validateNativeCCall "native FFI wrapper import" foreignImport
   case splitForeignFunctionType (coreForeignImportType foreignImport) of
     ([targetTy], resultTy)
       | Just resultPayload <- foreignIOPayloadTypeMaybe resultTy
       , Just (ForeignFunctionPointer pointerTargetTy) <- foreignPointerKind resultPayload
       , pointerTargetTy == targetTy ->
-          foreignFunctionABIFromType (foreignDynamicTargetSymbolName foreignImport) targetTy
+          Right targetTy
     _ ->
       Left (STGLLVMUnsupported ("native FFI wrapper import `" <> renderRName (coreForeignImportName foreignImport) <> "` must have type ft -> IO (FunPtr ft)"))
 
@@ -1837,7 +3498,11 @@ foreignValueABIType (CTyCon name) =
     Just (llvmTy, signedness) ->
       Right (ForeignABIInteger llvmTy signedness)
     Nothing ->
-      Left (STGLLVMUnsupported ("native static `ccall` scalar marshalling is not implemented for `" <> renderCoreType (CTyCon name) <> "`"))
+      case Map.lookup (nameOcc name) foreignFloatingABI of
+        Just llvmTy ->
+          Right (ForeignABIFloating llvmTy)
+        Nothing ->
+          Left (STGLLVMUnsupported ("native static `ccall` scalar marshalling is not implemented for `" <> renderCoreType (CTyCon name) <> "`"))
 foreignValueABIType ty =
   Left (STGLLVMUnsupported ("native static `ccall` marshalling is not implemented for `" <> renderCoreType ty <> "`"))
 
@@ -1867,8 +3532,7 @@ signedForeignIntegerABI =
 unsignedForeignIntegerABI :: Map.Map Text (LLVMType, ForeignIntegerSignedness)
 unsignedForeignIntegerABI =
   Map.fromList
-    [ ("Word", unsigned LI64)
-    , ("Word8", unsigned LI8)
+    [ ("Word8", unsigned LI8)
     , ("Word16", unsigned LI16)
     , ("Word32", unsigned LI32)
     , ("Word64", unsigned LI64)
@@ -1880,6 +3544,15 @@ unsignedForeignIntegerABI =
     , ("CSize", unsigned LI64)
     , ("CUIntPtr", unsigned LI64)
     , ("CUIntMax", unsigned LI64)
+    ]
+
+foreignFloatingABI :: Map.Map Text LLVMType
+foreignFloatingABI =
+  Map.fromList
+    [ ("Float", LFloat)
+    , ("CFloat", LFloat)
+    , ("Double", LDouble)
+    , ("CDouble", LDouble)
     ]
 
 signed :: LLVMType -> (LLVMType, ForeignIntegerSignedness)
@@ -1954,11 +3627,6 @@ foreignWrapperSlotsName foreignImport =
   "hegglog_hs_ffi_wrapper_slots_"
     <> foreignWrapperBaseName foreignImport
 
-foreignWrapperNextName :: CoreForeignImport -> Text
-foreignWrapperNextName foreignImport =
-  "hegglog_hs_ffi_wrapper_next_"
-    <> foreignWrapperBaseName foreignImport
-
 foreignWrapperSlotsDeclaration :: CoreForeignImport -> Text
 foreignWrapperSlotsDeclaration foreignImport =
   "@"
@@ -1966,10 +3634,6 @@ foreignWrapperSlotsDeclaration foreignImport =
     <> " = internal global ["
     <> Text.pack (show foreignWrapperPoolSize)
     <> " x ptr] zeroinitializer"
-
-foreignWrapperNextDeclaration :: CoreForeignImport -> Text
-foreignWrapperNextDeclaration foreignImport =
-  "@" <> foreignWrapperNextName foreignImport <> " = internal global i64 0"
 
 foreignDynamicTargetSymbolName :: CoreForeignImport -> Text
 foreignDynamicTargetSymbolName foreignImport =
@@ -1991,6 +3655,7 @@ renderForeignDeclaration abi =
 foreignABITypeLLVM :: ForeignABIType -> LLVMType
 foreignABITypeLLVM = \case
   ForeignABIInteger ty _ -> ty
+  ForeignABIFloating ty -> ty
   ForeignABIBool -> LI1
   ForeignABIChar -> LI32
   ForeignABIPointer -> LPtr
@@ -2003,6 +3668,8 @@ renderLLVMType = \case
   LI16 -> "i16"
   LI1 -> "i1"
   LI8 -> "i8"
+  LFloat -> "float"
+  LDouble -> "double"
   LPtr -> "ptr"
   LArray count ty -> "[" <> Text.pack (show count) <> " x " <> renderLLVMType ty <> "]"
   LStruct fields -> "{ " <> Text.intercalate ", " (map renderLLVMType fields) <> " }"
@@ -2039,15 +3706,22 @@ runtimeFunctions =
   [ processLifetimeAllocFunction
   , allocObjectFunction
   , makeIntFunction
+  , makeFloatFunction
+  , makeDoubleFunction
   , makeBoolFunction
   , makeCharFunction
   , makePointerFunction
+  , makeIOSuccessFunction
+  , makeIOFailureFunction
+  , makeIOExitFunction
   , makeStringFunction
   , makeDataFunction
   , makeFunctionFunction
   , makeThunkFunction
   , forceFunction
   , expectIntFunction
+  , expectFloatFunction
+  , expectDoubleFunction
   , expectBoolFunction
   , expectCharFunction
   , expectPointerFunction
@@ -2062,9 +3736,19 @@ runtimeFunctions =
   , finalizeForeignPtrFunction
   , touchForeignPtrFunction
   , makeCharListFromCStringFunction
+  , getArgsFunction
+  , getProgNameFunction
+  , makeStringListFromArgvFunction
+  , baseNameFunction
+  , charListToCStringFunction
+  , charListLengthFunction
+  , writeCharListCStringFunction
   , showIntFunction
+  , showWordFunction
+  , showDoubleFunction
   , putStrLnFunction
   , getLineFunction
+  , getContentsFunction
   , printCharListFunction
   ]
 
@@ -2114,6 +3798,35 @@ makeIntFunction =
     , (1, LI64, OLocal LI64 (Register "value"))
     ]
 
+makeFloatFunction :: LLVMFunction
+makeFloatFunction =
+  makeBoxedFloatingFunction makeFloatFunctionName tagFloat LFloat 4
+
+makeDoubleFunction :: LLVMFunction
+makeDoubleFunction =
+  makeBoxedFloatingFunction makeDoubleFunctionName tagDouble LDouble 8
+
+makeBoxedFloatingFunction :: Text -> Integer -> LLVMType -> Integer -> LLVMFunction
+makeBoxedFloatingFunction name tag ty payloadSize =
+  LLVMFunction
+    { functionName = name
+    , functionReturnType = LPtr
+    , functionParams = [(ty, Register "value")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "obj")) LPtr (DirectCall allocObjectFunctionName) False []
+            , IGetElementPtr (Register "tag_ptr") objectType (OLocal LPtr (Register "obj")) objectField0
+            , IStore LI64 (OConstInt LI64 tag) (OLocal LPtr (Register "tag_ptr"))
+            , ICall (Just (Register "payload")) LPtr (DirectCall processLifetimeAllocFunctionName) False [(LI64, OConstInt LI64 payloadSize)]
+            , IStore ty (OLocal ty (Register "value")) (OLocal LPtr (Register "payload"))
+            , IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "obj")) objectField2
+            , IStore LPtr (OLocal LPtr (Register "payload")) (OLocal LPtr (Register "payload_ptr"))
+            ]
+            (TRet LPtr (OLocal LPtr (Register "obj")))
+        ]
+    }
+
 makeBoolFunction :: LLVMFunction
 makeBoolFunction =
   LLVMFunction
@@ -2150,6 +3863,33 @@ makePointerFunction =
     [(LPtr, Register "value")]
     [ (0, LI64, OConstInt LI64 tagPointer)
     , (2, LPtr, OLocal LPtr (Register "value"))
+    ]
+
+makeIOSuccessFunction :: LLVMFunction
+makeIOSuccessFunction =
+  makeValueFunction
+    makeIOSuccessFunctionName
+    [(LPtr, Register "value")]
+    [ (0, LI64, OConstInt LI64 tagIOSuccess)
+    , (2, LPtr, OLocal LPtr (Register "value"))
+    ]
+
+makeIOFailureFunction :: LLVMFunction
+makeIOFailureFunction =
+  makeValueFunction
+    makeIOFailureFunctionName
+    [(LPtr, Register "value")]
+    [ (0, LI64, OConstInt LI64 tagIOFailure)
+    , (2, LPtr, OLocal LPtr (Register "value"))
+    ]
+
+makeIOExitFunction :: LLVMFunction
+makeIOExitFunction =
+  makeValueFunction
+    makeIOExitFunctionName
+    [(LI64, Register "code")]
+    [ (0, LI64, OConstInt LI64 tagIOExit)
+    , (1, LI64, OLocal LI64 (Register "code"))
     ]
 
 makeStringFunction :: LLVMFunction
@@ -2285,6 +4025,14 @@ forceFunction =
 expectIntFunction :: LLVMFunction
 expectIntFunction =
   expectPayloadFunction expectIntFunctionName tagInt LI64 "int" (TRet LI64 (OLocal LI64 (Register "payload")))
+
+expectFloatFunction :: LLVMFunction
+expectFloatFunction =
+  expectPayloadFunction expectFloatFunctionName tagFloat LFloat "float" (TRet LFloat (OLocal LFloat (Register "payload")))
+
+expectDoubleFunction :: LLVMFunction
+expectDoubleFunction =
+  expectPayloadFunction expectDoubleFunctionName tagDouble LDouble "double" (TRet LDouble (OLocal LDouble (Register "payload")))
 
 expectBoolFunction :: LLVMFunction
 expectBoolFunction =
@@ -2598,6 +4346,78 @@ showIntFunction =
         ]
     }
 
+showWordFunction :: LLVMFunction
+showWordFunction =
+  LLVMFunction
+    { functionName = showWordFunctionName
+    , functionReturnType = LPtr
+    , functionParams = [(LI64, Register "value")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "buffer")) LPtr (DirectCall processLifetimeAllocFunctionName) False [(LI64, OConstInt LI64 32)]
+            , IGetElementPtr
+                (Register "fmt")
+                (LArray (Text.length wordRawFormatBytes) LI8)
+                (OGlobal LPtr "haskell2010_fmt_u64_raw")
+                [(LI64, OConstInt LI64 0), (LI64, OConstInt LI64 0)]
+            , ICall
+                (Just (Register "written"))
+                LI32
+                (DirectCall "snprintf")
+                True
+                [ (LPtr, OLocal LPtr (Register "buffer"))
+                , (LI64, OConstInt LI64 32)
+                , (LPtr, OLocal LPtr (Register "fmt"))
+                , (LI64, OLocal LI64 (Register "value"))
+                ]
+            , ICall
+                (Just (Register "string"))
+                LPtr
+                (DirectCall makeCharListFromCStringFunctionName)
+                False
+                [(LPtr, OLocal LPtr (Register "buffer"))]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "string")))
+        ]
+    }
+
+showDoubleFunction :: LLVMFunction
+showDoubleFunction =
+  LLVMFunction
+    { functionName = showDoubleFunctionName
+    , functionReturnType = LPtr
+    , functionParams = [(LDouble, Register "value")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "buffer")) LPtr (DirectCall processLifetimeAllocFunctionName) False [(LI64, OConstInt LI64 64)]
+            , IGetElementPtr
+                (Register "fmt")
+                (LArray (Text.length doubleRawFormatBytes) LI8)
+                (OGlobal LPtr "haskell2010_fmt_double_raw")
+                [(LI64, OConstInt LI64 0), (LI64, OConstInt LI64 0)]
+            , ICall
+                (Just (Register "written"))
+                LI32
+                (DirectCall "snprintf")
+                True
+                [ (LPtr, OLocal LPtr (Register "buffer"))
+                , (LI64, OConstInt LI64 64)
+                , (LPtr, OLocal LPtr (Register "fmt"))
+                , (LDouble, OLocal LDouble (Register "value"))
+                ]
+            , ICall
+                (Just (Register "string"))
+                LPtr
+                (DirectCall makeCharListFromCStringFunctionName)
+                False
+                [(LPtr, OLocal LPtr (Register "buffer"))]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "string")))
+        ]
+    }
+
 makeCharListFromCStringFunction :: LLVMFunction
 makeCharListFromCStringFunction =
   LLVMFunction
@@ -2667,6 +4487,286 @@ makeCharListFromCStringFunction =
             (TRet LPtr (OLocal LPtr (Register "cons_list")))
         ]
     }
+
+getArgsFunction :: LLVMFunction
+getArgsFunction =
+  LLVMFunction
+    { functionName = getArgsFunctionName
+    , functionReturnType = LPtr
+    , functionParams = []
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ILoad (Register "argc") LI32 (OGlobal LPtr argcGlobalName)
+            , ILoad (Register "argv") LPtr (OGlobal LPtr argvGlobalName)
+            , IIcmp (Register "has_args") ICmpSlt LI32 (OConstInt LI32 1) (OLocal LI32 (Register "argc"))
+            ]
+            (TCondBr (OLocal LI1 (Register "has_args")) "argv_check" "nil")
+        , LLVMBlock
+            "argv_check"
+            [IIcmp (Register "argv_is_null") ICmpEq LPtr (OLocal LPtr (Register "argv")) OConstNull]
+            (TCondBr (OLocal LI1 (Register "argv_is_null")) "nil" "build")
+        , nilListBlock "nil"
+        , LLVMBlock
+            "build"
+            [ ICall
+                (Just (Register "args"))
+                LPtr
+                (DirectCall makeStringListFromArgvFunctionName)
+                False
+                [(LI32, OLocal LI32 (Register "argc")), (LPtr, OLocal LPtr (Register "argv")), (LI32, OConstInt LI32 1)]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "args")))
+        ]
+    }
+
+getProgNameFunction :: LLVMFunction
+getProgNameFunction =
+  LLVMFunction
+    { functionName = getProgNameFunctionName
+    , functionReturnType = LPtr
+    , functionParams = []
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ILoad (Register "argc") LI32 (OGlobal LPtr argcGlobalName)
+            , ILoad (Register "argv") LPtr (OGlobal LPtr argvGlobalName)
+            , IIcmp (Register "has_prog") ICmpSlt LI32 (OConstInt LI32 0) (OLocal LI32 (Register "argc"))
+            ]
+            (TCondBr (OLocal LI1 (Register "has_prog")) "argv_check" "empty")
+        , LLVMBlock
+            "argv_check"
+            [IIcmp (Register "argv_is_null") ICmpEq LPtr (OLocal LPtr (Register "argv")) OConstNull]
+            (TCondBr (OLocal LI1 (Register "argv_is_null")) "empty" "load_path")
+        , LLVMBlock
+            "load_path"
+            [ IGetElementPtr (Register "slot") LPtr (OLocal LPtr (Register "argv")) [(LI64, OConstInt LI64 0)]
+            , ILoad (Register "path") LPtr (OLocal LPtr (Register "slot"))
+            , IIcmp (Register "path_is_null") ICmpEq LPtr (OLocal LPtr (Register "path")) OConstNull
+            ]
+            (TCondBr (OLocal LI1 (Register "path_is_null")) "empty" "basename")
+        , LLVMBlock
+            "basename"
+            [ ICall (Just (Register "base")) LPtr (DirectCall baseNameFunctionName) False [(LPtr, OLocal LPtr (Register "path"))]
+            , ICall (Just (Register "name")) LPtr (DirectCall makeCharListFromCStringFunctionName) False [(LPtr, OLocal LPtr (Register "base"))]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "name")))
+        , LLVMBlock
+            "empty"
+            [ IGetElementPtr
+                (Register "empty_cstring")
+                (LArray 1 LI8)
+                (OGlobal LPtr emptyCStringGlobalName)
+                [(LI64, OConstInt LI64 0), (LI64, OConstInt LI64 0)]
+            , ICall
+                (Just (Register "empty_name"))
+                LPtr
+                (DirectCall makeCharListFromCStringFunctionName)
+                False
+                [(LPtr, OLocal LPtr (Register "empty_cstring"))]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "empty_name")))
+        ]
+    }
+
+makeStringListFromArgvFunction :: LLVMFunction
+makeStringListFromArgvFunction =
+  LLVMFunction
+    { functionName = makeStringListFromArgvFunctionName
+    , functionReturnType = LPtr
+    , functionParams = [(LI32, Register "argc"), (LPtr, Register "argv"), (LI32, Register "index")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [IIcmp (Register "has_entry") ICmpSlt LI32 (OLocal LI32 (Register "index")) (OLocal LI32 (Register "argc"))]
+            (TCondBr (OLocal LI1 (Register "has_entry")) "cons" "nil")
+        , nilListBlock "nil"
+        , LLVMBlock
+            "cons"
+            [ ISext (Register "index64") (OLocal LI32 (Register "index")) LI64
+            , IGetElementPtr (Register "slot") LPtr (OLocal LPtr (Register "argv")) [(LI64, OLocal LI64 (Register "index64"))]
+            , ILoad (Register "cstring") LPtr (OLocal LPtr (Register "slot"))
+            , ICall
+                (Just (Register "head"))
+                LPtr
+                (DirectCall makeCharListFromCStringFunctionName)
+                False
+                [(LPtr, OLocal LPtr (Register "cstring"))]
+            , IAdd (Register "next_index") LI32 (OLocal LI32 (Register "index")) (OConstInt LI32 1)
+            , ICall
+                (Just (Register "tail"))
+                LPtr
+                (DirectCall makeStringListFromArgvFunctionName)
+                False
+                [(LI32, OLocal LI32 (Register "argc")), (LPtr, OLocal LPtr (Register "argv")), (LI32, OLocal LI32 (Register "next_index"))]
+            , ICall
+                (Just (Register "fields"))
+                LPtr
+                (DirectCall processLifetimeAllocFunctionName)
+                False
+                [(LI64, OConstInt LI64 16)]
+            , IGetElementPtr (Register "head_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 0)]
+            , IStore LPtr (OLocal LPtr (Register "head")) (OLocal LPtr (Register "head_slot"))
+            , IGetElementPtr (Register "tail_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 1)]
+            , IStore LPtr (OLocal LPtr (Register "tail")) (OLocal LPtr (Register "tail_slot"))
+            , ICall
+                (Just (Register "cons_list"))
+                LPtr
+                (DirectCall makeDataFunctionName)
+                False
+                [ (LI64, OConstInt LI64 (constructorRuntimeTag listConsDataConName))
+                , (LI64, OConstInt LI64 2)
+                , (LPtr, OLocal LPtr (Register "fields"))
+                ]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "cons_list")))
+        ]
+    }
+
+baseNameFunction :: LLVMFunction
+baseNameFunction =
+  LLVMFunction
+    { functionName = baseNameFunctionName
+    , functionReturnType = LPtr
+    , functionParams = [(LPtr, Register "path")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "slash")) LPtr (DirectCall "strrchr") False [(LPtr, OLocal LPtr (Register "path")), (LI32, OConstInt LI32 47)]
+            , IIcmp (Register "has_slash") ICmpEq LPtr (OLocal LPtr (Register "slash")) OConstNull
+            ]
+            (TCondBr (OLocal LI1 (Register "has_slash")) "no_slash" "after_slash")
+        , LLVMBlock "no_slash" [] (TRet LPtr (OLocal LPtr (Register "path")))
+        , LLVMBlock
+            "after_slash"
+            [IGetElementPtr (Register "base") LI8 (OLocal LPtr (Register "slash")) [(LI64, OConstInt LI64 1)]]
+            (TRet LPtr (OLocal LPtr (Register "base")))
+        ]
+    }
+
+charListToCStringFunction :: LLVMFunction
+charListToCStringFunction =
+  LLVMFunction
+    { functionName = charListToCStringFunctionName
+    , functionReturnType = LPtr
+    , functionParams = [(LPtr, Register "obj")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "len")) LI64 (DirectCall charListLengthFunctionName) False [(LPtr, OLocal LPtr (Register "obj"))]
+            , IAdd (Register "size") LI64 (OLocal LI64 (Register "len")) (OConstInt LI64 1)
+            , ICall (Just (Register "buffer")) LPtr (DirectCall processLifetimeAllocFunctionName) False [(LI64, OLocal LI64 (Register "size"))]
+            , ICall Nothing LVoid (DirectCall writeCharListCStringFunctionName) False [(LPtr, OLocal LPtr (Register "obj")), (LPtr, OLocal LPtr (Register "buffer"))]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "buffer")))
+        ]
+    }
+
+charListLengthFunction :: LLVMFunction
+charListLengthFunction =
+  LLVMFunction
+    { functionName = charListLengthFunctionName
+    , functionReturnType = LI64
+    , functionParams = [(LPtr, Register "obj")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "forced")) LPtr (DirectCall forceFunctionName) False [(LPtr, OLocal LPtr (Register "obj"))]
+            , IGetElementPtr (Register "tag_ptr") objectType (OLocal LPtr (Register "forced")) objectField0
+            , ILoad (Register "tag") LI64 (OLocal LPtr (Register "tag_ptr"))
+            , IIcmp (Register "is_data") ICmpEq LI64 (OLocal LI64 (Register "tag")) (OConstInt LI64 tagData)
+            ]
+            (TCondBr (OLocal LI1 (Register "is_data")) "data" "abort")
+        , LLVMBlock
+            "data"
+            [ IGetElementPtr (Register "constructor_ptr") objectType (OLocal LPtr (Register "forced")) objectField1
+            , ILoad (Register "constructor") LI64 (OLocal LPtr (Register "constructor_ptr"))
+            , IIcmp (Register "is_nil") ICmpEq LI64 (OLocal LI64 (Register "constructor")) (OConstInt LI64 (constructorRuntimeTag listNilDataConName))
+            ]
+            (TCondBr (OLocal LI1 (Register "is_nil")) "nil" "cons_check")
+        , LLVMBlock "nil" [] (TRet LI64 (OConstInt LI64 0))
+        , LLVMBlock
+            "cons_check"
+            [IIcmp (Register "is_cons") ICmpEq LI64 (OLocal LI64 (Register "constructor")) (OConstInt LI64 (constructorRuntimeTag listConsDataConName))]
+            (TCondBr (OLocal LI1 (Register "is_cons")) "cons" "abort")
+        , LLVMBlock
+            "cons"
+            [ IGetElementPtr (Register "fields_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
+            , ILoad (Register "fields") LPtr (OLocal LPtr (Register "fields_ptr"))
+            , IGetElementPtr (Register "tail_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 1)]
+            , ILoad (Register "tail") LPtr (OLocal LPtr (Register "tail_slot"))
+            , ICall (Just (Register "tail_len")) LI64 (DirectCall charListLengthFunctionName) False [(LPtr, OLocal LPtr (Register "tail"))]
+            , IAdd (Register "len") LI64 (OLocal LI64 (Register "tail_len")) (OConstInt LI64 1)
+            ]
+            (TRet LI64 (OLocal LI64 (Register "len")))
+        , LLVMBlock "abort" [ICall Nothing LVoid (DirectCall "abort") False []] TUnreachable
+        ]
+    }
+
+writeCharListCStringFunction :: LLVMFunction
+writeCharListCStringFunction =
+  LLVMFunction
+    { functionName = writeCharListCStringFunctionName
+    , functionReturnType = LVoid
+    , functionParams = [(LPtr, Register "obj"), (LPtr, Register "buffer")]
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "forced")) LPtr (DirectCall forceFunctionName) False [(LPtr, OLocal LPtr (Register "obj"))]
+            , IGetElementPtr (Register "tag_ptr") objectType (OLocal LPtr (Register "forced")) objectField0
+            , ILoad (Register "tag") LI64 (OLocal LPtr (Register "tag_ptr"))
+            , IIcmp (Register "is_data") ICmpEq LI64 (OLocal LI64 (Register "tag")) (OConstInt LI64 tagData)
+            ]
+            (TCondBr (OLocal LI1 (Register "is_data")) "data" "abort")
+        , LLVMBlock
+            "data"
+            [ IGetElementPtr (Register "constructor_ptr") objectType (OLocal LPtr (Register "forced")) objectField1
+            , ILoad (Register "constructor") LI64 (OLocal LPtr (Register "constructor_ptr"))
+            , IIcmp (Register "is_nil") ICmpEq LI64 (OLocal LI64 (Register "constructor")) (OConstInt LI64 (constructorRuntimeTag listNilDataConName))
+            ]
+            (TCondBr (OLocal LI1 (Register "is_nil")) "nil" "cons_check")
+        , LLVMBlock
+            "nil"
+            [IStore LI8 (OConstInt LI8 0) (OLocal LPtr (Register "buffer"))]
+            TRetVoid
+        , LLVMBlock
+            "cons_check"
+            [IIcmp (Register "is_cons") ICmpEq LI64 (OLocal LI64 (Register "constructor")) (OConstInt LI64 (constructorRuntimeTag listConsDataConName))]
+            (TCondBr (OLocal LI1 (Register "is_cons")) "cons" "abort")
+        , LLVMBlock
+            "cons"
+            [ IGetElementPtr (Register "fields_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
+            , ILoad (Register "fields") LPtr (OLocal LPtr (Register "fields_ptr"))
+            , IGetElementPtr (Register "head_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 0)]
+            , ILoad (Register "head") LPtr (OLocal LPtr (Register "head_slot"))
+            , IGetElementPtr (Register "tail_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 1)]
+            , ILoad (Register "tail") LPtr (OLocal LPtr (Register "tail_slot"))
+            , ICall (Just (Register "char_i32")) LI32 (DirectCall expectCharFunctionName) False [(LPtr, OLocal LPtr (Register "head"))]
+            , ITrunc (Register "char_i8") (OLocal LI32 (Register "char_i32")) LI8
+            , IStore LI8 (OLocal LI8 (Register "char_i8")) (OLocal LPtr (Register "buffer"))
+            , IGetElementPtr (Register "next_buffer") LI8 (OLocal LPtr (Register "buffer")) [(LI64, OConstInt LI64 1)]
+            , ICall Nothing LVoid (DirectCall writeCharListCStringFunctionName) False [(LPtr, OLocal LPtr (Register "tail")), (LPtr, OLocal LPtr (Register "next_buffer"))]
+            ]
+            TRetVoid
+        , LLVMBlock "abort" [ICall Nothing LVoid (DirectCall "abort") False []] TUnreachable
+        ]
+    }
+
+nilListBlock :: Text -> LLVMBlock
+nilListBlock label =
+  LLVMBlock
+    label
+    [ ICall
+        (Just (Register "nil_list"))
+        LPtr
+        (DirectCall makeDataFunctionName)
+        False
+        [ (LI64, OConstInt LI64 (constructorRuntimeTag listNilDataConName))
+        , (LI64, OConstInt LI64 0)
+        , (LPtr, OConstNull)
+        ]
+    ]
+    (TRet LPtr (OLocal LPtr (Register "nil_list")))
 
 putStrLnFunction :: LLVMFunction
 putStrLnFunction =
@@ -2757,6 +4857,66 @@ getLineFunction =
                 False
                 [(LI64, OLocal LI64 (Register "char_i64"))]
             , ICall (Just (Register "tail")) LPtr (DirectCall getLineFunctionName) False []
+            , ICall
+                (Just (Register "fields"))
+                LPtr
+                (DirectCall processLifetimeAllocFunctionName)
+                False
+                [(LI64, OConstInt LI64 16)]
+            , IGetElementPtr (Register "head_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 0)]
+            , IStore LPtr (OLocal LPtr (Register "head")) (OLocal LPtr (Register "head_slot"))
+            , IGetElementPtr (Register "tail_slot") (LArray 2 LPtr) (OLocal LPtr (Register "fields")) [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 1)]
+            , IStore LPtr (OLocal LPtr (Register "tail")) (OLocal LPtr (Register "tail_slot"))
+            , ICall
+                (Just (Register "cons_list"))
+                LPtr
+                (DirectCall makeDataFunctionName)
+                False
+                [ (LI64, OConstInt LI64 (constructorRuntimeTag listConsDataConName))
+                , (LI64, OConstInt LI64 2)
+                , (LPtr, OLocal LPtr (Register "fields"))
+                ]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "cons_list")))
+        ]
+    }
+
+getContentsFunction :: LLVMFunction
+getContentsFunction =
+  LLVMFunction
+    { functionName = getContentsFunctionName
+    , functionReturnType = LPtr
+    , functionParams = []
+    , functionBlocks =
+        [ LLVMBlock
+            "entry"
+            [ ICall (Just (Register "char")) LI32 (DirectCall "getchar") False []
+            , IIcmp (Register "is_eof") ICmpEq LI32 (OLocal LI32 (Register "char")) (OConstInt LI32 (-1))
+            ]
+            (TCondBr (OLocal LI1 (Register "is_eof")) "nil" "cons")
+        , LLVMBlock
+            "nil"
+            [ ICall
+                (Just (Register "nil_list"))
+                LPtr
+                (DirectCall makeDataFunctionName)
+                False
+                [ (LI64, OConstInt LI64 (constructorRuntimeTag listNilDataConName))
+                , (LI64, OConstInt LI64 0)
+                , (LPtr, OConstNull)
+                ]
+            ]
+            (TRet LPtr (OLocal LPtr (Register "nil_list")))
+        , LLVMBlock
+            "cons"
+            [ IZext (Register "char_i64") (OLocal LI32 (Register "char")) LI64
+            , ICall
+                (Just (Register "head"))
+                LPtr
+                (DirectCall makeCharFunctionName)
+                False
+                [(LI64, OLocal LI64 (Register "char_i64"))]
+            , ICall (Just (Register "tail")) LPtr (DirectCall getContentsFunctionName) False []
             , ICall
                 (Just (Register "fields"))
                 LPtr
@@ -2886,6 +5046,16 @@ expectPayloadFunction name expectedTag _ prefix successTerminator =
     , ILoad (Register "payload") LI64 (OLocal LPtr (Register "payload_ptr"))
     , ITrunc (Register "char_i32") (OLocal LI64 (Register "payload")) LI32
     ]
+  payloadInstructions "float" =
+    [ IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
+    , ILoad (Register "payload_box") LPtr (OLocal LPtr (Register "payload_ptr"))
+    , ILoad (Register "payload") LFloat (OLocal LPtr (Register "payload_box"))
+    ]
+  payloadInstructions "double" =
+    [ IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
+    , ILoad (Register "payload_box") LPtr (OLocal LPtr (Register "payload_ptr"))
+    , ILoad (Register "payload") LDouble (OLocal LPtr (Register "payload_box"))
+    ]
   payloadInstructions "string" =
     [ IGetElementPtr (Register "payload_ptr") objectType (OLocal LPtr (Register "forced")) objectField2
     , ILoad (Register "payload") LPtr (OLocal LPtr (Register "payload_ptr"))
@@ -2961,7 +5131,7 @@ foreignPtrFinalizerSlot :: Int -> [(LLVMType, LLVMOperand)]
 foreignPtrFinalizerSlot index =
   [(LI32, OConstInt LI32 0), (LI32, OConstInt LI32 (fromIntegral index))]
 
-tagInt, tagBool, tagFunction, tagThunk, tagBlackHole, tagIndirection, tagData, tagChar, tagString, tagPointer :: Integer
+tagInt, tagBool, tagFunction, tagThunk, tagBlackHole, tagIndirection, tagData, tagChar, tagString, tagPointer, tagIOSuccess, tagIOFailure, tagIOExit, tagFloat, tagDouble :: Integer
 tagInt = 0
 tagBool = 1
 tagFunction = 2
@@ -2972,6 +5142,11 @@ tagData = 6
 tagChar = 7
 tagString = 8
 tagPointer = 9
+tagIOSuccess = 10
+tagIOFailure = 11
+tagIOExit = 12
+tagFloat = 13
+tagDouble = 14
 
 updatableCode, singleEntryCode :: Integer
 updatableCode = 0
@@ -2986,13 +5161,22 @@ constructorRuntimeTag :: RName -> Integer
 constructorRuntimeTag =
   fromIntegral . nameUnique
 
-processLifetimeAllocFunctionName, allocObjectFunctionName, makeIntFunctionName, makeBoolFunctionName, makeCharFunctionName, makePointerFunctionName, makeStringFunctionName, makeDataFunctionName :: Text
+constructorTagLiteral :: RName -> Text
+constructorTagLiteral =
+  Text.pack . show . constructorRuntimeTag
+
+processLifetimeAllocFunctionName, allocObjectFunctionName, makeIntFunctionName, makeFloatFunctionName, makeDoubleFunctionName, makeBoolFunctionName, makeCharFunctionName, makePointerFunctionName, makeIOSuccessFunctionName, makeIOFailureFunctionName, makeIOExitFunctionName, makeStringFunctionName, makeDataFunctionName :: Text
 processLifetimeAllocFunctionName = "hegglog_hs_alloc_process_lifetime"
 allocObjectFunctionName = "hegglog_hs_alloc_object"
 makeIntFunctionName = "hegglog_hs_make_int"
+makeFloatFunctionName = "hegglog_hs_make_float"
+makeDoubleFunctionName = "hegglog_hs_make_double"
 makeBoolFunctionName = "hegglog_hs_make_bool"
 makeCharFunctionName = "hegglog_hs_make_char"
 makePointerFunctionName = "hegglog_hs_make_ptr"
+makeIOSuccessFunctionName = "hegglog_hs_make_io_success"
+makeIOFailureFunctionName = "hegglog_hs_make_io_failure"
+makeIOExitFunctionName = "hegglog_hs_make_io_exit"
 makeStringFunctionName = "hegglog_hs_make_string"
 makeDataFunctionName = "hegglog_hs_make_data"
 
@@ -3001,18 +5185,72 @@ makeFunctionFunctionName = "hegglog_hs_make_function"
 makeThunkFunctionName = "hegglog_hs_make_thunk"
 forceFunctionName = "hegglog_hs_force"
 
-expectIntFunctionName, expectBoolFunctionName, expectCharFunctionName, expectPointerFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, showIntFunctionName, putStrLnFunctionName, getLineFunctionName, printCharListFunctionName :: Text
+expectIntFunctionName, expectFloatFunctionName, expectDoubleFunctionName, expectBoolFunctionName, expectCharFunctionName, expectPointerFunctionName, expectStringFunctionName, expectFunctionName, makeCharListFromCStringFunctionName, getArgsFunctionName, getProgNameFunctionName, makeStringListFromArgvFunctionName, baseNameFunctionName, charListToCStringFunctionName, charListLengthFunctionName, writeCharListCStringFunctionName, showIntFunctionName, showWordFunctionName, showDoubleFunctionName, putStrLnFunctionName, getLineFunctionName, getContentsFunctionName, printCharListFunctionName :: Text
 expectIntFunctionName = "hegglog_hs_expect_int"
+expectFloatFunctionName = "hegglog_hs_expect_float"
+expectDoubleFunctionName = "hegglog_hs_expect_double"
 expectBoolFunctionName = "hegglog_hs_expect_bool"
 expectCharFunctionName = "hegglog_hs_expect_char"
 expectPointerFunctionName = "hegglog_hs_expect_ptr"
 expectStringFunctionName = "hegglog_hs_expect_string"
 expectFunctionName = "hegglog_hs_expect_function"
 makeCharListFromCStringFunctionName = "hegglog_hs_make_char_list_from_cstring"
+getArgsFunctionName = "hegglog_hs_get_args"
+getProgNameFunctionName = "hegglog_hs_get_prog_name"
+makeStringListFromArgvFunctionName = "hegglog_hs_make_string_list_from_argv"
+baseNameFunctionName = "hegglog_hs_basename"
+charListToCStringFunctionName = "hegglog_hs_char_list_to_cstring"
+charListLengthFunctionName = "hegglog_hs_char_list_length"
+writeCharListCStringFunctionName = "hegglog_hs_write_char_list_cstring"
 showIntFunctionName = "hegglog_hs_show_int"
+showWordFunctionName = "hegglog_hs_show_word"
+showDoubleFunctionName = "hegglog_hs_show_double"
 putStrLnFunctionName = "hegglog_hs_putstrln"
 getLineFunctionName = "hegglog_hs_getline"
+getContentsFunctionName = "hegglog_hs_getcontents"
 printCharListFunctionName = "hegglog_hs_print_char_list"
+
+systemIOOpenFileFunctionName, systemIOHCloseFunctionName, systemIOReadFileFunctionName, systemIOWriteFileFunctionName, systemIOAppendFileFunctionName, systemIOHFileSizeFunctionName, systemIOHSetFileSizeFunctionName, systemIOHIsEOFFunctionName, systemIOHSetBufferingFunctionName, systemIOHGetBufferingFunctionName, systemIOHFlushFunctionName, systemIOHGetPosnFunctionName, systemIOHSetPosnFunctionName, systemIOHSeekFunctionName, systemIOHTellFunctionName, systemIOHIsOpenFunctionName, systemIOHIsClosedFunctionName, systemIOHIsReadableFunctionName, systemIOHIsWritableFunctionName, systemIOHIsSeekableFunctionName, systemIOHIsTerminalDeviceFunctionName, systemIOHSetEchoFunctionName, systemIOHGetEchoFunctionName, systemIOHShowFunctionName, systemIOHWaitForInputFunctionName, systemIOHReadyFunctionName, systemIOHGetCharFunctionName, systemIOHGetLineFunctionName, systemIOHLookAheadFunctionName, systemIOHGetContentsFunctionName, systemIOHPutCharFunctionName, systemIOHPutStrFunctionName, systemIOHPutStrLnFunctionName, systemIOFixFunctionName :: Text
+systemIOOpenFileFunctionName = "hegglog_hs_io_open_file"
+systemIOHCloseFunctionName = "hegglog_hs_io_hclose"
+systemIOReadFileFunctionName = "hegglog_hs_io_read_file"
+systemIOWriteFileFunctionName = "hegglog_hs_io_write_file"
+systemIOAppendFileFunctionName = "hegglog_hs_io_append_file"
+systemIOHFileSizeFunctionName = "hegglog_hs_io_hfilesize"
+systemIOHSetFileSizeFunctionName = "hegglog_hs_io_hsetfilesize"
+systemIOHIsEOFFunctionName = "hegglog_hs_io_hiseof"
+systemIOHSetBufferingFunctionName = "hegglog_hs_io_hsetbuffering"
+systemIOHGetBufferingFunctionName = "hegglog_hs_io_hgetbuffering"
+systemIOHFlushFunctionName = "hegglog_hs_io_hflush"
+systemIOHGetPosnFunctionName = "hegglog_hs_io_hgetposn"
+systemIOHSetPosnFunctionName = "hegglog_hs_io_hsetposn"
+systemIOHSeekFunctionName = "hegglog_hs_io_hseek"
+systemIOHTellFunctionName = "hegglog_hs_io_htell"
+systemIOHIsOpenFunctionName = "hegglog_hs_io_hisopen"
+systemIOHIsClosedFunctionName = "hegglog_hs_io_hisclosed"
+systemIOHIsReadableFunctionName = "hegglog_hs_io_hisreadable"
+systemIOHIsWritableFunctionName = "hegglog_hs_io_hiswritable"
+systemIOHIsSeekableFunctionName = "hegglog_hs_io_hisseekable"
+systemIOHIsTerminalDeviceFunctionName = "hegglog_hs_io_histerminal"
+systemIOHSetEchoFunctionName = "hegglog_hs_io_hsetecho"
+systemIOHGetEchoFunctionName = "hegglog_hs_io_hgetecho"
+systemIOHShowFunctionName = "hegglog_hs_io_hshow"
+systemIOHWaitForInputFunctionName = "hegglog_hs_io_hwaitforinput"
+systemIOHReadyFunctionName = "hegglog_hs_io_hready"
+systemIOHGetCharFunctionName = "hegglog_hs_io_hgetchar"
+systemIOHGetLineFunctionName = "hegglog_hs_io_hgetline"
+systemIOHLookAheadFunctionName = "hegglog_hs_io_hlookahead"
+systemIOHGetContentsFunctionName = "hegglog_hs_io_hgetcontents"
+systemIOHPutCharFunctionName = "hegglog_hs_io_hputchar"
+systemIOHPutStrFunctionName = "hegglog_hs_io_hputstr"
+systemIOHPutStrLnFunctionName = "hegglog_hs_io_hputstrln"
+systemIOFixFunctionName = "hegglog_hs_io_fix"
+
+stdHandleGlobalName :: StdHandle -> Text
+stdHandleGlobalName = \case
+  StdInHandle -> "hegglog_hs_stdin_handle"
+  StdOutHandle -> "hegglog_hs_stdout_handle"
+  StdErrHandle -> "hegglog_hs_stderr_handle"
 
 newStablePtrFunctionName, deRefStablePtrFunctionName, freeStablePtrFunctionName :: Text
 newStablePtrFunctionName = "hegglog_hs_new_stable_ptr"
@@ -3026,31 +5264,2032 @@ addForeignPtrFinalizerFunctionName = "hegglog_hs_add_foreign_ptr_finalizer"
 finalizeForeignPtrFunctionName = "hegglog_hs_finalize_foreign_ptr"
 touchForeignPtrFunctionName = "hegglog_hs_touch_foreign_ptr"
 
+ffiPtrPlusFunctionName, ffiPtrMinusFunctionName, ffiPtrAlignFunctionName, ffiMallocBytesFunctionName, ffiReallocBytesFunctionName, ffiFreeFunctionName, ffiFinalizerFreeFunctionName, ffiCopyBytesFunctionName, ffiMoveBytesFunctionName, ffiGetErrnoFunctionName, ffiResetErrnoFunctionName, ffiPeekCStringFunctionName, ffiPeekCStringLenFunctionName, ffiNewCStringFunctionName, ffiPeekCWStringFunctionName, ffiPeekCWStringLenFunctionName, ffiNewCWStringFunctionName, makeCharListFromCStringLenFunctionName, makeCharListFromCWStringFunctionName, makeCharListFromCWStringLenFunctionName, charListToCWStringFunctionName, writeCharListCWStringFunctionName :: Text
+ffiPtrPlusFunctionName = "hegglog_hs_ffi_ptr_plus"
+ffiPtrMinusFunctionName = "hegglog_hs_ffi_ptr_minus"
+ffiPtrAlignFunctionName = "hegglog_hs_ffi_ptr_align"
+ffiMallocBytesFunctionName = "hegglog_hs_ffi_malloc_bytes"
+ffiReallocBytesFunctionName = "hegglog_hs_ffi_realloc_bytes"
+ffiFreeFunctionName = "hegglog_hs_ffi_free"
+ffiFinalizerFreeFunctionName = "hegglog_hs_ffi_finalizer_free"
+ffiCopyBytesFunctionName = "hegglog_hs_ffi_copy_bytes"
+ffiMoveBytesFunctionName = "hegglog_hs_ffi_move_bytes"
+ffiGetErrnoFunctionName = "hegglog_hs_ffi_get_errno"
+ffiResetErrnoFunctionName = "hegglog_hs_ffi_reset_errno"
+ffiPeekCStringFunctionName = "hegglog_hs_ffi_peek_cstring"
+ffiPeekCStringLenFunctionName = "hegglog_hs_ffi_peek_cstring_len"
+ffiNewCStringFunctionName = "hegglog_hs_ffi_new_cstring"
+ffiPeekCWStringFunctionName = "hegglog_hs_ffi_peek_cwstring"
+ffiPeekCWStringLenFunctionName = "hegglog_hs_ffi_peek_cwstring_len"
+ffiNewCWStringFunctionName = "hegglog_hs_ffi_new_cwstring"
+makeCharListFromCStringLenFunctionName = "hegglog_hs_make_char_list_from_cstring_len"
+makeCharListFromCWStringFunctionName = "hegglog_hs_make_char_list_from_cwstring"
+makeCharListFromCWStringLenFunctionName = "hegglog_hs_make_char_list_from_cwstring_len"
+charListToCWStringFunctionName = "hegglog_hs_char_list_to_cwstring"
+writeCharListCWStringFunctionName = "hegglog_hs_write_char_list_cwstring"
+
+ffiPeekFunctionName :: ForeignStorableKind -> Text
+ffiPeekFunctionName kind =
+  "hegglog_hs_ffi_peek_" <> ffiStorableKindSuffix kind
+
+ffiPokeFunctionName :: ForeignStorableKind -> Text
+ffiPokeFunctionName kind =
+  "hegglog_hs_ffi_poke_" <> ffiStorableKindSuffix kind
+
+ffiStorableKindSuffix :: ForeignStorableKind -> Text
+ffiStorableKindSuffix = \case
+  StoreInt -> "i64"
+  StoreBool -> "bool"
+  StoreChar -> "char"
+  StoreInt8 -> "i8"
+  StoreWord8 -> "u8"
+  StoreInt16 -> "i16"
+  StoreWord16 -> "u16"
+  StoreInt32 -> "i32"
+  StoreWord32 -> "u32"
+  StoreInt64 -> "i64"
+  StoreWord -> "u64"
+  StoreWord64 -> "u64"
+  StoreFloat -> "float"
+  StoreDouble -> "double"
+  StorePtr -> "ptr"
+
+argcGlobalName, argvGlobalName, emptyCStringGlobalName :: Text
+argcGlobalName = "hegglog_hs_argc"
+argvGlobalName = "hegglog_hs_argv"
+emptyCStringGlobalName = "haskell2010_empty_cstring"
+
 formatGlobals :: [LLVMGlobal]
 formatGlobals =
   [ LLVMStringGlobal "haskell2010_fmt_i64" intFormatBytes
+  , LLVMStringGlobal "haskell2010_fmt_u64" wordFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_i1" boolFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_char" charFormatBytes
+  , LLVMStringGlobal "haskell2010_fmt_double" doubleFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_i64_raw" intRawFormatBytes
+  , LLVMStringGlobal "haskell2010_fmt_u64_raw" wordRawFormatBytes
+  , LLVMStringGlobal "haskell2010_fmt_double_raw" doubleRawFormatBytes
   , LLVMStringGlobal "haskell2010_fmt_string_line" stringLineFormatBytes
+  , LLVMStringGlobal emptyCStringGlobalName "\0"
+  , LLVMStringGlobal "haskell2010_io_mode_r" "r\0"
+  , LLVMStringGlobal "haskell2010_io_mode_w" "w\0"
+  , LLVMStringGlobal "haskell2010_io_mode_a" "a\0"
+  , LLVMStringGlobal "haskell2010_io_mode_rp" "r+\0"
+  , LLVMStringGlobal "haskell2010_io_mode_wp" "w+\0"
+  , LLVMStringGlobal "haskell2010_io_error_eof" "end of file\0"
+  , LLVMStringGlobal "haskell2010_io_error_open" "openFile failed\0"
+  , LLVMStringGlobal "haskell2010_io_error_closed" "closed handle\0"
+  , LLVMStringGlobal "haskell2010_io_error_illegal" "invalid handle operation\0"
+  , LLVMStringGlobal "haskell2010_io_error_write" "write failed\0"
+  , LLVMStringGlobal "haskell2010_io_error_seek" "seek failed\0"
+  , LLVMStringGlobal "haskell2010_io_handle_stdin" "<stdin>\0"
+  , LLVMStringGlobal "haskell2010_io_handle_stdout" "<stdout>\0"
+  , LLVMStringGlobal "haskell2010_io_handle_stderr" "<stderr>\0"
+  , LLVMStringGlobal "haskell2010_io_handle_file" "<file>\0"
   ]
 
 runtimeDeclarations :: [Text]
 runtimeDeclarations =
-  [ "declare i32 @printf(ptr, ...)"
+  [ "@" <> argcGlobalName <> " = internal global i32 0"
+  , "@" <> argvGlobalName <> " = internal global ptr null"
+  , "declare i32 @printf(ptr, ...)"
   , "declare i32 @putchar(i32)"
   , "declare i32 @getchar()"
   , "declare i32 @snprintf(ptr, i64, ptr, ...)"
+  , "declare ptr @getenv(ptr)"
+  , "declare ptr @strrchr(ptr, i32)"
   , "declare noalias ptr @malloc(i64)"
   , "declare void @abort()"
+  , "declare double @fabs(double)"
+  , "declare double @ceil(double)"
+  , "declare double @floor(double)"
+  , "declare double @exp(double)"
+  , "declare double @log(double)"
+  , "declare double @sqrt(double)"
+  , "declare double @pow(double, double)"
+  , "declare double @sin(double)"
+  , "declare double @cos(double)"
+  , "declare double @tan(double)"
+  , "declare double @asin(double)"
+  , "declare double @acos(double)"
+  , "declare double @atan(double)"
+  , "declare double @sinh(double)"
+  , "declare double @cosh(double)"
+  , "declare double @tanh(double)"
+  , "declare double @asinh(double)"
+  , "declare double @acosh(double)"
+  , "declare double @atanh(double)"
+  , "declare double @atan2(double, double)"
   , "declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)"
   , "declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)"
   , "declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)"
   ]
+    <> foreignLibraryRuntimeDeclarations
+    <> systemIORuntimeDeclarations
+
+foreignLibraryRuntimeDeclarations :: [Text]
+foreignLibraryRuntimeDeclarations =
+  [ "declare ptr @realloc(ptr, i64)"
+  , "declare void @free(ptr)"
+  , "declare ptr @memcpy(ptr, ptr, i64)"
+  , "declare ptr @memmove(ptr, ptr, i64)"
+  , "declare ptr @__error()"
+  , ffiPointerRuntimeDefinitions
+  , ffiAllocationRuntimeDefinitions
+  , ffiErrnoRuntimeDefinitions
+  , ffiCStringRuntimeDefinitions
+  , ffiCWStringRuntimeDefinitions
+  ]
+    <> concatMap
+      ( \(suffix, storageTy, loadExtension) ->
+          [ffiIntegerPeekDefinition suffix storageTy loadExtension, ffiIntegerPokeDefinition suffix storageTy]
+      )
+      [ ("i8", "i8", Just "sext")
+      , ("u8", "i8", Just "zext")
+      , ("i16", "i16", Just "sext")
+      , ("u16", "i16", Just "zext")
+      , ("i32", "i32", Just "sext")
+      , ("u32", "i32", Just "zext")
+      , ("i64", "i64", Nothing)
+      , ("u64", "i64", Nothing)
+      ]
+    <> [ ffiBoolPeekDefinition
+       , ffiBoolPokeDefinition
+       , ffiCharPeekDefinition
+       , ffiCharPokeDefinition
+       , ffiFloatPeekDefinition
+       , ffiFloatPokeDefinition
+       , ffiDoublePeekDefinition
+       , ffiDoublePokeDefinition
+       , ffiPtrPeekDefinition
+       , ffiPtrPokeDefinition
+       ]
+
+ffiPointerRuntimeDefinitions :: Text
+ffiPointerRuntimeDefinitions =
+  Text.unlines
+    [ "define ptr @" <> ffiPtrPlusFunctionName <> "(ptr %ptr_obj, ptr %offset_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %result = getelementptr i8, ptr %base, i64 %offset"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %result)"
+    , "  ret ptr %boxed"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiPtrMinusFunctionName <> "(ptr %left_obj, ptr %right_obj) {"
+    , "entry:"
+    , "  %left = call ptr @" <> expectPointerFunctionName <> "(ptr %left_obj)"
+    , "  %right = call ptr @" <> expectPointerFunctionName <> "(ptr %right_obj)"
+    , "  %left_int = ptrtoint ptr %left to i64"
+    , "  %right_int = ptrtoint ptr %right to i64"
+    , "  %diff = sub i64 %left_int, %right_int"
+    , "  %boxed = call ptr @" <> makeIntFunctionName <> "(i64 %diff)"
+    , "  ret ptr %boxed"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiPtrAlignFunctionName <> "(ptr %ptr_obj, ptr %align_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %align = call i64 @" <> expectIntFunctionName <> "(ptr %align_obj)"
+    , "  %small = icmp sle i64 %align, 1"
+    , "  br i1 %small, label %done_original, label %do_align"
+    , "do_align:"
+    , "  %addr = ptrtoint ptr %ptr to i64"
+    , "  %minus_one = sub i64 %align, 1"
+    , "  %biased = add i64 %addr, %minus_one"
+    , "  %mask = sub i64 0, %align"
+    , "  %aligned_addr = and i64 %biased, %mask"
+    , "  %aligned_ptr = inttoptr i64 %aligned_addr to ptr"
+    , "  br label %done_aligned"
+    , "done_original:"
+    , "  ret ptr %ptr_obj"
+    , "done_aligned:"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %aligned_ptr)"
+    , "  ret ptr %boxed"
+    , "}"
+    ]
+
+ffiAllocationRuntimeDefinitions :: Text
+ffiAllocationRuntimeDefinitions =
+  Text.unlines
+    [ "define ptr @" <> ffiMallocBytesFunctionName <> "(ptr %size_obj) {"
+    , "entry:"
+    , "  %size0 = call i64 @" <> expectIntFunctionName <> "(ptr %size_obj)"
+    , "  %negative = icmp slt i64 %size0, 0"
+    , "  br i1 %negative, label %abort, label %nonnegative"
+    , "nonnegative:"
+    , "  %zero = icmp eq i64 %size0, 0"
+    , "  %size = select i1 %zero, i64 1, i64 %size0"
+    , "  %mem = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 %size)"
+    , "  %is_null = icmp eq ptr %mem, null"
+    , "  br i1 %is_null, label %abort, label %ok"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "ok:"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %mem)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiReallocBytesFunctionName <> "(ptr %ptr_obj, ptr %size_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %size0 = call i64 @" <> expectIntFunctionName <> "(ptr %size_obj)"
+    , "  %negative = icmp slt i64 %size0, 0"
+    , "  br i1 %negative, label %abort, label %nonnegative"
+    , "nonnegative:"
+    , "  %zero = icmp eq i64 %size0, 0"
+    , "  %size = select i1 %zero, i64 1, i64 %size0"
+    , "  %mem = call ptr @realloc(ptr %ptr, i64 %size)"
+    , "  %is_null = icmp eq ptr %mem, null"
+    , "  br i1 %is_null, label %abort, label %ok"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "ok:"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %mem)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiFreeFunctionName <> "(ptr %ptr_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  call void @free(ptr %ptr)"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define void @" <> ffiFinalizerFreeFunctionName <> "(ptr %ptr) {"
+    , "entry:"
+    , "  call void @free(ptr %ptr)"
+    , "  ret void"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiCopyBytesFunctionName <> "(ptr %dest_obj, ptr %source_obj, ptr %size_obj) {"
+    , "entry:"
+    , "  %dest = call ptr @" <> expectPointerFunctionName <> "(ptr %dest_obj)"
+    , "  %source = call ptr @" <> expectPointerFunctionName <> "(ptr %source_obj)"
+    , "  %size = call i64 @" <> expectIntFunctionName <> "(ptr %size_obj)"
+    , "  %negative = icmp slt i64 %size, 0"
+    , "  br i1 %negative, label %abort, label %copy"
+    , "copy:"
+    , "  call ptr @memcpy(ptr %dest, ptr %source, i64 %size)"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiMoveBytesFunctionName <> "(ptr %dest_obj, ptr %source_obj, ptr %size_obj) {"
+    , "entry:"
+    , "  %dest = call ptr @" <> expectPointerFunctionName <> "(ptr %dest_obj)"
+    , "  %source = call ptr @" <> expectPointerFunctionName <> "(ptr %source_obj)"
+    , "  %size = call i64 @" <> expectIntFunctionName <> "(ptr %size_obj)"
+    , "  %negative = icmp slt i64 %size, 0"
+    , "  br i1 %negative, label %abort, label %move"
+    , "move:"
+    , "  call ptr @memmove(ptr %dest, ptr %source, i64 %size)"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    ]
+
+ffiErrnoRuntimeDefinitions :: Text
+ffiErrnoRuntimeDefinitions =
+  Text.unlines
+    [ "define ptr @" <> ffiGetErrnoFunctionName <> "() {"
+    , "entry:"
+    , "  %errno_ptr = call ptr @__error()"
+    , "  %errno32 = load i32, ptr %errno_ptr"
+    , "  %errno64 = sext i32 %errno32 to i64"
+    , "  %boxed = call ptr @" <> makeIntFunctionName <> "(i64 %errno64)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiResetErrnoFunctionName <> "() {"
+    , "entry:"
+    , "  %errno_ptr = call ptr @__error()"
+    , "  store i32 0, ptr %errno_ptr"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiCStringRuntimeDefinitions :: Text
+ffiCStringRuntimeDefinitions =
+  Text.unlines
+    [ "define ptr @" <> ffiPeekCStringFunctionName <> "(ptr %ptr_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %list = call ptr @" <> makeCharListFromCStringFunctionName <> "(ptr %ptr)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %list)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiPeekCStringLenFunctionName <> "(ptr %ptr_obj, ptr %len_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %len = call i64 @" <> expectIntFunctionName <> "(ptr %len_obj)"
+    , "  %negative = icmp slt i64 %len, 0"
+    , "  br i1 %negative, label %abort, label %ok"
+    , "ok:"
+    , "  %list = call ptr @" <> makeCharListFromCStringLenFunctionName <> "(ptr %ptr, i64 %len)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %list)"
+    , "  ret ptr %result"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiNewCStringFunctionName <> "(ptr %list_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> charListToCStringFunctionName <> "(ptr %list_obj)"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %ptr)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> makeCharListFromCStringLenFunctionName <> "(ptr %value, i64 %len) {"
+    , "entry:"
+    , "  %is_end = icmp eq i64 %len, 0"
+    , "  br i1 %is_end, label %nil, label %cons"
+    , "nil:"
+    , "  %nil_list = call ptr @" <> makeDataFunctionName <> "(i64 " <> constructorTagLiteral listNilDataConName <> ", i64 0, ptr null)"
+    , "  ret ptr %nil_list"
+    , "cons:"
+    , "  %byte = load i8, ptr %value"
+    , "  %char_i64 = zext i8 %byte to i64"
+    , "  %head = call ptr @" <> makeCharFunctionName <> "(i64 %char_i64)"
+    , "  %next_value = getelementptr i8, ptr %value, i64 1"
+    , "  %next_len = sub i64 %len, 1"
+    , "  %tail = call ptr @" <> makeCharListFromCStringLenFunctionName <> "(ptr %next_value, i64 %next_len)"
+    , "  %fields = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 16)"
+    , "  %head_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 0"
+    , "  store ptr %head, ptr %head_slot"
+    , "  %tail_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 1"
+    , "  store ptr %tail, ptr %tail_slot"
+    , "  %cons_list = call ptr @" <> makeDataFunctionName <> "(i64 " <> constructorTagLiteral listConsDataConName <> ", i64 2, ptr %fields)"
+    , "  ret ptr %cons_list"
+    , "}"
+    ]
+
+ffiCWStringRuntimeDefinitions :: Text
+ffiCWStringRuntimeDefinitions =
+  Text.unlines
+    [ "define ptr @" <> ffiPeekCWStringFunctionName <> "(ptr %ptr_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %list = call ptr @" <> makeCharListFromCWStringFunctionName <> "(ptr %ptr)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %list)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiPeekCWStringLenFunctionName <> "(ptr %ptr_obj, ptr %len_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %len = call i64 @" <> expectIntFunctionName <> "(ptr %len_obj)"
+    , "  %negative = icmp slt i64 %len, 0"
+    , "  br i1 %negative, label %abort, label %ok"
+    , "ok:"
+    , "  %list = call ptr @" <> makeCharListFromCWStringLenFunctionName <> "(ptr %ptr, i64 %len)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %list)"
+    , "  ret ptr %result"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    , ""
+    , "define ptr @" <> ffiNewCWStringFunctionName <> "(ptr %list_obj) {"
+    , "entry:"
+    , "  %ptr = call ptr @" <> charListToCWStringFunctionName <> "(ptr %list_obj)"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %ptr)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> makeCharListFromCWStringFunctionName <> "(ptr %value) {"
+    , "entry:"
+    , "  %code = load i32, ptr %value"
+    , "  %is_end = icmp eq i32 %code, 0"
+    , "  br i1 %is_end, label %nil, label %cons"
+    , "nil:"
+    , "  %nil_list = call ptr @" <> makeDataFunctionName <> "(i64 " <> constructorTagLiteral listNilDataConName <> ", i64 0, ptr null)"
+    , "  ret ptr %nil_list"
+    , "cons:"
+    , "  %char_i64 = zext i32 %code to i64"
+    , "  %head = call ptr @" <> makeCharFunctionName <> "(i64 %char_i64)"
+    , "  %next_value = getelementptr i32, ptr %value, i64 1"
+    , "  %tail = call ptr @" <> makeCharListFromCWStringFunctionName <> "(ptr %next_value)"
+    , "  %fields = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 16)"
+    , "  %head_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 0"
+    , "  store ptr %head, ptr %head_slot"
+    , "  %tail_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 1"
+    , "  store ptr %tail, ptr %tail_slot"
+    , "  %cons_list = call ptr @" <> makeDataFunctionName <> "(i64 " <> constructorTagLiteral listConsDataConName <> ", i64 2, ptr %fields)"
+    , "  ret ptr %cons_list"
+    , "}"
+    , ""
+    , "define ptr @" <> makeCharListFromCWStringLenFunctionName <> "(ptr %value, i64 %len) {"
+    , "entry:"
+    , "  %is_end = icmp eq i64 %len, 0"
+    , "  br i1 %is_end, label %nil, label %cons"
+    , "nil:"
+    , "  %nil_list = call ptr @" <> makeDataFunctionName <> "(i64 " <> constructorTagLiteral listNilDataConName <> ", i64 0, ptr null)"
+    , "  ret ptr %nil_list"
+    , "cons:"
+    , "  %code = load i32, ptr %value"
+    , "  %char_i64 = zext i32 %code to i64"
+    , "  %head = call ptr @" <> makeCharFunctionName <> "(i64 %char_i64)"
+    , "  %next_value = getelementptr i32, ptr %value, i64 1"
+    , "  %next_len = sub i64 %len, 1"
+    , "  %tail = call ptr @" <> makeCharListFromCWStringLenFunctionName <> "(ptr %next_value, i64 %next_len)"
+    , "  %fields = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 16)"
+    , "  %head_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 0"
+    , "  store ptr %head, ptr %head_slot"
+    , "  %tail_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 1"
+    , "  store ptr %tail, ptr %tail_slot"
+    , "  %cons_list = call ptr @" <> makeDataFunctionName <> "(i64 " <> constructorTagLiteral listConsDataConName <> ", i64 2, ptr %fields)"
+    , "  ret ptr %cons_list"
+    , "}"
+    , ""
+    , "define ptr @" <> charListToCWStringFunctionName <> "(ptr %obj) {"
+    , "entry:"
+    , "  %len = call i64 @" <> charListLengthFunctionName <> "(ptr %obj)"
+    , "  %cells = add i64 %len, 1"
+    , "  %bytes = mul i64 %cells, 4"
+    , "  %buffer = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 %bytes)"
+    , "  call void @" <> writeCharListCWStringFunctionName <> "(ptr %obj, ptr %buffer)"
+    , "  ret ptr %buffer"
+    , "}"
+    , ""
+    , "define void @" <> writeCharListCWStringFunctionName <> "(ptr %obj, ptr %buffer) {"
+    , "entry:"
+    , "  %forced = call ptr @" <> forceFunctionName <> "(ptr %obj)"
+    , "  %tag_ptr = getelementptr { i64, i64, ptr, ptr, ptr, i64 }, ptr %forced, i32 0, i32 0"
+    , "  %tag = load i64, ptr %tag_ptr"
+    , "  %is_data = icmp eq i64 %tag, " <> Text.pack (show tagData)
+    , "  br i1 %is_data, label %data, label %abort"
+    , "data:"
+    , "  %constructor_ptr = getelementptr { i64, i64, ptr, ptr, ptr, i64 }, ptr %forced, i32 0, i32 1"
+    , "  %constructor = load i64, ptr %constructor_ptr"
+    , "  %is_nil = icmp eq i64 %constructor, " <> constructorTagLiteral listNilDataConName
+    , "  br i1 %is_nil, label %nil, label %cons_check"
+    , "nil:"
+    , "  store i32 0, ptr %buffer"
+    , "  ret void"
+    , "cons_check:"
+    , "  %is_cons = icmp eq i64 %constructor, " <> constructorTagLiteral listConsDataConName
+    , "  br i1 %is_cons, label %cons, label %abort"
+    , "cons:"
+    , "  %fields_ptr = getelementptr { i64, i64, ptr, ptr, ptr, i64 }, ptr %forced, i32 0, i32 2"
+    , "  %fields = load ptr, ptr %fields_ptr"
+    , "  %head_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 0"
+    , "  %head = load ptr, ptr %head_slot"
+    , "  %tail_slot = getelementptr [2 x ptr], ptr %fields, i32 0, i32 1"
+    , "  %tail = load ptr, ptr %tail_slot"
+    , "  %char_i32 = call i32 @" <> expectCharFunctionName <> "(ptr %head)"
+    , "  store i32 %char_i32, ptr %buffer"
+    , "  %next_buffer = getelementptr i32, ptr %buffer, i64 1"
+    , "  call void @" <> writeCharListCWStringFunctionName <> "(ptr %tail, ptr %next_buffer)"
+    , "  ret void"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    ]
+
+ffiIntegerPeekDefinition :: Text -> Text -> Maybe Text -> Text
+ffiIntegerPeekDefinition suffix storageTy loadExtension =
+  Text.unlines $
+    [ "define ptr @" <> ffiFunction "peek" suffix <> "(ptr %ptr_obj, ptr %offset_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  %loaded = load " <> storageTy <> ", ptr %addr"
+    ]
+      <> extendLines
+      <> [ "  %boxed = call ptr @" <> makeIntFunctionName <> "(i64 " <> wideOperand <> ")"
+         , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+         , "  ret ptr %result"
+         , "}"
+         ]
+ where
+  extendLines =
+    case loadExtension of
+      Just extension -> ["  %wide = " <> extension <> " " <> storageTy <> " %loaded to i64"]
+      Nothing -> []
+  wideOperand =
+    case loadExtension of
+      Just _ -> "%wide"
+      Nothing -> "%loaded"
+
+ffiIntegerPokeDefinition :: Text -> Text -> Text
+ffiIntegerPokeDefinition suffix storageTy =
+  Text.unlines $
+    [ "define ptr @" <> ffiFunction "poke" suffix <> "(ptr %ptr_obj, ptr %offset_obj, ptr %value_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %value64 = call i64 @" <> expectIntFunctionName <> "(ptr %value_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    ]
+      <> storeValueLines
+      <> [ "  %result = call ptr @hegglog_hs_io_unit_success()"
+         , "  ret ptr %result"
+         , "}"
+         ]
+ where
+  storeValueLines
+    | storageTy == "i64" =
+        ["  store i64 %value64, ptr %addr"]
+    | otherwise =
+        [ "  %value = trunc i64 %value64 to " <> storageTy
+        , "  store " <> storageTy <> " %value, ptr %addr"
+        ]
+
+ffiBoolPeekDefinition :: Text
+ffiBoolPeekDefinition =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "peek" "bool" <> "(ptr %ptr_obj, ptr %offset_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  %loaded = load i8, ptr %addr"
+    , "  %truth = icmp ne i8 %loaded, 0"
+    , "  %boxed = call ptr @" <> makeBoolFunctionName <> "(i1 %truth)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiBoolPokeDefinition :: Text
+ffiBoolPokeDefinition =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "poke" "bool" <> "(ptr %ptr_obj, ptr %offset_obj, ptr %value_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %truth = call i1 @" <> expectBoolFunctionName <> "(ptr %value_obj)"
+    , "  %value = zext i1 %truth to i8"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  store i8 %value, ptr %addr"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiCharPeekDefinition :: Text
+ffiCharPeekDefinition =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "peek" "char" <> "(ptr %ptr_obj, ptr %offset_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  %loaded = load i32, ptr %addr"
+    , "  %wide = zext i32 %loaded to i64"
+    , "  %boxed = call ptr @" <> makeCharFunctionName <> "(i64 %wide)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiCharPokeDefinition :: Text
+ffiCharPokeDefinition =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "poke" "char" <> "(ptr %ptr_obj, ptr %offset_obj, ptr %value_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %value = call i32 @" <> expectCharFunctionName <> "(ptr %value_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  store i32 %value, ptr %addr"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiFloatPeekDefinition :: Text
+ffiFloatPeekDefinition =
+  ffiFloatingPeekDefinition "float" "float" makeFloatFunctionName
+
+ffiFloatPokeDefinition :: Text
+ffiFloatPokeDefinition =
+  ffiFloatingPokeDefinition "float" "float" expectFloatFunctionName
+
+ffiDoublePeekDefinition :: Text
+ffiDoublePeekDefinition =
+  ffiFloatingPeekDefinition "double" "double" makeDoubleFunctionName
+
+ffiDoublePokeDefinition :: Text
+ffiDoublePokeDefinition =
+  ffiFloatingPokeDefinition "double" "double" expectDoubleFunctionName
+
+ffiFloatingPeekDefinition :: Text -> Text -> Text -> Text
+ffiFloatingPeekDefinition suffix storageTy makeFunction =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "peek" suffix <> "(ptr %ptr_obj, ptr %offset_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  %loaded = load " <> storageTy <> ", ptr %addr"
+    , "  %boxed = call ptr @" <> makeFunction <> "(" <> storageTy <> " %loaded)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiFloatingPokeDefinition :: Text -> Text -> Text -> Text
+ffiFloatingPokeDefinition suffix storageTy expectFunction =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "poke" suffix <> "(ptr %ptr_obj, ptr %offset_obj, ptr %value_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %value = call " <> storageTy <> " @" <> expectFunction <> "(ptr %value_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  store " <> storageTy <> " %value, ptr %addr"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiPtrPeekDefinition :: Text
+ffiPtrPeekDefinition =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "peek" "ptr" <> "(ptr %ptr_obj, ptr %offset_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  %loaded = load ptr, ptr %addr"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %loaded)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiPtrPokeDefinition :: Text
+ffiPtrPokeDefinition =
+  Text.unlines
+    [ "define ptr @" <> ffiFunction "poke" "ptr" <> "(ptr %ptr_obj, ptr %offset_obj, ptr %value_obj) {"
+    , "entry:"
+    , "  %base = call ptr @" <> expectPointerFunctionName <> "(ptr %ptr_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %value = call ptr @" <> expectPointerFunctionName <> "(ptr %value_obj)"
+    , "  %addr = getelementptr i8, ptr %base, i64 %offset"
+    , "  store ptr %value, ptr %addr"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+ffiFunction :: Text -> Text -> Text
+ffiFunction operation suffix =
+  "hegglog_hs_ffi_" <> operation <> "_" <> suffix
+
+systemIORuntimeDeclarations :: [Text]
+systemIORuntimeDeclarations =
+  [ "%hegglog_hs_handle = type { ptr, i64, i64, i64, i64, i64, i64, i64, i64, i64 }"
+  , "%hegglog_hs_handle_posn = type { ptr, i64 }"
+  , "@hegglog_hs_stdin_handle = internal global %hegglog_hs_handle { ptr null, i64 0, i64 0, i64 1, i64 0, i64 0, i64 1, i64 1, i64 0, i64 0 }"
+  , "@hegglog_hs_stdout_handle = internal global %hegglog_hs_handle { ptr null, i64 0, i64 1, i64 0, i64 1, i64 0, i64 1, i64 0, i64 0, i64 0 }"
+  , "@hegglog_hs_stderr_handle = internal global %hegglog_hs_handle { ptr null, i64 0, i64 2, i64 0, i64 1, i64 0, i64 1, i64 0, i64 0, i64 0 }"
+  , "declare ptr @fopen(ptr, ptr)"
+  , "declare i32 @fclose(ptr)"
+  , "declare i32 @fflush(ptr)"
+  , "declare i32 @fgetc(ptr)"
+  , "declare i32 @fputc(i32, ptr)"
+  , "declare i64 @fwrite(ptr, i64, i64, ptr)"
+  , "declare i64 @ftell(ptr)"
+  , "declare i32 @fseek(ptr, i64, i32)"
+  , "declare i32 @fileno(ptr)"
+  , "declare i32 @ftruncate(i32, i64)"
+  , "declare i64 @write(i32, ptr, i64)"
+  , "declare i32 @isatty(i32)"
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_unit_success() {"
+      , "entry:"
+      , "  %unit = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag unitDataConName <> ", i64 0, ptr null)"
+      , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %unit)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_bool_success(i1 %value) {"
+      , "entry:"
+      , "  %boxed = call ptr @" <> makeBoolFunctionName <> "(i1 %value)"
+      , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_int_success(i64 %value) {"
+      , "entry:"
+      , "  %boxed = call ptr @" <> makeIntFunctionName <> "(i64 %value)"
+      , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_failure(i64 %error_tag, ptr %message) {"
+      , "entry:"
+      , "  %error_type = call ptr @" <> makeDataFunctionName <> "(i64 %error_tag, i64 0, ptr null)"
+      , "  %message_obj = call ptr @" <> makeCharListFromCStringFunctionName <> "(ptr %message)"
+      , "  %nothing_handle = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag maybeNothingDataConName <> ", i64 0, ptr null)"
+      , "  %nothing_file = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag maybeNothingDataConName <> ", i64 0, ptr null)"
+      , "  %fields = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 32)"
+      , "  %field0 = getelementptr inbounds [4 x ptr], ptr %fields, i32 0, i32 0"
+      , "  store ptr %error_type, ptr %field0"
+      , "  %field1 = getelementptr inbounds [4 x ptr], ptr %fields, i32 0, i32 1"
+      , "  store ptr %message_obj, ptr %field1"
+      , "  %field2 = getelementptr inbounds [4 x ptr], ptr %fields, i32 0, i32 2"
+      , "  store ptr %nothing_handle, ptr %field2"
+      , "  %field3 = getelementptr inbounds [4 x ptr], ptr %fields, i32 0, i32 3"
+      , "  store ptr %nothing_file, ptr %field3"
+      , "  %error = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag ioErrorDataConName <> ", i64 4, ptr %fields)"
+      , "  %result = call ptr @" <> makeIOFailureFunctionName <> "(ptr %error)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_eof_failure() {"
+      , "entry:"
+      , "  %message = getelementptr inbounds [12 x i8], ptr @haskell2010_io_error_eof, i64 0, i64 0"
+      , "  %result = call ptr @hegglog_hs_io_failure(i64 " <> tag ioErrorEOFTypeDataConName <> ", ptr %message)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_closed_failure() {"
+      , "entry:"
+      , "  %message = getelementptr inbounds [14 x i8], ptr @haskell2010_io_error_closed, i64 0, i64 0"
+      , "  %result = call ptr @hegglog_hs_io_failure(i64 " <> tag ioErrorIllegalOperationTypeDataConName <> ", ptr %message)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_illegal_failure() {"
+      , "entry:"
+      , "  %message = getelementptr inbounds [25 x i8], ptr @haskell2010_io_error_illegal, i64 0, i64 0"
+      , "  %result = call ptr @hegglog_hs_io_failure(i64 " <> tag ioErrorIllegalOperationTypeDataConName <> ", ptr %message)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_open_failure() {"
+      , "entry:"
+      , "  %message = getelementptr inbounds [16 x i8], ptr @haskell2010_io_error_open, i64 0, i64 0"
+      , "  %result = call ptr @hegglog_hs_io_failure(i64 " <> tag ioErrorDoesNotExistTypeDataConName <> ", ptr %message)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_write_failure() {"
+      , "entry:"
+      , "  %message = getelementptr inbounds [13 x i8], ptr @haskell2010_io_error_write, i64 0, i64 0"
+      , "  %result = call ptr @hegglog_hs_io_failure(i64 " <> tag ioErrorIllegalOperationTypeDataConName <> ", ptr %message)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_seek_failure() {"
+      , "entry:"
+      , "  %message = getelementptr inbounds [12 x i8], ptr @haskell2010_io_error_seek, i64 0, i64 0"
+      , "  %result = call ptr @hegglog_hs_io_failure(i64 " <> tag ioErrorIllegalOperationTypeDataConName <> ", ptr %message)"
+      , "  ret ptr %result"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_expect_handle(ptr %handle) {"
+      , "entry:"
+      , "  %record = call ptr @" <> expectPointerFunctionName <> "(ptr %handle)"
+      , "  %is_null = icmp eq ptr %record, null"
+      , "  br i1 %is_null, label %abort, label %ok"
+      , "abort:"
+      , "  call void @abort()"
+      , "  unreachable"
+      , "ok:"
+      , "  ret ptr %record"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @hegglog_hs_io_alloc_file_handle(ptr %file, i64 %readable, i64 %writable) {"
+      , "entry:"
+      , "  %record = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 80)"
+      , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+      , "  store ptr %file, ptr %file_slot"
+      , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+      , "  store i64 0, ptr %state_slot"
+      , "  %kind_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 2"
+      , "  store i64 3, ptr %kind_slot"
+      , "  %read_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 3"
+      , "  store i64 %readable, ptr %read_slot"
+      , "  %write_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 4"
+      , "  store i64 %writable, ptr %write_slot"
+      , "  %seek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 5"
+      , "  store i64 1, ptr %seek_slot"
+      , "  %buffer_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 6"
+      , "  store i64 1, ptr %buffer_slot"
+      , "  %echo_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 7"
+      , "  store i64 0, ptr %echo_slot"
+      , "  %peek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 8"
+      , "  store i64 0, ptr %peek_slot"
+      , "  %peek_char_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 9"
+      , "  store i64 0, ptr %peek_char_slot"
+      , "  ret ptr %record"
+      , "}"
+      ]
+  , Text.unlines
+      [ "define ptr @" <> systemIOOpenFileFunctionName <> "(ptr %path_obj, ptr %mode_obj) {"
+      , "entry:"
+      , "  %path = call ptr @" <> charListToCStringFunctionName <> "(ptr %path_obj)"
+      , "  %mode_forced = call ptr @" <> forceFunctionName <> "(ptr %mode_obj)"
+      , "  %ctor_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %mode_forced, i32 0, i32 1"
+      , "  %ctor = load i64, ptr %ctor_slot"
+      , "  %is_read = icmp eq i64 %ctor, " <> tag ioModeReadDataConName
+      , "  br i1 %is_read, label %read, label %write_check"
+      , "read:"
+      , "  %mode_r = getelementptr inbounds [2 x i8], ptr @haskell2010_io_mode_r, i64 0, i64 0"
+      , "  br label %open"
+      , "write_check:"
+      , "  %is_write = icmp eq i64 %ctor, " <> tag ioModeWriteDataConName
+      , "  br i1 %is_write, label %write, label %append_check"
+      , "write:"
+      , "  %mode_w = getelementptr inbounds [2 x i8], ptr @haskell2010_io_mode_w, i64 0, i64 0"
+      , "  br label %open"
+      , "append_check:"
+      , "  %is_append = icmp eq i64 %ctor, " <> tag ioModeAppendDataConName
+      , "  br i1 %is_append, label %append, label %readwrite_check"
+      , "append:"
+      , "  %mode_a = getelementptr inbounds [2 x i8], ptr @haskell2010_io_mode_a, i64 0, i64 0"
+      , "  br label %open"
+      , "readwrite_check:"
+      , "  %is_readwrite = icmp eq i64 %ctor, " <> tag ioModeReadWriteDataConName
+      , "  br i1 %is_readwrite, label %readwrite, label %abort"
+      , "readwrite:"
+      , "  %mode_rp = getelementptr inbounds [3 x i8], ptr @haskell2010_io_mode_rp, i64 0, i64 0"
+      , "  br label %open"
+      , "open:"
+      , "  %mode = phi ptr [ %mode_r, %read ], [ %mode_w, %write ], [ %mode_a, %append ], [ %mode_rp, %readwrite ]"
+      , "  %readable = phi i64 [ 1, %read ], [ 0, %write ], [ 0, %append ], [ 1, %readwrite ]"
+      , "  %writable = phi i64 [ 0, %read ], [ 1, %write ], [ 1, %append ], [ 1, %readwrite ]"
+      , "  %file = call ptr @fopen(ptr %path, ptr %mode)"
+      , "  %is_null = icmp eq ptr %file, null"
+      , "  br i1 %is_null, label %open_failed, label %opened"
+      , "opened:"
+      , "  %record = call ptr @hegglog_hs_io_alloc_file_handle(ptr %file, i64 %readable, i64 %writable)"
+      , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %record)"
+      , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+      , "  ret ptr %result"
+      , "open_failed:"
+      , "  %retry_readwrite = icmp eq i64 %ctor, " <> tag ioModeReadWriteDataConName
+      , "  br i1 %retry_readwrite, label %create_readwrite, label %open_failed_final"
+      , "create_readwrite:"
+      , "  %mode_wp = getelementptr inbounds [3 x i8], ptr @haskell2010_io_mode_wp, i64 0, i64 0"
+      , "  %created_file = call ptr @fopen(ptr %path, ptr %mode_wp)"
+      , "  %created_null = icmp eq ptr %created_file, null"
+      , "  br i1 %created_null, label %open_failed_final, label %opened_created"
+      , "opened_created:"
+      , "  %created_record = call ptr @hegglog_hs_io_alloc_file_handle(ptr %created_file, i64 1, i64 1)"
+      , "  %created_boxed = call ptr @" <> makePointerFunctionName <> "(ptr %created_record)"
+      , "  %created_result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %created_boxed)"
+      , "  ret ptr %created_result"
+      , "open_failed_final:"
+      , "  %failure = call ptr @hegglog_hs_io_open_failure()"
+      , "  ret ptr %failure"
+      , "abort:"
+      , "  call void @abort()"
+      , "  unreachable"
+      , "}"
+      ]
+  , systemIOCloseAndReadText
+  , systemIOWriteText
+  , systemIOHandleQueryText
+  , systemIOReadText
+  , systemIOPositionText
+  , systemIOFixText
+  ]
+ where
+  tag =
+    Text.pack . show . constructorRuntimeTag
+
+systemIOCloseAndReadText :: Text
+systemIOCloseAndReadText =
+  Text.unlines
+    [ "define void @hegglog_hs_io_close_record(ptr %record) {"
+    , "entry:"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_closed = icmp eq i64 %state, 1"
+    , "  br i1 %is_closed, label %done, label %maybe_close_file"
+    , "maybe_close_file:"
+    , "  %kind_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 2"
+    , "  %kind = load i64, ptr %kind_slot"
+    , "  %is_file = icmp eq i64 %kind, 3"
+    , "  br i1 %is_file, label %close_file, label %mark_closed"
+    , "close_file:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %file_is_null = icmp eq ptr %file_handle, null"
+    , "  br i1 %file_is_null, label %mark_closed, label %call_close"
+    , "call_close:"
+    , "  %ignored = call i32 @fclose(ptr %file_handle)"
+    , "  store ptr null, ptr %file_slot"
+    , "  br label %mark_closed"
+    , "mark_closed:"
+    , "  store i64 1, ptr %state_slot"
+    , "  %peek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 8"
+    , "  store i64 0, ptr %peek_slot"
+    , "  br label %done"
+    , "done:"
+    , "  ret void"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHCloseFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  call void @hegglog_hs_io_close_record(ptr %record)"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_make_nil_list() {"
+    , "entry:"
+    , "  %nil = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag listNilDataConName <> ", i64 0, ptr null)"
+    , "  ret ptr %nil"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_cons_char(i32 %char, ptr %tail) {"
+    , "entry:"
+    , "  %char64 = zext i32 %char to i64"
+    , "  %head = call ptr @" <> makeCharFunctionName <> "(i64 %char64)"
+    , "  %fields = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 16)"
+    , "  %head_slot = getelementptr inbounds [2 x ptr], ptr %fields, i32 0, i32 0"
+    , "  store ptr %head, ptr %head_slot"
+    , "  %tail_slot = getelementptr inbounds [2 x ptr], ptr %fields, i32 0, i32 1"
+    , "  store ptr %tail, ptr %tail_slot"
+    , "  %cons = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag listConsDataConName <> ", i64 2, ptr %fields)"
+    , "  ret ptr %cons"
+    , "}"
+    , ""
+    , "define i32 @hegglog_hs_io_read_char_code(ptr %record) {"
+    , "entry:"
+    , "  %peek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 8"
+    , "  %has_peek = load i64, ptr %peek_slot"
+    , "  %has_peek_bool = icmp eq i64 %has_peek, 1"
+    , "  br i1 %has_peek_bool, label %from_peek, label %dispatch"
+    , "from_peek:"
+    , "  %peek_char_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 9"
+    , "  %peek_char64 = load i64, ptr %peek_char_slot"
+    , "  store i64 0, ptr %peek_slot"
+    , "  %peek_char = trunc i64 %peek_char64 to i32"
+    , "  ret i32 %peek_char"
+    , "dispatch:"
+    , "  %kind_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 2"
+    , "  %kind = load i64, ptr %kind_slot"
+    , "  %is_stdin = icmp eq i64 %kind, 0"
+    , "  br i1 %is_stdin, label %stdin, label %file_check"
+    , "stdin:"
+    , "  %stdin_char = call i32 @getchar()"
+    , "  ret i32 %stdin_char"
+    , "file_check:"
+    , "  %is_file = icmp eq i64 %kind, 3"
+    , "  br i1 %is_file, label %file, label %eof"
+    , "file:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %file_char = call i32 @fgetc(ptr %file_handle)"
+    , "  ret i32 %file_char"
+    , "eof:"
+    , "  ret i32 -1"
+    , "}"
+    , ""
+    , "define i32 @hegglog_hs_io_peek_char_code(ptr %record) {"
+    , "entry:"
+    , "  %peek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 8"
+    , "  %has_peek = load i64, ptr %peek_slot"
+    , "  %has_peek_bool = icmp eq i64 %has_peek, 1"
+    , "  br i1 %has_peek_bool, label %from_peek, label %read"
+    , "from_peek:"
+    , "  %peek_char_slot_a = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 9"
+    , "  %peek_char64_a = load i64, ptr %peek_char_slot_a"
+    , "  %peek_char_a = trunc i64 %peek_char64_a to i32"
+    , "  ret i32 %peek_char_a"
+    , "read:"
+    , "  %char = call i32 @hegglog_hs_io_read_char_code(ptr %record)"
+    , "  %is_eof = icmp eq i32 %char, -1"
+    , "  br i1 %is_eof, label %done, label %store"
+    , "store:"
+    , "  %char64 = zext i32 %char to i64"
+    , "  %peek_char_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 9"
+    , "  store i64 %char64, ptr %peek_char_slot"
+    , "  store i64 1, ptr %peek_slot"
+    , "  br label %done"
+    , "done:"
+    , "  ret i32 %char"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_hgetcontents_value(ptr %record) {"
+    , "entry:"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  store i64 2, ptr %state_slot"
+    , "  %env = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 8)"
+    , "  %slot = getelementptr inbounds [1 x ptr], ptr %env, i32 0, i32 0"
+    , "  store ptr %record, ptr %slot"
+    , "  %thunk = call ptr @" <> makeThunkFunctionName <> "(ptr @hegglog_hs_io_hgetcontents_thunk, ptr %env, i64 " <> Text.pack (show updatableCode) <> ")"
+    , "  ret ptr %thunk"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_hgetcontents_thunk(ptr %env) {"
+    , "entry:"
+    , "  %slot = getelementptr inbounds [1 x ptr], ptr %env, i32 0, i32 0"
+    , "  %record = load ptr, ptr %slot"
+    , "  %list = call ptr @hegglog_hs_io_hgetcontents_cons(ptr %record)"
+    , "  ret ptr %list"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_hgetcontents_cons(ptr %record) {"
+    , "entry:"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_closed = icmp eq i64 %state, 1"
+    , "  br i1 %is_closed, label %nil, label %read"
+    , "read:"
+    , "  %char = call i32 @hegglog_hs_io_read_char_code(ptr %record)"
+    , "  %is_eof = icmp eq i32 %char, -1"
+    , "  br i1 %is_eof, label %eof, label %cons"
+    , "eof:"
+    , "  call void @hegglog_hs_io_close_record(ptr %record)"
+    , "  br label %nil"
+    , "nil:"
+    , "  %nil_value = call ptr @hegglog_hs_io_make_nil_list()"
+    , "  ret ptr %nil_value"
+    , "cons:"
+    , "  %tail_env = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 8)"
+    , "  %tail_slot = getelementptr inbounds [1 x ptr], ptr %tail_env, i32 0, i32 0"
+    , "  store ptr %record, ptr %tail_slot"
+    , "  %tail = call ptr @" <> makeThunkFunctionName <> "(ptr @hegglog_hs_io_hgetcontents_thunk, ptr %tail_env, i64 " <> Text.pack (show updatableCode) <> ")"
+    , "  %list = call ptr @hegglog_hs_io_cons_char(i32 %char, ptr %tail)"
+    , "  ret ptr %list"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHGetContentsFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %check_read, label %closed"
+    , "check_read:"
+    , "  %read_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 3"
+    , "  %readable = load i64, ptr %read_slot"
+    , "  %can_read = icmp eq i64 %readable, 1"
+    , "  br i1 %can_read, label %ok, label %illegal"
+    , "ok:"
+    , "  %contents = call ptr @hegglog_hs_io_hgetcontents_value(ptr %record)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %contents)"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "illegal:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOReadFileFunctionName <> "(ptr %path_obj) {"
+    , "entry:"
+    , "  %path = call ptr @" <> charListToCStringFunctionName <> "(ptr %path_obj)"
+    , "  %mode = getelementptr inbounds [2 x i8], ptr @haskell2010_io_mode_r, i64 0, i64 0"
+    , "  %file = call ptr @fopen(ptr %path, ptr %mode)"
+    , "  %is_null = icmp eq ptr %file, null"
+    , "  br i1 %is_null, label %open_failed, label %opened"
+    , "opened:"
+    , "  %record = call ptr @hegglog_hs_io_alloc_file_handle(ptr %file, i64 1, i64 0)"
+    , "  %contents = call ptr @hegglog_hs_io_hgetcontents_value(ptr %record)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %contents)"
+    , "  ret ptr %result"
+    , "open_failed:"
+    , "  %failure = call ptr @hegglog_hs_io_open_failure()"
+    , "  ret ptr %failure"
+    , "}"
+    ]
+ where
+  tag =
+    constructorTagLiteral
+
+systemIOWriteText :: Text
+systemIOWriteText =
+  Text.unlines
+    [ "define i1 @hegglog_hs_io_write_buffer(ptr %record, ptr %buffer, i64 %len) {"
+    , "entry:"
+    , "  %kind_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 2"
+    , "  %kind = load i64, ptr %kind_slot"
+    , "  %is_stdout = icmp eq i64 %kind, 1"
+    , "  br i1 %is_stdout, label %stdout, label %stderr_check"
+    , "stdout:"
+    , "  %stdout_written = call i64 @write(i32 1, ptr %buffer, i64 %len)"
+    , "  %stdout_ok = icmp eq i64 %stdout_written, %len"
+    , "  ret i1 %stdout_ok"
+    , "stderr_check:"
+    , "  %is_stderr = icmp eq i64 %kind, 2"
+    , "  br i1 %is_stderr, label %stderr, label %file_check"
+    , "stderr:"
+    , "  %stderr_written = call i64 @write(i32 2, ptr %buffer, i64 %len)"
+    , "  %stderr_ok = icmp eq i64 %stderr_written, %len"
+    , "  ret i1 %stderr_ok"
+    , "file_check:"
+    , "  %is_file = icmp eq i64 %kind, 3"
+    , "  br i1 %is_file, label %file, label %failed"
+    , "file:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %file_written = call i64 @fwrite(ptr %buffer, i64 1, i64 %len, ptr %file_handle)"
+    , "  %file_ok = icmp eq i64 %file_written, %len"
+    , "  ret i1 %file_ok"
+    , "failed:"
+    , "  ret i1 false"
+    , "}"
+    , ""
+    , "define i1 @hegglog_hs_io_write_char_code(ptr %record, i32 %char) {"
+    , "entry:"
+    , "  %buffer = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 1)"
+    , "  %char8 = trunc i32 %char to i8"
+    , "  store i8 %char8, ptr %buffer"
+    , "  %ok = call i1 @hegglog_hs_io_write_buffer(ptr %record, ptr %buffer, i64 1)"
+    , "  ret i1 %ok"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_write_string_result(ptr %record, ptr %contents_obj, i1 %newline) {"
+    , "entry:"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %check_write, label %closed"
+    , "check_write:"
+    , "  %write_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 4"
+    , "  %writable = load i64, ptr %write_slot"
+    , "  %can_write = icmp eq i64 %writable, 1"
+    , "  br i1 %can_write, label %write, label %illegal"
+    , "write:"
+    , "  %len = call i64 @" <> charListLengthFunctionName <> "(ptr %contents_obj)"
+    , "  %buffer = call ptr @" <> charListToCStringFunctionName <> "(ptr %contents_obj)"
+    , "  %string_ok = call i1 @hegglog_hs_io_write_buffer(ptr %record, ptr %buffer, i64 %len)"
+    , "  br i1 %string_ok, label %maybe_newline, label %write_failed"
+    , "maybe_newline:"
+    , "  br i1 %newline, label %write_newline, label %success"
+    , "write_newline:"
+    , "  %newline_ok = call i1 @hegglog_hs_io_write_char_code(ptr %record, i32 10)"
+    , "  br i1 %newline_ok, label %success, label %write_failed"
+    , "success:"
+    , "  %success_result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %success_result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "illegal:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "write_failed:"
+    , "  %write_failure = call ptr @hegglog_hs_io_write_failure()"
+    , "  ret ptr %write_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHPutStrFunctionName <> "(ptr %handle_obj, ptr %contents_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %result = call ptr @hegglog_hs_io_write_string_result(ptr %record, ptr %contents_obj, i1 false)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHPutStrLnFunctionName <> "(ptr %handle_obj, ptr %contents_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %result = call ptr @hegglog_hs_io_write_string_result(ptr %record, ptr %contents_obj, i1 true)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHPutCharFunctionName <> "(ptr %handle_obj, ptr %char_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %check_write, label %closed"
+    , "check_write:"
+    , "  %write_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 4"
+    , "  %writable = load i64, ptr %write_slot"
+    , "  %can_write = icmp eq i64 %writable, 1"
+    , "  br i1 %can_write, label %write, label %illegal"
+    , "write:"
+    , "  %char = call i32 @" <> expectCharFunctionName <> "(ptr %char_obj)"
+    , "  %ok = call i1 @hegglog_hs_io_write_char_code(ptr %record, i32 %char)"
+    , "  br i1 %ok, label %success, label %write_failed"
+    , "success:"
+    , "  %success_result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %success_result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "illegal:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "write_failed:"
+    , "  %write_failure = call ptr @hegglog_hs_io_write_failure()"
+    , "  ret ptr %write_failure"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_write_file_with_mode(ptr %path_obj, ptr %contents_obj, ptr %mode) {"
+    , "entry:"
+    , "  %path = call ptr @" <> charListToCStringFunctionName <> "(ptr %path_obj)"
+    , "  %file = call ptr @fopen(ptr %path, ptr %mode)"
+    , "  %is_null = icmp eq ptr %file, null"
+    , "  br i1 %is_null, label %open_failed, label %opened"
+    , "opened:"
+    , "  %len = call i64 @" <> charListLengthFunctionName <> "(ptr %contents_obj)"
+    , "  %buffer = call ptr @" <> charListToCStringFunctionName <> "(ptr %contents_obj)"
+    , "  %written = call i64 @fwrite(ptr %buffer, i64 1, i64 %len, ptr %file)"
+    , "  %closed = call i32 @fclose(ptr %file)"
+    , "  %ok = icmp eq i64 %written, %len"
+    , "  br i1 %ok, label %success, label %write_failed"
+    , "success:"
+    , "  %success_result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %success_result"
+    , "open_failed:"
+    , "  %open_failure = call ptr @hegglog_hs_io_open_failure()"
+    , "  ret ptr %open_failure"
+    , "write_failed:"
+    , "  %write_failure = call ptr @hegglog_hs_io_write_failure()"
+    , "  ret ptr %write_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOWriteFileFunctionName <> "(ptr %path_obj, ptr %contents_obj) {"
+    , "entry:"
+    , "  %mode = getelementptr inbounds [2 x i8], ptr @haskell2010_io_mode_w, i64 0, i64 0"
+    , "  %result = call ptr @hegglog_hs_io_write_file_with_mode(ptr %path_obj, ptr %contents_obj, ptr %mode)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOAppendFileFunctionName <> "(ptr %path_obj, ptr %contents_obj) {"
+    , "entry:"
+    , "  %mode = getelementptr inbounds [2 x i8], ptr @haskell2010_io_mode_a, i64 0, i64 0"
+    , "  %result = call ptr @hegglog_hs_io_write_file_with_mode(ptr %path_obj, ptr %contents_obj, ptr %mode)"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+systemIOHandleQueryText :: Text
+systemIOHandleQueryText =
+  Text.unlines
+    [ "define ptr @hegglog_hs_io_handle_state_predicate(ptr %handle_obj, i64 %expected) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %ok = icmp eq i64 %state, %expected"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %ok)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHIsOpenFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %is_open)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHIsClosedFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %result = call ptr @hegglog_hs_io_handle_state_predicate(ptr %handle_obj, i64 1)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHIsReadableFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %open, label %closed"
+    , "open:"
+    , "  %slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 3"
+    , "  %value = load i64, ptr %slot"
+    , "  %bool = icmp eq i64 %value, 1"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %bool)"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %false_result = call ptr @hegglog_hs_io_bool_success(i1 false)"
+    , "  ret ptr %false_result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHIsWritableFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %open, label %closed"
+    , "open:"
+    , "  %slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 4"
+    , "  %value = load i64, ptr %slot"
+    , "  %bool = icmp eq i64 %value, 1"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %bool)"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %false_result = call ptr @hegglog_hs_io_bool_success(i1 false)"
+    , "  ret ptr %false_result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHIsSeekableFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %open, label %closed"
+    , "open:"
+    , "  %slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 5"
+    , "  %value = load i64, ptr %slot"
+    , "  %bool = icmp eq i64 %value, 1"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %bool)"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %false_result = call ptr @hegglog_hs_io_bool_success(i1 false)"
+    , "  ret ptr %false_result"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHIsTerminalDeviceFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %kind_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 2"
+    , "  %kind = load i64, ptr %kind_slot"
+    , "  %is_stdin = icmp eq i64 %kind, 0"
+    , "  br i1 %is_stdin, label %stdin, label %stdout_check"
+    , "stdin:"
+    , "  %tty0 = call i32 @isatty(i32 0)"
+    , "  %ok0 = icmp ne i32 %tty0, 0"
+    , "  br label %done"
+    , "stdout_check:"
+    , "  %is_stdout = icmp eq i64 %kind, 1"
+    , "  br i1 %is_stdout, label %stdout, label %stderr_check"
+    , "stdout:"
+    , "  %tty1 = call i32 @isatty(i32 1)"
+    , "  %ok1 = icmp ne i32 %tty1, 0"
+    , "  br label %done"
+    , "stderr_check:"
+    , "  %is_stderr = icmp eq i64 %kind, 2"
+    , "  br i1 %is_stderr, label %stderr, label %file"
+    , "stderr:"
+    , "  %tty2 = call i32 @isatty(i32 2)"
+    , "  %ok2 = icmp ne i32 %tty2, 0"
+    , "  br label %done"
+    , "file:"
+    , "  %false = icmp eq i64 0, 1"
+    , "  br label %done"
+    , "done:"
+    , "  %ok = phi i1 [ %ok0, %stdin ], [ %ok1, %stdout ], [ %ok2, %stderr ], [ %false, %file ]"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %ok)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define i64 @hegglog_hs_io_decode_buffer_mode(ptr %mode_obj) {"
+    , "entry:"
+    , "  %forced = call ptr @" <> forceFunctionName <> "(ptr %mode_obj)"
+    , "  %ctor_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %forced, i32 0, i32 1"
+    , "  %ctor = load i64, ptr %ctor_slot"
+    , "  %is_no = icmp eq i64 %ctor, " <> tag bufferModeNoDataConName
+    , "  br i1 %is_no, label %no, label %line_check"
+    , "no:"
+    , "  ret i64 0"
+    , "line_check:"
+    , "  %is_line = icmp eq i64 %ctor, " <> tag bufferModeLineDataConName
+    , "  br i1 %is_line, label %line, label %block_check"
+    , "line:"
+    , "  ret i64 1"
+    , "block_check:"
+    , "  %is_block = icmp eq i64 %ctor, " <> tag bufferModeBlockDataConName
+    , "  br i1 %is_block, label %block, label %abort"
+    , "block:"
+    , "  ret i64 2"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHSetBufferingFunctionName <> "(ptr %handle_obj, ptr %mode_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %set, label %closed"
+    , "set:"
+    , "  %mode = call i64 @hegglog_hs_io_decode_buffer_mode(ptr %mode_obj)"
+    , "  %buffer_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 6"
+    , "  store i64 %mode, ptr %buffer_slot"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHGetBufferingFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %get, label %closed"
+    , "get:"
+    , "  %buffer_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 6"
+    , "  %mode = load i64, ptr %buffer_slot"
+    , "  %is_no = icmp eq i64 %mode, 0"
+    , "  br i1 %is_no, label %no, label %line_check"
+    , "no:"
+    , "  %no_obj = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag bufferModeNoDataConName <> ", i64 0, ptr null)"
+    , "  br label %success"
+    , "line_check:"
+    , "  %is_line = icmp eq i64 %mode, 1"
+    , "  br i1 %is_line, label %line, label %block"
+    , "line:"
+    , "  %line_obj = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag bufferModeLineDataConName <> ", i64 0, ptr null)"
+    , "  br label %success"
+    , "block:"
+    , "  %nothing = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag maybeNothingDataConName <> ", i64 0, ptr null)"
+    , "  %fields = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 8)"
+    , "  %field0 = getelementptr inbounds [1 x ptr], ptr %fields, i32 0, i32 0"
+    , "  store ptr %nothing, ptr %field0"
+    , "  %block_obj = call ptr @" <> makeDataFunctionName <> "(i64 " <> tag bufferModeBlockDataConName <> ", i64 1, ptr %fields)"
+    , "  br label %success"
+    , "success:"
+    , "  %obj = phi ptr [ %no_obj, %no ], [ %line_obj, %line ], [ %block_obj, %block ]"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %obj)"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHSetEchoFunctionName <> "(ptr %handle_obj, ptr %enabled_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %set, label %closed"
+    , "set:"
+    , "  %enabled = call i1 @" <> expectBoolFunctionName <> "(ptr %enabled_obj)"
+    , "  %enabled64 = zext i1 %enabled to i64"
+    , "  %echo_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 7"
+    , "  store i64 %enabled64, ptr %echo_slot"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHGetEchoFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %get, label %closed"
+    , "get:"
+    , "  %echo_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 7"
+    , "  %echo = load i64, ptr %echo_slot"
+    , "  %enabled = icmp eq i64 %echo, 1"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %enabled)"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHShowFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %kind_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 2"
+    , "  %kind = load i64, ptr %kind_slot"
+    , "  %is_stdin = icmp eq i64 %kind, 0"
+    , "  br i1 %is_stdin, label %stdin, label %stdout_check"
+    , "stdin:"
+    , "  %stdin_name = getelementptr inbounds [8 x i8], ptr @haskell2010_io_handle_stdin, i64 0, i64 0"
+    , "  br label %make"
+    , "stdout_check:"
+    , "  %is_stdout = icmp eq i64 %kind, 1"
+    , "  br i1 %is_stdout, label %stdout, label %stderr_check"
+    , "stdout:"
+    , "  %stdout_name = getelementptr inbounds [9 x i8], ptr @haskell2010_io_handle_stdout, i64 0, i64 0"
+    , "  br label %make"
+    , "stderr_check:"
+    , "  %is_stderr = icmp eq i64 %kind, 2"
+    , "  br i1 %is_stderr, label %stderr, label %file"
+    , "stderr:"
+    , "  %stderr_name = getelementptr inbounds [9 x i8], ptr @haskell2010_io_handle_stderr, i64 0, i64 0"
+    , "  br label %make"
+    , "file:"
+    , "  %file_name = getelementptr inbounds [7 x i8], ptr @haskell2010_io_handle_file, i64 0, i64 0"
+    , "  br label %make"
+    , "make:"
+    , "  %name = phi ptr [ %stdin_name, %stdin ], [ %stdout_name, %stdout ], [ %stderr_name, %stderr ], [ %file_name, %file ]"
+    , "  %string = call ptr @" <> makeCharListFromCStringFunctionName <> "(ptr %name)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %string)"
+    , "  ret ptr %result"
+    , "}"
+    ]
+ where
+  tag =
+    constructorTagLiteral
+
+systemIOReadText :: Text
+systemIOReadText =
+  Text.unlines
+    [ "define i1 @hegglog_hs_io_can_read_open(ptr %record) {"
+    , "entry:"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %read_check, label %no"
+    , "read_check:"
+    , "  %read_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 3"
+    , "  %readable = load i64, ptr %read_slot"
+    , "  %can_read = icmp eq i64 %readable, 1"
+    , "  ret i1 %can_read"
+    , "no:"
+    , "  ret i1 false"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHGetCharFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_read = call i1 @hegglog_hs_io_can_read_open(ptr %record)"
+    , "  br i1 %can_read, label %read, label %bad_handle"
+    , "read:"
+    , "  %char = call i32 @hegglog_hs_io_read_char_code(ptr %record)"
+    , "  %is_eof = icmp eq i32 %char, -1"
+    , "  br i1 %is_eof, label %eof, label %success"
+    , "success:"
+    , "  %char64 = zext i32 %char to i64"
+    , "  %char_obj = call ptr @" <> makeCharFunctionName <> "(i64 %char64)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %char_obj)"
+    , "  ret ptr %result"
+    , "eof:"
+    , "  %eof_failure = call ptr @hegglog_hs_io_eof_failure()"
+    , "  ret ptr %eof_failure"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHLookAheadFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_read = call i1 @hegglog_hs_io_can_read_open(ptr %record)"
+    , "  br i1 %can_read, label %read, label %bad_handle"
+    , "read:"
+    , "  %char = call i32 @hegglog_hs_io_peek_char_code(ptr %record)"
+    , "  %is_eof = icmp eq i32 %char, -1"
+    , "  br i1 %is_eof, label %eof, label %success"
+    , "success:"
+    , "  %char64 = zext i32 %char to i64"
+    , "  %char_obj = call ptr @" <> makeCharFunctionName <> "(i64 %char64)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %char_obj)"
+    , "  ret ptr %result"
+    , "eof:"
+    , "  %eof_failure = call ptr @hegglog_hs_io_eof_failure()"
+    , "  ret ptr %eof_failure"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_read_line_result(ptr %record, i1 %seen) {"
+    , "entry:"
+    , "  %char = call i32 @hegglog_hs_io_read_char_code(ptr %record)"
+    , "  %is_eof = icmp eq i32 %char, -1"
+    , "  br i1 %is_eof, label %eof, label %newline_check"
+    , "newline_check:"
+    , "  %is_newline = icmp eq i32 %char, 10"
+    , "  br i1 %is_newline, label %done, label %cons"
+    , "eof:"
+    , "  br i1 %seen, label %done, label %eof_error"
+    , "done:"
+    , "  %nil = call ptr @hegglog_hs_io_make_nil_list()"
+    , "  %success = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %nil)"
+    , "  ret ptr %success"
+    , "cons:"
+    , "  %tail_result = call ptr @hegglog_hs_io_read_line_result(ptr %record, i1 true)"
+    , "  %tail_tag_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %tail_result, i32 0, i32 0"
+    , "  %tail_tag = load i64, ptr %tail_tag_slot"
+    , "  %tail_success = icmp eq i64 %tail_tag, " <> Text.pack (show tagIOSuccess)
+    , "  br i1 %tail_success, label %cons_success, label %tail_failed"
+    , "cons_success:"
+    , "  %tail_payload_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %tail_result, i32 0, i32 2"
+    , "  %tail = load ptr, ptr %tail_payload_slot"
+    , "  %list = call ptr @hegglog_hs_io_cons_char(i32 %char, ptr %tail)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %list)"
+    , "  ret ptr %result"
+    , "tail_failed:"
+    , "  ret ptr %tail_result"
+    , "eof_error:"
+    , "  %eof_failure = call ptr @hegglog_hs_io_eof_failure()"
+    , "  ret ptr %eof_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHGetLineFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_read = call i1 @hegglog_hs_io_can_read_open(ptr %record)"
+    , "  br i1 %can_read, label %read, label %bad_handle"
+    , "read:"
+    , "  %result = call ptr @hegglog_hs_io_read_line_result(ptr %record, i1 false)"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHIsEOFFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_closed = icmp eq i64 %state, 1"
+    , "  br i1 %is_closed, label %closed, label %check_read"
+    , "check_read:"
+    , "  %can_read = call i1 @hegglog_hs_io_can_read_open(ptr %record)"
+    , "  br i1 %can_read, label %peek, label %bad_handle"
+    , "peek:"
+    , "  %char = call i32 @hegglog_hs_io_peek_char_code(ptr %record)"
+    , "  %is_eof = icmp eq i32 %char, -1"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %is_eof)"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %closed_result = call ptr @hegglog_hs_io_bool_success(i1 true)"
+    , "  ret ptr %closed_result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHReadyFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_read = call i1 @hegglog_hs_io_can_read_open(ptr %record)"
+    , "  br i1 %can_read, label %peek, label %bad_handle"
+    , "peek:"
+    , "  %char = call i32 @hegglog_hs_io_peek_char_code(ptr %record)"
+    , "  %is_eof = icmp eq i32 %char, -1"
+    , "  %ready = xor i1 %is_eof, true"
+    , "  %result = call ptr @hegglog_hs_io_bool_success(i1 %ready)"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHWaitForInputFunctionName <> "(ptr %handle_obj, ptr %timeout_obj) {"
+    , "entry:"
+    , "  %result = call ptr @" <> systemIOHReadyFunctionName <> "(ptr %handle_obj)"
+    , "  ret ptr %result"
+    , "}"
+    ]
+
+systemIOPositionText :: Text
+systemIOPositionText =
+  Text.unlines
+    [ "define i1 @hegglog_hs_io_seekable_open(ptr %record) {"
+    , "entry:"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %seek_check, label %no"
+    , "seek_check:"
+    , "  %seek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 5"
+    , "  %seekable = load i64, ptr %seek_slot"
+    , "  %can_seek = icmp eq i64 %seekable, 1"
+    , "  ret i1 %can_seek"
+    , "no:"
+    , "  ret i1 false"
+    , "}"
+    , ""
+    , "define void @hegglog_hs_io_clear_peek_for_seek(ptr %record) {"
+    , "entry:"
+    , "  %peek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 8"
+    , "  %has_peek = load i64, ptr %peek_slot"
+    , "  %has_peek_bool = icmp eq i64 %has_peek, 1"
+    , "  br i1 %has_peek_bool, label %rewind, label %done"
+    , "rewind:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %ignored = call i32 @fseek(ptr %file_handle, i64 -1, i32 1)"
+    , "  store i64 0, ptr %peek_slot"
+    , "  br label %done"
+    , "done:"
+    , "  ret void"
+    , "}"
+    , ""
+    , "define i64 @hegglog_hs_io_logical_tell(ptr %record) {"
+    , "entry:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %pos = call i64 @ftell(ptr %file_handle)"
+    , "  %peek_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 8"
+    , "  %has_peek = load i64, ptr %peek_slot"
+    , "  %adjusted = sub i64 %pos, %has_peek"
+    , "  ret i64 %adjusted"
+    , "}"
+    , ""
+    , "define i64 @hegglog_hs_io_file_size_raw(ptr %record) {"
+    , "entry:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %current = call i64 @hegglog_hs_io_logical_tell(ptr %record)"
+    , "  %seek_end = call i32 @fseek(ptr %file_handle, i64 0, i32 2)"
+    , "  %end = call i64 @ftell(ptr %file_handle)"
+    , "  %restore = call i32 @fseek(ptr %file_handle, i64 %current, i32 0)"
+    , "  ret i64 %end"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHTellFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_seek = call i1 @hegglog_hs_io_seekable_open(ptr %record)"
+    , "  br i1 %can_seek, label %tell, label %bad_handle"
+    , "tell:"
+    , "  %pos = call i64 @hegglog_hs_io_logical_tell(ptr %record)"
+    , "  %bad = icmp slt i64 %pos, 0"
+    , "  br i1 %bad, label %seek_failed, label %success"
+    , "success:"
+    , "  %result = call ptr @hegglog_hs_io_int_success(i64 %pos)"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "seek_failed:"
+    , "  %seek_failure = call ptr @hegglog_hs_io_seek_failure()"
+    , "  ret ptr %seek_failure"
+    , "}"
+    , ""
+    , "define i32 @hegglog_hs_io_decode_seek_mode(ptr %mode_obj) {"
+    , "entry:"
+    , "  %forced = call ptr @" <> forceFunctionName <> "(ptr %mode_obj)"
+    , "  %ctor_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %forced, i32 0, i32 1"
+    , "  %ctor = load i64, ptr %ctor_slot"
+    , "  %is_abs = icmp eq i64 %ctor, " <> tag seekModeAbsoluteDataConName
+    , "  br i1 %is_abs, label %abs, label %rel_check"
+    , "abs:"
+    , "  ret i32 0"
+    , "rel_check:"
+    , "  %is_rel = icmp eq i64 %ctor, " <> tag seekModeRelativeDataConName
+    , "  br i1 %is_rel, label %rel, label %end_check"
+    , "rel:"
+    , "  ret i32 1"
+    , "end_check:"
+    , "  %is_end = icmp eq i64 %ctor, " <> tag seekModeFromEndDataConName
+    , "  br i1 %is_end, label %end, label %abort"
+    , "end:"
+    , "  ret i32 2"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHSeekFunctionName <> "(ptr %handle_obj, ptr %mode_obj, ptr %offset_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_seek = call i1 @hegglog_hs_io_seekable_open(ptr %record)"
+    , "  br i1 %can_seek, label %seek, label %bad_handle"
+    , "seek:"
+    , "  call void @hegglog_hs_io_clear_peek_for_seek(ptr %record)"
+    , "  %whence = call i32 @hegglog_hs_io_decode_seek_mode(ptr %mode_obj)"
+    , "  %offset = call i64 @" <> expectIntFunctionName <> "(ptr %offset_obj)"
+    , "  %current = call i64 @hegglog_hs_io_logical_tell(ptr %record)"
+    , "  %end = call i64 @hegglog_hs_io_file_size_raw(ptr %record)"
+    , "  %is_abs = icmp eq i32 %whence, 0"
+    , "  br i1 %is_abs, label %target_abs, label %target_rel_check"
+    , "target_abs:"
+    , "  br label %target"
+    , "target_rel_check:"
+    , "  %is_rel = icmp eq i32 %whence, 1"
+    , "  br i1 %is_rel, label %target_rel, label %target_end"
+    , "target_rel:"
+    , "  %relative_target = add i64 %current, %offset"
+    , "  br label %target"
+    , "target_end:"
+    , "  %end_target = add i64 %end, %offset"
+    , "  br label %target"
+    , "target:"
+    , "  %target_pos = phi i64 [ %offset, %target_abs ], [ %relative_target, %target_rel ], [ %end_target, %target_end ]"
+    , "  %negative = icmp slt i64 %target_pos, 0"
+    , "  %past_end = icmp sgt i64 %target_pos, %end"
+    , "  %invalid = or i1 %negative, %past_end"
+    , "  br i1 %invalid, label %seek_failed, label %seek_absolute"
+    , "seek_absolute:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %code = call i32 @fseek(ptr %file_handle, i64 %target_pos, i32 0)"
+    , "  %ok = icmp eq i32 %code, 0"
+    , "  br i1 %ok, label %success, label %seek_failed"
+    , "success:"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "seek_failed:"
+    , "  %seek_failure = call ptr @hegglog_hs_io_seek_failure()"
+    , "  ret ptr %seek_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHGetPosnFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_seek = call i1 @hegglog_hs_io_seekable_open(ptr %record)"
+    , "  br i1 %can_seek, label %tell, label %bad_handle"
+    , "tell:"
+    , "  %pos = call i64 @hegglog_hs_io_logical_tell(ptr %record)"
+    , "  %posn = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 16)"
+    , "  %handle_slot = getelementptr inbounds %hegglog_hs_handle_posn, ptr %posn, i32 0, i32 0"
+    , "  store ptr %record, ptr %handle_slot"
+    , "  %pos_slot = getelementptr inbounds %hegglog_hs_handle_posn, ptr %posn, i32 0, i32 1"
+    , "  store i64 %pos, ptr %pos_slot"
+    , "  %boxed = call ptr @" <> makePointerFunctionName <> "(ptr %posn)"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %boxed)"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHSetPosnFunctionName <> "(ptr %posn_obj) {"
+    , "entry:"
+    , "  %posn = call ptr @" <> expectPointerFunctionName <> "(ptr %posn_obj)"
+    , "  %handle_slot = getelementptr inbounds %hegglog_hs_handle_posn, ptr %posn, i32 0, i32 0"
+    , "  %record = load ptr, ptr %handle_slot"
+    , "  %pos_slot = getelementptr inbounds %hegglog_hs_handle_posn, ptr %posn, i32 0, i32 1"
+    , "  %pos = load i64, ptr %pos_slot"
+    , "  %can_seek = call i1 @hegglog_hs_io_seekable_open(ptr %record)"
+    , "  br i1 %can_seek, label %seek, label %bad_handle"
+    , "seek:"
+    , "  call void @hegglog_hs_io_clear_peek_for_seek(ptr %record)"
+    , "  %end = call i64 @hegglog_hs_io_file_size_raw(ptr %record)"
+    , "  %negative = icmp slt i64 %pos, 0"
+    , "  %past_end = icmp sgt i64 %pos, %end"
+    , "  %invalid = or i1 %negative, %past_end"
+    , "  br i1 %invalid, label %seek_failed, label %seek_absolute"
+    , "seek_absolute:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %code = call i32 @fseek(ptr %file_handle, i64 %pos, i32 0)"
+    , "  %ok = icmp eq i32 %code, 0"
+    , "  br i1 %ok, label %success, label %seek_failed"
+    , "success:"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "seek_failed:"
+    , "  %seek_failure = call ptr @hegglog_hs_io_seek_failure()"
+    , "  ret ptr %seek_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHFileSizeFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_seek = call i1 @hegglog_hs_io_seekable_open(ptr %record)"
+    , "  br i1 %can_seek, label %measure, label %bad_handle"
+    , "measure:"
+    , "  call void @hegglog_hs_io_clear_peek_for_seek(ptr %record)"
+    , "  %end = call i64 @hegglog_hs_io_file_size_raw(ptr %record)"
+    , "  %result = call ptr @hegglog_hs_io_int_success(i64 %end)"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHSetFileSizeFunctionName <> "(ptr %handle_obj, ptr %size_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %can_seek = call i1 @hegglog_hs_io_seekable_open(ptr %record)"
+    , "  br i1 %can_seek, label %truncate, label %bad_handle"
+    , "truncate:"
+    , "  %size = call i64 @" <> expectIntFunctionName <> "(ptr %size_obj)"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %fd = call i32 @fileno(ptr %file_handle)"
+    , "  %code = call i32 @ftruncate(i32 %fd, i64 %size)"
+    , "  %ok = icmp eq i32 %code, 0"
+    , "  br i1 %ok, label %success, label %seek_failed"
+    , "success:"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "bad_handle:"
+    , "  %illegal_failure = call ptr @hegglog_hs_io_illegal_failure()"
+    , "  ret ptr %illegal_failure"
+    , "seek_failed:"
+    , "  %seek_failure = call ptr @hegglog_hs_io_seek_failure()"
+    , "  ret ptr %seek_failure"
+    , "}"
+    , ""
+    , "define ptr @" <> systemIOHFlushFunctionName <> "(ptr %handle_obj) {"
+    , "entry:"
+    , "  %record = call ptr @hegglog_hs_io_expect_handle(ptr %handle_obj)"
+    , "  %state_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 1"
+    , "  %state = load i64, ptr %state_slot"
+    , "  %is_open = icmp eq i64 %state, 0"
+    , "  br i1 %is_open, label %flush, label %closed"
+    , "flush:"
+    , "  %kind_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 2"
+    , "  %kind = load i64, ptr %kind_slot"
+    , "  %is_file = icmp eq i64 %kind, 3"
+    , "  br i1 %is_file, label %file, label %success"
+    , "file:"
+    , "  %file_slot = getelementptr inbounds %hegglog_hs_handle, ptr %record, i32 0, i32 0"
+    , "  %file_handle = load ptr, ptr %file_slot"
+    , "  %ignored = call i32 @fflush(ptr %file_handle)"
+    , "  br label %success"
+    , "success:"
+    , "  %result = call ptr @hegglog_hs_io_unit_success()"
+    , "  ret ptr %result"
+    , "closed:"
+    , "  %closed_failure = call ptr @hegglog_hs_io_closed_failure()"
+    , "  ret ptr %closed_failure"
+    , "}"
+    ]
+ where
+  tag =
+    constructorTagLiteral
+
+systemIOFixText :: Text
+systemIOFixText =
+  Text.unlines
+    [ "define ptr @" <> systemIOFixFunctionName <> "(ptr %function_obj) {"
+    , "entry:"
+    , "  %env = call ptr @" <> processLifetimeAllocFunctionName <> "(i64 16)"
+    , "  %function_slot = getelementptr inbounds [2 x ptr], ptr %env, i32 0, i32 0"
+    , "  store ptr %function_obj, ptr %function_slot"
+    , "  %placeholder = call ptr @" <> makeThunkFunctionName <> "(ptr @hegglog_hs_io_fix_thunk, ptr %env, i64 " <> Text.pack (show updatableCode) <> ")"
+    , "  %placeholder_slot = getelementptr inbounds [2 x ptr], ptr %env, i32 0, i32 1"
+    , "  store ptr %placeholder, ptr %placeholder_slot"
+    , "  %result = call ptr @" <> makeIOSuccessFunctionName <> "(ptr %placeholder)"
+    , "  ret ptr %result"
+    , "}"
+    , ""
+    , "define ptr @hegglog_hs_io_fix_thunk(ptr %env) {"
+    , "entry:"
+    , "  %function_slot = getelementptr inbounds [2 x ptr], ptr %env, i32 0, i32 0"
+    , "  %function_obj = load ptr, ptr %function_slot"
+    , "  %placeholder_slot = getelementptr inbounds [2 x ptr], ptr %env, i32 0, i32 1"
+    , "  %placeholder = load ptr, ptr %placeholder_slot"
+    , "  %function = call ptr @" <> expectFunctionName <> "(ptr %function_obj)"
+    , "  %code_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %function, i32 0, i32 2"
+    , "  %code = load ptr, ptr %code_slot"
+    , "  %closure_env_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %function, i32 0, i32 3"
+    , "  %closure_env = load ptr, ptr %closure_env_slot"
+    , "  %action = call ptr %code(ptr %closure_env, ptr %placeholder)"
+    , "  %io_result = call ptr @" <> forceFunctionName <> "(ptr %action)"
+    , "  %tag_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %io_result, i32 0, i32 0"
+    , "  %tag = load i64, ptr %tag_slot"
+    , "  %is_success = icmp eq i64 %tag, " <> Text.pack (show tagIOSuccess)
+    , "  br i1 %is_success, label %success, label %abort"
+    , "success:"
+    , "  %payload_slot = getelementptr inbounds { i64, i64, ptr, ptr, ptr, i64 }, ptr %io_result, i32 0, i32 2"
+    , "  %payload = load ptr, ptr %payload_slot"
+    , "  ret ptr %payload"
+    , "abort:"
+    , "  call void @abort()"
+    , "  unreachable"
+    , "}"
+    ]
 
 intFormatBytes :: Text
 intFormatBytes =
   "%lld\n\0"
+
+wordFormatBytes :: Text
+wordFormatBytes =
+  "%llu\n\0"
 
 boolFormatBytes :: Text
 boolFormatBytes =
@@ -3060,9 +7299,21 @@ charFormatBytes :: Text
 charFormatBytes =
   "%c\n\0"
 
+doubleFormatBytes :: Text
+doubleFormatBytes =
+  "%.17g\n\0"
+
 intRawFormatBytes :: Text
 intRawFormatBytes =
   "%lld\0"
+
+wordRawFormatBytes :: Text
+wordRawFormatBytes =
+  "%llu\0"
+
+doubleRawFormatBytes :: Text
+doubleRawFormatBytes =
+  "%.17g\0"
 
 stringLineFormatBytes :: Text
 stringLineFormatBytes =
@@ -3075,6 +7326,10 @@ minInt64Value =
 maxInt64Value :: Integer
 maxInt64Value =
   9223372036854775807
+
+intBitSize :: Integer
+intBitSize =
+  64
 
 sanitizeName :: Text -> Text
 sanitizeName =

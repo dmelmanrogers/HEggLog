@@ -1,0 +1,21 @@
+module Main where
+
+main :: IO ()
+main = do
+  print ((1.5 :: Double) + 2.25)
+  print ((7.5 :: Float) / 2.5)
+  print (sqrt (9.0 :: Double))
+  print (sin (0.0 :: Double))
+  print (cos (0.0 :: Float))
+  print (truncate (3.8 :: Double) :: Int)
+  print (round (2.6 :: Double) :: Int)
+  print (ceiling (2.1 :: Float) :: Int)
+  print (floor (2.9 :: Double) :: Int)
+  print (floatRadix (0.0 :: Double))
+  print (floatDigits (0.0 :: Float))
+  print (case floatRange (0.0 :: Double) of (lo, hi) -> if lo < 0 && hi > 0 then 1 else 0)
+  print (isNaN ((0.0 :: Double) / 0.0))
+  print (isInfinite ((1.0 :: Double) / 0.0))
+  print (isDenormalized (0.0 :: Double))
+  print (isNegativeZero (negate 0.0 :: Double))
+  return ()

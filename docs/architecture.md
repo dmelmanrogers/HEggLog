@@ -565,7 +565,9 @@ Validation at this baseline passed through `./scripts/smoke-test.sh`.
 | `docs/haskell2010-conformance-results.md` | Latest conformance run snapshot. Good. |
 | `docs/haskell2010-frontend-spec.md` | Frontend specification. Good. |
 | `docs/haskell2010-implementation-plan.md` | Historical plan. Good. |
+| `docs/haskell2010-module-compilation-boundary.md` | Explicit MOD-011/MOD-012 boundary for whole-program modules and future interface files. Good. |
 | `docs/haskell2010-roadmap.md` | Main roadmap. Good source of milestone state. |
+| `docs/haskell2010-standard-library-layout.md` | Report library module boundary and reserved-module ledger. Good. |
 | `docs/haskell2010-status-summary.md` | Live status summary. Audit fixed stale headings. |
 | `docs/haskell2010-todo.json` | Machine-readable task ledger. Validated by script. |
 | `docs/haskell2010-todo.md` | Human-readable task ledger. Large but useful; generated/validated mirror should remain synchronized. |

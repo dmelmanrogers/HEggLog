@@ -253,8 +253,10 @@ guard-fallthrough no-match behavior are also implemented and wet-tested.
 Irrefutable/lazy pattern semantics are implemented for the executable subset;
 source-spanned non-exhaustive and redundant pattern-match warnings are exposed
 by the typechecker, native API, and compile CLI for the supported finite
-constructor/literal/list/tuple executable subset. Broader report-complete
-pattern coverage and runtime source attribution remain later work.
+constructor/literal/list/tuple executable subset. Core/STG interpreter runtime
+failures carry source-defined expression attribution, including nested
+subexpression spans that survive lazy thunk allocation and partial application;
+broader report-complete pattern coverage remains later work.
 
 Deliverables:
 
@@ -357,12 +359,13 @@ groups are dependency-sorted before generalization so helper functions can be
 specialized by later bindings. TYPE-019 fixes the current MR decision:
 unsigned nullary value bindings without signatures can default direct standard
 constraints before generalization; signed bindings and functions with value
-parameters are protected. `/` remains the existing checked `Int` division
-primitive rather than a `Fractional` method.
+parameters are protected. `/` is now the Haskell 2010 `Fractional` method;
+checked integer division is expressed through `quot`/`rem`/`div`/`mod`.
 Remaining Phase 12 work includes instance contexts, method-specific
-constraints/type variables, coherence diagnostics, derived `Read`,
-the full `showsPrec`/`showList` hierarchy, Fractional/Floating classes,
-arbitrary-precision `Integer`, and full `Ratio`/`Rational` behavior.
+constraints/type variables, coherence diagnostics, generic `Ratio a` behavior
+beyond the current `Ratio Integer`/`Rational` representation, native
+out-of-i64 `Integer` payloads, and exact shortest-roundtrip floating lexical
+helper polish. Derived `Read` moved to complete with TC-030.
 
 Deliverables:
 
@@ -387,13 +390,22 @@ The typechecker recognizes `IO`, `main :: IO ()`, `putStrLn`, `getLine`, `print`
 `let`. Core/STG reference evaluators model IO output plus returned action
 values for oracle tests, and the native entrypoint executes `IO ()` actions
 instead of scalar root printing. Source
-string literals and built-in `show` results are represented as list-of-`Char`
-values, and boxed `Char` values, `Eq Char`, scalar `main :: Char`, broadened
+string literals and built-in `show`/`shows` results are represented as list-of-`Char`
+values, and boxed `Char` values, `Eq Char`, scalar `main :: Char`, Report-shaped
 `Show` dictionaries for `Int`/`Bool`/`Char`/`String`/lists support the current
 IO subset through default/no-egglog wet tests. Native `getLine` reads stdin
 line-by-line, strips line terminators, and returns ordinary `[Char]` strings.
-Real-world IO handles, rich IO errors, `fail`, and broader Prelude IO remain
-planned.
+Core, STG, and native IO actions now carry explicit success/failure results:
+`fail` raises a catchable user `IOError`, `ioError`, `catch`, and `try` compose
+through `System.IO.Error`, and uncaught native IO failures terminate nonzero.
+`System.IO` now exposes the Report handle/mode/text IO surface and native
+standard-handle text programs cover buffering calls, `hPutStr`/`hPutChar`/
+`hPutStrLn`, `hPrint`, `hShow`, line input, `getContents`, and EOF checks.
+Native `System.IO` also covers file-backed handle state, open/close,
+`readFile`, `writeFile`, `appendFile`, line and character input,
+`hLookAhead`, lazy semi-closed `hGetContents`, `hIsEOF`, file sizing and
+truncation, `hGetPosn`, `hSetPosn`, `hSeek`, `hTell`, handle predicates, and
+productive `fixIO`.
 
 Deliverables:
 
@@ -412,13 +424,16 @@ Acceptance criteria:
 ### Phase 14 - Modules and Whole-Program Compilation
 
 Status: completed for the current executable subset. The compiler now loads
-same-directory dependency files from source import declarations, detects module
-cycles and module-name mismatches, renames modules in dependency order against
-actual exported definitions, enforces explicit export/import filtering
-including `Thing(..)` children and hiding, supports qualified aliases, flattens
-the renamed module graph into one typed Core program, and selects the root
-module's `main` as the native entry point. Broader package search paths and a
-full Prelude module remain later work.
+same-directory dependency files and ordered CLI `-i`/`--import-path` source
+roots from source import declarations, detects module cycles and module-name
+mismatches, renames modules in dependency order against actual exported
+definitions, enforces explicit export/import filtering including `Thing(..)`
+children and hiding, supports qualified aliases, flattens the renamed module
+graph into one typed Core program, and selects the root module's `main` as the
+native entry point. `MOD-011` and `MOD-012` document the explicit whole-program
+compilation boundary and future interface-file requirements. Package databases,
+interface-file roots, and remaining standard-library value surfaces remain
+later work.
 
 Deliverables:
 
@@ -475,16 +490,17 @@ Deliverables:
 - `newtype`, type synonyms, deriving, and default declarations
 - structured foreign declaration frontend support, FFI signature typechecking,
   explicit Core/STG foreign-import IR, native ABI marshalling/lowering, and
-  conformance closure; scalar/pointer `foreign import ccall` now has native
-  LLVM declaration/call lowering and C-helper wet coverage, `Ptr`/`FunPtr`
-  address/pointer ABI support now covers static `&symbol`, pointer arguments,
-  and pointer results, `dynamic` imports lower to indirect `FunPtr` calls, and
-  `wrapper` imports generate C-callable callback trampolines. `foreign export
-  ccall` now emits C-callable native entrypoints for supported scalar/pointer
-  pure and `IO` functions, and explicit `StablePtr`/manual `ForeignPtr`
-  ownership APIs are implemented and wet-tested. Floating-point ABI, broader
-  link metadata, automatic GC finalization, and `freeHaskellFunPtr`/callback-slot
-  reclamation remain open
+  conformance closure; scalar/floating/pointer `foreign import ccall` now has
+  native LLVM declaration/call lowering and C-helper wet coverage,
+  `Ptr`/`FunPtr` address/pointer ABI support now covers static `&symbol`,
+  pointer arguments, and pointer results, `dynamic` imports lower to indirect
+  `FunPtr` calls, and `wrapper` imports generate C-callable callback
+  trampolines. `foreign export ccall` now emits C-callable native entrypoints
+  for supported scalar/floating/pointer pure and `IO` functions, and explicit
+  `StablePtr`/manual `ForeignPtr` ownership APIs plus `freeHaskellFunPtr`
+  wrapper slot reclamation are implemented and wet-tested. FFI link metadata
+  and explicit clang link inputs are implemented and wet-tested. Automatic GC
+  finalization remains scoped out under the process-lifetime runtime model
 
 Acceptance criteria:
 
@@ -509,6 +525,29 @@ Acceptance criteria:
 - docs show examples
 
 ### Phase 18 - CLI Productization
+
+Status: started. `CLI-001`, `CLI-002`, `CLI-003`, `CLI-005`, `CLI-006`, `CLI-007`, `CLI-010`, `CLI-011`, `CLI-012`, and `CLI-016`
+are complete: top-level command parsing is centralized in `CLI.Command`,
+`Main` dispatches parsed commands, `check` validates through Core/STG without
+LLVM/native codegen, `run` compiles to a temporary native executable and
+forwards program output, `emit-core` emits validated typed Haskell 2010 Core to
+stdout or a file with original/optimized/both selections, `emit-stg` emits
+validated Haskell 2010 STG to stdout or a file, `report` emits source-aware
+diagnostic/status reports for both legacy `.hg` and Haskell 2010 `.hs` sources,
+and `check`/`compile`/`run` support stable `--dump-core`, `--dump-optimized-core`, and `--dump-stg`
+diagnostic output on stderr without changing LLVM stdout or program stdout.
+Egglog behavior is explicitly controllable with `--no-egglog` and
+`--strict-egglog`; strict mode rejects unsupported optimizer fallback paths
+instead of silently compiling unoptimized output.
+`compile` and `run` also support `--keep-intermediates`, preserving generated
+LLVM/object artifacts and run-mode temporary executables under
+`.context/hegglog/intermediates`.
+`compile` and `report` have scoped help, legacy report and legacy `FILE
+--emit-llvm` forms remain supported, and CLI unit/wet tests cover help, error,
+check, report, emit-core, emit-stg, strict Egglog, dump flags, kept intermediates, and run
+stdout/stderr/exit behavior. Public help text is locked by exact golden
+fixtures at both the command-model and executable CLI layers.
+The broader command set below remains tracked by the remaining CLI tasks.
 
 Commands:
 
@@ -541,9 +580,9 @@ Acceptance criteria:
 Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
-`haskell2010-conformance-test` Cabal suite. The baseline currently records 118
-fixtures: 80 native-success cases, 5 native-runtime-error cases, 27 compile-error
-cases, and 6 unsupported-documented cases. The suite invokes the built
+`haskell2010-conformance-test` Cabal suite. The baseline currently records 157
+fixtures: 111 native-success cases, 15 native-runtime-error cases, 29 compile-error
+cases, and 3 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
 runtime-error exits, checks compile-error diagnostics, links manifest-declared
@@ -624,32 +663,49 @@ This is the following chunk once the source surface has been closed. The goal
 is to make the standard library and derived-instance behavior look like Haskell
 2010 rather than a narrow executable subset:
 
-1. TC-029 — expand `Show` from the current executable `show` behavior to the
-   Report method shape: `showsPrec`, `showList`, precedence handling, and
-   escaping.
-2. TC-030 — implement `Read`, including `ReadS`, `readsPrec`, `readList`,
-   lexical read parsing, standard instances, and derived `Read`.
-3. TEST-CONF-015 — keep every newly claimed class, function, deriving rule, and
-   module backed by manifest-tracked positive and negative fixtures, and run a
-   Report-facing reconciliation against Chapter 9 Prelude plus the Part II
-   library module inventory before any additional standard-library surface is
-   treated as supported.
+1. LIB-001 through LIB-012 — implement the numbered standard-library module
+   gaps produced by the TEST-CONF-015 reconciliation, starting with
+   `Control.Monad`, `Data.List`, `Data.Maybe`, `Data.Char`, `Data.Ratio`, and
+   `Numeric` now that the Read method shape is in place.
 
 This chunk must not treat the current generated library modules as the end
 state. They are importable checkpoints on the path to the full Haskell 2010
 Report surface, and unsupported Report modules or values must stay explicit in
 the tracker, conformance matrix, and generated module boundary.
+TEST-CONF-015 is complete: the library closure table is now validator-backed,
+and every Report library group has manifest-backed coverage plus numbered
+remaining tasks.
 
 ### Remaining FFI Closure
 
 The FFI is no longer tracked as a whole-feature documented deviation. The
-current scalar/pointer/static/dynamic/wrapper/export/stable-pointer slice is
+current scalar/floating/pointer/static/dynamic/wrapper/export/stable-pointer slice is
 implemented, and the remaining work is now split into dedicated tasks:
 
-1. FFI-010 — floating-point FFI marshalling.
-2. FFI-011 — FFI link metadata.
-3. FFI-012 — callback and finalizer lifetime completion.
-4. FFI-013 — Foreign library surface completion.
+FFI-010 is complete for native ABI marshalling of `Float`, `Double`,
+`CFloat`, and `CDouble` across static calls, dynamic calls, wrapper callbacks,
+and foreign export entrypoints.
+
+FFI-011 is complete for preserving header/symbol link metadata and for passing
+explicit native link objects, libraries, library paths, and frameworks through
+the CLI/toolchain to clang.
+
+FFI-012 is complete for explicit callback/finalizer lifetime behavior:
+`freeHaskellFunPtr` releases wrapper slots, double-free is idempotent,
+callback-after-free aborts, freed slots are reclaimed, and manual `ForeignPtr`
+finalizers remain explicit/idempotent with reverse-order dispatch under the
+process-lifetime runtime model.
+
+1. FFI-013 — Foreign library surface completion. Status: complete for the
+   generated/importable `Foreign`, `Foreign.C`, `Foreign.C.Error`,
+   `Foreign.C.String`, `Foreign.C.Types`, `Foreign.Ptr`,
+   `Foreign.StablePtr`, `Foreign.ForeignPtr`, `Foreign.Marshal`,
+   `Foreign.Marshal.Alloc`, `Foreign.Marshal.Array`,
+   `Foreign.Marshal.Error`, `Foreign.Marshal.Utils`, and
+   `Foreign.Storable` surface that fits the current native runtime model.
+   The previous errno, Storable, raw allocation, array marshalling, and
+   C string marshalling gaps now have Core/STG/native lowering and native
+   conformance fixtures in default and no-egglog modes.
 
 Completed immediate tasks:
 
@@ -663,10 +719,12 @@ Completed immediate tasks:
   interface, shared `ModuleInterface` data model, and instance-export boundary
   used by MOD-009.
 - PRELUDE-020 standard library module expansion, including generated/importable
-  interfaces for `Control.Monad`, `Data.Int`, `Data.List`, `Data.Maybe`,
+  interfaces for `Control.Monad`, `Data.Int`, `Data.List`, `Data.Maybe`, `Data.Char`,
   `Data.Word`, `System.IO`, and implemented `Foreign.*` module slices, with
   `Control.Monad` exposing real `Functor(fmap)` support for `[]`, `Maybe`, and
-  `IO`, and reserved Report modules kept unimportable until real support exists.
+  `IO`, source-backed Report APIs for `Data.List`, `Data.Maybe`, and
+  `Data.Char`, and reserved Report modules kept unimportable until real support
+  exists.
 - PRELUDE-002/MOD-010 implicit Prelude import behavior, including synthetic
   `import Prelude` insertion only when no explicit `Prelude` import exists,
   explicit Prelude import-list/hiding/qualified filtering, and native
@@ -762,8 +820,9 @@ Completed immediate tasks:
   subset, including dependency-file loading from imports, cycle/name-mismatch
   diagnostics, actual exported-name import resolution, explicit export/import
   filtering, qualified aliases, hiding, `Thing(..)` children, whole-program
-  Core flattening, root `main` entrypoint selection, and default/no-egglog
-  native wet tests.
+  Core flattening, root `main` entrypoint selection, explicit MOD-011/MOD-012
+  module-compilation/interface-file boundary documentation, and
+  default/no-egglog native wet tests.
 - Haskell 2010 `Char` runtime representation, including boxed native `Char`
   objects, literal `Char` case dispatch, built-in `Eq Char`, scalar
   `main :: Char` printing, Core/STG/native oracles, conformance fixtures, and
@@ -777,11 +836,11 @@ Completed immediate tasks:
   output, `reverse`/`length` over strings, `putStrLn` over built-in `show`
   results, explicit `Char` cons patterns, string literal patterns, conformance
   fixtures, default/no-egglog runs, and emit-LLVM wet checks.
-- Haskell 2010 broader `Show`, including exact `Show Char`, exact
+- Haskell 2010 Report-shaped `Show`, including exact `Show Char`, exact
   `Show String`, generated structural `Show a => Show [a]`, nested `[String]`
-  output, `print` through the broadened dictionaries, numeric-list defaulting,
-  Core/STG/native oracles, conformance fixtures, and default/no-egglog wet
-  tests.
+  output, `shows`, `showsPrec`, `showList`, supported escaping, `print`
+  through the broadened dictionaries, numeric-list defaulting, Core/STG/native
+  oracles, conformance fixtures, and default/no-egglog wet tests.
 - Haskell 2010 arithmetic sequences for the executable subset, including
   `[a..]`, `[a,b..]`, `[a..z]`, and `[a,b..z]` over `Int` and `Char`,
   ascending/descending bounded behavior, lazily consumed open ranges,
@@ -797,10 +856,10 @@ Completed immediate tasks:
   overlapping-instance rejection, public `Enum` and `Bounded` Prelude classes,
   Core/STG/native oracles, conformance fixtures, and default/no-egglog wet
   tests.
-- TC-016 `Read` decision as a documented deviation: the renamer recognizes
-  `Read` as a Prelude class name for explicit unsupported diagnostics, while
-  dictionaries, methods, standard instances, lexical read parsing, and derived
-  `Read` remain future work.
+- TC-030 `Read` implementation: `ReadS`, `readsPrec`, `readList`, `reads`,
+  `read`, `lex`, `readParen`, standard supported instances, structural list
+  dictionaries, and derived `Read` now lower through Core/STG/native and are
+  backed by unit plus manifest conformance tests.
 
 ## Non-Negotiable Rules
 

@@ -18,11 +18,13 @@ import qualified Data.Map.Strict as Map
 import Haskell2010.Core.Syntax (CoreAltCon, CoreConstructorInfo, CoreForeignExport, CoreForeignImport, CorePrimOp, CoreType (..))
 import Haskell2010.Names (RName)
 import Haskell2010.Syntax (Literal)
+import Syntax.Span (SourceSpan)
 
 data STGProgram = STGProgram
   { stgProgramConstructors :: Map.Map RName CoreConstructorInfo
   , stgProgramBinds :: [STGBind]
   , stgProgramForeignExports :: [CoreForeignExport]
+  , stgProgramRuntimeSpans :: Map.Map RName SourceSpan
   }
   deriving stock (Show, Eq, Ord)
 
@@ -50,6 +52,7 @@ data STGUpdateFlag
 
 data STGExpr
   = STGAtom STGAtom
+  | STGSpanned SourceSpan STGExpr
   | STGApp RName [STGAtom] CoreType
   | STGLet STGBind STGExpr CoreType
   | STGCase STGExpr STGBinder [STGAlt] CoreType
@@ -70,6 +73,7 @@ data STGAlt = STGAlt CoreAltCon [STGBinder] STGExpr
 stgExprType :: STGExpr -> CoreType
 stgExprType = \case
   STGAtom atom -> stgAtomType atom
+  STGSpanned _ expression -> stgExprType expression
   STGApp _ _ ty -> ty
   STGLet _ _ ty -> ty
   STGCase _ _ _ ty -> ty

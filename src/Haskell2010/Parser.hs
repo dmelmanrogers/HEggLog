@@ -14,12 +14,13 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Void (Void)
-import Haskell2010.Layout (layoutBlock)
+import Haskell2010.Layout (layoutBlock, layoutBlockFrom)
 import Haskell2010.Lexer
   ( Parser
   , charLiteral
   , conid
   , eof
+  , floating
   , integer
   , operator
   , reserved
@@ -131,26 +132,28 @@ exportSpec =
  where
   exportThing = do
     name <- importedName
-    children <- allChildren <|> parensComma importedName
+    children <- try allChildren <|> parensComma importedName
     pure (ExportThing name children)
 
 importDecl :: Parser ImportDecl
-importDecl = do
-  reserved "import"
-  qualifiedImport <- option False (True <$ reserved "qualified")
-  importedModule <- Lex.moduleName
-  alias <- optional (reserved "as" *> Lex.moduleName)
-  specs <- optional . try $ do
-    hidingImport <- option False (True <$ reserved "hiding")
-    names <- parensComma importSpec
-    pure (names, hidingImport)
-  pure
-    ImportDecl
-      { importQualified = qualifiedImport
-      , importModule = importedModule
-      , importAs = alias
-      , importSpecs = specs
-      }
+importDecl =
+  withSpan setImportSpan $ do
+    reserved "import"
+    qualifiedImport <- option False (True <$ reserved "qualified")
+    importedModule <- Lex.moduleName
+    alias <- optional (reserved "as" *> Lex.moduleName)
+    specs <- optional . try $ do
+      hidingImport <- option False (True <$ reserved "hiding")
+      names <- parensComma importSpec
+      pure (names, hidingImport)
+    pure
+      ImportDecl
+        { importSpan = Nothing
+        , importQualified = qualifiedImport
+        , importModule = importedModule
+        , importAs = alias
+        , importSpecs = specs
+        }
 
 importSpec :: Parser ImportSpec
 importSpec =
@@ -158,7 +161,7 @@ importSpec =
  where
   importThing = do
     name <- importedName
-    children <- allChildren <|> parensComma importedName
+    children <- try allChildren <|> parensComma importedName
     pure (ImportThing name children)
 
 declParser :: Parser Decl
@@ -256,9 +259,10 @@ foreignImportDecl = do
   reserved "import"
   callConv <- foreignCallConv
   safety <- option ForeignSafe (try foreignSafety)
-  entity <- option defaultForeignImportEntity (try foreignImportEntitySpec)
+  rawEntity <- optional (try stringLiteral)
   name <- bindingName
   void (symbol "::")
+  let entity = foreignImportEntitySpecFor name rawEntity
   ForeignImportDecl . ForeignImport callConv safety entity name <$> typeParser
 
 foreignExportDecl :: Parser ForeignDeclInfo
@@ -290,14 +294,15 @@ foreignSafety = do
     "unsafe" -> pure ForeignUnsafe
     other -> fail ("unknown foreign import safety " <> Text.unpack other)
 
-foreignImportEntitySpec :: Parser ForeignImportEntity
-foreignImportEntitySpec = do
-  raw <- stringLiteral
-  pure
-    ForeignImportEntity
-      { foreignImportEntityRaw = Just raw
-      , foreignImportEntityKind = parseForeignImportEntity raw
-      }
+foreignImportEntitySpecFor :: Text -> Maybe Text -> ForeignImportEntity
+foreignImportEntitySpecFor importName rawEntity =
+  ForeignImportEntity
+    { foreignImportEntityRaw = rawEntity
+    , foreignImportEntityKind =
+        case rawEntity of
+          Nothing -> ForeignImportDefault
+          Just raw -> parseForeignImportEntity importName raw
+    }
 
 foreignExportEntitySpec :: Parser ForeignExportEntity
 foreignExportEntitySpec = do
@@ -308,13 +313,6 @@ foreignExportEntitySpec = do
       , foreignExportEntitySymbol = if Text.null raw then Nothing else Just raw
       }
 
-defaultForeignImportEntity :: ForeignImportEntity
-defaultForeignImportEntity =
-  ForeignImportEntity
-    { foreignImportEntityRaw = Nothing
-    , foreignImportEntityKind = ForeignImportDefault
-    }
-
 defaultForeignExportEntity :: ForeignExportEntity
 defaultForeignExportEntity =
   ForeignExportEntity
@@ -322,43 +320,91 @@ defaultForeignExportEntity =
     , foreignExportEntitySymbol = Nothing
     }
 
-parseForeignImportEntity :: Text -> ForeignImportEntityKind
-parseForeignImportEntity raw =
+parseForeignImportEntity :: Text -> Text -> ForeignImportEntityKind
+parseForeignImportEntity _ raw
+  | Text.null (Text.strip raw) =
+      ForeignImportDefault
+parseForeignImportEntity importName raw =
   case Text.words raw of
-    [] ->
-      ForeignImportUnknown raw
     ["dynamic"] ->
       ForeignImportDynamic
     ["wrapper"] ->
       ForeignImportWrapper
     "static" : rest ->
-      parseStaticImportEntity raw rest
+      parseStaticImportEntity importName raw rest
     rest ->
-      parseStaticImportEntity raw rest
+      parseStaticImportEntity importName raw rest
  where
-  parseStaticImportEntity rawText tokens =
-    case tokens of
-      [] ->
+  parseStaticImportEntity defaultSymbol rawText tokens =
+    case splitOptionalHeader tokens of
+      Nothing ->
         ForeignImportUnknown rawText
-      headerToken : symbolTokens
-        | Just header <- parseHeader headerToken ->
-            parseImportSymbol rawText (Just header) (Text.unwords symbolTokens)
-      symbolTokens ->
-        parseImportSymbol rawText Nothing (Text.unwords symbolTokens)
+      Just (header, afterHeader) ->
+        let (isAddress, symbolTokens) = splitOptionalAddress afterHeader
+         in case symbolTokens of
+              [] ->
+                finishStaticEntity rawText header isAddress defaultSymbol
+              [symbolText] ->
+                finishStaticEntity rawText header isAddress symbolText
+              _ ->
+                ForeignImportUnknown rawText
 
-  parseImportSymbol rawText header symbolText
-    | Text.null symbolText =
+  finishStaticEntity rawText header isAddress symbolText
+    | not (isValidForeignCSymbol symbolText) =
         ForeignImportUnknown rawText
-    | Just ffiSymbol <- Text.stripPrefix "&" symbolText =
-        if Text.null ffiSymbol then ForeignImportUnknown rawText else ForeignImportAddress header ffiSymbol
+    | isAddress =
+        ForeignImportAddress header symbolText
     | otherwise =
         ForeignImportStatic header symbolText
 
+  splitOptionalHeader = \case
+    token : rest
+      | Just header <- parseHeader token ->
+          Just (Just header, rest)
+      | looksLikeInvalidHeader token ->
+          Nothing
+    tokens ->
+      Just (Nothing, tokens)
+
+  splitOptionalAddress = \case
+    "&" : rest ->
+      (True, rest)
+    token : rest
+      | Just ffiSymbol <- Text.stripPrefix "&" token
+      , not (Text.null ffiSymbol) ->
+          (True, ffiSymbol : rest)
+    tokens ->
+      (False, tokens)
+
   parseHeader token
     | "[" `Text.isPrefixOf` token && "]" `Text.isSuffixOf` token =
-        Just (Text.dropEnd 1 (Text.drop 1 token))
+        validHeaderName (Text.dropEnd 1 (Text.drop 1 token))
+    | ".h" `Text.isSuffixOf` token =
+        validHeaderName token
     | otherwise =
         Nothing
+
+  looksLikeInvalidHeader token =
+    ("[" `Text.isPrefixOf` token && "]" `Text.isSuffixOf` token)
+      || "." `Text.isInfixOf` token
+
+  validHeaderName header
+    | ".h" `Text.isSuffixOf` header = Just header
+    | otherwise = Nothing
+
+isValidForeignCSymbol :: Text -> Bool
+isValidForeignCSymbol ffiSymbol =
+  case Text.uncons ffiSymbol of
+    Nothing ->
+      False
+    Just (first, rest) ->
+      isCSymbolStart first && Text.all isCSymbolRest rest
+ where
+  isCSymbolStart c =
+    c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
+
+  isCSymbolRest c =
+    isCSymbolStart c || ('0' <= c && c <= '9')
 
 functionBinding :: Parser Decl
 functionBinding =
@@ -423,8 +469,9 @@ lambdaExpr = withSpan setExprSpan $ do
 
 letExpr :: Parser Expr
 letExpr = withSpan setExprSpan $ do
+  start <- getSourcePos
   reserved "let"
-  decls <- layoutBlock declParser
+  decls <- layoutBlockFrom (sourceColumn start) declParser
   scn
   reserved "in"
   Let decls <$> exprParser
@@ -440,15 +487,17 @@ ifExpr = withSpan setExprSpan $ do
 
 caseExpr :: Parser Expr
 caseExpr = withSpan setExprSpan $ do
+  start <- getSourcePos
   reserved "case"
   scrutinee <- exprParser
   reserved "of"
-  Case scrutinee <$> layoutBlock altParser
+  Case scrutinee <$> layoutBlockFrom (sourceColumn start) altParser
 
 doExpr :: Parser Expr
 doExpr = withSpan setExprSpan $ do
+  start <- getSourcePos
   reserved "do"
-  Do <$> layoutBlock stmtParser
+  Do <$> layoutBlockFrom (sourceColumn start) stmtParser
 
 infixExpr :: Parser Expr
 infixExpr = withSpan setExprSpan $ do
@@ -505,6 +554,7 @@ literalExpr =
     <$> choice
       [ LChar <$> charLiteral
       , LString <$> stringLiteral
+      , LDouble <$> try floating
       , LInt <$> integer
       ]
 
@@ -521,7 +571,7 @@ parenExpr = withSpan setExprSpan $ do
   operatorVariable = do
     op <- qop
     void (symbol ")")
-    pure (Var op)
+    pure (if operatorIsConstructor op then Con op else Var op)
   rightSection = do
     op <- qop
     expr <- exprParser
@@ -595,8 +645,9 @@ stmtParser =
     void (symbol "<-")
     BindStmt pat <$> exprParser
   letStmt = do
+    start <- getSourcePos
     reserved "let"
-    LetStmt <$> layoutBlock declParser
+    LetStmt <$> layoutBlockFrom (sourceColumn start) declParser
 
 altParser :: Parser Alt
 altParser = withSpan setAltSpan $ do
@@ -635,9 +686,9 @@ patParser = withSpan setPatSpan $ do
   option lhs (consPat lhs)
  where
   consPat lhs = do
-    void (symbol ":")
+    op <- qconop
     rhs <- patParser
-    pure (PCon ":" [lhs, rhs])
+    pure (PCon op [lhs, rhs])
   asPat = do
     name <- varid
     void (symbol "@")
@@ -699,6 +750,7 @@ literalParser =
   choice
     [ LChar <$> charLiteral
     , LString <$> stringLiteral
+    , LDouble <$> try floating
     , LInt <$> integer
     ]
 
@@ -760,11 +812,18 @@ parenType = withSpan setHsTypeSpan $ do
 
 constructorDecl :: Parser ConDecl
 constructorDecl =
-  withSpan setConDeclSpan $ do
+  withSpan setConDeclSpan $
+    try infixConstructorDecl <|> prefixConstructorDecl
+ where
+  infixConstructorDecl = do
+    lhs <- typeAtom
+    constructorName <- qconop
+    rhs <- typeAtom
+    pure (ConDecl constructorName [lhs, rhs])
+  prefixConstructorDecl = do
     constructorName <- qconid
     try (RecordConDecl constructorName <$> bracesComma1 recordFieldDecl)
       <|> (ConDecl constructorName <$> many typeAtom)
- where
   recordFieldDecl = do
     names <- qvarid `sepBy1` comma
     void (symbol "::")
@@ -787,7 +846,7 @@ optionalWhereDeclsFrom reference =
     wherePos <- getSourcePos
     validateWhereIndent reference wherePos
     reserved "where"
-    layoutBlock declParser
+    layoutBlockFrom (sourceColumn reference) declParser
 
 validateWhereIndent :: SourcePos -> SourcePos -> Parser ()
 validateWhereIndent reference wherePos
@@ -818,8 +877,8 @@ qop =
   choice
     [ try qualifiedOperator
     , try backtickName
-    , symbol ":" *> pure ":"
     , operator
+    , symbol ":" *> pure ":"
     ]
  where
   qualifiedOperator = do
@@ -828,6 +887,30 @@ qop =
     pure (Text.intercalate "." (prefixes <> [op]))
   backtickName =
     symbol "`" *> (qvarid <|> qconid) <* symbol "`"
+
+qconop :: Parser Text
+qconop =
+  choice
+    [ try qualifiedConstructorOperator
+    , try backtickConstructorName
+    , constructorOperator
+    ]
+ where
+  qualifiedConstructorOperator = do
+    prefixes <- some (try (conid <* symbol "."))
+    op <- constructorOperator
+    pure (Text.intercalate "." (prefixes <> [op]))
+  backtickConstructorName =
+    symbol "`" *> qconid <* symbol "`"
+  constructorOperator =
+    try
+      ( do
+          op <- operator
+          if operatorIsConstructor op
+            then pure op
+            else fail ("variable operator " <> Text.unpack op <> " cannot be used as a constructor operator")
+      )
+      <|> (symbol ":" *> pure ":")
 
 qvarop :: Parser Text
 qvarop =
@@ -861,7 +944,13 @@ bindingName =
 
 importedName :: Parser Text
 importedName =
-  bindingName
+  try (parens qconop) <|> bindingName
+
+operatorIsConstructor :: Text -> Bool
+operatorIsConstructor op =
+  case reverse (Text.splitOn "." op) of
+    local : _ -> ":" `Text.isPrefixOf` local
+    [] -> False
 
 comma :: Parser ()
 comma =

@@ -18,23 +18,26 @@ module Haskell2010.Typecheck
 where
 
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, unless, when)
-import Control.Monad.State.Strict (StateT, get, lift, modify, runStateT)
+import Control.Monad ((>=>), foldM, unless, when)
+import Control.Monad.State.Strict (State, StateT, get, lift, modify, runState, runStateT)
 import Data.Foldable (traverse_)
 import qualified Data.Graph as Graph
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import qualified Data.Ratio as Ratio
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Core.Syntax
 import qualified Haskell2010.Core.Validate as CoreValidate
+import Haskell2010.FixedWidth
 import Haskell2010.Names
 import Haskell2010.Renamed
+import Haskell2010.StandardLibrary (standardLibraryExternalName)
 import Haskell2010.Syntax (Literal (..))
 import qualified Haskell2010.Syntax as S
-import Syntax.Span (SourceSpan, renderSourceDiagnostic)
+import Syntax.Span (SourceSpan (..), renderSourceDiagnostic)
 
 data Kind
   = StarKind
@@ -102,6 +105,13 @@ data TypecheckError
   | InvalidClassConstraintArity RName Int
   | UnsupportedClassConstraintContext ClassConstraintContext [ClassConstraint]
   | UnsolvedClassConstraint ClassConstraint
+  | DuplicateBuiltinInstance ClassConstraint
+  | OverlappingBuiltinInstance ClassConstraint
+  | DuplicateInstance ClassConstraint
+  | OverlappingInstance ClassConstraint
+  | UnknownInstanceMethod RName
+  | DuplicateInstanceMethod RName
+  | MissingInstanceMethod RName
   | AmbiguousTypeVariable Int
   | CoreValidationFailed [CoreValidate.CoreValidationError]
   deriving stock (Show, Eq)
@@ -200,6 +210,7 @@ data TypedBinder = TypedBinder RName MonoType
 
 data TypedBinding = TypedBinding
   { typedBindingName :: RName
+  , typedBindingSpan :: Maybe SourceSpan
   , typedBindingScheme :: Scheme
   , typedBindingGeneralizedMetas :: Map.Map Int RName
   , typedBindingRhs :: TypedExpr
@@ -301,6 +312,7 @@ data TypedExpr
   | TLit Literal MonoType
   | TCon RName Scheme [MonoType] MonoType
   | TNewtypeCon RName Scheme [MonoType] MonoType TypedBinder
+  | TSpanned SourceSpan TypedExpr
   | TTuple [TypedExpr] MonoType
   | TList [TypedExpr] MonoType
   | TLam TypedBinder TypedExpr MonoType
@@ -377,7 +389,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
               , recordSelectorTypeEnv selectors
               , foreignEnv
               ]
-      (bindings, env) <- inferBindingGroup classEnv sourceDecls
+      (bindings, env) <- inferBindingGroup TopLevelBindingGroup classEnv sourceDecls
       explicitInstances <- inferInstanceDictionaries env sourceDecls
       derivedInstances <- inferDerivedInstanceDictionaries env sourceDecls explicitInstances
       validateForeignExportsAgainstEnv env sourceDecls
@@ -410,6 +422,7 @@ typecheckModuleToCoreWithWarnings sourceModule = do
   builtinEqSupportBinds <- builtinEqSupportCoreBinds classesForCore
   builtinOrdSupportBinds <- builtinOrdSupportCoreBinds classesForCore
   builtinShowSupportBinds <- builtinShowSupportCoreBinds classesForCore
+  builtinReadSupportBinds <- builtinReadSupportCoreBinds classesForCore
   builtinFunctorSupportBinds <- builtinFunctorSupportCoreBinds classesForCore
   builtinMonadSupportBinds <- builtinMonadSupportCoreBinds classesForCore
   builtinInstanceCoreBinds <- traverse (builtinInstanceDictionaryToCore classesForCore) builtinInstances
@@ -422,15 +435,17 @@ typecheckModuleToCoreWithWarnings sourceModule = do
         (substitution finalState)
         (filterClassDictionaryConstructors classes classesForCore (dataConstructors finalState))
   let coreModule =
-        CoreModule
+        uniquifyCoreModuleBinders
+          CoreModule
           { coreModuleName = rModuleName sourceModule
           , coreModuleConstructors = coreConstructors
           , coreModuleBinds =
-              case preludeCoreBinds <> classCoreBinds <> recordCoreBinds <> builtinEqSupportBinds <> builtinOrdSupportBinds <> builtinShowSupportBinds <> builtinFunctorSupportBinds <> builtinMonadSupportBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> foreignCoreBinds <> sourceCoreBinds of
+              case preludeCoreBinds <> classCoreBinds <> recordCoreBinds <> builtinEqSupportBinds <> builtinOrdSupportBinds <> builtinShowSupportBinds <> builtinReadSupportBinds <> builtinFunctorSupportBinds <> builtinMonadSupportBinds <> builtinInstanceCoreBinds <> instanceCoreBinds <> foreignCoreBinds <> sourceCoreBinds of
                 [] -> []
                 [one] -> [one]
                 many -> [CoreRec (concatMap bindPairs many)]
           , coreModuleForeignExports = foreignCoreExports
+          , coreModuleRuntimeSpans = typedBindingRuntimeSpans typedBindings
           }
   case CoreValidate.validateModule (CoreValidate.moduleValidationEnv coreModule) coreModule of
     Right () ->
@@ -444,9 +459,40 @@ typecheckModuleToCoreWithWarnings sourceModule = do
 renderTypecheckError :: TypecheckError -> Text
 renderTypecheckError = \case
   TypecheckErrorAt sourceRange err ->
-    renderSourceDiagnostic sourceRange "type error" (renderTypecheckErrorDetail err)
+    renderSourceDiagnostic sourceRange (typecheckErrorSeverity err) (renderTypecheckErrorDetail err)
   err ->
     renderTypecheckErrorDetail err
+
+typecheckErrorSeverity :: TypecheckError -> Text
+typecheckErrorSeverity = \case
+  TypecheckErrorAt _ err ->
+    typecheckErrorSeverity err
+  KindMismatch {} ->
+    "kind error"
+  KindOccursCheck {} ->
+    "kind error"
+  InvalidClassConstraintArity {} ->
+    "class error"
+  UnsupportedClassConstraintContext {} ->
+    "class error"
+  UnsolvedClassConstraint {} ->
+    "class error"
+  DuplicateBuiltinInstance {} ->
+    "instance error"
+  OverlappingBuiltinInstance {} ->
+    "instance error"
+  DuplicateInstance {} ->
+    "instance error"
+  OverlappingInstance {} ->
+    "instance error"
+  UnknownInstanceMethod {} ->
+    "instance error"
+  DuplicateInstanceMethod {} ->
+    "instance error"
+  MissingInstanceMethod {} ->
+    "instance error"
+  _ ->
+    "type error"
 
 renderTypecheckErrorDetail :: TypecheckError -> Text
 renderTypecheckErrorDetail = \case
@@ -495,6 +541,20 @@ renderTypecheckErrorDetail = \case
         _ -> " with " <> Text.intercalate ", " (map renderClassConstraint constraints)
   UnsolvedClassConstraint constraint ->
     "unsolved type-class constraint " <> renderClassConstraint constraint
+  DuplicateBuiltinInstance constraint ->
+    "duplicate built-in instance for `" <> renderClassConstraint constraint <> "`"
+  OverlappingBuiltinInstance constraint ->
+    "overlapping built-in instance for `" <> renderClassConstraint constraint <> "`"
+  DuplicateInstance constraint ->
+    "duplicate instance for `" <> renderClassConstraint constraint <> "`"
+  OverlappingInstance constraint ->
+    "overlapping instance for `" <> renderClassConstraint constraint <> "`"
+  UnknownInstanceMethod name ->
+    "unknown instance method `" <> renderRName name <> "`"
+  DuplicateInstanceMethod name ->
+    "duplicate instance method `" <> renderRName name <> "`"
+  MissingInstanceMethod name ->
+    "missing instance method `" <> renderRName name <> "`"
   AmbiguousTypeVariable meta ->
     "ambiguous Core-0 type variable ?" <> renderInt meta
   CoreValidationFailed errors ->
@@ -575,7 +635,7 @@ runInfer initialTypeConstructors action =
           , dataConstructors = Map.empty
           , recordSelectors = Map.empty
           , classInfos = Map.empty
-          , defaultTypes = [intMonoType]
+          , defaultTypes = [integerMonoType, doubleMonoType]
           , typecheckSpanStack = []
           , typecheckWarnings = []
           }
@@ -751,7 +811,7 @@ collectDataConstructors =
     let constructorName = conDeclName constructor
         sourceFields = conDeclFieldTypes constructor
         fieldLabels = conDeclFieldLabels constructor
-    fieldTypes <- traverse sourceMonoType sourceFields
+    fieldTypes <- constructorFieldMonoTypes params sourceFields
     let resultTy = foldl TyApp (TyCon typeName) (map TyVar params)
         scheme = Scheme params [] (foldr TyFun resultTy fieldTypes)
         info =
@@ -784,6 +844,42 @@ conDeclFieldLabels = \case
     replicate (length fields) Nothing
   RRecordConDecl _ fields ->
     concatMap (\(RConField labels _) -> map Just labels) fields
+
+constructorFieldMonoTypes :: [RName] -> [RHsType] -> InferM [MonoType]
+constructorFieldMonoTypes params fields =
+  traverse (sourceMonoType >=> canonicalizeDataFieldTypeVars params) fields
+
+canonicalizeDataFieldTypeVars :: [RName] -> MonoType -> InferM MonoType
+canonicalizeDataFieldTypeVars params =
+  go
+ where
+  paramsByOccurrence = Map.fromList [(nameOcc param, param) | param <- params]
+
+  go = \case
+    TyMeta meta ->
+      pure (TyMeta meta)
+    TyVar name ->
+      case Map.lookup (nameOcc name) paramsByOccurrence of
+        Just param ->
+          pure (TyVar param)
+        Nothing ->
+          throwTypecheck
+            ( UnsupportedCore0
+                ( "constructor field type variable `"
+                    <> nameOcc name
+                    <> "` is not bound by the data type parameters"
+                )
+            )
+    TyCon name ->
+      pure (TyCon name)
+    TyApp fn arg ->
+      TyApp <$> go fn <*> go arg
+    TyFun arg result ->
+      TyFun <$> go arg <*> go result
+    TyTuple fields ->
+      TyTuple <$> traverse go fields
+    TyList element ->
+      TyList <$> go element
 
 collectRecordSelectors :: Map.Map RName DataConstructorInfo -> InferM (Map.Map RName RecordSelectorInfo)
 collectRecordSelectors constructors =
@@ -1073,11 +1169,20 @@ builtinClassInfos =
     , (builtinNumClassName, numInfo)
     , (builtinRealClassName, realInfo)
     , (builtinIntegralClassName, integralInfo)
+    , (builtinFractionalClassName, fractionalInfo)
+    , (builtinFloatingClassName, floatingInfo)
+    , (builtinRealFracClassName, realFracInfo)
+    , (builtinRealFloatClassName, realFloatInfo)
+    , (builtinBitsClassName, bitsInfo)
     , (builtinShowClassName, showInfo)
+    , (builtinReadClassName, readInfo)
     , (builtinEnumClassName, enumInfo)
     , (builtinBoundedClassName, boundedInfo)
+    , (builtinIxClassName, ixInfo)
     , (builtinFunctorClassName, functorInfo)
     , (builtinMonadClassName, monadInfo)
+    , (builtinMonadPlusClassName, builtinMonadPlusInfo)
+    , (builtinStorableClassName, builtinStorableInfo)
     ]
  where
   eqA = preludeTypeVariable "a" (-1301)
@@ -1122,7 +1227,7 @@ builtinClassInfos =
       , ("negate", -1424, TyFun numATy numATy)
       , ("abs", -1425, TyFun numATy numATy)
       , ("signum", -1426, TyFun numATy numATy)
-      , ("fromInteger", -1427, TyFun intMonoType numATy)
+      , ("fromInteger", -1427, TyFun integerMonoType numATy)
       ]
 
   realA = preludeTypeVariable "a" (-1371)
@@ -1152,17 +1257,141 @@ builtinClassInfos =
       , ("mod", -1484, TyFun integralATy (TyFun integralATy integralATy))
       , ("quotRem", -1485, TyFun integralATy (TyFun integralATy integralPairTy))
       , ("divMod", -1486, TyFun integralATy (TyFun integralATy integralPairTy))
-      , ("toInteger", -1487, TyFun integralATy intMonoType)
+      , ("toInteger", -1487, TyFun integralATy integerMonoType)
+      ]
+
+  fractionalA = preludeTypeVariable "a" (-1388)
+  fractionalATy = TyVar fractionalA
+  fractionalInfo =
+    builtinClassInfo
+      builtinFractionalClassName
+      fractionalA
+      [singleClassConstraint builtinNumClassName fractionalATy]
+      [ ("/", -3401, TyFun fractionalATy (TyFun fractionalATy fractionalATy))
+      , ("recip", -3402, TyFun fractionalATy fractionalATy)
+      , ("fromRational", -3403, TyFun rationalMonoType fractionalATy)
+      ]
+
+  floatingA = preludeTypeVariable "a" (-1497)
+  floatingATy = TyVar floatingA
+  floatingInfo =
+    builtinClassInfo
+      builtinFloatingClassName
+      floatingA
+      [singleClassConstraint builtinFractionalClassName floatingATy]
+      [ ("pi", -3411, floatingATy)
+      , ("exp", -3412, TyFun floatingATy floatingATy)
+      , ("log", -3413, TyFun floatingATy floatingATy)
+      , ("sqrt", -3414, TyFun floatingATy floatingATy)
+      , ("**", -3415, TyFun floatingATy (TyFun floatingATy floatingATy))
+      , ("logBase", -3416, TyFun floatingATy (TyFun floatingATy floatingATy))
+      , ("sin", -3417, TyFun floatingATy floatingATy)
+      , ("cos", -3418, TyFun floatingATy floatingATy)
+      , ("tan", -3419, TyFun floatingATy floatingATy)
+      , ("asin", -3420, TyFun floatingATy floatingATy)
+      , ("acos", -3421, TyFun floatingATy floatingATy)
+      , ("atan", -3422, TyFun floatingATy floatingATy)
+      , ("sinh", -3423, TyFun floatingATy floatingATy)
+      , ("cosh", -3424, TyFun floatingATy floatingATy)
+      , ("tanh", -3425, TyFun floatingATy floatingATy)
+      , ("asinh", -3426, TyFun floatingATy floatingATy)
+      , ("acosh", -3427, TyFun floatingATy floatingATy)
+      , ("atanh", -3428, TyFun floatingATy floatingATy)
+      ]
+
+  realFracA = preludeTypeVariable "a" (-1515)
+  realFracATy = TyVar realFracA
+  realFracPairTy = TyTuple [intMonoType, realFracATy]
+  realFracInfo =
+    builtinClassInfo
+      builtinRealFracClassName
+      realFracA
+      [ singleClassConstraint builtinRealClassName realFracATy
+      , singleClassConstraint builtinFractionalClassName realFracATy
+      ]
+      [ ("properFraction", -3431, TyFun realFracATy realFracPairTy)
+      , ("truncate", -3432, TyFun realFracATy intMonoType)
+      , ("round", -3433, TyFun realFracATy intMonoType)
+      , ("ceiling", -3434, TyFun realFracATy intMonoType)
+      , ("floor", -3435, TyFun realFracATy intMonoType)
+      ]
+
+  realFloatA = preludeTypeVariable "a" (-1520)
+  realFloatATy = TyVar realFloatA
+  intPairTy = TyTuple [intMonoType, intMonoType]
+  realFloatInfo =
+    builtinClassInfo
+      builtinRealFloatClassName
+      realFloatA
+      [ singleClassConstraint builtinRealFracClassName realFloatATy
+      , singleClassConstraint builtinFloatingClassName realFloatATy
+      ]
+      [ ("floatRadix", -3441, TyFun realFloatATy intMonoType)
+      , ("floatDigits", -3442, TyFun realFloatATy intMonoType)
+      , ("floatRange", -3443, TyFun realFloatATy intPairTy)
+      , ("decodeFloat", -3444, TyFun realFloatATy intPairTy)
+      , ("encodeFloat", -3445, TyFun intMonoType (TyFun intMonoType realFloatATy))
+      , ("exponent", -3446, TyFun realFloatATy intMonoType)
+      , ("significand", -3447, TyFun realFloatATy realFloatATy)
+      , ("scaleFloat", -3448, TyFun intMonoType (TyFun realFloatATy realFloatATy))
+      , ("isNaN", -3449, TyFun realFloatATy boolMonoType)
+      , ("isInfinite", -3450, TyFun realFloatATy boolMonoType)
+      , ("isDenormalized", -3451, TyFun realFloatATy boolMonoType)
+      , ("isNegativeZero", -3452, TyFun realFloatATy boolMonoType)
+      , ("isIEEE", -3453, TyFun realFloatATy boolMonoType)
+      , ("atan2", -3454, TyFun realFloatATy (TyFun realFloatATy realFloatATy))
+      ]
+
+  bitsA = preludeTypeVariable "a" (-1393)
+  bitsATy = TyVar bitsA
+  bitsInfo =
+    builtinClassInfo
+      builtinBitsClassName
+      bitsA
+      [singleClassConstraint builtinNumClassName bitsATy]
+      [ (".&.", -3901, TyFun bitsATy (TyFun bitsATy bitsATy))
+      , (".|.", -3902, TyFun bitsATy (TyFun bitsATy bitsATy))
+      , ("xor", -3903, TyFun bitsATy (TyFun bitsATy bitsATy))
+      , ("complement", -3904, TyFun bitsATy bitsATy)
+      , ("shift", -3905, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("rotate", -3906, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("bit", -3907, TyFun intMonoType bitsATy)
+      , ("setBit", -3908, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("clearBit", -3909, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("complementBit", -3910, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("testBit", -3911, TyFun bitsATy (TyFun intMonoType boolMonoType))
+      , ("bitSize", -3912, TyFun bitsATy intMonoType)
+      , ("isSigned", -3913, TyFun bitsATy boolMonoType)
+      , ("shiftL", -3914, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("shiftR", -3915, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("rotateL", -3916, TyFun bitsATy (TyFun intMonoType bitsATy))
+      , ("rotateR", -3917, TyFun bitsATy (TyFun intMonoType bitsATy))
       ]
 
   showA = preludeTypeVariable "a" (-1331)
   showATy = TyVar showA
+  showS = TyFun stringMonoType stringMonoType
   showInfo =
     builtinClassInfo
       builtinShowClassName
       showA
       []
-      [ ("show", -1431, TyFun showATy stringMonoType)
+      [ ("showsPrec", -1430, TyFun intMonoType (TyFun showATy showS))
+      , ("show", -1431, TyFun showATy stringMonoType)
+      , ("showList", -1432, TyFun (TyList showATy) showS)
+      ]
+
+  readA = preludeTypeVariable "a" (-1561)
+  readATy = TyVar readA
+  readS = TyFun stringMonoType (TyList (TyTuple [readATy, stringMonoType]))
+  readListS = TyFun stringMonoType (TyList (TyTuple [TyList readATy, stringMonoType]))
+  readInfo =
+    builtinClassInfo
+      builtinReadClassName
+      readA
+      []
+      [ ("readsPrec", -1433, TyFun intMonoType readS)
+      , ("readList", -1434, readListS)
       ]
 
   enumA = preludeTypeVariable "a" (-1341)
@@ -1192,6 +1421,20 @@ builtinClassInfos =
       []
       [ ("minBound", -1451, boundedATy)
       , ("maxBound", -1452, boundedATy)
+      ]
+
+  ixA = preludeTypeVariable "a" (-1398)
+  ixATy = TyVar ixA
+  ixBoundsTy = TyTuple [ixATy, ixATy]
+  ixInfo =
+    builtinClassInfo
+      builtinIxClassName
+      ixA
+      [singleClassConstraint builtinOrdClassName ixATy]
+      [ ("range", -3601, TyFun ixBoundsTy (TyList ixATy))
+      , ("index", -3602, TyFun ixBoundsTy (TyFun ixATy intMonoType))
+      , ("inRange", -3603, TyFun ixBoundsTy (TyFun ixATy boolMonoType))
+      , ("rangeSize", -3604, TyFun ixBoundsTy intMonoType)
       ]
 
   functorF = preludeTypeVariable "f" (-1391)
@@ -1232,6 +1475,46 @@ builtinClassInfos =
       , BuiltinMethodSpec "return" (-1463) [monadA] (TyFun monadATy monadMA)
       , BuiltinMethodSpec "fail" (-1464) [monadA] (TyFun stringMonoType monadMA)
       ]
+
+builtinMonadPlusInfo :: ClassInfo
+builtinMonadPlusInfo =
+  builtinClassInfoWithKind
+    builtinMonadPlusClassName
+    monadPlusM
+    (KindArrow StarKind StarKind)
+    [singleClassConstraint builtinMonadClassName monadPlusMTy]
+    [ BuiltinMethodSpec "mzero" (-1495) [monadPlusA] monadPlusMA
+    , BuiltinMethodSpec "mplus" (-1496) [monadPlusA] (TyFun monadPlusMA (TyFun monadPlusMA monadPlusMA))
+    ]
+ where
+  monadPlusM = preludeTypeVariable "m" (-1396)
+  monadPlusA = preludeTypeVariable "a" (-1397)
+  monadPlusMTy = TyVar monadPlusM
+  monadPlusMA = TyApp monadPlusMTy (TyVar monadPlusA)
+
+builtinStorableInfo :: ClassInfo
+builtinStorableInfo =
+  builtinClassInfoWithKind
+    builtinStorableClassName
+    storableA
+    StarKind
+    []
+    [ BuiltinMethodSpec "sizeOf" (-1497) [] (TyFun storableATy intMonoType)
+    , BuiltinMethodSpec "alignment" (-1498) [] (TyFun storableATy intMonoType)
+    , BuiltinMethodSpec "peekElemOff" (-1499) [] (TyFun storablePtrA (TyFun intMonoType (ioMonoType storableATy)))
+    , BuiltinMethodSpec "pokeElemOff" (-1500) [] (TyFun storablePtrA (TyFun intMonoType (TyFun storableATy (ioMonoType unitMonoType))))
+    , BuiltinMethodSpec "peekByteOff" (-1501) [storableB] (TyFun storablePtrB (TyFun intMonoType (ioMonoType storableATy)))
+    , BuiltinMethodSpec "pokeByteOff" (-1502) [storableB] (TyFun storablePtrB (TyFun intMonoType (TyFun storableATy (ioMonoType unitMonoType))))
+    , BuiltinMethodSpec "peek" (-1503) [] (TyFun storablePtrA (ioMonoType storableATy))
+    , BuiltinMethodSpec "poke" (-1504) [] (TyFun storablePtrA (TyFun storableATy (ioMonoType unitMonoType)))
+    ]
+ where
+  storableA = preludeTypeVariable "a" (-1572)
+  storableB = preludeTypeVariable "b" (-1573)
+  storableATy = TyVar storableA
+  storableBTy = TyVar storableB
+  storablePtrA = TyApp (TyCon ptrTyConName) storableATy
+  storablePtrB = TyApp (TyCon ptrTyConName) storableBTy
 
 builtinClassInfo :: RName -> RName -> [ClassConstraint] -> [(Text, Int, MonoType)] -> ClassInfo
 builtinClassInfo className classVariable superclasses methodSpecs =
@@ -1286,9 +1569,33 @@ builtinIntegralClassName :: RName
 builtinIntegralClassName =
   preludeClassName "Integral" (-1380)
 
+builtinFractionalClassName :: RName
+builtinFractionalClassName =
+  preludeClassName "Fractional" (-1388)
+
+builtinFloatingClassName :: RName
+builtinFloatingClassName =
+  preludeClassName "Floating" (-1497)
+
+builtinRealFracClassName :: RName
+builtinRealFracClassName =
+  preludeClassName "RealFrac" (-1515)
+
+builtinRealFloatClassName :: RName
+builtinRealFloatClassName =
+  preludeClassName "RealFloat" (-1520)
+
+builtinBitsClassName :: RName
+builtinBitsClassName =
+  preludeClassName "Bits" (-1394)
+
 builtinShowClassName :: RName
 builtinShowClassName =
   preludeClassName "Show" (-1330)
+
+builtinReadClassName :: RName
+builtinReadClassName =
+  preludeClassName "Read" (-1560)
 
 builtinEnumClassName :: RName
 builtinEnumClassName =
@@ -1298,6 +1605,10 @@ builtinBoundedClassName :: RName
 builtinBoundedClassName =
   preludeClassName "Bounded" (-1350)
 
+builtinIxClassName :: RName
+builtinIxClassName =
+  preludeClassName "Ix" (-1398)
+
 builtinFunctorClassName :: RName
 builtinFunctorClassName =
   preludeClassName "Functor" (-1390)
@@ -1305,6 +1616,14 @@ builtinFunctorClassName =
 builtinMonadClassName :: RName
 builtinMonadClassName =
   preludeClassName "Monad" (-1360)
+
+builtinMonadPlusClassName :: RName
+builtinMonadPlusClassName =
+  preludeClassName "MonadPlus" (-1395)
+
+builtinStorableClassName :: RName
+builtinStorableClassName =
+  preludeClassName "Storable" (-1399)
 
 preludeClassName :: Text -> Int -> RName
 preludeClassName occurrence unique =
@@ -1319,11 +1638,20 @@ canonicalClassName name
         "Num" -> builtinNumClassName
         "Real" -> builtinRealClassName
         "Integral" -> builtinIntegralClassName
+        "Fractional" -> builtinFractionalClassName
+        "Floating" -> builtinFloatingClassName
+        "RealFrac" -> builtinRealFracClassName
+        "RealFloat" -> builtinRealFloatClassName
+        "Bits" -> builtinBitsClassName
         "Show" -> builtinShowClassName
+        "Read" -> builtinReadClassName
         "Enum" -> builtinEnumClassName
         "Bounded" -> builtinBoundedClassName
+        "Ix" -> builtinIxClassName
         "Functor" -> builtinFunctorClassName
         "Monad" -> builtinMonadClassName
+        "MonadPlus" -> builtinMonadPlusClassName
+        "Storable" -> builtinStorableClassName
         _ -> name
   | otherwise = name
 
@@ -1342,11 +1670,20 @@ builtinClassInfoByOccurrence occurrence = do
           "Num" -> builtinNumClassName
           "Real" -> builtinRealClassName
           "Integral" -> builtinIntegralClassName
+          "Fractional" -> builtinFractionalClassName
+          "Floating" -> builtinFloatingClassName
+          "RealFrac" -> builtinRealFracClassName
+          "RealFloat" -> builtinRealFloatClassName
+          "Bits" -> builtinBitsClassName
           "Show" -> builtinShowClassName
+          "Read" -> builtinReadClassName
           "Enum" -> builtinEnumClassName
           "Bounded" -> builtinBoundedClassName
+          "Ix" -> builtinIxClassName
           "Functor" -> builtinFunctorClassName
           "Monad" -> builtinMonadClassName
+          "MonadPlus" -> builtinMonadPlusClassName
+          "Storable" -> builtinStorableClassName
           _ -> RName ClassNamespace occurrence 0 True
   case Map.lookup className classes of
     Just info -> pure info
@@ -1397,6 +1734,73 @@ builtinDataConstructors =
     , (orderingLTDataConName, positionalDataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
     , (orderingEQDataConName, positionalDataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
     , (orderingGTDataConName, positionalDataConstructorInfo [] [] orderingMonoType (Scheme [] [] orderingMonoType) CoreDataConstructor)
+    ,
+      ( ioErrorDataConName
+      , positionalDataConstructorInfo
+          []
+          [ioErrorTypeMonoType, stringMonoType, maybeHandleMonoType, maybeFilePathMonoType]
+          ioErrorMonoType
+          ( Scheme
+              []
+              []
+              (TyFun ioErrorTypeMonoType (TyFun stringMonoType (TyFun maybeHandleMonoType (TyFun maybeFilePathMonoType ioErrorMonoType))))
+          )
+          CoreDataConstructor
+      )
+    , (ioErrorAlreadyExistsTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioErrorDoesNotExistTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioErrorAlreadyInUseTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioErrorFullTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioErrorEOFTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioErrorIllegalOperationTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioErrorPermissionTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioErrorUserTypeDataConName, ioErrorTypeDataConstructorInfo)
+    , (ioModeReadDataConName, ioModeDataConstructorInfo)
+    , (ioModeWriteDataConName, ioModeDataConstructorInfo)
+    , (ioModeAppendDataConName, ioModeDataConstructorInfo)
+    , (ioModeReadWriteDataConName, ioModeDataConstructorInfo)
+    , (bufferModeNoDataConName, bufferModeNullaryDataConstructorInfo)
+    , (bufferModeLineDataConName, bufferModeNullaryDataConstructorInfo)
+    ,
+      ( bufferModeBlockDataConName
+      , positionalDataConstructorInfo
+          []
+          [TyApp (TyCon maybeTyConName) intMonoType]
+          bufferModeMonoType
+          (Scheme [] [] (TyFun (TyApp (TyCon maybeTyConName) intMonoType) bufferModeMonoType))
+          CoreDataConstructor
+      )
+    , (exitSuccessDataConName, positionalDataConstructorInfo [] [] exitCodeMonoType (Scheme [] [] exitCodeMonoType) CoreDataConstructor)
+    ,
+      ( exitFailureDataConName
+      , positionalDataConstructorInfo
+          []
+          [intMonoType]
+          exitCodeMonoType
+          (Scheme [] [] (TyFun intMonoType exitCodeMonoType))
+          CoreDataConstructor
+      )
+    , (seekModeAbsoluteDataConName, seekModeDataConstructorInfo)
+    , (seekModeRelativeDataConName, seekModeDataConstructorInfo)
+    , (seekModeFromEndDataConName, seekModeDataConstructorInfo)
+    ,
+      ( ratioDataConName
+      , positionalDataConstructorInfo
+          [a]
+          [aTy, aTy]
+          ratioA
+          (Scheme [a] [] (TyFun aTy (TyFun aTy ratioA)))
+          CoreDataConstructor
+      )
+    ,
+      ( errnoDataConName
+      , positionalDataConstructorInfo
+          []
+          [fixedIntegralMonoType FixedInt32]
+          (fixedIntegralMonoType FixedInt32)
+          (Scheme [] [] (TyFun (fixedIntegralMonoType FixedInt32) (fixedIntegralMonoType FixedInt32)))
+          CoreNewtypeConstructor
+      )
     ]
  where
   a = preludeTypeVariable "a" (-1001)
@@ -1406,10 +1810,25 @@ builtinDataConstructors =
   listA = TyList aTy
   maybeA = TyApp (TyCon maybeTyConName) aTy
   eitherAB = TyApp (TyApp (TyCon eitherTyConName) aTy) bTy
+  ratioA = TyApp (TyCon ratioTyConName) aTy
+  maybeHandleMonoType = TyApp (TyCon maybeTyConName) handleMonoType
+  maybeFilePathMonoType = TyApp (TyCon maybeTyConName) filePathMonoType
+  ioErrorTypeDataConstructorInfo =
+    positionalDataConstructorInfo [] [] ioErrorTypeMonoType (Scheme [] [] ioErrorTypeMonoType) CoreDataConstructor
+  ioModeDataConstructorInfo =
+    positionalDataConstructorInfo [] [] ioModeMonoType (Scheme [] [] ioModeMonoType) CoreDataConstructor
+  bufferModeNullaryDataConstructorInfo =
+    positionalDataConstructorInfo [] [] bufferModeMonoType (Scheme [] [] bufferModeMonoType) CoreDataConstructor
+  seekModeDataConstructorInfo =
+    positionalDataConstructorInfo [] [] seekModeMonoType (Scheme [] [] seekModeMonoType) CoreDataConstructor
 
 preludeTypeVariable :: Text -> Int -> RName
 preludeTypeVariable occurrence unique =
   RName TypeVariableNamespace occurrence unique True
+
+errnoDataConName :: RName
+errnoDataConName =
+  preludeTermName "Errno" (-120050)
 
 usedClassInfos ::
   Map.Map RName ClassInfo ->
@@ -1450,6 +1869,14 @@ typedBindingClassConstraints :: TypedBinding -> [ClassConstraint]
 typedBindingClassConstraints binding =
   schemeConstraints (typedBindingScheme binding) <> typedExprClassConstraints (typedBindingRhs binding)
 
+typedBindingRuntimeSpans :: [TypedBinding] -> Map.Map RName SourceSpan
+typedBindingRuntimeSpans bindings =
+  Map.fromList
+    [ (typedBindingName binding, sourceRange)
+    | binding <- bindings
+    , Just sourceRange <- [typedBindingSpan binding]
+    ]
+
 typedExprClassConstraints :: TypedExpr -> [ClassConstraint]
 typedExprClassConstraints = \case
   TVar _ scheme typeArguments _ ->
@@ -1460,6 +1887,8 @@ typedExprClassConstraints = \case
     instantiateSchemeConstraints scheme typeArguments
   TNewtypeCon _ scheme typeArguments _ _ ->
     instantiateSchemeConstraints scheme typeArguments
+  TSpanned _ expression ->
+    typedExprClassConstraints expression
   TTuple fields _ ->
     concatMap typedExprClassConstraints fields
   TList elements _ ->
@@ -1735,10 +2164,133 @@ supportedPreludeValueOccurrences =
   , "filter"
   , "reverse"
   , "++"
+  , "mapM"
+  , "mapM_"
+  , "forM"
+  , "forM_"
+  , "sequence"
+  , "sequence_"
+  , "=<<"
+  , ">=>"
+  , "<=<"
+  , "forever"
+  , "join"
+  , "msum"
+  , "filterM"
+  , "mapAndUnzipM"
+  , "zipWithM"
+  , "zipWithM_"
+  , "foldM"
+  , "foldM_"
+  , "replicateM"
+  , "replicateM_"
+  , "guard"
+  , "when"
+  , "unless"
+  , "liftM"
+  , "liftM2"
+  , "liftM3"
+  , "liftM4"
+  , "liftM5"
+  , "ap"
+  , "showsPrec"
   , "show"
+  , "showList"
+  , "shows"
+  , "readsPrec"
+  , "readList"
+  , "reads"
+  , "read"
+  , "lex"
+  , "readParen"
   , "putStrLn"
   , "getLine"
   , "print"
+  , "userError"
+  , "mkIOError"
+  , "annotateIOError"
+  , "isAlreadyExistsError"
+  , "isDoesNotExistError"
+  , "isAlreadyInUseError"
+  , "isFullError"
+  , "isEOFError"
+  , "isIllegalOperation"
+  , "isPermissionError"
+  , "isUserError"
+  , "ioeGetErrorString"
+  , "ioeGetHandle"
+  , "ioeGetFileName"
+  , "alreadyExistsErrorType"
+  , "doesNotExistErrorType"
+  , "alreadyInUseErrorType"
+  , "fullErrorType"
+  , "eofErrorType"
+  , "illegalOperationErrorType"
+  , "permissionErrorType"
+  , "userErrorType"
+  , "ioError"
+  , "catch"
+  , "try"
+  , "fixIO"
+  , "stdin"
+  , "stdout"
+  , "stderr"
+  , "withFile"
+  , "openFile"
+  , "hClose"
+  , "readFile"
+  , "writeFile"
+  , "appendFile"
+  , "hFileSize"
+  , "hSetFileSize"
+  , "hIsEOF"
+  , "isEOF"
+  , "hSetBuffering"
+  , "hGetBuffering"
+  , "hFlush"
+  , "hGetPosn"
+  , "hSetPosn"
+  , "hSeek"
+  , "hTell"
+  , "hIsOpen"
+  , "hIsClosed"
+  , "hIsReadable"
+  , "hIsWritable"
+  , "hIsSeekable"
+  , "hIsTerminalDevice"
+  , "hSetEcho"
+  , "hGetEcho"
+  , "hShow"
+  , "hWaitForInput"
+  , "hReady"
+  , "hGetChar"
+  , "hGetLine"
+  , "hLookAhead"
+  , "hGetContents"
+  , "hPutChar"
+  , "hPutStr"
+  , "hPutStrLn"
+  , "hPrint"
+  , "interact"
+  , "putChar"
+  , "putStr"
+  , "getChar"
+  , "getContents"
+  , "getArgs"
+  , "getProgName"
+  , "getEnv"
+  , "exitWith"
+  , "exitFailure"
+  , "exitSuccess"
+  , "readIO"
+  , "readLn"
+  , "nullPtr"
+  , "castPtr"
+  , "nullFunPtr"
+  , "castFunPtr"
+  , "castFunPtrToPtr"
+  , "castPtrToFunPtr"
+  , "freeHaskellFunPtr"
   , "newStablePtr"
   , "deRefStablePtr"
   , "freeStablePtr"
@@ -1748,8 +2300,200 @@ supportedPreludeValueOccurrences =
   , "newForeignPtr_"
   , "addForeignPtrFinalizer"
   , "finalizeForeignPtr"
+  , "unsafeForeignPtrToPtr"
   , "withForeignPtr"
   , "touchForeignPtr"
+  , "castForeignPtr"
+  , "throwIf"
+  , "throwIf_"
+  , "throwIfNull"
+  , "void"
+  , "maybeNew"
+  , "maybeWith"
+  , "maybePeek"
+  , "plusPtr"
+  , "minusPtr"
+  , "alignPtr"
+  , "malloc"
+  , "mallocBytes"
+  , "alloca"
+  , "allocaBytes"
+  , "realloc"
+  , "reallocBytes"
+  , "free"
+  , "finalizerFree"
+  , "advancePtr"
+  , "mallocArray"
+  , "mallocArray0"
+  , "allocaArray"
+  , "allocaArray0"
+  , "reallocArray"
+  , "reallocArray0"
+  , "peekArray"
+  , "peekArray0"
+  , "pokeArray"
+  , "pokeArray0"
+  , "newArray"
+  , "newArray0"
+  , "withArray"
+  , "withArray0"
+  , "withArrayLen"
+  , "withArrayLen0"
+  , "copyArray"
+  , "moveArray"
+  , "lengthArray0"
+  , "copyBytes"
+  , "moveBytes"
+  , "peekCString"
+  , "peekCStringLen"
+  , "newCString"
+  , "newCStringLen"
+  , "withCString"
+  , "withCStringLen"
+  , "peekCAString"
+  , "peekCAStringLen"
+  , "newCAString"
+  , "newCAStringLen"
+  , "withCAString"
+  , "withCAStringLen"
+  , "peekCWString"
+  , "peekCWStringLen"
+  , "newCWString"
+  , "newCWStringLen"
+  , "withCWString"
+  , "withCWStringLen"
+  , "charIsRepresentable"
+  , "castCharToCChar"
+  , "castCCharToChar"
+  , "castCharToCUChar"
+  , "castCUCharToChar"
+  , "castCharToCSChar"
+  , "castCSCharToChar"
+  , "eOK"
+  , "e2BIG"
+  , "eACCES"
+  , "eADDRINUSE"
+  , "eADDRNOTAVAIL"
+  , "eADV"
+  , "eAFNOSUPPORT"
+  , "eAGAIN"
+  , "eALREADY"
+  , "eBADF"
+  , "eBADMSG"
+  , "eBADRPC"
+  , "eBUSY"
+  , "eCHILD"
+  , "eCOMM"
+  , "eCONNABORTED"
+  , "eCONNREFUSED"
+  , "eCONNRESET"
+  , "eDEADLK"
+  , "eDESTADDRREQ"
+  , "eDIRTY"
+  , "eDOM"
+  , "eDQUOT"
+  , "eEXIST"
+  , "eFAULT"
+  , "eFBIG"
+  , "eFTYPE"
+  , "eHOSTDOWN"
+  , "eHOSTUNREACH"
+  , "eIDRM"
+  , "eILSEQ"
+  , "eINPROGRESS"
+  , "eINTR"
+  , "eINVAL"
+  , "eIO"
+  , "eISCONN"
+  , "eISDIR"
+  , "eLOOP"
+  , "eMFILE"
+  , "eMLINK"
+  , "eMSGSIZE"
+  , "eMULTIHOP"
+  , "eNAMETOOLONG"
+  , "eNETDOWN"
+  , "eNETRESET"
+  , "eNETUNREACH"
+  , "eNFILE"
+  , "eNOBUFS"
+  , "eNODATA"
+  , "eNODEV"
+  , "eNOENT"
+  , "eNOEXEC"
+  , "eNOLCK"
+  , "eNOLINK"
+  , "eNOMEM"
+  , "eNOMSG"
+  , "eNONET"
+  , "eNOPROTOOPT"
+  , "eNOSPC"
+  , "eNOSR"
+  , "eNOSTR"
+  , "eNOSYS"
+  , "eNOTBLK"
+  , "eNOTCONN"
+  , "eNOTDIR"
+  , "eNOTEMPTY"
+  , "eNOTSOCK"
+  , "eNOTTY"
+  , "eNXIO"
+  , "eOPNOTSUPP"
+  , "ePERM"
+  , "ePFNOSUPPORT"
+  , "ePIPE"
+  , "ePROCLIM"
+  , "ePROCUNAVAIL"
+  , "ePROGMISMATCH"
+  , "ePROGUNAVAIL"
+  , "ePROTO"
+  , "ePROTONOSUPPORT"
+  , "ePROTOTYPE"
+  , "eRANGE"
+  , "eREMCHG"
+  , "eREMOTE"
+  , "eROFS"
+  , "eRPCMISMATCH"
+  , "eRREMOTE"
+  , "eSHUTDOWN"
+  , "eSOCKTNOSUPPORT"
+  , "eSPIPE"
+  , "eSRCH"
+  , "eSRMNT"
+  , "eSTALE"
+  , "eTIME"
+  , "eTIMEDOUT"
+  , "eTOOMANYREFS"
+  , "eTXTBSY"
+  , "eUSERS"
+  , "eWOULDBLOCK"
+  , "eXDEV"
+  , "isValidErrno"
+  , "getErrno"
+  , "resetErrno"
+  , "errnoToIOError"
+  , "throwErrno"
+  , "throwErrnoIf"
+  , "throwErrnoIf_"
+  , "throwErrnoIfRetry"
+  , "throwErrnoIfRetry_"
+  , "throwErrnoIfMinus1"
+  , "throwErrnoIfMinus1_"
+  , "throwErrnoIfMinus1Retry"
+  , "throwErrnoIfMinus1Retry_"
+  , "throwErrnoIfNull"
+  , "throwErrnoIfNullRetry"
+  , "throwErrnoIfRetryMayBlock"
+  , "throwErrnoIfRetryMayBlock_"
+  , "throwErrnoIfMinus1RetryMayBlock"
+  , "throwErrnoIfMinus1RetryMayBlock_"
+  , "throwErrnoIfNullRetryMayBlock"
+  , "throwErrnoPath"
+  , "throwErrnoPathIf"
+  , "throwErrnoPathIf_"
+  , "throwErrnoPathIfNull"
+  , "throwErrnoPathIfMinus1"
+  , "throwErrnoPathIfMinus1_"
   , "return"
   , "fail"
   , ">>="
@@ -1781,6 +2525,10 @@ supportedPreludeValueOccurrences =
   , "signum"
   , "fromInteger"
   , "toRational"
+  , "%"
+  , "numerator"
+  , "denominator"
+  , "approxRational"
   , "quot"
   , "rem"
   , "div"
@@ -1790,17 +2538,132 @@ supportedPreludeValueOccurrences =
   , "toInteger"
   ]
 
-inferBindingGroup :: TypeEnv -> [RDecl] -> InferM ([TypedBinding], TypeEnv)
-inferBindingGroup outerEnv decls = do
+errnoConstantValues :: [(Text, Integer)]
+errnoConstantValues =
+  [ ("eOK", 0)
+  , ("e2BIG", 7)
+  , ("eACCES", 13)
+  , ("eADDRINUSE", 48)
+  , ("eADDRNOTAVAIL", 49)
+  , ("eADV", -1)
+  , ("eAFNOSUPPORT", 47)
+  , ("eAGAIN", 35)
+  , ("eALREADY", 37)
+  , ("eBADF", 9)
+  , ("eBADMSG", 94)
+  , ("eBADRPC", 72)
+  , ("eBUSY", 16)
+  , ("eCHILD", 10)
+  , ("eCOMM", -1)
+  , ("eCONNABORTED", 53)
+  , ("eCONNREFUSED", 61)
+  , ("eCONNRESET", 54)
+  , ("eDEADLK", 11)
+  , ("eDESTADDRREQ", 39)
+  , ("eDIRTY", -1)
+  , ("eDOM", 33)
+  , ("eDQUOT", 69)
+  , ("eEXIST", 17)
+  , ("eFAULT", 14)
+  , ("eFBIG", 27)
+  , ("eFTYPE", 79)
+  , ("eHOSTDOWN", 64)
+  , ("eHOSTUNREACH", 65)
+  , ("eIDRM", 90)
+  , ("eILSEQ", 92)
+  , ("eINPROGRESS", 36)
+  , ("eINTR", 4)
+  , ("eINVAL", 22)
+  , ("eIO", 5)
+  , ("eISCONN", 56)
+  , ("eISDIR", 21)
+  , ("eLOOP", 62)
+  , ("eMFILE", 24)
+  , ("eMLINK", 31)
+  , ("eMSGSIZE", 40)
+  , ("eMULTIHOP", 95)
+  , ("eNAMETOOLONG", 63)
+  , ("eNETDOWN", 50)
+  , ("eNETRESET", 52)
+  , ("eNETUNREACH", 51)
+  , ("eNFILE", 23)
+  , ("eNOBUFS", 55)
+  , ("eNODATA", 96)
+  , ("eNODEV", 19)
+  , ("eNOENT", 2)
+  , ("eNOEXEC", 8)
+  , ("eNOLCK", 77)
+  , ("eNOLINK", 97)
+  , ("eNOMEM", 12)
+  , ("eNOMSG", 91)
+  , ("eNONET", -1)
+  , ("eNOPROTOOPT", 42)
+  , ("eNOSPC", 28)
+  , ("eNOSR", 98)
+  , ("eNOSTR", 99)
+  , ("eNOSYS", 78)
+  , ("eNOTBLK", 15)
+  , ("eNOTCONN", 57)
+  , ("eNOTDIR", 20)
+  , ("eNOTEMPTY", 66)
+  , ("eNOTSOCK", 38)
+  , ("eNOTTY", 25)
+  , ("eNXIO", 6)
+  , ("eOPNOTSUPP", 102)
+  , ("ePERM", 1)
+  , ("ePFNOSUPPORT", 46)
+  , ("ePIPE", 32)
+  , ("ePROCLIM", 67)
+  , ("ePROCUNAVAIL", 76)
+  , ("ePROGMISMATCH", 75)
+  , ("ePROGUNAVAIL", 74)
+  , ("ePROTO", 100)
+  , ("ePROTONOSUPPORT", 43)
+  , ("ePROTOTYPE", 41)
+  , ("eRANGE", 34)
+  , ("eREMCHG", -1)
+  , ("eREMOTE", 71)
+  , ("eROFS", 30)
+  , ("eRPCMISMATCH", 73)
+  , ("eRREMOTE", -1)
+  , ("eSHUTDOWN", 58)
+  , ("eSOCKTNOSUPPORT", 44)
+  , ("eSPIPE", 29)
+  , ("eSRCH", 3)
+  , ("eSRMNT", -1)
+  , ("eSTALE", 70)
+  , ("eTIME", 101)
+  , ("eTIMEDOUT", 60)
+  , ("eTOOMANYREFS", 59)
+  , ("eTXTBSY", 26)
+  , ("eUSERS", 68)
+  , ("eWOULDBLOCK", 35)
+  , ("eXDEV", 18)
+  ]
+
+errnoConstantValue :: Text -> Maybe Integer
+errnoConstantValue occurrence =
+  lookup occurrence errnoConstantValues
+
+isErrnoConstantOccurrence :: Text -> Bool
+isErrnoConstantOccurrence occurrence =
+  maybe False (const True) (errnoConstantValue occurrence)
+
+validErrnoValues :: [Integer]
+validErrnoValues =
+  List.nub [value | (_, value) <- errnoConstantValues, value >= 0]
+
+inferBindingGroup :: BindingGroupContext -> TypeEnv -> [RDecl] -> InferM ([TypedBinding], TypeEnv)
+inferBindingGroup context outerEnv decls = do
   signatures <- collectSignatures decls
   sourceBindings <- collectValueBindings decls
   let bindingNames = map sourceBindingName sourceBindings
   mapM_ (ensureSignatureHasBinding bindingNames) (Map.keys signatures)
   prepared <- traverse (prepareBinding signatures) sourceBindings
-  inferPreparedComponents outerEnv signatures prepared
+  inferPreparedComponents context outerEnv signatures prepared
 
-inferPreparedComponents :: TypeEnv -> Map.Map RName Scheme -> [PreparedBinding] -> InferM ([TypedBinding], TypeEnv)
-inferPreparedComponents outerEnv signatures prepared =
+inferPreparedComponents :: BindingGroupContext -> TypeEnv -> Map.Map RName Scheme -> [PreparedBinding] -> InferM ([TypedBinding], TypeEnv)
+inferPreparedComponents context outerEnv signatures prepared =
   foldM inferComponent ([], outerEnv) (preparedBindingComponents prepared)
  where
   inferComponent (bindingsAcc, env) component = do
@@ -1809,8 +2672,9 @@ inferPreparedComponents outerEnv signatures prepared =
             (Map.fromList [(preparedName binding, preparedScheme binding) | binding <- component])
             env
     inferred <- traverse (inferPreparedBinding recursiveEnv) component
-    defaultBindingGroupConstraints inferred
-    finalized <- traverse (finalizeBinding env signatures) inferred
+    when (context == TopLevelBindingGroup) $
+      defaultBindingGroupConstraints inferred
+    finalized <- traverse (finalizeBinding context env signatures) inferred
     subst <- substitution <$> get
     let groupSchemes = Map.fromList [(typedBindingName binding, typedBindingScheme binding) | binding <- finalized]
         finalizedWithRecursiveSchemes = map (refreshBindingReferences subst groupSchemes) finalized
@@ -1914,24 +2778,28 @@ altFreeTermNames (RAlt _ rhs whereDecls) =
 defaultBindingGroupConstraints :: [InferredBinding] -> InferM ()
 defaultBindingGroupConstraints inferred = do
   defaults <- defaultTypes <$> get
-  case defaults of
-    [] -> pure ()
-    defaultTy : _ -> do
-      subst <- substitution <$> get
-      let constraints =
-            List.nub
-              ( map
-                  (applyConstraintSubst subst)
-                  (concatMap inferredBindingClassConstraints inferred)
-              )
-          protectedMetas =
-            Set.unions
-              [ freeMetaVars (applySubst subst (typedExprType rhs))
-              | InferredBinding prepared rhs <- inferred
-              , not (canDefaultBindingResult prepared)
-              ]
-          candidates = defaultableConstraintMetas protectedMetas constraints
-      traverse_ (\meta -> unify (TyMeta meta) defaultTy) candidates
+  unless (null defaults) $ do
+    subst <- substitution <$> get
+    let constraints =
+          List.nub
+            ( map
+                (applyConstraintSubst subst)
+                (concatMap inferredBindingClassConstraints inferred)
+            )
+        protectedMetas =
+          Set.unions
+            [ freeMetaVars (applySubst subst (typedExprType rhs))
+            | InferredBinding prepared rhs <- inferred
+            , not (canDefaultBindingResult prepared)
+            ]
+        candidates = defaultableConstraintMetas protectedMetas constraints
+    traverse_
+      ( \(meta, metaConstraints) ->
+          case selectDefaultType meta metaConstraints defaults of
+            Just defaultTy -> unify (TyMeta meta) defaultTy
+            Nothing -> pure ()
+      )
+      candidates
 
 inferredBindingClassConstraints :: InferredBinding -> [ClassConstraint]
 inferredBindingClassConstraints (InferredBinding _ rhs) =
@@ -1947,6 +2815,8 @@ typedExprDefaultingConstraints = \case
     instantiateSchemeConstraints scheme typeArguments
   TNewtypeCon _ scheme typeArguments _ _ ->
     instantiateSchemeConstraints scheme typeArguments
+  TSpanned _ expression ->
+    typedExprDefaultingConstraints expression
   TTuple fields _ ->
     concatMap typedExprDefaultingConstraints fields
   TList elements _ ->
@@ -1955,8 +2825,8 @@ typedExprDefaultingConstraints = \case
     typedExprDefaultingConstraints body
   TApp fn arg _ ->
     typedExprDefaultingConstraints fn <> typedExprDefaultingConstraints arg
-  TLet _ body _ ->
-    typedExprDefaultingConstraints body
+  TLet bindings body _ ->
+    concatMap typedBindingDefaultingConstraints bindings <> typedExprDefaultingConstraints body
   TCase scrutinee _ alternatives _ ->
     typedExprDefaultingConstraints scrutinee <> concatMap typedAltDefaultingConstraints alternatives
   TCoerce expression _ ->
@@ -1968,6 +2838,14 @@ typedAltDefaultingConstraints :: TypedAlt -> [ClassConstraint]
 typedAltDefaultingConstraints (TypedAlt _ _ body) =
   typedExprDefaultingConstraints body
 
+typedBindingDefaultingConstraints :: TypedBinding -> [ClassConstraint]
+typedBindingDefaultingConstraints binding =
+  case typedBindingScheme binding of
+    Scheme [] [] _ ->
+      typedExprDefaultingConstraints (typedBindingRhs binding)
+    _ ->
+      []
+
 -- TYPE-019 policy: the executable subset treats unsigned nullary bindings as
 -- eligible for standard-class defaulting before generalization. Signed bindings
 -- and functions with value parameters keep their result metas protected.
@@ -1975,13 +2853,13 @@ canDefaultBindingResult :: PreparedBinding -> Bool
 canDefaultBindingResult prepared =
   not (preparedHasSignature prepared) && null (preparedPatterns prepared)
 
-defaultableConstraintMetas :: Set.Set Int -> [ClassConstraint] -> [Int]
+defaultableConstraintMetas :: Set.Set Int -> [ClassConstraint] -> [(Int, [ClassConstraint])]
 defaultableConstraintMetas protectedMetas constraints =
-  [ meta
+  [ (meta, metaConstraints)
   | (meta, metaConstraints) <- Map.toAscList constraintsByMeta
   , meta `Set.notMember` protectedMetas
   , all (isDefaultingCompatibleConstraint meta) metaConstraints
-  , any ((== builtinNumClassName) . constraintClassName) metaConstraints
+  , any (isDefaultingTriggerClass . constraintClassName) metaConstraints
   ]
  where
   constraintsByMeta =
@@ -2021,6 +2899,32 @@ isStandardDefaultingClass :: RName -> Bool
 isStandardDefaultingClass className =
   className `Set.member` standardDefaultingClasses
 
+isDefaultingTriggerClass :: RName -> Bool
+isDefaultingTriggerClass className =
+  className `Set.member` numericDefaultingClasses
+
+selectDefaultType :: Int -> [ClassConstraint] -> [MonoType] -> Maybe MonoType
+selectDefaultType meta constraints =
+  List.find (satisfiesAll . replaceMeta)
+ where
+  replaceMeta defaultTy =
+    map (mapClassConstraintArguments (replaceDefaultableMeta defaultTy)) constraints
+  satisfiesAll =
+    all isBuiltinInstanceConstraint
+  replaceDefaultableMeta defaultTy = \case
+    TyMeta candidate
+      | candidate == meta -> defaultTy
+    TyApp fn arg ->
+      TyApp (replaceDefaultableMeta defaultTy fn) (replaceDefaultableMeta defaultTy arg)
+    TyFun arg result ->
+      TyFun (replaceDefaultableMeta defaultTy arg) (replaceDefaultableMeta defaultTy result)
+    TyTuple fields ->
+      TyTuple (map (replaceDefaultableMeta defaultTy) fields)
+    TyList element ->
+      TyList (replaceDefaultableMeta defaultTy element)
+    other ->
+      other
+
 standardDefaultingClasses :: Set.Set RName
 standardDefaultingClasses =
   Set.fromList
@@ -2031,7 +2935,23 @@ standardDefaultingClasses =
     , builtinNumClassName
     , builtinRealClassName
     , builtinIntegralClassName
+    , builtinFractionalClassName
+    , builtinFloatingClassName
+    , builtinRealFracClassName
+    , builtinRealFloatClassName
     , builtinShowClassName
+    ]
+
+numericDefaultingClasses :: Set.Set RName
+numericDefaultingClasses =
+  Set.fromList
+    [ builtinNumClassName
+    , builtinRealClassName
+    , builtinIntegralClassName
+    , builtinFractionalClassName
+    , builtinFloatingClassName
+    , builtinRealFracClassName
+    , builtinRealFloatClassName
     ]
 
 refreshBindingReferences :: Subst -> Map.Map RName Scheme -> TypedBinding -> TypedBinding
@@ -2052,6 +2972,8 @@ refreshExprReferences subst schemes = \case
     TCon name scheme typeArguments ty
   TNewtypeCon name scheme typeArguments ty binder ->
     TNewtypeCon name scheme typeArguments ty binder
+  TSpanned sourceRange expression ->
+    TSpanned sourceRange (refreshExprReferences subst schemes expression)
   TTuple fields ty ->
     TTuple (map (refreshExprReferences subst schemes) fields) ty
   TList elements ty ->
@@ -2165,6 +3087,11 @@ data PreparedBinding = PreparedBinding
   }
   deriving stock (Show, Eq, Ord)
 
+data BindingGroupContext
+  = TopLevelBindingGroup
+  | LocalBindingGroup
+  deriving stock (Show, Eq, Ord)
+
 data InferredBinding = InferredBinding PreparedBinding TypedExpr
   deriving stock (Show, Eq, Ord)
 
@@ -2203,7 +3130,7 @@ collectDefaultTypes :: [RDecl] -> InferM [MonoType]
 collectDefaultTypes decls =
   case [types | RDefaultDecl types <- decls] of
     [] ->
-      pure [intMonoType]
+      pure [integerMonoType, doubleMonoType]
     [types] ->
       traverse defaultTypeMonoType types
     _ ->
@@ -2215,7 +3142,9 @@ defaultTypeMonoType sourceType = do
   case sourceTypeWithoutParens expanded of
     RTyCon name
       | nameOcc name == "Int" -> pure intMonoType
-      | nameOcc name == "Integer" -> pure intMonoType
+      | nameOcc name == "Integer" -> pure integerMonoType
+      | nameOcc name == "Float" -> pure floatMonoType
+      | nameOcc name == "Double" -> pure doubleMonoType
     other ->
       throwTypecheck (UnsupportedCore0 ("default type " <> Text.pack (show other)))
 
@@ -2270,6 +3199,7 @@ validateForeignExportsAgainstEnv env =
 validateForeignImport :: RForeignImport -> InferM ()
 validateForeignImport foreignImport = do
   validateForeignCallConv "foreign import" (rForeignImportCallConv foreignImport)
+  validateForeignImportEntitySyntax (rForeignImportName foreignImport) (rForeignImportEntity foreignImport)
   ty <- foreignDeclarationMonoType "foreign import" (rForeignImportType foreignImport)
   case S.foreignImportEntityKind (rForeignImportEntity foreignImport) of
     S.ForeignImportDefault ->
@@ -2288,8 +3218,54 @@ validateForeignImport foreignImport = do
 validateForeignExport :: RForeignExport -> InferM ()
 validateForeignExport foreignExport = do
   validateForeignCallConv "foreign export" (rForeignExportCallConv foreignExport)
+  validateForeignExportEntitySyntax (rForeignExportEntity foreignExport)
   ty <- foreignDeclarationMonoType "foreign export" (rForeignExportType foreignExport)
   validateForeignFunctionType "foreign export" ty
+
+validateForeignImportEntitySyntax :: RName -> S.ForeignImportEntity -> InferM ()
+validateForeignImportEntitySyntax importName entity =
+  case S.foreignImportEntityKind entity of
+    S.ForeignImportDefault ->
+      validateForeignCSymbol "foreign import default symbol" (nameOcc importName)
+    S.ForeignImportStatic _ symbol ->
+      validateForeignCSymbol "foreign import static symbol" symbol
+    S.ForeignImportAddress _ symbol ->
+      validateForeignCSymbol "foreign import address symbol" symbol
+    S.ForeignImportDynamic ->
+      pure ()
+    S.ForeignImportWrapper ->
+      pure ()
+    S.ForeignImportUnknown raw ->
+      throwTypecheck (UnsupportedCore0 ("unknown foreign import entity `" <> raw <> "`"))
+
+validateForeignExportEntitySyntax :: S.ForeignExportEntity -> InferM ()
+validateForeignExportEntitySyntax entity =
+  case S.foreignExportEntitySymbol entity of
+    Nothing ->
+      pure ()
+    Just symbol ->
+      validateForeignCSymbol "foreign export symbol" symbol
+
+validateForeignCSymbol :: Text -> Text -> InferM ()
+validateForeignCSymbol context symbol
+  | isValidForeignCSymbol symbol =
+      pure ()
+  | otherwise =
+      throwTypecheck (UnsupportedCore0 (context <> " `" <> symbol <> "` is not a valid C identifier"))
+
+isValidForeignCSymbol :: Text -> Bool
+isValidForeignCSymbol symbol =
+  case Text.uncons symbol of
+    Nothing ->
+      False
+    Just (first, rest) ->
+      isCSymbolStart first && Text.all isCSymbolRest rest
+ where
+  isCSymbolStart c =
+    c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
+
+  isCSymbolRest c =
+    isCSymbolStart c || ('0' <= c && c <= '9')
 
 validateForeignCallConv :: Text -> S.ForeignCallConv -> InferM ()
 validateForeignCallConv context = \case
@@ -2716,41 +3692,56 @@ inferPreparedBinding env prepared =
     unify (preparedExpected prepared) (typedExprType expr)
     pure (InferredBinding prepared expr)
 
-finalizeBinding :: TypeEnv -> Map.Map RName Scheme -> InferredBinding -> InferM TypedBinding
-finalizeBinding outerEnv signatures (InferredBinding prepared rhs) =
+finalizeBinding :: BindingGroupContext -> TypeEnv -> Map.Map RName Scheme -> InferredBinding -> InferM TypedBinding
+finalizeBinding context outerEnv signatures (InferredBinding prepared rhs) =
   if preparedHasSignature prepared
     then do
       let scheme = signatures Map.! preparedName prepared
       pure
         TypedBinding
           { typedBindingName = preparedName prepared
+          , typedBindingSpan = preparedSpan prepared
           , typedBindingScheme = scheme
           , typedBindingGeneralizedMetas = Map.empty
           , typedBindingRhs = rhs
           }
     else do
-      generalized <- generalize outerEnv (typedExprDefaultingConstraints rhs) (typedExprType rhs)
-      pure
-        TypedBinding
-          { typedBindingName = preparedName prepared
-          , typedBindingScheme = generalizedScheme generalized
-          , typedBindingGeneralizedMetas = generalizedMetas generalized
-          , typedBindingRhs = rhs
-          }
+      case context of
+        LocalBindingGroup
+          | canDefaultBindingResult prepared -> do
+              ty <- applyCurrent (typedExprType rhs)
+              pure
+                TypedBinding
+                  { typedBindingName = preparedName prepared
+                  , typedBindingSpan = preparedSpan prepared
+                  , typedBindingScheme = Scheme [] [] ty
+                  , typedBindingGeneralizedMetas = Map.empty
+                  , typedBindingRhs = rhs
+                  }
+        _ -> do
+          generalized <- generalize outerEnv (typedExprDefaultingConstraints rhs) (typedExprType rhs)
+          pure
+            TypedBinding
+              { typedBindingName = preparedName prepared
+              , typedBindingSpan = preparedSpan prepared
+              , typedBindingScheme = generalizedScheme generalized
+              , typedBindingGeneralizedMetas = generalizedMetas generalized
+              , typedBindingRhs = rhs
+              }
 
 inferInstanceDictionaries :: TypeEnv -> [RDecl] -> InferM [TypedInstanceDictionary]
 inferInstanceDictionaries env =
   foldM collect []
  where
-  collect acc = \case
-    RInstanceDecl [] instanceHead decls -> do
-      dictionary <- inferInstanceDictionary env instanceHead decls
-      validateInstanceDictionary acc dictionary
-      pure (acc <> [dictionary])
-    RInstanceDecl constraints instanceHead _ ->
-      unsupportedSourceClassConstraintContext (InstanceConstraintContext instanceHead) constraints
-    _ ->
-      pure acc
+  collect acc decl =
+    withTypecheckSpan (rDeclSpan decl) $
+      case decl of
+        RInstanceDecl constraints instanceHead decls -> do
+          dictionary <- inferInstanceDictionary env constraints instanceHead decls
+          validateInstanceDictionary acc dictionary
+          pure (acc <> [dictionary])
+        _ ->
+          pure acc
 
 inferDerivedInstanceDictionaries :: TypeEnv -> [RDecl] -> [TypedInstanceDictionary] -> InferM [TypedInstanceDictionary]
 inferDerivedInstanceDictionaries env decls existing =
@@ -2783,12 +3774,20 @@ inferDerivedInstanceDictionaries env decls existing =
         dictionary <- inferDerivedShowInstanceDictionary env typeName params constructors
         validateInstanceDictionary known dictionary
         pure (known <> [dictionary], derived <> [dictionary])
+    | className == builtinReadClassName = do
+        dictionary <- inferDerivedReadInstanceDictionary env typeName params constructors
+        validateInstanceDictionary known dictionary
+        pure (known <> [dictionary], derived <> [dictionary])
     | className == builtinEnumClassName = do
         dictionary <- inferDerivedEnumInstanceDictionary env typeName params constructors
         validateInstanceDictionary known dictionary
         pure (known <> [dictionary], derived <> [dictionary])
     | className == builtinBoundedClassName = do
         dictionary <- inferDerivedBoundedInstanceDictionary env typeName params constructors
+        validateInstanceDictionary known dictionary
+        pure (known <> [dictionary], derived <> [dictionary])
+    | className == builtinIxClassName = do
+        dictionary <- inferDerivedIxInstanceDictionary env typeName params constructors
         validateInstanceDictionary known dictionary
         pure (known <> [dictionary], derived <> [dictionary])
     | otherwise =
@@ -2814,21 +3813,23 @@ validateDerivedClasses derivingNames = do
     [ builtinEqClassName
     , builtinOrdClassName
     , builtinShowClassName
+    , builtinReadClassName
     , builtinEnumClassName
     , builtinBoundedClassName
+    , builtinIxClassName
     ]
 
 validateInstanceDictionary :: [TypedInstanceDictionary] -> TypedInstanceDictionary -> InferM ()
 validateInstanceDictionary existing dictionary = do
   let instanceKey = instanceKeyFor dictionary
   when (isBuiltinInstanceConstraint instanceKey) $
-    throwTypecheck (UnsupportedCore0 ("duplicate built-in instance for `" <> renderClassConstraint instanceKey <> "`"))
+    throwTypecheck (DuplicateBuiltinInstance instanceKey)
   when (overlapsBuiltinInstanceConstraint instanceKey) $
-    throwTypecheck (UnsupportedCore0 ("overlapping built-in instance for `" <> renderClassConstraint instanceKey <> "`"))
+    throwTypecheck (OverlappingBuiltinInstance instanceKey)
   when (any (constraintMatches instanceKey . instanceKeyFor) existing) $
-    throwTypecheck (UnsupportedCore0 ("duplicate instance for `" <> renderClassConstraint instanceKey <> "`"))
+    throwTypecheck (DuplicateInstance instanceKey)
   when (any (constraintsOverlap instanceKey . instanceKeyFor) existing) $
-    throwTypecheck (UnsupportedCore0 ("overlapping instance for `" <> renderClassConstraint instanceKey <> "`"))
+    throwTypecheck (OverlappingInstance instanceKey)
 
 instanceKeyFor :: TypedInstanceDictionary -> ClassConstraint
 instanceKeyFor dictionary =
@@ -2841,7 +3842,7 @@ inferDerivedEqInstanceDictionary env typeName params constructors = do
     case Map.lookup builtinEqClassName classes of
       Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Eq class")
       Just classInfo -> pure classInfo
-  fieldTypes <- concat <$> traverse (traverse sourceMonoType . conDeclFieldTypes) constructors
+  fieldTypes <- concat <$> traverse (constructorFieldMonoTypes params . conDeclFieldTypes) constructors
   context <- List.nub . concat <$> traverse (derivedFieldConstraints "Eq" builtinEqClassName typeName) fieldTypes
   methodMap <- derivedEqMethodBindings constructors info
   let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
@@ -2867,7 +3868,7 @@ inferDerivedOrdInstanceDictionary env typeName params constructors = do
     case Map.lookup builtinOrdClassName classes of
       Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Ord class")
       Just classInfo -> pure classInfo
-  fieldTypes <- concat <$> traverse (traverse sourceMonoType . conDeclFieldTypes) constructors
+  fieldTypes <- concat <$> traverse (constructorFieldMonoTypes params . conDeclFieldTypes) constructors
   context <- List.nub . concat <$> traverse (derivedFieldConstraints "Ord" builtinOrdClassName typeName) fieldTypes
   methodMap <- derivedOrdMethodBindings constructors info
   let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
@@ -2893,7 +3894,7 @@ inferDerivedShowInstanceDictionary env typeName params constructors = do
     case Map.lookup builtinShowClassName classes of
       Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Show class")
       Just classInfo -> pure classInfo
-  fieldTypes <- concat <$> traverse (traverse sourceMonoType . conDeclFieldTypes) constructors
+  fieldTypes <- concat <$> traverse (constructorFieldMonoTypes params . conDeclFieldTypes) constructors
   context <- List.nub . concat <$> traverse (derivedFieldConstraints "Show" builtinShowClassName typeName) fieldTypes
   methodMap <- derivedShowMethodBindings constructors info
   let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
@@ -2904,6 +3905,32 @@ inferDerivedShowInstanceDictionary env typeName params constructors = do
   pure
     TypedInstanceDictionary
       { typedInstanceClass = builtinShowClassName
+      , typedInstanceType = instanceType
+      , typedInstanceVariables = params
+      , typedInstanceContext = context
+      , typedInstanceDictName = dictName
+      , typedInstanceSuperclasses = superclassConstraints
+      , typedInstanceMethods = typedMethods
+      }
+
+inferDerivedReadInstanceDictionary :: TypeEnv -> RName -> [RName] -> [RConDecl] -> InferM TypedInstanceDictionary
+inferDerivedReadInstanceDictionary env typeName params constructors = do
+  classes <- classInfos <$> get
+  info <-
+    case Map.lookup builtinReadClassName classes of
+      Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Read class")
+      Just classInfo -> pure classInfo
+  fieldTypes <- concat <$> traverse (constructorFieldMonoTypes params . conDeclFieldTypes) constructors
+  context <- List.nub . concat <$> traverse (derivedFieldConstraints "Read" builtinReadClassName typeName) fieldTypes
+  methodMap <- derivedReadMethodBindings constructors info
+  let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
+      replacements = Map.singleton (classInfoVariable info) instanceType
+      superclassConstraints = map (replaceConstraintTypeVars replacements) (classInfoSuperclasses info)
+  typedMethods <- traverse (inferInstanceMethod env info instanceType methodMap) (classInfoMethods info)
+  dictName <- instanceDictionaryName builtinReadClassName instanceType
+  pure
+    TypedInstanceDictionary
+      { typedInstanceClass = builtinReadClassName
       , typedInstanceType = instanceType
       , typedInstanceVariables = params
       , typedInstanceContext = context
@@ -2945,7 +3972,7 @@ inferDerivedBoundedInstanceDictionary env typeName params constructors = do
       Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Bounded class")
       Just classInfo -> pure classInfo
   validateDerivedBoundedConstructors typeName constructors
-  fieldTypes <- concat <$> traverse (traverse sourceMonoType . conDeclFieldTypes) constructors
+  fieldTypes <- concat <$> traverse (constructorFieldMonoTypes params . conDeclFieldTypes) constructors
   context <- List.nub . concat <$> traverse (derivedFieldConstraints "Bounded" builtinBoundedClassName typeName) fieldTypes
   methodMap <- derivedBoundedMethodBindings constructors info
   let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
@@ -3323,20 +4350,48 @@ derivedGT =
 
 derivedShowMethodBindings :: [RConDecl] -> ClassInfo -> InferM (Map.Map RName SourceBinding)
 derivedShowMethodBindings constructors info = do
+  showsPrecMethod <- requireShowMethod "showsPrec"
   showMethod <- requireShowMethod "show"
-  binding <- derivedShowBinding (classMethodName showMethod) constructors
-  pure (Map.singleton (classMethodName showMethod) binding)
+  showListMethod <- requireShowMethod "showList"
+  showsPrecBinding <- derivedShowsPrecBinding (classMethodName showsPrecMethod) constructors
+  showBinding <- derivedShowBinding (classMethodName showMethod) constructors
+  showListBinding <- derivedShowListBinding (classMethodName showListMethod) constructors
+  pure
+    ( Map.fromList
+        [ (classMethodName showsPrecMethod, showsPrecBinding)
+        , (classMethodName showMethod, showBinding)
+        , (classMethodName showListMethod, showListBinding)
+        ]
+    )
  where
   requireShowMethod occurrence =
     case List.find ((== occurrence) . nameOcc . classMethodName) (classInfoMethods info) of
       Just method -> pure method
       Nothing -> throwTypecheck (UnsupportedCore0 ("missing Show method `" <> occurrence <> "`"))
 
+derivedShowsPrecBinding :: RName -> [RConDecl] -> InferM SourceBinding
+derivedShowsPrecBinding methodName constructors = do
+  precName <- freshGeneratedName TermNamespace "$derived_shows_prec"
+  valueName <- freshGeneratedName TermNamespace "$derived_show_value"
+  restName <- freshGeneratedName TermNamespace "$derived_show_rest"
+  appendName <- freshGeneratedName TermNamespace "$derived_show_append"
+  body <- derivedShowCase appendName (RVar precName) (RVar valueName) (RVar restName) constructors
+  appendDecl <- derivedShowAppendDecl appendName
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar precName, RPVar valueName, RPVar restName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs = RUnguarded body
+      , sourceBindingWhereDecls = [appendDecl]
+      }
+
 derivedShowBinding :: RName -> [RConDecl] -> InferM SourceBinding
 derivedShowBinding methodName constructors = do
   valueName <- freshGeneratedName TermNamespace "$derived_show_value"
   appendName <- freshGeneratedName TermNamespace "$derived_show_append"
-  alternatives <- traverse (derivedShowAlt appendName) constructors
+  body <- derivedShowCase appendName (derivedShowInt 0) (RVar valueName) (derivedShowString "") constructors
   appendDecl <- derivedShowAppendDecl appendName
   pure
     SourceBinding
@@ -3344,61 +4399,126 @@ derivedShowBinding methodName constructors = do
       , sourceBindingName = methodName
       , sourceBindingPatterns = [RPVar valueName]
       , sourceBindingPatternBinding = Nothing
-      , sourceBindingRhs = RUnguarded (RCase (RVar valueName) alternatives)
+      , sourceBindingRhs = RUnguarded body
       , sourceBindingWhereDecls = [appendDecl]
       }
 
-derivedShowAlt :: RName -> RConDecl -> InferM RAlt
-derivedShowAlt appendName constructor = do
+derivedShowListBinding :: RName -> [RConDecl] -> InferM SourceBinding
+derivedShowListBinding methodName constructors = do
+  xsName <- freshGeneratedName TermNamespace "$derived_show_list_xs"
+  restName <- freshGeneratedName TermNamespace "$derived_show_list_rest"
+  yName <- freshGeneratedName TermNamespace "$derived_show_list_y"
+  ysName <- freshGeneratedName TermNamespace "$derived_show_list_ys"
+  appendName <- freshGeneratedName TermNamespace "$derived_show_append"
+  tailName <- freshGeneratedName TermNamespace "$derived_show_list_tail"
+  consBody <- derivedShowCase appendName (derivedShowInt 0) (RVar yName) (RApp (RApp (RVar tailName) (RVar ysName)) (RVar restName)) constructors
+  tailDecl <- derivedShowListTailDecl appendName tailName constructors
+  appendDecl <- derivedShowAppendDecl appendName
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar xsName, RPVar restName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs =
+          RUnguarded
+            ( RCase
+                (RVar xsName)
+                [ RAlt (RPList []) (RUnguarded (derivedShowStringToRest appendName "[]" (RVar restName))) []
+                , RAlt
+                    (RPCon listConsDataConName [RPVar yName, RPVar ysName])
+                    (RUnguarded (derivedShowStringToRest appendName "[" consBody))
+                    []
+                ]
+            )
+      , sourceBindingWhereDecls = [appendDecl, tailDecl]
+      }
+
+derivedShowListTailDecl :: RName -> RName -> [RConDecl] -> InferM RDecl
+derivedShowListTailDecl appendName tailName constructors = do
+  xsName <- freshGeneratedName TermNamespace "$derived_show_list_tail_xs"
+  restName <- freshGeneratedName TermNamespace "$derived_show_list_tail_rest"
+  yName <- freshGeneratedName TermNamespace "$derived_show_list_tail_y"
+  ysName <- freshGeneratedName TermNamespace "$derived_show_list_tail_ys"
+  consBody <- derivedShowCase appendName (derivedShowInt 0) (RVar yName) (RApp (RApp (RVar tailName) (RVar ysName)) (RVar restName)) constructors
+  pure
+    ( RFunctionBinding
+        tailName
+        [RPVar xsName, RPVar restName]
+        ( RUnguarded
+            ( RCase
+                (RVar xsName)
+                [ RAlt (RPList []) (RUnguarded (derivedShowStringToRest appendName "]" (RVar restName))) []
+                , RAlt
+                    (RPCon listConsDataConName [RPVar yName, RPVar ysName])
+                    (RUnguarded (derivedShowStringToRest appendName "," consBody))
+                    []
+                ]
+            )
+        )
+        []
+    )
+
+derivedShowCase :: RName -> RExpr -> RExpr -> RExpr -> [RConDecl] -> InferM RExpr
+derivedShowCase appendName precExpr valueExpr restExpr constructors = do
+  alternatives <- traverse (derivedShowAlt appendName precExpr restExpr) constructors
+  pure (RCase valueExpr alternatives)
+
+derivedShowAlt :: RName -> RExpr -> RExpr -> RConDecl -> InferM RAlt
+derivedShowAlt appendName precExpr restExpr constructor = do
   fieldNames <- freshConstructorFields "$derived_show_field" constructor
   pure
     ( RAlt
         (RPCon (conDeclName constructor) (map RPVar fieldNames))
-        (RUnguarded (derivedShowConstructor appendName constructor fieldNames))
+        (RUnguarded (derivedShowConstructor appendName precExpr restExpr constructor fieldNames))
         []
     )
 
-derivedShowConstructor :: RName -> RConDecl -> [RName] -> RExpr
-derivedShowConstructor appendName constructor fieldNames
+derivedShowConstructor :: RName -> RExpr -> RExpr -> RConDecl -> [RName] -> RExpr
+derivedShowConstructor appendName precExpr restExpr constructor fieldNames
   | null fieldNames =
-      derivedShowString (nameOcc (conDeclName constructor))
+      derivedShowStringToRest appendName (nameOcc (conDeclName constructor)) restExpr
   | any (/= Nothing) labels =
-      derivedShowRecordConstructor appendName constructor fieldNames labels
+      derivedShowRecordConstructor appendName restExpr constructor fieldNames labels
   | otherwise =
-      derivedShowPrefixConstructor appendName constructor fieldNames
+      derivedShowPrefixConstructor appendName precExpr restExpr constructor fieldNames
  where
   labels = conDeclFieldLabels constructor
 
-derivedShowPrefixConstructor :: RName -> RConDecl -> [RName] -> RExpr
-derivedShowPrefixConstructor appendName constructor fieldNames =
-  derivedShowConcat appendName (derivedShowString (nameOcc (conDeclName constructor) <> " ") : fieldPieces)
+derivedShowPrefixConstructor :: RName -> RExpr -> RExpr -> RConDecl -> [RName] -> RExpr
+derivedShowPrefixConstructor appendName precExpr restExpr constructor fieldNames =
+  case precExpr of
+    RLit (LInt precedence)
+      | precedence > 10 -> parenthesized
+      | otherwise -> inner restExpr
+    _ ->
+      RIf
+        (RInfixApp precExpr derivedShowGreaterThanName (derivedShowInt 10))
+        parenthesized
+        (inner restExpr)
  where
-  fieldPieces =
-    List.intersperse (derivedShowString " ") (map (derivedShowParenthesizedField appendName) fieldNames)
+  parenthesized =
+    derivedShowStringToRest appendName "(" (inner (derivedShowStringToRest appendName ")" restExpr))
+  inner finalRest =
+    derivedShowStringToRest appendName (nameOcc (conDeclName constructor)) (foldr fieldToRest finalRest fieldNames)
+  fieldToRest fieldName rest =
+    derivedShowStringToRest appendName " " (derivedShowFieldToRest 11 fieldName rest)
 
-derivedShowRecordConstructor :: RName -> RConDecl -> [RName] -> [Maybe RName] -> RExpr
-derivedShowRecordConstructor appendName constructor fieldNames labels =
-  derivedShowConcat appendName ([derivedShowString (nameOcc (conDeclName constructor) <> " { ")] <> fieldPieces <> [derivedShowString " }"])
+derivedShowRecordConstructor :: RName -> RExpr -> RConDecl -> [RName] -> [Maybe RName] -> RExpr
+derivedShowRecordConstructor appendName restExpr constructor fieldNames labels =
+  derivedShowStringToRest appendName (nameOcc (conDeclName constructor) <> " {") (fieldsToRest labelFields)
  where
-  fieldPieces =
-    List.intersperse
-      (derivedShowString ", ")
-      [ derivedShowConcat
-          appendName
-          [ derivedShowString (nameOcc label <> " = ")
-          , derivedShowParenthesizedField appendName fieldName
-          ]
-      | (Just label, fieldName) <- zip labels fieldNames
-      ]
+  labelFields = [(label, fieldName) | (Just label, fieldName) <- zip labels fieldNames]
+  fieldsToRest [] =
+    derivedShowStringToRest appendName "}" restExpr
+  fieldsToRest [(label, fieldName)] =
+    derivedShowStringToRest appendName (nameOcc label <> " = ") (derivedShowFieldToRest 0 fieldName (derivedShowStringToRest appendName "}" restExpr))
+  fieldsToRest ((label, fieldName) : rest) =
+    derivedShowStringToRest appendName (nameOcc label <> " = ") (derivedShowFieldToRest 0 fieldName (derivedShowStringToRest appendName ", " (fieldsToRest rest)))
 
-derivedShowParenthesizedField :: RName -> RName -> RExpr
-derivedShowParenthesizedField appendName fieldName =
-  derivedShowConcat
-    appendName
-    [ derivedShowString "("
-    , RApp (RVar derivedShowName) (RVar fieldName)
-    , derivedShowString ")"
-    ]
+derivedShowFieldToRest :: Int -> RName -> RExpr -> RExpr
+derivedShowFieldToRest precedence fieldName restExpr =
+  RApp (RApp (RApp (RVar derivedShowsPrecName) (derivedShowInt (toInteger precedence))) (RVar fieldName)) restExpr
 
 derivedShowAppendDecl :: RName -> InferM RDecl
 derivedShowAppendDecl appendName = do
@@ -3424,23 +4544,213 @@ derivedShowAppendDecl appendName = do
         []
     )
 
-derivedShowConcat :: RName -> [RExpr] -> RExpr
-derivedShowConcat appendName = \case
-  [] -> derivedShowString ""
-  expression : rest ->
-    foldl (derivedShowAppend appendName) expression rest
-
-derivedShowAppend :: RName -> RExpr -> RExpr -> RExpr
-derivedShowAppend appendName lhs rhs =
-  RApp (RApp (RVar appendName) lhs) rhs
+derivedShowStringToRest :: RName -> Text -> RExpr -> RExpr
+derivedShowStringToRest appendName text restExpr =
+  RApp (RApp (RVar appendName) (derivedShowString text)) restExpr
 
 derivedShowString :: Text -> RExpr
 derivedShowString =
   RLit . LString
 
-derivedShowName :: RName
-derivedShowName =
-  preludeTermName "show" (-1431)
+derivedShowInt :: Integer -> RExpr
+derivedShowInt =
+  RLit . LInt
+
+derivedShowsPrecName :: RName
+derivedShowsPrecName =
+  preludeTermName "showsPrec" (-1430)
+
+derivedShowGreaterThanName :: RName
+derivedShowGreaterThanName =
+  preludeTermName ">" (-1413)
+
+derivedReadMethodBindings :: [RConDecl] -> ClassInfo -> InferM (Map.Map RName SourceBinding)
+derivedReadMethodBindings constructors info = do
+  readsPrecMethod <- requireReadMethod "readsPrec"
+  readListMethod <- requireReadMethod "readList"
+  readsPrecBinding <- derivedReadsPrecBinding (classMethodName readsPrecMethod) constructors
+  readListBinding <- derivedReadListBinding (classMethodName readListMethod)
+  pure
+    ( Map.fromList
+        [ (classMethodName readsPrecMethod, readsPrecBinding)
+        , (classMethodName readListMethod, readListBinding)
+        ]
+    )
+ where
+  requireReadMethod occurrence =
+    case List.find ((== occurrence) . nameOcc . classMethodName) (classInfoMethods info) of
+      Just method -> pure method
+      Nothing -> throwTypecheck (UnsupportedCore0 ("missing Read method `" <> occurrence <> "`"))
+
+derivedReadsPrecBinding :: RName -> [RConDecl] -> InferM SourceBinding
+derivedReadsPrecBinding methodName constructors = do
+  precName <- freshGeneratedName TermNamespace "$derived_reads_prec"
+  inputName <- freshGeneratedName TermNamespace "$derived_read_input"
+  alternatives <- traverse (derivedReadConstructorCall (RVar precName) (RVar inputName)) constructors
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar precName, RPVar inputName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs = RUnguarded (foldr derivedReadAppend (RList []) alternatives)
+      , sourceBindingWhereDecls = []
+      }
+
+derivedReadListBinding :: RName -> InferM SourceBinding
+derivedReadListBinding methodName = do
+  inputName <- freshGeneratedName TermNamespace "$derived_read_list_input"
+  let parser = RApp (RVar derivedReadsPrecName) (derivedShowInt 0)
+      body = RApp (RApp (RVar derivedReadDefaultListName) parser) (RVar inputName)
+  pure
+    SourceBinding
+      { sourceBindingSpan = Nothing
+      , sourceBindingName = methodName
+      , sourceBindingPatterns = [RPVar inputName]
+      , sourceBindingPatternBinding = Nothing
+      , sourceBindingRhs = RUnguarded body
+      , sourceBindingWhereDecls = []
+      }
+
+derivedReadConstructorCall :: RExpr -> RExpr -> RConDecl -> InferM RExpr
+derivedReadConstructorCall precExpr inputExpr constructor = do
+  parserInputName <- freshGeneratedName TermNamespace "$derived_read_parser_input"
+  parserBody <- derivedReadConstructorParserBody parserInputName constructor
+  let parser = RLambda [RPVar parserInputName] parserBody
+      mandatory = derivedReadParenMandatory precExpr constructor
+  pure (RApp (RApp (RApp (RVar derivedReadParenName) mandatory) parser) inputExpr)
+
+derivedReadConstructorParserBody :: RName -> RConDecl -> InferM RExpr
+derivedReadConstructorParserBody parserInputName constructor = do
+  recordLabels <- derivedRecordLabels constructor
+  case recordLabels of
+    Just labels -> derivedReadRecordParserBody parserInputName constructor labels
+    Nothing -> derivedReadPrefixParserBody parserInputName constructor
+
+derivedReadPrefixParserBody :: RName -> RConDecl -> InferM RExpr
+derivedReadPrefixParserBody parserInputName constructor = do
+  afterConstructorName <- freshGeneratedName TermNamespace "$derived_read_after_constructor"
+  fieldNames <- freshConstructorFields "$derived_read_field" constructor
+  (fieldStatements, restName) <- derivedReadFieldStatements 11 afterConstructorName fieldNames
+  let statements =
+        derivedReadTokenStmt (nameOcc (conDeclName constructor)) (RVar parserInputName) afterConstructorName
+          : fieldStatements
+      value = foldl RApp (RCon (conDeclName constructor)) (map RVar fieldNames)
+  pure (RListComp (RTuple [value, RVar restName]) statements)
+
+derivedReadRecordParserBody :: RName -> RConDecl -> [RName] -> InferM RExpr
+derivedReadRecordParserBody parserInputName constructor labels = do
+  afterConstructorName <- freshGeneratedName TermNamespace "$derived_read_after_constructor"
+  afterOpenName <- freshGeneratedName TermNamespace "$derived_read_after_record_open"
+  fieldNames <- freshConstructorFields "$derived_read_record_field" constructor
+  (fieldStatements, restName) <- derivedReadRecordFieldStatements afterOpenName (zip labels fieldNames)
+  let statements =
+        [ derivedReadTokenStmt (nameOcc (conDeclName constructor)) (RVar parserInputName) afterConstructorName
+        , derivedReadTokenStmt "{" (RVar afterConstructorName) afterOpenName
+        ]
+          <> fieldStatements
+      value = RRecordCon (conDeclName constructor) [(label, RVar fieldName) | (label, fieldName) <- zip labels fieldNames]
+  pure (RListComp (RTuple [value, RVar restName]) statements)
+
+derivedRecordLabels :: RConDecl -> InferM (Maybe [RName])
+derivedRecordLabels constructor =
+  case conDeclFieldLabels constructor of
+    labels
+      | any (/= Nothing) labels ->
+          case sequence labels of
+            Just labelNames -> pure (Just labelNames)
+            Nothing ->
+              throwTypecheck
+                ( UnsupportedCore0
+                    ( "derived Read for mixed labelled and unlabelled constructor `"
+                        <> renderRName (conDeclName constructor)
+                        <> "`"
+                    )
+                )
+      | otherwise -> pure Nothing
+
+derivedReadFieldStatements :: Int -> RName -> [RName] -> InferM ([RStmt], RName)
+derivedReadFieldStatements precedence initialInputName =
+  go initialInputName
+ where
+  go currentInputName [] =
+    pure ([], currentInputName)
+  go currentInputName (fieldName : fields) = do
+    afterFieldName <- freshGeneratedName TermNamespace "$derived_read_after_field"
+    (restStatements, finalInputName) <- go afterFieldName fields
+    let statement = derivedReadFieldStmt precedence fieldName (RVar currentInputName) afterFieldName
+    pure (statement : restStatements, finalInputName)
+
+derivedReadRecordFieldStatements :: RName -> [(RName, RName)] -> InferM ([RStmt], RName)
+derivedReadRecordFieldStatements initialInputName fields =
+  go True initialInputName fields
+ where
+  go _ currentInputName [] = do
+    afterCloseName <- freshGeneratedName TermNamespace "$derived_read_after_record_close"
+    pure ([derivedReadTokenStmt "}" (RVar currentInputName) afterCloseName], afterCloseName)
+  go firstField currentInputName ((labelName, fieldName) : rest) = do
+    (separatorStatements, afterSeparatorName) <-
+      if firstField
+        then pure ([], currentInputName)
+        else do
+          afterCommaName <- freshGeneratedName TermNamespace "$derived_read_after_record_comma"
+          pure ([derivedReadTokenStmt "," (RVar currentInputName) afterCommaName], afterCommaName)
+    afterLabelName <- freshGeneratedName TermNamespace "$derived_read_after_record_label"
+    afterEqualsName <- freshGeneratedName TermNamespace "$derived_read_after_record_equals"
+    afterFieldName <- freshGeneratedName TermNamespace "$derived_read_after_record_field"
+    (restStatements, finalInputName) <- go False afterFieldName rest
+    let statements =
+          separatorStatements
+            <> [ derivedReadTokenStmt (nameOcc labelName) (RVar afterSeparatorName) afterLabelName
+               , derivedReadTokenStmt "=" (RVar afterLabelName) afterEqualsName
+               , derivedReadFieldStmt 0 fieldName (RVar afterEqualsName) afterFieldName
+               ]
+            <> restStatements
+    pure (statements, finalInputName)
+
+derivedReadTokenStmt :: Text -> RExpr -> RName -> RStmt
+derivedReadTokenStmt token inputExpr outputName =
+  RBindStmt (RPTuple [RPLit (LString token), RPVar outputName]) (RApp (RVar derivedReadLexName) inputExpr)
+
+derivedReadFieldStmt :: Int -> RName -> RExpr -> RName -> RStmt
+derivedReadFieldStmt precedence fieldName inputExpr outputName =
+  RBindStmt
+    (RPTuple [RPVar fieldName, RPVar outputName])
+    (RApp (RApp (RVar derivedReadsPrecName) (derivedShowInt (toInteger precedence))) inputExpr)
+
+derivedReadParenMandatory :: RExpr -> RConDecl -> RExpr
+derivedReadParenMandatory precExpr constructor
+  | null (conDeclFieldTypes constructor) = derivedFalse
+  | constructorUsesRecordSyntax constructor = derivedFalse
+  | otherwise = RInfixApp precExpr derivedShowGreaterThanName (derivedShowInt 10)
+
+constructorUsesRecordSyntax :: RConDecl -> Bool
+constructorUsesRecordSyntax =
+  any (/= Nothing) . conDeclFieldLabels
+
+derivedReadAppend :: RExpr -> RExpr -> RExpr
+derivedReadAppend lhs rhs =
+  RInfixApp lhs derivedReadAppendName rhs
+
+derivedReadAppendName :: RName
+derivedReadAppendName =
+  readAppendName
+
+derivedReadDefaultListName :: RName
+derivedReadDefaultListName =
+  readDefaultListName
+
+derivedReadLexName :: RName
+derivedReadLexName =
+  readLexName
+
+derivedReadParenName :: RName
+derivedReadParenName =
+  readParenName
+
+derivedReadsPrecName :: RName
+derivedReadsPrecName =
+  preludeTermName "readsPrec" (-1433)
 
 derivedEnumMethodBindings :: [RConDecl] -> ClassInfo -> InferM (Map.Map RName SourceBinding)
 derivedEnumMethodBindings constructors info = do
@@ -3771,6 +5081,196 @@ derivedMaxBoundName :: RName
 derivedMaxBoundName =
   preludeTermName "maxBound" (-1452)
 
+inferDerivedIxInstanceDictionary :: TypeEnv -> RName -> [RName] -> [RConDecl] -> InferM TypedInstanceDictionary
+inferDerivedIxInstanceDictionary env typeName params constructors = do
+  classes <- classInfos <$> get
+  info <-
+    case Map.lookup builtinIxClassName classes of
+      Nothing -> throwTypecheck (UnsupportedCore0 "missing built-in Ix class")
+      Just classInfo -> pure classInfo
+  methodMap <- derivedIxMethodBindings constructors info
+  context <-
+    case constructors of
+      []
+        -> throwTypecheck (UnsupportedCore0 "derived Ix requires at least one constructor")
+      _
+        | all null (map conDeclFieldTypes constructors) ->
+            pure [singleClassConstraint builtinEnumClassName (foldl TyApp (TyCon typeName) (map TyVar params))]
+      [constructor] ->
+        do
+          fieldTypes <- constructorFieldMonoTypes params (conDeclFieldTypes constructor)
+          List.nub . concat <$> traverse (derivedFieldConstraints "Ix" builtinIxClassName typeName) fieldTypes
+      _ ->
+        throwTypecheck (UnsupportedCore0 "derived Ix requires an enumeration or a single constructor")
+  let instanceType = foldl TyApp (TyCon typeName) (map TyVar params)
+  typedMethods <- traverse (inferInstanceMethod env info instanceType methodMap) (classInfoMethods info)
+  dictName <- instanceDictionaryName builtinIxClassName instanceType
+  pure
+    TypedInstanceDictionary
+      { typedInstanceClass = builtinIxClassName
+      , typedInstanceType = instanceType
+      , typedInstanceVariables = typeVars instanceType
+      , typedInstanceContext = context
+      , typedInstanceDictName = dictName
+      , typedInstanceSuperclasses = [singleClassConstraint builtinOrdClassName instanceType]
+      , typedInstanceMethods = typedMethods
+      }
+
+derivedIxMethodBindings :: [RConDecl] -> ClassInfo -> InferM (Map.Map RName SourceBinding)
+derivedIxMethodBindings constructors info = do
+  rangeMethod <- requireIxMethod "range"
+  indexMethod <- requireIxMethod "index"
+  inRangeMethod <- requireIxMethod "inRange"
+  rangeSizeMethod <- requireIxMethod "rangeSize"
+  bindings <-
+    if all null (map conDeclFieldTypes constructors)
+      then derivedIxEnumBindings constructors rangeMethod indexMethod inRangeMethod rangeSizeMethod
+      else case constructors of
+        [constructor] -> derivedIxProductBindings constructor rangeMethod indexMethod inRangeMethod rangeSizeMethod
+        [] -> throwTypecheck (UnsupportedCore0 "derived Ix requires at least one constructor")
+        _ -> throwTypecheck (UnsupportedCore0 "derived Ix requires an enumeration or a single constructor")
+  pure (Map.fromList bindings)
+ where
+  requireIxMethod occurrence =
+    case List.find ((== occurrence) . nameOcc . classMethodName) (classInfoMethods info) of
+      Just method -> pure method
+      Nothing -> throwTypecheck (UnsupportedCore0 ("missing Ix method `" <> occurrence <> "`"))
+
+derivedIxEnumBindings ::
+  [RConDecl] ->
+  ClassMethodInfo ->
+  ClassMethodInfo ->
+  ClassMethodInfo ->
+  ClassMethodInfo ->
+  InferM [(RName, SourceBinding)]
+derivedIxEnumBindings _constructors rangeMethod indexMethod inRangeMethod rangeSizeMethod = do
+  boundsName <- freshGeneratedName TermNamespace "$derived_ix_bounds"
+  lowerName <- freshGeneratedName TermNamespace "$derived_ix_lower"
+  upperName <- freshGeneratedName TermNamespace "$derived_ix_upper"
+  valueName <- freshGeneratedName TermNamespace "$derived_ix_value"
+  let lowerExpr = RVar lowerName
+      upperExpr = RVar upperName
+      valueExpr = RVar valueName
+      intBounds = RTuple [RApp (RVar derivedFromEnumName) lowerExpr, RApp (RVar derivedFromEnumName) upperExpr]
+      rangeExpr =
+        RCase
+          (RVar boundsName)
+          [ RAlt
+              (RPTuple [RPVar lowerName, RPVar upperName])
+              (RUnguarded (RApp (RApp (RVar derivedMapName) (RVar derivedToEnumName)) (RApp (RVar (classMethodName rangeMethod)) intBounds)))
+              []
+          ]
+      indexExpr =
+        RCase
+          (RVar boundsName)
+          [ RAlt
+              (RPTuple [RPVar lowerName, RPVar upperName])
+              (RUnguarded (RApp (RApp (RVar (classMethodName indexMethod)) intBounds) (RApp (RVar derivedFromEnumName) valueExpr)))
+              []
+          ]
+      inRangeExpr =
+        RCase
+          (RVar boundsName)
+          [ RAlt
+              (RPTuple [RPVar lowerName, RPVar upperName])
+              (RUnguarded (RApp (RApp (RVar (classMethodName inRangeMethod)) intBounds) (RApp (RVar derivedFromEnumName) valueExpr)))
+              []
+          ]
+      rangeSizeExpr =
+        RCase
+          (RVar boundsName)
+          [ RAlt
+              (RPTuple [RPVar lowerName, RPVar upperName])
+              (RUnguarded (RApp (RVar (classMethodName rangeSizeMethod)) intBounds))
+              []
+          ]
+  pure
+    [ (classMethodName rangeMethod, derivedMethodBinding (classMethodName rangeMethod) [RPVar boundsName] rangeExpr)
+    , (classMethodName indexMethod, derivedMethodBinding (classMethodName indexMethod) [RPVar boundsName, RPVar valueName] indexExpr)
+    , (classMethodName inRangeMethod, derivedMethodBinding (classMethodName inRangeMethod) [RPVar boundsName, RPVar valueName] inRangeExpr)
+    , (classMethodName rangeSizeMethod, derivedMethodBinding (classMethodName rangeSizeMethod) [RPVar boundsName] rangeSizeExpr)
+    ]
+
+derivedIxProductBindings ::
+  RConDecl ->
+  ClassMethodInfo ->
+  ClassMethodInfo ->
+  ClassMethodInfo ->
+  ClassMethodInfo ->
+  InferM [(RName, SourceBinding)]
+derivedIxProductBindings constructor rangeMethod indexMethod inRangeMethod rangeSizeMethod = do
+  boundsName <- freshGeneratedName TermNamespace "$derived_ix_product_bounds"
+  valueName <- freshGeneratedName TermNamespace "$derived_ix_product_value"
+  lowerNames <- traverse (\index -> freshGeneratedName TermNamespace ("$derived_ix_product_lower_" <> renderInt index)) [0 .. fieldCount - 1]
+  upperNames <- traverse (\index -> freshGeneratedName TermNamespace ("$derived_ix_product_upper_" <> renderInt index)) [0 .. fieldCount - 1]
+  valueNames <- traverse (\index -> freshGeneratedName TermNamespace ("$derived_ix_product_value_" <> renderInt index)) [0 .. fieldCount - 1]
+  rangeNames <- traverse (\index -> freshGeneratedName TermNamespace ("$derived_ix_product_range_" <> renderInt index)) [0 .. fieldCount - 1]
+  let lowerPat = RPCon (conDeclName constructor) (map RPVar lowerNames)
+      upperPat = RPCon (conDeclName constructor) (map RPVar upperNames)
+      valuePat = RPCon (conDeclName constructor) (map RPVar valueNames)
+      rangePat = derivedIxRepresentationPat rangeNames
+      lowerRep = derivedIxRepresentationExpr (map RVar lowerNames)
+      upperRep = derivedIxRepresentationExpr (map RVar upperNames)
+      valueRep = derivedIxRepresentationExpr (map RVar valueNames)
+      repBounds = RTuple [lowerRep, upperRep]
+      construct fields = foldl RApp (RCon (conDeclName constructor)) fields
+      boundsAlt rhs =
+        RAlt
+          (RPTuple [lowerPat, upperPat])
+          (RUnguarded rhs)
+          []
+      rangeExpr =
+        RCase
+          (RVar boundsName)
+          [ boundsAlt
+              (RApp (RApp (RVar derivedMapName) (RLambda [rangePat] (construct (map RVar rangeNames)))) (RApp (RVar (classMethodName rangeMethod)) repBounds))
+          ]
+      indexExpr =
+        RCase
+          (RVar boundsName)
+          [ boundsAlt
+              (RCase (RVar valueName) [RAlt valuePat (RUnguarded (RApp (RApp (RVar (classMethodName indexMethod)) repBounds) valueRep)) []])
+          ]
+      inRangeExpr =
+        RCase
+          (RVar boundsName)
+          [ boundsAlt
+              (RCase (RVar valueName) [RAlt valuePat (RUnguarded (RApp (RApp (RVar (classMethodName inRangeMethod)) repBounds) valueRep)) []])
+          ]
+      rangeSizeExpr =
+        RCase
+          (RVar boundsName)
+          [boundsAlt (RApp (RVar (classMethodName rangeSizeMethod)) repBounds)]
+  pure
+    [ (classMethodName rangeMethod, derivedMethodBinding (classMethodName rangeMethod) [RPVar boundsName] rangeExpr)
+    , (classMethodName indexMethod, derivedMethodBinding (classMethodName indexMethod) [RPVar boundsName, RPVar valueName] indexExpr)
+    , (classMethodName inRangeMethod, derivedMethodBinding (classMethodName inRangeMethod) [RPVar boundsName, RPVar valueName] inRangeExpr)
+    , (classMethodName rangeSizeMethod, derivedMethodBinding (classMethodName rangeSizeMethod) [RPVar boundsName] rangeSizeExpr)
+    ]
+ where
+  fieldCount = length (conDeclFieldTypes constructor)
+
+derivedMethodBinding :: RName -> [RPat] -> RExpr -> SourceBinding
+derivedMethodBinding methodName patterns expr =
+  SourceBinding
+    { sourceBindingSpan = Nothing
+    , sourceBindingName = methodName
+    , sourceBindingPatterns = patterns
+    , sourceBindingPatternBinding = Nothing
+    , sourceBindingRhs = RUnguarded expr
+    , sourceBindingWhereDecls = []
+    }
+
+derivedIxRepresentationExpr :: [RExpr] -> RExpr
+derivedIxRepresentationExpr = \case
+  [expr] -> expr
+  exprs -> RTuple exprs
+
+derivedIxRepresentationPat :: [RName] -> RPat
+derivedIxRepresentationPat = \case
+  [name] -> RPVar name
+  names -> RPTuple (map RPVar names)
+
 constraintsOverlap :: ClassConstraint -> ClassConstraint -> Bool
 constraintsOverlap lhs rhs =
   classConstraintClass lhs == classConstraintClass rhs
@@ -3800,9 +5300,11 @@ typesMayUnify lhs rhs =
       typesMayUnify lhsElement rhsElement
     _ -> False
 
-inferInstanceDictionary :: TypeEnv -> RHsType -> [RDecl] -> InferM TypedInstanceDictionary
-inferInstanceDictionary env instanceHead decls = do
+inferInstanceDictionary :: TypeEnv -> [RHsType] -> RHsType -> [RDecl] -> InferM TypedInstanceDictionary
+inferInstanceDictionary env sourceContext instanceHead decls = do
   (className, instanceType) <- splitInstanceHead instanceHead
+  rawContext <- traverse sourceClassConstraint sourceContext
+  context <- traverse (canonicalizeInstanceContextConstraint instanceType) rawContext
   classes <- classInfos <$> get
   info <-
     case Map.lookup className classes of
@@ -3814,7 +5316,7 @@ inferInstanceDictionary env instanceHead decls = do
   case extraMethods of
     [] -> pure ()
     extra : _ ->
-      throwTypecheck (UnsupportedCore0 ("unknown instance method `" <> renderRName extra <> "`"))
+      throwTypecheck (UnknownInstanceMethod extra)
   let replacements = Map.singleton (classInfoVariable info) instanceType
       superclassConstraints = map (replaceConstraintTypeVars replacements) (classInfoSuperclasses info)
   typedMethods <- traverse (inferInstanceMethod env info instanceType methodMap) (classInfoMethods info)
@@ -3824,7 +5326,7 @@ inferInstanceDictionary env instanceHead decls = do
       { typedInstanceClass = className
       , typedInstanceType = instanceType
       , typedInstanceVariables = typeVars instanceType
-      , typedInstanceContext = []
+      , typedInstanceContext = context
       , typedInstanceDictName = dictName
       , typedInstanceSuperclasses = superclassConstraints
       , typedInstanceMethods = typedMethods
@@ -3839,6 +5341,39 @@ splitInstanceHead = \case
   other ->
     throwTypecheck (UnsupportedCore0 ("instance head " <> Text.pack (show other)))
 
+canonicalizeInstanceContextConstraint :: MonoType -> ClassConstraint -> InferM ClassConstraint
+canonicalizeInstanceContextConstraint instanceType constraint = do
+  arguments <- traverse canonicalize (classConstraintArguments constraint)
+  pure constraint {classConstraintArguments = arguments}
+ where
+  variablesByOccurrence = Map.fromList [(nameOcc variable, variable) | variable <- typeVars instanceType]
+
+  canonicalize = \case
+    TyMeta meta ->
+      pure (TyMeta meta)
+    TyVar name ->
+      case Map.lookup (nameOcc name) variablesByOccurrence of
+        Just variable ->
+          pure (TyVar variable)
+        Nothing ->
+          throwTypecheck
+            ( UnsupportedCore0
+                ( "instance context type variable `"
+                    <> nameOcc name
+                    <> "` is not bound by the instance head"
+                )
+            )
+    TyCon name ->
+      pure (TyCon name)
+    TyApp fn arg ->
+      TyApp <$> canonicalize fn <*> canonicalize arg
+    TyFun arg result ->
+      TyFun <$> canonicalize arg <*> canonicalize result
+    TyTuple fields ->
+      TyTuple <$> traverse canonicalize fields
+    TyList element ->
+      TyList <$> canonicalize element
+
 collectInstanceMethods :: [RDecl] -> InferM (Map.Map RName SourceBinding)
 collectInstanceMethods =
   foldM collect Map.empty
@@ -3850,7 +5385,7 @@ collectInstanceMethods =
           let canonicalName = canonicalInstanceMethodName name
            in case Map.lookup canonicalName acc of
             Just _ ->
-              throwTypecheck (UnsupportedCore0 ("duplicate instance method `" <> renderRName canonicalName <> "`"))
+              throwTypecheck (DuplicateInstanceMethod canonicalName)
             Nothing ->
               pure
                 ( Map.insert
@@ -3889,7 +5424,7 @@ inferInstanceMethod ::
 inferInstanceMethod env info instanceType methodMap method =
   case Map.lookup (classMethodName method) methodMap <|> classMethodDefault method of
     Nothing ->
-      throwTypecheck (UnsupportedCore0 ("missing instance method `" <> renderRName (classMethodName method) <> "`"))
+      throwTypecheck (MissingInstanceMethod (classMethodName method))
     Just binding ->
       inferInstanceMethodBinding env info instanceType method binding
 
@@ -3927,6 +5462,7 @@ aliasPatternBinder name ty scrutinee body =
       TLet
         [ TypedBinding
             { typedBindingName = name
+            , typedBindingSpan = Nothing
             , typedBindingScheme = Scheme [] [] ty
             , typedBindingGeneralizedMetas = Map.empty
             , typedBindingRhs = scrutinee
@@ -4019,7 +5555,7 @@ inferRhs env rhs whereDecls =
     (whereBindings, rhsEnv) <-
       if null whereDecls
         then pure ([], env)
-        else inferBindingGroup env whereDecls
+        else inferBindingGroup LocalBindingGroup env whereDecls
     body <-
       case rhs of
         RUnguarded expr ->
@@ -4072,15 +5608,25 @@ patternMatchFailureExpr resultTy = do
 
 inferExpr :: TypeEnv -> RExpr -> InferM TypedExpr
 inferExpr env expr =
-  withTypecheckSpan (rExprSpan expr) $
-    case expr of
+  withTypecheckSpan (rExprSpan expr) $ do
+    typed <- inferExprUnspanned env expr
+    pure $
+      case rExprSpan expr of
+        Nothing -> typed
+        Just sourceRange -> TSpanned sourceRange typed
+
+inferExprUnspanned :: TypeEnv -> RExpr -> InferM TypedExpr
+inferExprUnspanned env expr =
+  case expr of
       RVar name ->
         case Map.lookup name env of
           Nothing ->
             inferPreludeValue name
           Just scheme -> do
-            (instantiatedTy, typeArguments) <- instantiate scheme
-            pure (TVar name scheme typeArguments instantiatedTy)
+            sourceRange <- currentTypecheckSpan
+            let spannedScheme = withSchemeConstraintSpan sourceRange scheme
+            (instantiatedTy, typeArguments) <- instantiate spannedScheme
+            pure (TVar name spannedScheme typeArguments instantiatedTy)
       RCon name ->
         inferConstructor name
       RRecordCon name fields ->
@@ -4091,6 +5637,10 @@ inferExpr env expr =
         pure (stringLiteralTypedExpr value)
       RLit (LInt value) ->
         inferIntegerLiteral value
+      RLit (LFloat value) ->
+        inferFractionalLiteral (toRational value)
+      RLit (LDouble value) ->
+        inferFractionalLiteral (toRational value)
       RLit literal ->
         pure (TLit literal (literalMonoType literal))
       RApp fn arg -> do
@@ -4104,7 +5654,7 @@ inferExpr env expr =
       RLambda patterns body ->
         inferLambda env patterns body
       RLet decls body -> do
-        (bindings, env') <- inferBindingGroup env decls
+        (bindings, env') <- inferBindingGroup LocalBindingGroup env decls
         typedBody <- inferExpr env' body
         pure (TLet bindings typedBody (typedExprType typedBody))
       RIf condition thenBranch elseBranch -> do
@@ -4128,7 +5678,11 @@ inferExpr env expr =
         typedScrutinee <- inferExpr env scrutinee
         scrutineeTy <- applyCurrent (typedExprType typedScrutinee)
         resultTy <- freshMeta
-        warnForPatternCoverage CasePatternExhaustiveness scrutineeTy [PatternCoverageRow (rAltSpan alt) pat rhs | alt@(RAlt pat rhs _) <- alternatives]
+        let coverageContext =
+              case rExprSpan expr of
+                Nothing -> GeneratedPatternExhaustiveness
+                Just _ -> CasePatternExhaustiveness
+        warnForPatternCoverage coverageContext scrutineeTy [PatternCoverageRow (rAltSpan alt) pat rhs | alt@(RAlt pat rhs _) <- alternatives]
         case alternatives of
           firstAlt : _ -> do
             firstIrrefutable <- caseAltCanElideRuntimeCase firstAlt
@@ -4256,7 +5810,7 @@ inferListCompWithTail env elementTy body (statement : rest) tailExpr =
               (typedExprType tailExpr)
           )
       RLetStmt decls -> do
-        (bindings, env') <- inferBindingGroup env decls
+        (bindings, env') <- inferBindingGroup LocalBindingGroup env decls
         restExpr <- inferListCompWithTail env' elementTy body rest tailExpr
         pure (TLet bindings restExpr (typedExprType restExpr))
       RBindStmt pat sourceExpr -> do
@@ -4306,6 +5860,7 @@ inferListCompWithTail env elementTy body (statement : rest) tailExpr =
             goBinding =
               TypedBinding
                 { typedBindingName = typedBinderName goBinder
+                , typedBindingSpan = Nothing
                 , typedBindingScheme = Scheme [] [] goTy
                 , typedBindingGeneralizedMetas = Map.empty
                 , typedBindingRhs = goRhs
@@ -4544,7 +6099,7 @@ inferDo env (statement@(RExprStmt expr) : rest) =
     applyTypedExpr thenFirst restExpr
 inferDo env (statement@(RLetStmt decls) : rest) =
   withTypecheckSpan (rStmtSpan statement) $ do
-    (bindings, env') <- inferBindingGroup env decls
+    (bindings, env') <- inferBindingGroup LocalBindingGroup env decls
     body <- inferDo env' rest
     pure (TLet bindings body (typedExprType body))
 inferDo env (statement@(RBindStmt pat expr) : rest) =
@@ -4907,7 +6462,7 @@ inferIntegerLiteral value = do
           (Map.singleton classVariable resultTy)
           (schemeBody methodScheme)
       methodExpr = TVar (classMethodName method) methodScheme [resultTy] methodTy
-      literalExpr = TLit (LInt value) intMonoType
+      literalExpr = TLit (LInteger value) integerMonoType
   case methodTy of
     TyFun _ result ->
       pure (TApp methodExpr literalExpr result)
@@ -4918,6 +6473,44 @@ inferIntegerLiteral value = do
                 <> renderMonoType other
             )
         )
+
+inferFractionalLiteral :: Rational -> InferM TypedExpr
+inferFractionalLiteral value = do
+  resultTy <- freshMeta
+  method <- builtinClassMethod "Fractional" "fromRational"
+  classVariable <- classMethodSingleVariable "fromRational" method
+  sourceRange <- currentTypecheckSpan
+  let methodScheme = withSchemeConstraintSpan sourceRange (classMethodScheme method)
+      methodTy =
+        replaceTypeVars
+          (Map.singleton classVariable resultTy)
+          (schemeBody methodScheme)
+      methodExpr = TVar (classMethodName method) methodScheme [resultTy] methodTy
+      literalExpr = rationalLiteralTypedExpr (Ratio.numerator value) (Ratio.denominator value)
+  case methodTy of
+    TyFun _ result ->
+      pure (TApp methodExpr literalExpr result)
+    other ->
+      throwTypecheck
+        ( UnsupportedCore0
+            ( "built-in method `fromRational` has unexpected type "
+                <> renderMonoType other
+            )
+        )
+
+rationalLiteralTypedExpr :: Integer -> Integer -> TypedExpr
+rationalLiteralTypedExpr numeratorValue denominatorValue =
+  TApp (TApp conExpr numeratorExpr (TyFun integerMonoType rationalMonoType)) denominatorExpr rationalMonoType
+ where
+  conScheme = dataConstructorScheme (builtinDataConstructors Map.! ratioDataConName)
+  conExpr =
+    TCon
+      ratioDataConName
+      conScheme
+      [integerMonoType]
+      (TyFun integerMonoType (TyFun integerMonoType rationalMonoType))
+  numeratorExpr = TLit (LInteger numeratorValue) integerMonoType
+  denominatorExpr = TLit (LInteger denominatorValue) integerMonoType
 
 preludeValueCoreName :: RName -> RName
 preludeValueCoreName name =
@@ -4940,6 +6533,19 @@ preludeConstructorInfo name
         "LT" -> lookupBuiltin orderingLTDataConName
         "EQ" -> lookupBuiltin orderingEQDataConName
         "GT" -> lookupBuiltin orderingGTDataConName
+        "ReadMode" -> lookupBuiltin ioModeReadDataConName
+        "WriteMode" -> lookupBuiltin ioModeWriteDataConName
+        "AppendMode" -> lookupBuiltin ioModeAppendDataConName
+        "ReadWriteMode" -> lookupBuiltin ioModeReadWriteDataConName
+        "NoBuffering" -> lookupBuiltin bufferModeNoDataConName
+        "LineBuffering" -> lookupBuiltin bufferModeLineDataConName
+        "BlockBuffering" -> lookupBuiltin bufferModeBlockDataConName
+        "ExitSuccess" -> lookupBuiltin exitSuccessDataConName
+        "ExitFailure" -> lookupBuiltin exitFailureDataConName
+        "AbsoluteSeek" -> lookupBuiltin seekModeAbsoluteDataConName
+        "RelativeSeek" -> lookupBuiltin seekModeRelativeDataConName
+        "SeekFromEnd" -> lookupBuiltin seekModeFromEndDataConName
+        "Errno" -> lookupBuiltin errnoDataConName
         _ -> Nothing
  where
   lookupBuiltin coreName = (coreName,) <$> Map.lookup coreName builtinDataConstructors
@@ -4983,9 +6589,143 @@ preludeValueScheme name
             "filter" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun listA listA)))
             "reverse" -> Just (Scheme [a] [] (TyFun listA listA))
             "++" -> Just (Scheme [a] [] (TyFun listA (TyFun listA listA)))
+            "shows" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun aTy (TyFun stringMonoType stringMonoType)))
+            "reads" -> Just (Scheme [a] [singleClassConstraint builtinReadClassName aTy] readSA)
+            "read" -> Just (Scheme [a] [singleClassConstraint builtinReadClassName aTy] (TyFun stringMonoType aTy))
+            "lex" -> Just (Scheme [] [] (TyFun stringMonoType (TyList (TyTuple [stringMonoType, stringMonoType]))))
+            "readParen" -> Just (Scheme [a] [] (TyFun boolMonoType (TyFun readSA readSA)))
+            "%" -> Just (Scheme [] [] (TyFun integerMonoType (TyFun integerMonoType rationalMonoType)))
+            "numerator" -> Just (Scheme [] [] (TyFun rationalMonoType integerMonoType))
+            "denominator" -> Just (Scheme [] [] (TyFun rationalMonoType integerMonoType))
+            "approxRational" -> Just (Scheme [] [] (TyFun rationalMonoType (TyFun rationalMonoType rationalMonoType)))
+            "$read_append" -> Just (Scheme [a] [] (TyFun listA (TyFun listA listA)))
+            "$read_exact" -> Just (Scheme [] [] (TyFun stringMonoType (TyFun stringMonoType (TyList (TyTuple [unitMonoType, stringMonoType])))))
+            "$read_default_list" -> Just (Scheme [a] [] (TyFun readSA readListSA))
+            "$read_paren" -> Just (Scheme [a] [] (TyFun boolMonoType (TyFun readSA readSA)))
+            "$read_lex" -> Just (Scheme [] [] (TyFun stringMonoType (TyList (TyTuple [stringMonoType, stringMonoType]))))
+            "$read_int" -> Just (Scheme [] [] intReadS)
+            "$read_bool" -> Just (Scheme [] [] boolReadS)
+            "$read_char" -> Just (Scheme [] [] charReadS)
+            "$read_string" -> Just (Scheme [] [] stringReadS)
+            "$read_integer" -> Just (Scheme [] [] integerReadS)
+            "mapM" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (TyFun aTy mB) (TyFun listA (mList bTy))))
+            "mapM_" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (TyFun aTy mB) (TyFun listA mUnit)))
+            "forM" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun listA (TyFun (TyFun aTy mB) (mList bTy))))
+            "forM_" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun listA (TyFun (TyFun aTy mB) mUnit)))
+            "sequence" -> Just (Scheme [m, a] [monadConstraint] (TyFun (TyList mA) (mList aTy)))
+            "sequence_" -> Just (Scheme [m, a] [monadConstraint] (TyFun (TyList mA) mUnit))
+            "=<<" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (TyFun aTy mB) (TyFun mA mB)))
+            ">=>" -> Just (Scheme [m, a, b, c] [monadConstraint] (TyFun (TyFun aTy mB) (TyFun (TyFun bTy mC) (TyFun aTy mC))))
+            "<=<" -> Just (Scheme [m, a, b, c] [monadConstraint] (TyFun (TyFun bTy mC) (TyFun (TyFun aTy mB) (TyFun aTy mC))))
+            "forever" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun mA mB))
+            "void" -> Just (Scheme [f, a] [singleClassConstraint builtinFunctorClassName fTy] (TyFun fA fUnit))
+            "join" -> Just (Scheme [m, a] [monadConstraint] (TyFun (mOf mA) mA))
+            "msum" -> Just (Scheme [m, a] [monadPlusConstraint] (TyFun (TyList mA) mA))
+            "filterM" -> Just (Scheme [m, a] [monadConstraint] (TyFun (TyFun aTy mBool) (TyFun listA (mList aTy))))
+            "mapAndUnzipM" -> Just (Scheme [m, a, b, c] [monadConstraint] (TyFun (TyFun aTy (mOf tupleBC)) (TyFun listA (mOf (TyTuple [listB, listC])))))
+            "zipWithM" -> Just (Scheme [m, a, b, c] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy mC)) (TyFun listA (TyFun listB (mList cTy)))))
+            "zipWithM_" -> Just (Scheme [m, a, b, c] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy mC)) (TyFun listA (TyFun listB mUnit))))
+            "foldM" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy mA)) (TyFun aTy (TyFun listB mA))))
+            "foldM_" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy mA)) (TyFun aTy (TyFun listB mUnit))))
+            "replicateM" -> Just (Scheme [m, a] [monadConstraint] (TyFun intMonoType (TyFun mA (mList aTy))))
+            "replicateM_" -> Just (Scheme [m, a] [monadConstraint] (TyFun intMonoType (TyFun mA mUnit)))
+            "guard" -> Just (Scheme [m] [monadPlusConstraint] (TyFun boolMonoType mUnit))
+            "when" -> Just (Scheme [m] [monadConstraint] (TyFun boolMonoType (TyFun mUnit mUnit)))
+            "unless" -> Just (Scheme [m] [monadConstraint] (TyFun boolMonoType (TyFun mUnit mUnit)))
+            "liftM" -> Just (Scheme [m, a, r] [monadConstraint] (TyFun (TyFun aTy rTy) (TyFun mA mR)))
+            "liftM2" -> Just (Scheme [m, a, b, r] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy rTy)) (TyFun mA (TyFun mB mR))))
+            "liftM3" -> Just (Scheme [m, a, b, c, r] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy (TyFun cTy rTy))) (TyFun mA (TyFun mB (TyFun mC mR)))))
+            "liftM4" -> Just (Scheme [m, a, b, c, d, r] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy (TyFun cTy (TyFun dTy rTy)))) (TyFun mA (TyFun mB (TyFun mC (TyFun mD mR))))))
+            "liftM5" -> Just (Scheme [m, a, b, c, d, e, r] [monadConstraint] (TyFun (TyFun aTy (TyFun bTy (TyFun cTy (TyFun dTy (TyFun eTy rTy))))) (TyFun mA (TyFun mB (TyFun mC (TyFun mD (TyFun mE mR)))))))
+            "ap" -> Just (Scheme [m, a, b] [monadConstraint] (TyFun (mOf (TyFun aTy bTy)) (TyFun mA mB)))
+            "fixIO" -> Just (Scheme [a] [] (TyFun (TyFun aTy (ioMonoType aTy)) (ioMonoType aTy)))
+            "stdin" -> Just (Scheme [] [] handleMonoType)
+            "stdout" -> Just (Scheme [] [] handleMonoType)
+            "stderr" -> Just (Scheme [] [] handleMonoType)
+            "withFile" -> Just (Scheme [r] [] (TyFun filePathMonoType (TyFun ioModeMonoType (TyFun (TyFun handleMonoType (ioMonoType rTy)) (ioMonoType rTy)))))
+            "openFile" -> Just (Scheme [] [] (TyFun filePathMonoType (TyFun ioModeMonoType (ioMonoType handleMonoType))))
+            "hClose" -> Just (Scheme [] [] (TyFun handleMonoType ioUnit))
+            "readFile" -> Just (Scheme [] [] (TyFun filePathMonoType (ioMonoType stringMonoType)))
+            "writeFile" -> Just (Scheme [] [] (TyFun filePathMonoType (TyFun stringMonoType ioUnit)))
+            "appendFile" -> Just (Scheme [] [] (TyFun filePathMonoType (TyFun stringMonoType ioUnit)))
+            "hFileSize" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType intMonoType)))
+            "hSetFileSize" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun intMonoType ioUnit)))
+            "hIsEOF" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "isEOF" -> Just (Scheme [] [] (ioMonoType boolMonoType))
+            "hSetBuffering" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun bufferModeMonoType ioUnit)))
+            "hGetBuffering" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType bufferModeMonoType)))
+            "hFlush" -> Just (Scheme [] [] (TyFun handleMonoType ioUnit))
+            "hGetPosn" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType handlePosnMonoType)))
+            "hSetPosn" -> Just (Scheme [] [] (TyFun handlePosnMonoType ioUnit))
+            "hSeek" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun seekModeMonoType (TyFun intMonoType ioUnit))))
+            "hTell" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType intMonoType)))
+            "hIsOpen" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hIsClosed" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hIsReadable" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hIsWritable" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hIsSeekable" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hIsTerminalDevice" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hSetEcho" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun boolMonoType ioUnit)))
+            "hGetEcho" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hShow" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType stringMonoType)))
+            "hWaitForInput" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun intMonoType (ioMonoType boolMonoType))))
+            "hReady" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType boolMonoType)))
+            "hGetChar" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType charMonoType)))
+            "hGetLine" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType stringMonoType)))
+            "hLookAhead" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType charMonoType)))
+            "hGetContents" -> Just (Scheme [] [] (TyFun handleMonoType (ioMonoType stringMonoType)))
+            "hPutChar" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun charMonoType ioUnit)))
+            "hPutStr" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun stringMonoType ioUnit)))
+            "hPutStrLn" -> Just (Scheme [] [] (TyFun handleMonoType (TyFun stringMonoType ioUnit)))
+            "hPrint" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun handleMonoType (TyFun aTy ioUnit)))
+            "interact" -> Just (Scheme [] [] (TyFun (TyFun stringMonoType stringMonoType) ioUnit))
+            "putChar" -> Just (Scheme [] [] (TyFun charMonoType ioUnit))
+            "putStr" -> Just (Scheme [] [] (TyFun stringMonoType ioUnit))
             "putStrLn" -> Just (Scheme [] [] (TyFun stringMonoType ioUnit))
+            "getChar" -> Just (Scheme [] [] (ioMonoType charMonoType))
             "getLine" -> Just (Scheme [] [] (ioMonoType stringMonoType))
+            "getContents" -> Just (Scheme [] [] (ioMonoType stringMonoType))
+            "getArgs" -> Just (Scheme [] [] (ioMonoType (TyList stringMonoType)))
+            "getProgName" -> Just (Scheme [] [] (ioMonoType stringMonoType))
+            "getEnv" -> Just (Scheme [] [] (TyFun stringMonoType (ioMonoType stringMonoType)))
+            "exitWith" -> Just (Scheme [a] [] (TyFun exitCodeMonoType (ioMonoType aTy)))
+            "exitFailure" -> Just (Scheme [a] [] (ioMonoType aTy))
+            "exitSuccess" -> Just (Scheme [a] [] (ioMonoType aTy))
             "print" -> Just (Scheme [a] [singleClassConstraint builtinShowClassName aTy] (TyFun aTy ioUnit))
+            "readIO" -> Just (Scheme [a] [singleClassConstraint builtinReadClassName aTy] (TyFun stringMonoType (ioMonoType aTy)))
+            "readLn" -> Just (Scheme [a] [singleClassConstraint builtinReadClassName aTy] (ioMonoType aTy))
+            "userError" -> Just (Scheme [] [] (TyFun stringMonoType ioErrorMonoType))
+            "mkIOError" -> Just (Scheme [] [] (TyFun ioErrorTypeMonoType (TyFun stringMonoType (TyFun maybeHandle (TyFun maybeFilePath ioErrorMonoType)))))
+            "annotateIOError" -> Just (Scheme [] [] (TyFun ioErrorMonoType (TyFun stringMonoType (TyFun maybeHandle (TyFun maybeFilePath ioErrorMonoType)))))
+            "isAlreadyExistsError" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "isDoesNotExistError" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "isAlreadyInUseError" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "isFullError" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "isEOFError" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "isIllegalOperation" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "isPermissionError" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "isUserError" -> Just (Scheme [] [] ioErrorPredicateTy)
+            "ioeGetErrorString" -> Just (Scheme [] [] (TyFun ioErrorMonoType stringMonoType))
+            "ioeGetHandle" -> Just (Scheme [] [] (TyFun ioErrorMonoType maybeHandle))
+            "ioeGetFileName" -> Just (Scheme [] [] (TyFun ioErrorMonoType maybeFilePath))
+            "alreadyExistsErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "doesNotExistErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "alreadyInUseErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "fullErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "eofErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "illegalOperationErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "permissionErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "userErrorType" -> Just (Scheme [] [] ioErrorTypeMonoType)
+            "ioError" -> Just (Scheme [a] [] (TyFun ioErrorMonoType (ioMonoType aTy)))
+            "catch" -> Just (Scheme [a] [] (TyFun (ioMonoType aTy) (TyFun (TyFun ioErrorMonoType (ioMonoType aTy)) (ioMonoType aTy))))
+            "try" -> Just (Scheme [a] [] (TyFun (ioMonoType aTy) (ioMonoType (TyApp (TyApp (TyCon eitherTyConName) ioErrorMonoType) aTy))))
+            "nullPtr" -> Just (Scheme [a] [] ptrA)
+            "castPtr" -> Just (Scheme [a, b] [] (TyFun ptrA ptrB))
+            "nullFunPtr" -> Just (Scheme [a] [] funPtrA)
+            "castFunPtr" -> Just (Scheme [a, b] [] (TyFun funPtrA funPtrB))
+            "castFunPtrToPtr" -> Just (Scheme [a, b] [] (TyFun funPtrA ptrB))
+            "castPtrToFunPtr" -> Just (Scheme [a, b] [] (TyFun ptrA funPtrB))
+            "freeHaskellFunPtr" -> Just (Scheme [a] [] (TyFun funPtrA ioUnit))
             "newStablePtr" -> Just (Scheme [a] [] (TyFun aTy (ioMonoType stablePtrA)))
             "deRefStablePtr" -> Just (Scheme [a] [] (TyFun stablePtrA (ioMonoType aTy)))
             "freeStablePtr" -> Just (Scheme [a] [] (TyFun stablePtrA ioUnit))
@@ -4995,24 +6735,172 @@ preludeValueScheme name
             "newForeignPtr_" -> Just (Scheme [a] [] (TyFun ptrA (ioMonoType foreignPtrA)))
             "addForeignPtrFinalizer" -> Just (Scheme [a] [] (TyFun finalizerPtrA (TyFun foreignPtrA ioUnit)))
             "finalizeForeignPtr" -> Just (Scheme [a] [] (TyFun foreignPtrA ioUnit))
+            "unsafeForeignPtrToPtr" -> Just (Scheme [a] [] (TyFun foreignPtrA ptrA))
             "withForeignPtr" -> Just (Scheme [a, b] [] (TyFun foreignPtrA (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy))))
             "touchForeignPtr" -> Just (Scheme [a] [] (TyFun foreignPtrA ioUnit))
+            "castForeignPtr" -> Just (Scheme [a, b] [] (TyFun foreignPtrA foreignPtrB))
+            "throwIf" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun (TyFun aTy stringMonoType) (TyFun (ioMonoType aTy) (ioMonoType aTy)))))
+            "throwIf_" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun (TyFun aTy stringMonoType) (TyFun (ioMonoType aTy) ioUnit))))
+            "throwIfNull" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (ioMonoType ptrA) (ioMonoType ptrA))))
+            "maybeNew" -> Just (Scheme [a] [] (TyFun (TyFun aTy (ioMonoType ptrA)) (TyFun maybeA (ioMonoType ptrA))))
+            "maybeWith" -> Just (Scheme [a, b, c] [] (TyFun (TyFun aTy (TyFun (TyFun ptrB (ioMonoType cTy)) (ioMonoType cTy))) (TyFun maybeA (TyFun (TyFun ptrB (ioMonoType cTy)) (ioMonoType cTy)))))
+            "maybePeek" -> Just (Scheme [a, b] [] (TyFun (TyFun ptrA (ioMonoType bTy)) (TyFun ptrA (ioMonoType maybeB))))
+            "plusPtr" -> Just (Scheme [a, b] [] (TyFun ptrA (TyFun intMonoType ptrB)))
+            "minusPtr" -> Just (Scheme [a, b] [] (TyFun ptrA (TyFun ptrB intMonoType)))
+            "alignPtr" -> Just (Scheme [a] [] (TyFun ptrA (TyFun intMonoType ptrA)))
+            "malloc" -> Just (Scheme [a] [storableA] (ioMonoType ptrA))
+            "mallocBytes" -> Just (Scheme [a] [] (TyFun intMonoType (ioMonoType ptrA)))
+            "alloca" -> Just (Scheme [a, b] [storableA] (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy)))
+            "allocaBytes" -> Just (Scheme [a, b] [] (TyFun intMonoType (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy))))
+            "realloc" -> Just (Scheme [a, b] [storableB] (TyFun ptrA (ioMonoType ptrB)))
+            "reallocBytes" -> Just (Scheme [a] [] (TyFun ptrA (TyFun intMonoType (ioMonoType ptrA))))
+            "free" -> Just (Scheme [a] [] (TyFun ptrA ioUnit))
+            "finalizerFree" -> Just (Scheme [a] [] finalizerPtrA)
+            "advancePtr" -> Just (Scheme [a] [storableA] (TyFun ptrA (TyFun intMonoType ptrA)))
+            "mallocArray" -> Just (Scheme [a] [storableA] (TyFun intMonoType (ioMonoType ptrA)))
+            "mallocArray0" -> Just (Scheme [a] [storableA] (TyFun intMonoType (ioMonoType ptrA)))
+            "allocaArray" -> Just (Scheme [a, b] [storableA] (TyFun intMonoType (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy))))
+            "allocaArray0" -> Just (Scheme [a, b] [storableA] (TyFun intMonoType (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy))))
+            "reallocArray" -> Just (Scheme [a] [storableA] (TyFun ptrA (TyFun intMonoType (ioMonoType ptrA))))
+            "reallocArray0" -> Just (Scheme [a] [storableA] (TyFun ptrA (TyFun intMonoType (ioMonoType ptrA))))
+            "peekArray" -> Just (Scheme [a] [storableA] (TyFun intMonoType (TyFun ptrA (ioMonoType listA))))
+            "peekArray0" -> Just (Scheme [a] [storableA, eqA] (TyFun aTy (TyFun ptrA (ioMonoType listA))))
+            "pokeArray" -> Just (Scheme [a] [storableA] (TyFun ptrA (TyFun listA ioUnit)))
+            "pokeArray0" -> Just (Scheme [a] [storableA] (TyFun aTy (TyFun ptrA (TyFun listA ioUnit))))
+            "newArray" -> Just (Scheme [a] [storableA] (TyFun listA (ioMonoType ptrA)))
+            "newArray0" -> Just (Scheme [a] [storableA] (TyFun aTy (TyFun listA (ioMonoType ptrA))))
+            "withArray" -> Just (Scheme [a, b] [storableA] (TyFun listA (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy))))
+            "withArray0" -> Just (Scheme [a, b] [storableA] (TyFun aTy (TyFun listA (TyFun (TyFun ptrA (ioMonoType bTy)) (ioMonoType bTy)))))
+            "withArrayLen" -> Just (Scheme [a, b] [storableA] (TyFun listA (TyFun (TyFun intMonoType (TyFun ptrA (ioMonoType bTy))) (ioMonoType bTy))))
+            "withArrayLen0" -> Just (Scheme [a, b] [storableA] (TyFun aTy (TyFun listA (TyFun (TyFun intMonoType (TyFun ptrA (ioMonoType bTy))) (ioMonoType bTy)))))
+            "copyArray" -> Just (Scheme [a] [storableA] (TyFun ptrA (TyFun ptrA (TyFun intMonoType ioUnit))))
+            "moveArray" -> Just (Scheme [a] [storableA] (TyFun ptrA (TyFun ptrA (TyFun intMonoType ioUnit))))
+            "lengthArray0" -> Just (Scheme [a] [storableA, eqA] (TyFun aTy (TyFun ptrA (ioMonoType intMonoType))))
+            "copyBytes" -> Just (Scheme [a, b] [] (TyFun ptrA (TyFun ptrB (TyFun intMonoType ioUnit))))
+            "moveBytes" -> Just (Scheme [a, b] [] (TyFun ptrA (TyFun ptrB (TyFun intMonoType ioUnit))))
+            "peekCString" -> Just (Scheme [] [] (TyFun cStringMonoType (ioMonoType stringMonoType)))
+            "peekCStringLen" -> Just (Scheme [] [] (TyFun cStringLenMonoType (ioMonoType stringMonoType)))
+            "newCString" -> Just (Scheme [] [] (TyFun stringMonoType (ioMonoType cStringMonoType)))
+            "newCStringLen" -> Just (Scheme [] [] (TyFun stringMonoType (ioMonoType cStringLenMonoType)))
+            "withCString" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (TyFun cStringMonoType (ioMonoType aTy)) (ioMonoType aTy))))
+            "withCStringLen" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (TyFun cStringLenMonoType (ioMonoType aTy)) (ioMonoType aTy))))
+            "peekCAString" -> Just (Scheme [] [] (TyFun cStringMonoType (ioMonoType stringMonoType)))
+            "peekCAStringLen" -> Just (Scheme [] [] (TyFun cStringLenMonoType (ioMonoType stringMonoType)))
+            "newCAString" -> Just (Scheme [] [] (TyFun stringMonoType (ioMonoType cStringMonoType)))
+            "newCAStringLen" -> Just (Scheme [] [] (TyFun stringMonoType (ioMonoType cStringLenMonoType)))
+            "withCAString" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (TyFun cStringMonoType (ioMonoType aTy)) (ioMonoType aTy))))
+            "withCAStringLen" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (TyFun cStringLenMonoType (ioMonoType aTy)) (ioMonoType aTy))))
+            "peekCWString" -> Just (Scheme [] [] (TyFun cWStringMonoType (ioMonoType stringMonoType)))
+            "peekCWStringLen" -> Just (Scheme [] [] (TyFun cWStringLenMonoType (ioMonoType stringMonoType)))
+            "newCWString" -> Just (Scheme [] [] (TyFun stringMonoType (ioMonoType cWStringMonoType)))
+            "newCWStringLen" -> Just (Scheme [] [] (TyFun stringMonoType (ioMonoType cWStringLenMonoType)))
+            "withCWString" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (TyFun cWStringMonoType (ioMonoType aTy)) (ioMonoType aTy))))
+            "withCWStringLen" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (TyFun cWStringLenMonoType (ioMonoType aTy)) (ioMonoType aTy))))
+            "charIsRepresentable" -> Just (Scheme [] [] (TyFun charMonoType (ioMonoType boolMonoType)))
+            "castCharToCChar" -> Just (Scheme [] [] (TyFun charMonoType cCharMonoType))
+            "castCCharToChar" -> Just (Scheme [] [] (TyFun cCharMonoType charMonoType))
+            "castCharToCUChar" -> Just (Scheme [] [] (TyFun charMonoType cUCharMonoType))
+            "castCUCharToChar" -> Just (Scheme [] [] (TyFun cUCharMonoType charMonoType))
+            "castCharToCSChar" -> Just (Scheme [] [] (TyFun charMonoType cCharMonoType))
+            "castCSCharToChar" -> Just (Scheme [] [] (TyFun cCharMonoType charMonoType))
+            "isValidErrno" -> Just (Scheme [] [] (TyFun errnoMonoType boolMonoType))
+            "getErrno" -> Just (Scheme [] [] (ioMonoType errnoMonoType))
+            "resetErrno" -> Just (Scheme [] [] ioUnit)
+            "errnoToIOError" -> Just (Scheme [] [] (TyFun stringMonoType (TyFun errnoMonoType (TyFun maybeHandle (TyFun maybeFilePath ioErrorMonoType)))))
+            "throwErrno" -> Just (Scheme [a] [] (TyFun stringMonoType (ioMonoType aTy)))
+            "throwErrnoIf" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun (ioMonoType aTy) (ioMonoType aTy)))))
+            "throwErrnoIf_" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun (ioMonoType aTy) ioUnit))))
+            "throwErrnoIfRetry" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun (ioMonoType aTy) (ioMonoType aTy)))))
+            "throwErrnoIfRetry_" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun (ioMonoType aTy) ioUnit))))
+            "throwErrnoIfMinus1" -> Just (Scheme [a] [numA, eqA] (TyFun stringMonoType (TyFun (ioMonoType aTy) (ioMonoType aTy))))
+            "throwErrnoIfMinus1_" -> Just (Scheme [a] [numA, eqA] (TyFun stringMonoType (TyFun (ioMonoType aTy) ioUnit)))
+            "throwErrnoIfMinus1Retry" -> Just (Scheme [a] [numA, eqA] (TyFun stringMonoType (TyFun (ioMonoType aTy) (ioMonoType aTy))))
+            "throwErrnoIfMinus1Retry_" -> Just (Scheme [a] [numA, eqA] (TyFun stringMonoType (TyFun (ioMonoType aTy) ioUnit)))
+            "throwErrnoIfNull" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (ioMonoType ptrA) (ioMonoType ptrA))))
+            "throwErrnoIfNullRetry" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun (ioMonoType ptrA) (ioMonoType ptrA))))
+            "throwErrnoIfRetryMayBlock" -> Just (Scheme [a, b] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun (ioMonoType aTy) (TyFun (ioMonoType bTy) (ioMonoType aTy))))))
+            "throwErrnoIfRetryMayBlock_" -> Just (Scheme [a, b] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun (ioMonoType aTy) (TyFun (ioMonoType bTy) ioUnit)))))
+            "throwErrnoIfMinus1RetryMayBlock" -> Just (Scheme [a, b] [numA, eqA] (TyFun stringMonoType (TyFun (ioMonoType aTy) (TyFun (ioMonoType bTy) (ioMonoType aTy)))))
+            "throwErrnoIfMinus1RetryMayBlock_" -> Just (Scheme [a, b] [numA, eqA] (TyFun stringMonoType (TyFun (ioMonoType aTy) (TyFun (ioMonoType bTy) ioUnit))))
+            "throwErrnoIfNullRetryMayBlock" -> Just (Scheme [a, b] [] (TyFun stringMonoType (TyFun (ioMonoType ptrA) (TyFun (ioMonoType bTy) (ioMonoType ptrA)))))
+            "throwErrnoPath" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun stringMonoType (ioMonoType aTy))))
+            "throwErrnoPathIf" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun stringMonoType (TyFun (ioMonoType aTy) (ioMonoType aTy))))))
+            "throwErrnoPathIf_" -> Just (Scheme [a] [] (TyFun (TyFun aTy boolMonoType) (TyFun stringMonoType (TyFun stringMonoType (TyFun (ioMonoType aTy) ioUnit)))))
+            "throwErrnoPathIfNull" -> Just (Scheme [a] [] (TyFun stringMonoType (TyFun stringMonoType (TyFun (ioMonoType ptrA) (ioMonoType ptrA)))))
+            "throwErrnoPathIfMinus1" -> Just (Scheme [a] [numA, eqA] (TyFun stringMonoType (TyFun stringMonoType (TyFun (ioMonoType aTy) (ioMonoType aTy)))))
+            "throwErrnoPathIfMinus1_" -> Just (Scheme [a] [numA, eqA] (TyFun stringMonoType (TyFun stringMonoType (TyFun (ioMonoType aTy) ioUnit))))
+            occurrence
+              | isErrnoConstantOccurrence occurrence -> Just (Scheme [] [] errnoMonoType)
             _ -> Nothing
  where
   a = preludeTypeVariable "a" (-1201)
   b = preludeTypeVariable "b" (-1202)
   c = preludeTypeVariable "c" (-1203)
+  d = preludeTypeVariable "d" (-1204)
+  e = preludeTypeVariable "e" (-1205)
+  r = preludeTypeVariable "r" (-1206)
+  f = preludeTypeVariable "f" (-1207)
+  m = preludeTypeVariable "m" (-1208)
   aTy = TyVar a
   bTy = TyVar b
   cTy = TyVar c
+  dTy = TyVar d
+  eTy = TyVar e
+  rTy = TyVar r
+  fTy = TyVar f
+  mTy = TyVar m
   listA = TyList aTy
   listB = TyList bTy
+  listC = TyList cTy
   tupleAB = TyTuple [aTy, bTy]
+  tupleBC = TyTuple [bTy, cTy]
+  maybeA = TyApp (TyCon maybeTyConName) aTy
+  maybeB = TyApp (TyCon maybeTyConName) bTy
+  mOf ty = TyApp mTy ty
+  mA = mOf aTy
+  mB = mOf bTy
+  mC = mOf cTy
+  mD = mOf dTy
+  mE = mOf eTy
+  mR = mOf rTy
+  mUnit = mOf unitMonoType
+  mBool = mOf boolMonoType
+  mList ty = mOf (TyList ty)
+  fA = TyApp fTy aTy
+  fUnit = TyApp fTy unitMonoType
+  monadConstraint = singleClassConstraint builtinMonadClassName mTy
+  monadPlusConstraint = singleClassConstraint builtinMonadPlusClassName mTy
+  storableA = singleClassConstraint builtinStorableClassName aTy
+  storableB = singleClassConstraint builtinStorableClassName bTy
+  eqA = singleClassConstraint builtinEqClassName aTy
+  numA = singleClassConstraint builtinNumClassName aTy
+  cCharMonoType = builtinForeignTypeMonoType "CChar"
+  cUCharMonoType = builtinForeignTypeMonoType "CUChar"
+  cWCharMonoType = builtinForeignTypeMonoType "CWchar"
+  cStringMonoType = TyApp (TyCon ptrTyConName) cCharMonoType
+  cWStringMonoType = TyApp (TyCon ptrTyConName) cWCharMonoType
+  cStringLenMonoType = TyTuple [cStringMonoType, intMonoType]
+  cWStringLenMonoType = TyTuple [cWStringMonoType, intMonoType]
+  errnoMonoType = builtinForeignTypeMonoType "CInt"
+  readSA = TyFun stringMonoType (TyList (TyTuple [aTy, stringMonoType]))
+  readListSA = TyFun stringMonoType (TyList (TyTuple [listA, stringMonoType]))
+  intReadS = TyFun stringMonoType (TyList (TyTuple [intMonoType, stringMonoType]))
+  integerReadS = TyFun stringMonoType (TyList (TyTuple [integerMonoType, stringMonoType]))
+  boolReadS = TyFun stringMonoType (TyList (TyTuple [boolMonoType, stringMonoType]))
+  charReadS = TyFun stringMonoType (TyList (TyTuple [charMonoType, stringMonoType]))
+  stringReadS = TyFun stringMonoType (TyList (TyTuple [stringMonoType, stringMonoType]))
   ioUnit = ioMonoType unitMonoType
+  maybeHandle = TyApp (TyCon maybeTyConName) handleMonoType
+  maybeFilePath = TyApp (TyCon maybeTyConName) filePathMonoType
+  ioErrorPredicateTy = TyFun ioErrorMonoType boolMonoType
   ptrA = TyApp (TyCon ptrTyConName) aTy
+  ptrB = TyApp (TyCon ptrTyConName) bTy
   ptrUnit = TyApp (TyCon ptrTyConName) unitMonoType
+  funPtrA = TyApp (TyCon funPtrTyConName) aTy
+  funPtrB = TyApp (TyCon funPtrTyConName) bTy
   stablePtrA = TyApp (TyCon stablePtrTyConName) aTy
   foreignPtrA = TyApp (TyCon foreignPtrTyConName) aTy
+  foreignPtrB = TyApp (TyCon foreignPtrTyConName) bTy
   finalizerPtrA = TyApp (TyCon funPtrTyConName) (TyFun ptrA ioUnit)
 
 inferInfixApp :: TypeEnv -> RExpr -> RName -> RExpr -> InferM TypedExpr
@@ -5042,7 +6930,7 @@ inferPrimitive env lhs op rhs =
     "+" -> overloadedBinary "Num" "+"
     "-" -> overloadedBinary "Num" "-"
     "*" -> overloadedBinary "Num" "*"
-    "/" -> fixedInt PrimDiv
+    "/" -> overloadedBinary "Fractional" "/"
     "++" -> inferExpr env (RApp (RApp (RVar op) lhs) rhs)
     "<" -> overloadedBinary "Ord" "<"
     "<=" -> overloadedBinary "Ord" "<="
@@ -5072,13 +6960,6 @@ inferPrimitive env lhs op rhs =
           | continueName == falseDataConName = TypedAlt (ConstructorAlt falseDataConName) [] typedRhs
           | otherwise = TypedAlt (ConstructorAlt falseDataConName) [] shortcutValue
     pure (TCase typedLhs caseBinder [trueAlt, falseAlt] boolMonoType)
-
-  fixedInt prim = do
-    typedLhs <- inferExpr env lhs
-    typedRhs <- inferExpr env rhs
-    unify (typedExprType typedLhs) intMonoType
-    unify (typedExprType typedRhs) intMonoType
-    pure (TPrim prim [typedLhs, typedRhs] intMonoType)
 
   overloadedBinary classOccurrence methodOccurrence = do
     typedLhs <- inferExpr env lhs
@@ -5668,6 +7549,7 @@ singleLazyBinding :: RName -> MonoType -> TypedExpr -> ([TypedBinding], TypeEnv)
 singleLazyBinding name ty scrutinee =
   ( [ TypedBinding
         { typedBindingName = name
+        , typedBindingSpan = Nothing
         , typedBindingScheme = Scheme [] [] ty
         , typedBindingGeneralizedMetas = Map.empty
         , typedBindingRhs = scrutinee
@@ -6134,14 +8016,15 @@ requireSingleConstraintArgument className = \case
   arguments ->
     throwTypecheck (InvalidClassConstraintArity className (length arguments))
 
-unsupportedSourceClassConstraintContext :: ClassConstraintContext -> [RHsType] -> InferM a
-unsupportedSourceClassConstraintContext context sourceConstraints = do
-  constraints <- traverse sourceClassConstraint sourceConstraints
-  throwUnsupportedClassConstraintContext context constraints
-
 throwUnsupportedClassConstraintContext :: ClassConstraintContext -> [ClassConstraint] -> InferM a
 throwUnsupportedClassConstraintContext context constraints =
-  throwTypecheck (UnsupportedClassConstraintContext context constraints)
+  throwTypecheck
+    ( maybe
+        id
+        TypecheckErrorAt
+        (listToMaybe (mapMaybe classConstraintSpan constraints))
+        (UnsupportedClassConstraintContext context constraints)
+    )
 
 sourceMonoType :: RHsType -> InferM MonoType
 sourceMonoType sourceType =
@@ -6187,7 +8070,7 @@ expandTypeSynonyms stack sourceType =
     case typeApplicationSpine sourceType of
       Just (name, args) -> do
         synonyms <- typeSynonyms <$> get
-        case Map.lookup name synonyms of
+        case Map.lookup name synonyms <|> builtinTypeSynonymInfo name of
           Just info ->
             expandSynonymApplication stack name info args
           Nothing ->
@@ -6407,13 +8290,28 @@ builtinTypeConstructorMonoType name =
     Just _ ->
       case nameOcc name of
         "Int" -> pure intMonoType
-        "Integer" -> pure intMonoType
+        "Integer" -> pure integerMonoType
+        "Float" -> pure floatMonoType
+        "Double" -> pure doubleMonoType
         "Bool" -> pure boolMonoType
         "Char" -> pure charMonoType
+        other
+          | Just fixed <- fixedIntegralTypeByOccurrence other -> pure (fixedIntegralMonoType fixed)
+        "Ratio" -> pure (TyCon ratioTyConName)
         "Rational" -> pure rationalMonoType
         "String" -> pure stringMonoType
+        "ShowS" -> pure (TyFun stringMonoType stringMonoType)
+        "FilePath" -> pure filePathMonoType
         "[]" -> pure (TyCon listTyConName)
         "IO" -> pure (TyCon ioTyConName)
+        "IOError" -> pure ioErrorMonoType
+        "IOErrorType" -> pure ioErrorTypeMonoType
+        "Handle" -> pure handleMonoType
+        "HandlePosn" -> pure handlePosnMonoType
+        "IOMode" -> pure ioModeMonoType
+        "BufferMode" -> pure bufferModeMonoType
+        "SeekMode" -> pure seekModeMonoType
+        "ExitCode" -> pure exitCodeMonoType
         "Maybe" -> pure (TyCon maybeTyConName)
         "Either" -> pure (TyCon eitherTyConName)
         "Ordering" -> pure orderingMonoType
@@ -6422,8 +8320,15 @@ builtinTypeConstructorMonoType name =
         "FunPtr" -> pure (TyCon funPtrTyConName)
         "StablePtr" -> pure (TyCon stablePtrTyConName)
         "ForeignPtr" -> pure (TyCon foreignPtrTyConName)
+        "FinalizerPtr" -> pure (TyCon name)
+        "FinalizerEnvPtr" -> pure (TyCon name)
+        "Errno" -> pure (builtinForeignTypeMonoType "CInt")
+        "CString" -> pure (TyApp (TyCon ptrTyConName) (builtinForeignTypeMonoType "CChar"))
+        "CWString" -> pure (TyApp (TyCon ptrTyConName) (builtinForeignTypeMonoType "CWchar"))
+        "CStringLen" -> pure (TyCon name)
+        "CWStringLen" -> pure (TyCon name)
         other
-          | isBuiltinForeignTypeOccurrence other -> pure (TyCon name)
+          | isBuiltinForeignTypeOccurrence other -> pure (builtinForeignTypeMonoType other)
           | otherwise -> throwTypecheck (UnsupportedCore0 ("type constructor `" <> other <> "`"))
 
 builtinTypeConstructorInfo :: RName -> Maybe TypeConstructorInfo
@@ -6434,16 +8339,39 @@ builtinTypeConstructorInfo name
         <$> case nameOcc name of
           "Int" -> Just 0
           "Integer" -> Just 0
+          "Float" -> Just 0
+          "Double" -> Just 0
           "Bool" -> Just 0
           "Char" -> Just 0
+          other
+            | Just _ <- fixedIntegralTypeByOccurrence other -> Just 0
+          "Ratio" -> Just 1
           "Rational" -> Just 0
           "String" -> Just 0
+          "ShowS" -> Just 0
+          "ReadS" -> Just 1
+          "FilePath" -> Just 0
           "[]" -> Just 1
           "IO" -> Just 1
+          "IOError" -> Just 0
+          "IOErrorType" -> Just 0
+          "Handle" -> Just 0
+          "HandlePosn" -> Just 0
+          "IOMode" -> Just 0
+          "BufferMode" -> Just 0
+          "SeekMode" -> Just 0
+          "ExitCode" -> Just 0
           "Maybe" -> Just 1
           "Either" -> Just 2
           "Ordering" -> Just 0
           "()" -> Just 0
+          "FinalizerPtr" -> Just 1
+          "FinalizerEnvPtr" -> Just 2
+          "Errno" -> Just 0
+          "CString" -> Just 0
+          "CWString" -> Just 0
+          "CStringLen" -> Just 0
+          "CWStringLen" -> Just 0
           other -> builtinForeignTypeArity other
 
 builtinForeignTypeArity :: Text -> Maybe Int
@@ -6457,15 +8385,114 @@ isBuiltinForeignTypeOccurrence occurrence =
   occurrence `Set.member` scalarForeignTypeOccurrences
     || occurrence `Set.member` pointerForeignTypeOccurrences
 
+builtinTypeSynonymInfo :: RName -> Maybe TypeSynonymInfo
+builtinTypeSynonymInfo name
+  | not (nameExternal name) = Nothing
+  | otherwise =
+      case nameOcc name of
+        "ShowS" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = []
+              , typeSynonymBody = RTyFun stringSourceType stringSourceType
+              }
+        "ReadS" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = [readSynonymA]
+              , typeSynonymBody = RTyFun stringSourceType (RTyList (RTyTuple [RTyVar readSynonymA, stringSourceType]))
+              }
+        "Rational" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = []
+              , typeSynonymBody = RTyApp (RTyCon (preludeTypeName "Ratio" (-120070))) (RTyCon (preludeTypeName "Integer" (-120002)))
+              }
+        "FilePath" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = []
+              , typeSynonymBody = stringSourceType
+              }
+        "FinalizerPtr" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = [finalizerA]
+              , typeSynonymBody =
+                  RTyApp
+                    (RTyCon (preludeTypeName "FunPtr" (-120031)))
+                    ( RTyFun
+                        (RTyApp (RTyCon (preludeTypeName "Ptr" (-120030))) (RTyVar finalizerA))
+                        (RTyApp (RTyCon (preludeTypeName "IO" (-120007))) (RTyTuple []))
+                    )
+              }
+        "FinalizerEnvPtr" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = [finalizerEnv, finalizerA]
+              , typeSynonymBody =
+                  RTyApp
+                    (RTyCon (preludeTypeName "FunPtr" (-120031)))
+                    ( RTyFun
+                        (RTyApp (RTyCon (preludeTypeName "Ptr" (-120030))) (RTyVar finalizerEnv))
+                        ( RTyFun
+                            (RTyApp (RTyCon (preludeTypeName "Ptr" (-120030))) (RTyVar finalizerA))
+                            (RTyApp (RTyCon (preludeTypeName "IO" (-120007))) (RTyTuple []))
+                        )
+                    )
+              }
+        "CStringLen" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = []
+              , typeSynonymBody = RTyTuple [RTyCon (preludeTypeName "CString" (-120011)), RTyCon (preludeTypeName "Int" (-120001))]
+              }
+        "CWStringLen" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = []
+              , typeSynonymBody = RTyTuple [RTyCon (preludeTypeName "CWString" (-120012)), RTyCon (preludeTypeName "Int" (-120001))]
+              }
+        "Errno" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = []
+              , typeSynonymBody = RTyCon (preludeTypeName "CInt" (-120041))
+              }
+        "CString" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = []
+              , typeSynonymBody = RTyApp (RTyCon (preludeTypeName "Ptr" (-120030))) (RTyCon (preludeTypeName "CChar" (-120041)))
+              }
+        "CWString" ->
+          Just
+            TypeSynonymInfo
+              { typeSynonymParams = []
+              , typeSynonymBody = RTyApp (RTyCon (preludeTypeName "Ptr" (-120030))) (RTyCon (preludeTypeName "CWchar" (-120042)))
+              }
+        _ -> Nothing
+ where
+  readSynonymA = preludeTypeVariable "a" (-1569)
+  finalizerA = preludeTypeVariable "a" (-1570)
+  finalizerEnv = preludeTypeVariable "env" (-1571)
+  stringSourceType = RTyCon (preludeTypeName "String" (-120010))
+
+preludeTypeName :: Text -> Int -> RName
+preludeTypeName occurrence unique =
+  RName TypeNamespace occurrence unique True
+
 scalarForeignTypeOccurrences :: Set.Set Text
 scalarForeignTypeOccurrences =
-  Set.fromList
+  Set.fromList scalarForeignTypeOccurrenceList
+
+scalarForeignTypeOccurrenceList :: [Text]
+scalarForeignTypeOccurrenceList =
     [ "Int"
     , "Bool"
     , "Char"
     , "Float"
     , "Double"
-    , "Word"
     , "Int8"
     , "Int16"
     , "Int32"
@@ -6474,8 +8501,6 @@ scalarForeignTypeOccurrences =
     , "Word16"
     , "Word32"
     , "Word64"
-    , "CString"
-    , "CWString"
     , "CChar"
     , "CSChar"
     , "CUChar"
@@ -6507,6 +8532,53 @@ scalarForeignTypeOccurrences =
 pointerForeignTypeOccurrences :: Set.Set Text
 pointerForeignTypeOccurrences =
   Set.fromList ["Ptr", "FunPtr", "StablePtr", "ForeignPtr"]
+
+builtinForeignTypeMonoType :: Text -> MonoType
+builtinForeignTypeMonoType occurrence =
+  case foreignCTypeAlias occurrence of
+    Just ty -> ty
+    Nothing -> TyCon (builtinForeignTypeName occurrence)
+
+foreignCTypeAlias :: Text -> Maybe MonoType
+foreignCTypeAlias = \case
+  "CChar" -> Just (fixedIntegralMonoType FixedInt8)
+  "CSChar" -> Just (fixedIntegralMonoType FixedInt8)
+  "CUChar" -> Just (fixedIntegralMonoType FixedWord8)
+  "CShort" -> Just (fixedIntegralMonoType FixedInt16)
+  "CUShort" -> Just (fixedIntegralMonoType FixedWord16)
+  "CInt" -> Just (fixedIntegralMonoType FixedInt32)
+  "CUInt" -> Just (fixedIntegralMonoType FixedWord32)
+  "CLong" -> Just (fixedIntegralMonoType FixedInt64)
+  "CULong" -> Just (fixedIntegralMonoType FixedWord64)
+  "CLLong" -> Just (fixedIntegralMonoType FixedInt64)
+  "CULLong" -> Just (fixedIntegralMonoType FixedWord64)
+  "CFloat" -> Just floatMonoType
+  "CDouble" -> Just doubleMonoType
+  "CPtrdiff" -> Just (fixedIntegralMonoType FixedInt64)
+  "CSize" -> Just (fixedIntegralMonoType FixedWord64)
+  "CWchar" -> Just (fixedIntegralMonoType FixedInt32)
+  "CSigAtomic" -> Just (fixedIntegralMonoType FixedInt32)
+  "CIntPtr" -> Just (fixedIntegralMonoType FixedInt64)
+  "CUIntPtr" -> Just (fixedIntegralMonoType FixedWord64)
+  "CIntMax" -> Just (fixedIntegralMonoType FixedInt64)
+  "CUIntMax" -> Just (fixedIntegralMonoType FixedWord64)
+  "CClock" -> Just (fixedIntegralMonoType FixedInt64)
+  "CTime" -> Just (fixedIntegralMonoType FixedInt64)
+  _ -> Nothing
+
+builtinForeignTypeName :: Text -> RName
+builtinForeignTypeName occurrence =
+  maybe (RName TypeNamespace occurrence (builtinForeignTypeUnique occurrence) True) fixedIntegralTypeName (fixedIntegralTypeByOccurrence occurrence)
+
+builtinForeignTypeUnique :: Text -> Int
+builtinForeignTypeUnique occurrence =
+  case List.elemIndex occurrence scalarForeignTypeOccurrenceList of
+    Just index -> -121000 - index
+    Nothing -> -121999
+
+fixedIntegralMonoType :: FixedIntegral -> MonoType
+fixedIntegralMonoType =
+  coreTypeToMono . fixedIntegralTy
 
 instantiate :: Scheme -> InferM (MonoType, [MonoType])
 instantiate (Scheme variables _ body) = do
@@ -6698,17 +8770,66 @@ preludeCoreBindings names =
       [] -> []
       _ -> [CoreRec pairs]
  where
+  expandedNames = preludeCoreDependencyClosure names
   pairs =
     [ pair
-    | name <- List.nub names
+    | name <- expandedNames
     , pair <- maybe [] (: []) (preludeCorePair name)
     ]
-      <> [reverseGoCorePair | any ((== "reverse") . nameOcc) names]
+      <> [reverseGoCorePair | any ((== "reverse") . nameOcc) expandedNames]
+
+preludeCoreDependencies :: RName -> [RName]
+preludeCoreDependencies name =
+  case nameOcc name of
+    "lex" -> readSupportPreludeNames
+    "read" -> readSupportPreludeNames
+    "readIO" -> readSupportPreludeNames
+    "readLn" -> preludeTermName "readIO" (-3185) : readSupportPreludeNames
+    "readParen" -> readSupportPreludeNames
+    "%" -> ratioSupportPreludeNames
+    "approxRational" -> ratioSupportPreludeNames
+    "newArray" -> [standardLibraryTermName "pokeArray"]
+    "pokeArray0" -> [standardLibraryTermName "pokeArray"]
+    "newArray0" -> [standardLibraryTermName "pokeArray0"]
+    "withArray" -> [standardLibraryTermName "newArray"]
+    "withArray0" -> [standardLibraryTermName "newArray0"]
+    "withArrayLen" -> [standardLibraryTermName "withArray"]
+    "withArrayLen0" -> [standardLibraryTermName "withArray0"]
+    "throwErrnoIfRetry_" -> [standardLibraryTermName "throwErrnoIfRetry"]
+    "throwErrnoIfMinus1Retry_" -> [standardLibraryTermName "throwErrnoIfMinus1Retry"]
+    "throwErrnoIfRetryMayBlock_" -> [standardLibraryTermName "throwErrnoIfRetryMayBlock"]
+    "throwErrnoIfMinus1RetryMayBlock_" -> [standardLibraryTermName "throwErrnoIfMinus1RetryMayBlock"]
+    occurrence
+      | "$read_" `Text.isPrefixOf` occurrence -> []
+      | "$ratio_" `Text.isPrefixOf` occurrence -> []
+    _ -> []
+
+preludeCoreDependencyClosure :: [RName] -> [RName]
+preludeCoreDependencyClosure =
+  go []
+ where
+  go seen [] =
+    List.nub (reverse seen)
+  go seen (name : rest)
+    | name `elem` seen = go seen rest
+    | otherwise = go (name : seen) (preludeCoreDependencies name <> rest)
 
 classPreludeSupportNames :: Map.Map RName ClassInfo -> [RName]
-classPreludeSupportNames classes
-  | builtinEnumClassName `Map.member` classes = derivedMapName : arithmeticSequencePreludeNames
-  | otherwise = []
+classPreludeSupportNames classes =
+  enumSupport <> ixSupport <> readSupport <> ratioSupport
+ where
+  enumSupport
+    | builtinEnumClassName `Map.member` classes = derivedMapName : arithmeticSequencePreludeNames
+    | otherwise = []
+  ixSupport
+    | builtinIxClassName `Map.member` classes = derivedMapName : arithmeticSequencePreludeNames
+    | otherwise = []
+  readSupport
+    | builtinReadClassName `Map.member` classes = readSupportPreludeNames
+    | otherwise = []
+  ratioSupport
+    | any (`Map.member` classes) [builtinEqClassName, builtinOrdClassName, builtinNumClassName, builtinRealClassName, builtinShowClassName, builtinReadClassName] = ratioSupportPreludeNames
+    | otherwise = []
 
 preludeCorePair :: RName -> Maybe (CoreBinder, CoreExpr)
 preludeCorePair name =
@@ -6762,15 +8883,206 @@ preludeCorePair name =
       Just (binderFor name reverseTy, reverseRhs)
     "++" ->
       Just (binderFor name appendTy, appendRhs name)
+    "shows" ->
+      Just (binderFor name showsTy, showsRhs)
+    "reads" ->
+      Just (binderFor name readsTy, readsRhs)
+    "read" ->
+      Just (binderFor name readTy, readRhs)
+    "lex" ->
+      Just (binderFor name lexTy, CVar readLexName lexTy)
+    "readParen" ->
+      Just (binderFor name readParenTy, CVar readParenName readParenTy)
+    "%" ->
+      Just (binderFor name ratioPercentCoreType, CVar ratioReduceName ratioPercentCoreType)
+    "numerator" ->
+      Just (binderFor name ratioAccessorCoreType, ratioNumeratorRhs)
+    "denominator" ->
+      Just (binderFor name ratioAccessorCoreType, ratioDenominatorRhs)
+    "approxRational" ->
+      Just (binderFor name ratioApproxRationalCoreType, ratioApproxRationalRhs)
+    "fixIO" ->
+      Just (binderFor name fixIOTy, fixIORhs)
+    "stdin" ->
+      Just (binderFor name handleTy, CPrimOp (PrimStdHandle StdInHandle) [] handleTy)
+    "stdout" ->
+      Just (binderFor name handleTy, CPrimOp (PrimStdHandle StdOutHandle) [] handleTy)
+    "stderr" ->
+      Just (binderFor name handleTy, CPrimOp (PrimStdHandle StdErrHandle) [] handleTy)
+    "withFile" ->
+      Just (binderFor name withFileTy, withFileRhs)
+    "openFile" ->
+      Just (binderFor name openFileTy, lam ioFilePath stringTy (lam ioMode ioModeTy (CPrimOp PrimOpenFile [var ioFilePath stringTy, var ioMode ioModeTy] (ioTy handleTy))))
+    "hClose" ->
+      Just (binderFor name hCloseTy, lam ioHandle handleTy (CPrimOp PrimHClose [var ioHandle handleTy] ioUnitTy))
+    "readFile" ->
+      Just (binderFor name readFileTy, lam ioFilePath stringTy (CPrimOp PrimReadFile [var ioFilePath stringTy] (ioTy stringTy)))
+    "writeFile" ->
+      Just (binderFor name writeFileTy, lam ioFilePath stringTy (lam ioString stringTy (CPrimOp PrimWriteFile [var ioFilePath stringTy, var ioString stringTy] ioUnitTy)))
+    "appendFile" ->
+      Just (binderFor name appendFileTy, lam ioFilePath stringTy (lam ioString stringTy (CPrimOp PrimAppendFile [var ioFilePath stringTy, var ioString stringTy] ioUnitTy)))
+    "hFileSize" ->
+      Just (binderFor name hFileSizeTy, lam ioHandle handleTy (CPrimOp PrimHFileSize [var ioHandle handleTy] (ioTy intTy)))
+    "hSetFileSize" ->
+      Just (binderFor name hSetFileSizeTy, lam ioHandle handleTy (lam ioInt intTy (CPrimOp PrimHSetFileSize [var ioHandle handleTy, var ioInt intTy] ioUnitTy)))
+    "hIsEOF" ->
+      Just (binderFor name hIsEOFTy, lam ioHandle handleTy (CPrimOp PrimHIsEOF [var ioHandle handleTy] (ioTy boolTy)))
+    "isEOF" ->
+      Just (binderFor name isEOFTy, CPrimOp PrimHIsEOF [CPrimOp (PrimStdHandle StdInHandle) [] handleTy] (ioTy boolTy))
+    "hSetBuffering" ->
+      Just (binderFor name hSetBufferingTy, lam ioHandle handleTy (lam ioBufferMode bufferModeTy (CPrimOp PrimHSetBuffering [var ioHandle handleTy, var ioBufferMode bufferModeTy] ioUnitTy)))
+    "hGetBuffering" ->
+      Just (binderFor name hGetBufferingTy, lam ioHandle handleTy (CPrimOp PrimHGetBuffering [var ioHandle handleTy] (ioTy bufferModeTy)))
+    "hFlush" ->
+      Just (binderFor name hCloseTy, lam ioHandle handleTy (CPrimOp PrimHFlush [var ioHandle handleTy] ioUnitTy))
+    "hGetPosn" ->
+      Just (binderFor name hGetPosnTy, lam ioHandle handleTy (CPrimOp PrimHGetPosn [var ioHandle handleTy] (ioTy handlePosnTy)))
+    "hSetPosn" ->
+      Just (binderFor name hSetPosnTy, lam ioPosn handlePosnTy (CPrimOp PrimHSetPosn [var ioPosn handlePosnTy] ioUnitTy))
+    "hSeek" ->
+      Just (binderFor name hSeekTy, lam ioHandle handleTy (lam ioSeekMode seekModeTy (lam ioInt intTy (CPrimOp PrimHSeek [var ioHandle handleTy, var ioSeekMode seekModeTy, var ioInt intTy] ioUnitTy))))
+    "hTell" ->
+      Just (binderFor name hTellTy, lam ioHandle handleTy (CPrimOp PrimHTell [var ioHandle handleTy] (ioTy intTy)))
+    "hIsOpen" ->
+      Just (binderFor name hHandleBoolTy, lam ioHandle handleTy (CPrimOp PrimHIsOpen [var ioHandle handleTy] (ioTy boolTy)))
+    "hIsClosed" ->
+      Just (binderFor name hHandleBoolTy, lam ioHandle handleTy (CPrimOp PrimHIsClosed [var ioHandle handleTy] (ioTy boolTy)))
+    "hIsReadable" ->
+      Just (binderFor name hHandleBoolTy, lam ioHandle handleTy (CPrimOp PrimHIsReadable [var ioHandle handleTy] (ioTy boolTy)))
+    "hIsWritable" ->
+      Just (binderFor name hHandleBoolTy, lam ioHandle handleTy (CPrimOp PrimHIsWritable [var ioHandle handleTy] (ioTy boolTy)))
+    "hIsSeekable" ->
+      Just (binderFor name hHandleBoolTy, lam ioHandle handleTy (CPrimOp PrimHIsSeekable [var ioHandle handleTy] (ioTy boolTy)))
+    "hIsTerminalDevice" ->
+      Just (binderFor name hHandleBoolTy, lam ioHandle handleTy (CPrimOp PrimHIsTerminalDevice [var ioHandle handleTy] (ioTy boolTy)))
+    "hSetEcho" ->
+      Just (binderFor name hSetEchoTy, lam ioHandle handleTy (lam ioBool boolTy (CPrimOp PrimHSetEcho [var ioHandle handleTy, var ioBool boolTy] ioUnitTy)))
+    "hGetEcho" ->
+      Just (binderFor name hHandleBoolTy, lam ioHandle handleTy (CPrimOp PrimHGetEcho [var ioHandle handleTy] (ioTy boolTy)))
+    "hShow" ->
+      Just (binderFor name hShowTy, lam ioHandle handleTy (CPrimOp PrimHShow [var ioHandle handleTy] (ioTy stringTy)))
+    "hWaitForInput" ->
+      Just (binderFor name hWaitForInputTy, lam ioHandle handleTy (lam ioInt intTy (CPrimOp PrimHWaitForInput [var ioHandle handleTy, var ioInt intTy] (ioTy boolTy))))
+    "hReady" ->
+      Just (binderFor name hReadyTy, lam ioHandle handleTy (CPrimOp PrimHReady [var ioHandle handleTy] (ioTy boolTy)))
+    "hGetChar" ->
+      Just (binderFor name hGetCharTy, lam ioHandle handleTy (CPrimOp PrimHGetChar [var ioHandle handleTy] (ioTy charTy)))
+    "hGetLine" ->
+      Just (binderFor name hGetLineTy, lam ioHandle handleTy (CPrimOp PrimHGetLine [var ioHandle handleTy] (ioTy stringTy)))
+    "hLookAhead" ->
+      Just (binderFor name hGetCharTy, lam ioHandle handleTy (CPrimOp PrimHLookAhead [var ioHandle handleTy] (ioTy charTy)))
+    "hGetContents" ->
+      Just (binderFor name hGetLineTy, lam ioHandle handleTy (CPrimOp PrimHGetContents [var ioHandle handleTy] (ioTy stringTy)))
+    "hPutChar" ->
+      Just (binderFor name hPutCharTy, lam ioHandle handleTy (lam ioChar charTy (CPrimOp PrimHPutChar [var ioHandle handleTy, var ioChar charTy] ioUnitTy)))
+    "hPutStr" ->
+      Just (binderFor name hPutStrTy, lam ioHandle handleTy (lam ioString stringTy (CPrimOp PrimHPutStr [var ioHandle handleTy, var ioString stringTy] ioUnitTy)))
+    "hPutStrLn" ->
+      Just (binderFor name hPutStrTy, lam ioHandle handleTy (lam ioString stringTy (CPrimOp PrimHPutStrLn [var ioHandle handleTy, var ioString stringTy] ioUnitTy)))
+    "hPrint" ->
+      Just (binderFor name hPrintTy, hPrintRhs)
+    "interact" ->
+      Just (binderFor name interactTy, interactRhs)
+    "putChar" ->
+      Just (binderFor name putCharTy, lam ioChar charTy (CPrimOp PrimHPutChar [CPrimOp (PrimStdHandle StdOutHandle) [] handleTy, var ioChar charTy] ioUnitTy))
+    "putStr" ->
+      Just (binderFor name putStrTy, lam ioString stringTy (CPrimOp PrimHPutStr [CPrimOp (PrimStdHandle StdOutHandle) [] handleTy, var ioString stringTy] ioUnitTy))
     "putStrLn" ->
       Just
         ( binderFor name putStrLnTy
-        , lam putStrLnS stringTy (CPrimOp PrimPutStrLn [var putStrLnS stringTy] ioUnitTy)
+        , lam putStrLnS stringTy (CPrimOp PrimHPutStrLn [CPrimOp (PrimStdHandle StdOutHandle) [] handleTy, var putStrLnS stringTy] ioUnitTy)
         )
+    "getChar" ->
+      Just (binderFor name getCharTy, CPrimOp PrimHGetChar [CPrimOp (PrimStdHandle StdInHandle) [] handleTy] getCharTy)
     "getLine" ->
-      Just (binderFor name getLineTy, CPrimOp PrimGetLine [] getLineTy)
+      Just (binderFor name getLineTy, CPrimOp PrimHGetLine [CPrimOp (PrimStdHandle StdInHandle) [] handleTy] getLineTy)
+    "getContents" ->
+      Just (binderFor name getLineTy, CPrimOp PrimHGetContents [CPrimOp (PrimStdHandle StdInHandle) [] handleTy] getLineTy)
+    "getArgs" ->
+      Just (binderFor name getArgsTy, CPrimOp PrimGetArgs [] getArgsTy)
+    "getProgName" ->
+      Just (binderFor name getProgNameTy, CPrimOp PrimGetProgName [] getProgNameTy)
+    "getEnv" ->
+      Just (binderFor name getEnvTy, lam getEnvNameValue stringTy (CPrimOp PrimGetEnv [var getEnvNameValue stringTy] getProgNameTy))
+    "exitWith" ->
+      Just (binderFor name exitWithTy, CTypeLam [a] (lam exitWithCode exitCodeTy (CPrimOp PrimExitWith [var exitWithCode exitCodeTy] ioA)) exitWithTy)
+    "exitFailure" ->
+      Just (binderFor name exitFailureTy, CTypeLam [a] (CPrimOp PrimExitWith [exitFailureOne] ioA) exitFailureTy)
+    "exitSuccess" ->
+      Just (binderFor name exitSuccessTy, CTypeLam [a] (CPrimOp PrimExitWith [CCon exitSuccessDataConName exitCodeTy] ioA) exitSuccessTy)
     "print" ->
       Just (binderFor name printTy, printRhs)
+    "readIO" ->
+      Just (binderFor name readIOTy, readIORhs)
+    "readLn" ->
+      Just (binderFor name readLnTy, readLnRhs)
+    "userError" ->
+      Just (binderFor name userErrorTy, userErrorRhs)
+    "mkIOError" ->
+      Just (binderFor name mkIOErrorTy, mkIOErrorRhs)
+    "annotateIOError" ->
+      Just (binderFor name annotateIOErrorTy, annotateIOErrorRhs)
+    "isAlreadyExistsError" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorAlreadyExistsTypeDataConName "$is_already_exists_error" (-3300))
+    "isDoesNotExistError" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorDoesNotExistTypeDataConName "$is_does_not_exist_error" (-3310))
+    "isAlreadyInUseError" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorAlreadyInUseTypeDataConName "$is_already_in_use_error" (-3320))
+    "isFullError" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorFullTypeDataConName "$is_full_error" (-3330))
+    "isEOFError" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorEOFTypeDataConName "$is_eof_error" (-3340))
+    "isIllegalOperation" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorIllegalOperationTypeDataConName "$is_illegal_operation" (-3350))
+    "isPermissionError" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorPermissionTypeDataConName "$is_permission_error" (-3360))
+    "isUserError" ->
+      Just (binderFor name ioErrorPredicateTy, ioErrorPredicateRhs ioErrorUserTypeDataConName "$is_user_error" (-3370))
+    "ioeGetErrorString" ->
+      Just (binderFor name ioeGetErrorStringTy, ioErrorAccessorRhs stringTy ioErrorStringField "$ioe_get_error_string" (-3380))
+    "ioeGetHandle" ->
+      Just (binderFor name ioeGetHandleTy, ioErrorAccessorRhs maybeHandleTy ioErrorHandleField "$ioe_get_handle" (-3390))
+    "ioeGetFileName" ->
+      Just (binderFor name ioeGetFileNameTy, ioErrorAccessorRhs maybeFilePathTy ioErrorFilePathField "$ioe_get_file_name" (-3400))
+    "alreadyExistsErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorAlreadyExistsTypeDataConName ioErrorTypeTy)
+    "doesNotExistErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorDoesNotExistTypeDataConName ioErrorTypeTy)
+    "alreadyInUseErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorAlreadyInUseTypeDataConName ioErrorTypeTy)
+    "fullErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorFullTypeDataConName ioErrorTypeTy)
+    "eofErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorEOFTypeDataConName ioErrorTypeTy)
+    "illegalOperationErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorIllegalOperationTypeDataConName ioErrorTypeTy)
+    "permissionErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorPermissionTypeDataConName ioErrorTypeTy)
+    "userErrorType" ->
+      Just (binderFor name ioErrorTypeTy, CCon ioErrorUserTypeDataConName ioErrorTypeTy)
+    "ioError" ->
+      Just (binderFor name ioErrorTy_, ioErrorRhs)
+    "catch" ->
+      Just (binderFor name catchTy, catchRhs)
+    "try" ->
+      Just (binderFor name tryTy, tryRhs)
+    "nullPtr" ->
+      Just (binderFor name nullPtrTy, CTypeLam [a] (CPrimOp PrimNullPtr [] ptrA) nullPtrTy)
+    "castPtr" ->
+      Just (binderFor name castPtrTy, CTypeLam [a, b] (lam ptrCastValue ptrA (CPrimOp PrimCastPtr [var ptrCastValue ptrA] ptrB)) castPtrTy)
+    "nullFunPtr" ->
+      Just (binderFor name nullFunPtrTy, CTypeLam [a] (CPrimOp PrimNullPtr [] funPtrA) nullFunPtrTy)
+    "castFunPtr" ->
+      Just (binderFor name castFunPtrTy, CTypeLam [a, b] (lam funPtrCastValue funPtrA (CPrimOp PrimCastPtr [var funPtrCastValue funPtrA] funPtrB)) castFunPtrTy)
+    "castFunPtrToPtr" ->
+      Just (binderFor name castFunPtrToPtrTy, CTypeLam [a, b] (lam funPtrToPtrValue funPtrA (CPrimOp PrimCastPtr [var funPtrToPtrValue funPtrA] ptrB)) castFunPtrToPtrTy)
+    "castPtrToFunPtr" ->
+      Just (binderFor name castPtrToFunPtrTy, CTypeLam [a, b] (lam ptrToFunPtrValue ptrA (CPrimOp PrimCastPtr [var ptrToFunPtrValue ptrA] funPtrB)) castPtrToFunPtrTy)
+    "freeHaskellFunPtr" ->
+      Just
+        ( binderFor name freeHaskellFunPtrTy
+        , CTypeLam [a] (lam freeHaskellFunPtrValue funPtrA (CPrimOp PrimFreeHaskellFunPtr [var freeHaskellFunPtrValue funPtrA] ioUnitTy)) freeHaskellFunPtrTy
+        )
     "newStablePtr" ->
       Just
         ( binderFor name newStablePtrTy
@@ -6816,6 +9128,11 @@ preludeCorePair name =
         ( binderFor name finalizeForeignPtrTy
         , CTypeLam [a] (lam foreignPtrFinalizeValue foreignPtrA (CPrimOp PrimFinalizeForeignPtr [var foreignPtrFinalizeValue foreignPtrA] ioUnitTy)) finalizeForeignPtrTy
         )
+    "unsafeForeignPtrToPtr" ->
+      Just
+        ( binderFor name unsafeForeignPtrToPtrTy
+        , CTypeLam [a] (lam foreignPtrUnsafeValue foreignPtrA (CPrimOp PrimUnsafeForeignPtrToPtr [var foreignPtrUnsafeValue foreignPtrA] ptrA)) unsafeForeignPtrToPtrTy
+        )
     "withForeignPtr" ->
       Just
         ( binderFor name withForeignPtrTy
@@ -6826,27 +9143,230 @@ preludeCorePair name =
         ( binderFor name touchForeignPtrTy
         , CTypeLam [a] (lam foreignPtrTouchValue foreignPtrA (CPrimOp PrimTouchForeignPtr [var foreignPtrTouchValue foreignPtrA] ioUnitTy)) touchForeignPtrTy
         )
-    _ -> arithmeticSequenceCorePair name
+    "castForeignPtr" ->
+      Just
+        ( binderFor name castForeignPtrTy
+        , CTypeLam [a, b] (lam foreignPtrCastValue foreignPtrA (CPrimOp PrimCastForeignPtr [var foreignPtrCastValue foreignPtrA] foreignPtrB)) castForeignPtrTy
+        )
+    "throwIf" ->
+      Just (binderFor name throwIfTy, throwIfRhs)
+    "throwIf_" ->
+      Just (binderFor name throwIfUnitTy, throwIfUnitRhs)
+    "throwIfNull" ->
+      Just (binderFor name throwIfNullTy, throwIfNullRhs)
+    "void" ->
+      controlMonadCorePair name
+    "maybeNew" ->
+      Just (binderFor name maybeNewTy, maybeNewRhs)
+    "maybeWith" ->
+      Just (binderFor name maybeWithTy, maybeWithRhs)
+    "maybePeek" ->
+      Just (binderFor name maybePeekTy, maybePeekRhs)
+    "plusPtr" ->
+      Just (binderFor name plusPtrTy, CTypeLam [a, b] (lam ptrPlusValue ptrA (lam ptrPlusOffset intTy (CPrimOp PrimPtrPlus [var ptrPlusValue ptrA, var ptrPlusOffset intTy] ptrB))) plusPtrTy)
+    "minusPtr" ->
+      Just (binderFor name minusPtrTy, CTypeLam [a, b] (lam ptrMinusLeft ptrA (lam ptrMinusRight ptrB (CPrimOp PrimPtrMinus [var ptrMinusLeft ptrA, var ptrMinusRight ptrB] intTy))) minusPtrTy)
+    "alignPtr" ->
+      Just (binderFor name alignPtrTy, CTypeLam [a] (lam ptrAlignValue ptrA (lam ptrAlignOffset intTy (CPrimOp PrimPtrAlign [var ptrAlignValue ptrA, var ptrAlignOffset intTy] ptrA))) alignPtrTy)
+    "malloc" ->
+      Just (binderFor name mallocTy, mallocRhs)
+    "mallocBytes" ->
+      Just (binderFor name mallocBytesTy, CTypeLam [a] (lam mallocBytesSize intTy (CPrimOp PrimMallocBytes [var mallocBytesSize intTy] (ioTy ptrA))) mallocBytesTy)
+    "alloca" ->
+      Just (binderFor name allocaTy, allocaRhs)
+    "allocaBytes" ->
+      Just (binderFor name allocaBytesTy, allocaBytesRhs)
+    "realloc" ->
+      Just (binderFor name reallocTy, reallocRhs)
+    "reallocBytes" ->
+      Just (binderFor name reallocBytesTy, CTypeLam [a] (lam reallocBytesPointer ptrA (lam reallocBytesSize intTy (CPrimOp PrimReallocBytes [var reallocBytesPointer ptrA, var reallocBytesSize intTy] (ioTy ptrA)))) reallocBytesTy)
+    "free" ->
+      Just (binderFor name freeTy, CTypeLam [a] (lam freePointer ptrA (CPrimOp PrimFree [var freePointer ptrA] ioUnitTy)) freeTy)
+    "finalizerFree" ->
+      Just (binderFor name finalizerFreeTy, CTypeLam [a] (CPrimOp PrimFinalizerFree [] finalizerPtrA) finalizerFreeTy)
+    "advancePtr" ->
+      Just (binderFor name advancePtrTy, advancePtrRhs)
+    "mallocArray" ->
+      Just (binderFor name mallocArrayTy, mallocArrayRhs 0)
+    "mallocArray0" ->
+      Just (binderFor name mallocArrayTy, mallocArrayRhs 1)
+    "allocaArray" ->
+      Just (binderFor name allocaArrayTy, allocaArrayRhs 0)
+    "allocaArray0" ->
+      Just (binderFor name allocaArrayTy, allocaArrayRhs 1)
+    "reallocArray" ->
+      Just (binderFor name reallocArrayTy, reallocArrayRhs 0)
+    "reallocArray0" ->
+      Just (binderFor name reallocArrayTy, reallocArrayRhs 1)
+    "peekArray" ->
+      Just (binderFor name peekArrayTy, peekArrayRhs name)
+    "peekArray0" ->
+      Just (binderFor name peekArray0Ty, peekArray0Rhs name)
+    "pokeArray" ->
+      Just (binderFor name pokeArrayTy, pokeArrayRhs name)
+    "pokeArray0" ->
+      Just (binderFor name pokeArray0Ty, pokeArray0Rhs)
+    "newArray" ->
+      Just (binderFor name newArrayTy, newArrayRhs)
+    "newArray0" ->
+      Just (binderFor name newArray0Ty, newArray0Rhs)
+    "withArray" ->
+      Just (binderFor name withArrayTy, withArrayRhs)
+    "withArray0" ->
+      Just (binderFor name withArray0Ty, withArray0Rhs)
+    "withArrayLen" ->
+      Just (binderFor name withArrayLenTy, withArrayLenRhs)
+    "withArrayLen0" ->
+      Just (binderFor name withArrayLen0Ty, withArrayLen0Rhs)
+    "copyArray" ->
+      Just (binderFor name copyArrayTy, copyArrayRhs PrimCopyBytes)
+    "moveArray" ->
+      Just (binderFor name copyArrayTy, copyArrayRhs PrimMoveBytes)
+    "lengthArray0" ->
+      Just (binderFor name lengthArray0Ty, lengthArray0Rhs name)
+    "copyBytes" ->
+      Just (binderFor name copyBytesTy, CTypeLam [a, b] (lam copyDest ptrA (lam copySource ptrB (lam copyCount intTy (CPrimOp PrimCopyBytes [var copyDest ptrA, var copySource ptrB, var copyCount intTy] ioUnitTy)))) copyBytesTy)
+    "moveBytes" ->
+      Just (binderFor name copyBytesTy, CTypeLam [a, b] (lam copyDest ptrA (lam copySource ptrB (lam copyCount intTy (CPrimOp PrimMoveBytes [var copyDest ptrA, var copySource ptrB, var copyCount intTy] ioUnitTy)))) copyBytesTy)
+    "peekCString" ->
+      Just (binderFor name peekCStringTy, lam cStringPointer cStringTy (CPrimOp PrimPeekCString [var cStringPointer cStringTy] (ioTy stringTy)))
+    "peekCStringLen" ->
+      Just (binderFor name peekCStringLenTy, peekCStringLenRhs PrimPeekCStringLen cStringTy)
+    "newCString" ->
+      Just (binderFor name newCStringTy, lam cStringSource stringTy (CPrimOp PrimNewCString [var cStringSource stringTy] (ioTy cStringTy)))
+    "newCStringLen" ->
+      Just (binderFor name newCStringLenTy, newCStringLenRhs PrimNewCString cStringTy cStringLenTy)
+    "withCString" ->
+      Just (binderFor name withCStringTy, withCStringRhs cStringTy)
+    "withCStringLen" ->
+      Just (binderFor name withCStringLenTy, withCStringLenRhs cStringLenTy cStringTy)
+    "peekCAString" ->
+      Just (binderFor name peekCStringTy, lam cStringPointer cStringTy (CPrimOp PrimPeekCString [var cStringPointer cStringTy] (ioTy stringTy)))
+    "peekCAStringLen" ->
+      Just (binderFor name peekCStringLenTy, peekCStringLenRhs PrimPeekCStringLen cStringTy)
+    "newCAString" ->
+      Just (binderFor name newCStringTy, lam cStringSource stringTy (CPrimOp PrimNewCString [var cStringSource stringTy] (ioTy cStringTy)))
+    "newCAStringLen" ->
+      Just (binderFor name newCStringLenTy, newCStringLenRhs PrimNewCString cStringTy cStringLenTy)
+    "withCAString" ->
+      Just (binderFor name withCStringTy, withCStringRhs cStringTy)
+    "withCAStringLen" ->
+      Just (binderFor name withCStringLenTy, withCStringLenRhs cStringLenTy cStringTy)
+    "peekCWString" ->
+      Just (binderFor name peekCWStringTy, lam cWStringPointer cWStringTy (CPrimOp PrimPeekCWString [var cWStringPointer cWStringTy] (ioTy stringTy)))
+    "peekCWStringLen" ->
+      Just (binderFor name peekCWStringLenTy, peekCStringLenRhs PrimPeekCWStringLen cWStringTy)
+    "newCWString" ->
+      Just (binderFor name newCWStringTy, lam cStringSource stringTy (CPrimOp PrimNewCWString [var cStringSource stringTy] (ioTy cWStringTy)))
+    "newCWStringLen" ->
+      Just (binderFor name newCWStringLenTy, newCStringLenRhs PrimNewCWString cWStringTy cWStringLenTy)
+    "withCWString" ->
+      Just (binderFor name withCWStringTy, withCStringRhs cWStringTy)
+    "withCWStringLen" ->
+      Just (binderFor name withCWStringLenTy, withCStringLenRhs cWStringLenTy cWStringTy)
+    "charIsRepresentable" ->
+      Just (binderFor name charIsRepresentableTy, lam cStringChar charTy (ioReturn boolTy (CCon trueDataConName boolTy)))
+    "castCharToCChar" ->
+      Just (binderFor name castCharToCCharTy, lam cStringChar charTy (CPrimOp (PrimFixedIntegral FixedInt8 FixedFromInteger) [CPrimOp PrimIntToInteger [CPrimOp PrimCharToInt [var cStringChar charTy] intTy] integerTy] cCharTy))
+    "castCCharToChar" ->
+      Just (binderFor name castCCharToCharTy, lam cStringCChar cCharTy (CPrimOp PrimIntToChar [CPrimOp PrimIntegerToInt [CPrimOp (PrimFixedIntegral FixedInt8 FixedToInteger) [var cStringCChar cCharTy] integerTy] intTy] charTy))
+    "castCharToCUChar" ->
+      Just (binderFor name castCharToCUCharTy, lam cStringChar charTy (CPrimOp (PrimFixedIntegral FixedWord8 FixedFromInteger) [CPrimOp PrimIntToInteger [CPrimOp PrimCharToInt [var cStringChar charTy] intTy] integerTy] cUCharTy))
+    "castCUCharToChar" ->
+      Just (binderFor name castCUCharToCharTy, lam cStringCUChar cUCharTy (CPrimOp PrimIntToChar [CPrimOp PrimIntegerToInt [CPrimOp (PrimFixedIntegral FixedWord8 FixedToInteger) [var cStringCUChar cUCharTy] integerTy] intTy] charTy))
+    "castCharToCSChar" ->
+      Just (binderFor name castCharToCCharTy, lam cStringChar charTy (CPrimOp (PrimFixedIntegral FixedInt8 FixedFromInteger) [CPrimOp PrimIntToInteger [CPrimOp PrimCharToInt [var cStringChar charTy] intTy] integerTy] cCharTy))
+    "castCSCharToChar" ->
+      Just (binderFor name castCCharToCharTy, lam cStringCChar cCharTy (CPrimOp PrimIntToChar [CPrimOp PrimIntegerToInt [CPrimOp (PrimFixedIntegral FixedInt8 FixedToInteger) [var cStringCChar cCharTy] integerTy] intTy] charTy))
+    "getErrno" ->
+      Just (binderFor name getErrnoTy, CPrimOp PrimGetErrno [] getErrnoTy)
+    "resetErrno" ->
+      Just (binderFor name resetErrnoTy, CPrimOp PrimResetErrno [] resetErrnoTy)
+    "isValidErrno" ->
+      Just (binderFor name isValidErrnoTy, isValidErrnoRhs)
+    "errnoToIOError" ->
+      Just (binderFor name errnoToIOErrorTy, errnoToIOErrorRhs)
+    "throwErrno" ->
+      Just (binderFor name throwErrnoTy, throwErrnoRhs)
+    "throwErrnoIf" ->
+      Just (binderFor name throwErrnoIfTy, throwErrnoIfRhs)
+    "throwErrnoIf_" ->
+      Just (binderFor name throwErrnoIfUnitTy, throwErrnoIfUnitRhs)
+    "throwErrnoIfRetry" ->
+      Just (binderFor name throwErrnoIfRetryTy, throwErrnoIfRetryRhs name)
+    "throwErrnoIfRetry_" ->
+      Just (binderFor name throwErrnoIfRetryUnitTy, throwErrnoIfRetryUnitRhs name)
+    "throwErrnoIfMinus1" ->
+      Just (binderFor name throwErrnoIfMinus1Ty, throwErrnoIfMinus1Rhs)
+    "throwErrnoIfMinus1_" ->
+      Just (binderFor name throwErrnoIfMinus1UnitTy, throwErrnoIfMinus1UnitRhs)
+    "throwErrnoIfMinus1Retry" ->
+      Just (binderFor name throwErrnoIfMinus1RetryTy, throwErrnoIfMinus1RetryRhs name)
+    "throwErrnoIfMinus1Retry_" ->
+      Just (binderFor name throwErrnoIfMinus1RetryUnitTy, throwErrnoIfMinus1RetryUnitRhs name)
+    "throwErrnoIfNull" ->
+      Just (binderFor name throwErrnoIfNullTy, throwErrnoIfNullRhs)
+    "throwErrnoIfNullRetry" ->
+      Just (binderFor name throwErrnoIfNullRetryTy, throwErrnoIfNullRetryRhs name)
+    "throwErrnoIfRetryMayBlock" ->
+      Just (binderFor name throwErrnoIfRetryMayBlockTy, throwErrnoIfRetryMayBlockRhs name)
+    "throwErrnoIfRetryMayBlock_" ->
+      Just (binderFor name throwErrnoIfRetryMayBlockUnitTy, throwErrnoIfRetryMayBlockUnitRhs name)
+    "throwErrnoIfMinus1RetryMayBlock" ->
+      Just (binderFor name throwErrnoIfMinus1RetryMayBlockTy, throwErrnoIfMinus1RetryMayBlockRhs name)
+    "throwErrnoIfMinus1RetryMayBlock_" ->
+      Just (binderFor name throwErrnoIfMinus1RetryMayBlockUnitTy, throwErrnoIfMinus1RetryMayBlockUnitRhs name)
+    "throwErrnoIfNullRetryMayBlock" ->
+      Just (binderFor name throwErrnoIfNullRetryMayBlockTy, throwErrnoIfNullRetryMayBlockRhs name)
+    "throwErrnoPath" ->
+      Just (binderFor name throwErrnoPathTy, throwErrnoPathRhs)
+    "throwErrnoPathIf" ->
+      Just (binderFor name throwErrnoPathIfTy, throwErrnoPathIfRhs)
+    "throwErrnoPathIf_" ->
+      Just (binderFor name throwErrnoPathIfUnitTy, throwErrnoPathIfUnitRhs)
+    "throwErrnoPathIfNull" ->
+      Just (binderFor name throwErrnoPathIfNullTy, throwErrnoPathIfNullRhs)
+    "throwErrnoPathIfMinus1" ->
+      Just (binderFor name throwErrnoPathIfMinus1Ty, throwErrnoPathIfMinus1Rhs)
+    "throwErrnoPathIfMinus1_" ->
+      Just (binderFor name throwErrnoPathIfMinus1UnitTy, throwErrnoPathIfMinus1UnitRhs)
+    occurrence
+      | Just value <- errnoConstantValue occurrence ->
+          Just (binderFor name errnoTy, errnoLiteral value)
+    _ -> controlMonadCorePair name <|> readPreludeCorePair name <|> ratioPreludeCorePair name <|> arithmeticSequenceCorePair name
  where
   a = preludeTypeVariable "a" (-1201)
   b = preludeTypeVariable "b" (-1202)
   c = preludeTypeVariable "c" (-1203)
+  r = preludeTypeVariable "r" (-1206)
   aTy = CTyVar a
   bTy = CTyVar b
   cTy = CTyVar c
+  rTy = CTyVar r
   showMethodA = preludeTypeVariable "a" (-1331)
   showMethodATy = CTyVar showMethodA
   listA = CTyList aTy
   listB = CTyList bTy
   tupleAB = CTyTuple [aTy, bTy]
+  maybeA = CTyApp (CTyCon maybeTyConName) aTy
+  maybeB = CTyApp (CTyCon maybeTyConName) bTy
   ioUnitTy = ioTy unitTy
+  ioA = ioTy aTy
   ptrA = ptrTy aTy
+  ptrB = ptrTy bTy
   ptrUnitTy = ptrTy unitTy
+  funPtrA = funPtrTy aTy
+  funPtrB = funPtrTy bTy
   stablePtrA = stablePtrTy aTy
   foreignPtrA = foreignPtrTy aTy
+  foreignPtrB = foreignPtrTy bTy
   finalizerPtrA = funPtrTy (CTyFun ptrA ioUnitTy)
   showDictA = CTyApp (CTyCon (classDictionaryTypeName builtinShowClassName)) aTy
   showMethodDictA = CTyApp (CTyCon (classDictionaryTypeName builtinShowClassName)) showMethodATy
+  readMethodA = preludeTypeVariable "a" (-1561)
+  readMethodATy = CTyVar readMethodA
+  readDictA = CTyApp (CTyCon (classDictionaryTypeName builtinReadClassName)) aTy
+  readMethodDictA = CTyApp (CTyCon (classDictionaryTypeName builtinReadClassName)) readMethodATy
 
   idTy = CTyForall [a] (CTyFun aTy aTy)
   constTy = CTyForall [a, b] (CTyFun aTy (CTyFun bTy aTy))
@@ -6866,10 +9386,81 @@ preludeCorePair name =
   filterTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun listA listA))
   reverseTy = CTyForall [a] (CTyFun listA listA)
   appendTy = CTyForall [a] (CTyFun listA (CTyFun listA listA))
+  fixIOTy = CTyForall [a] (CTyFun (CTyFun aTy (ioTy aTy)) (ioTy aTy))
+  withFileTy = CTyForall [r] (CTyFun stringTy (CTyFun ioModeTy (CTyFun (CTyFun handleTy (ioTy rTy)) (ioTy rTy))))
+  openFileTy = CTyFun stringTy (CTyFun ioModeTy (ioTy handleTy))
+  hCloseTy = CTyFun handleTy ioUnitTy
+  readFileTy = CTyFun stringTy (ioTy stringTy)
+  writeFileTy = CTyFun stringTy (CTyFun stringTy ioUnitTy)
+  appendFileTy = writeFileTy
+  hFileSizeTy = CTyFun handleTy (ioTy intTy)
+  hSetFileSizeTy = CTyFun handleTy (CTyFun intTy ioUnitTy)
+  hIsEOFTy = CTyFun handleTy (ioTy boolTy)
+  isEOFTy = ioTy boolTy
+  hSetBufferingTy = CTyFun handleTy (CTyFun bufferModeTy ioUnitTy)
+  hGetBufferingTy = CTyFun handleTy (ioTy bufferModeTy)
+  hGetPosnTy = CTyFun handleTy (ioTy handlePosnTy)
+  hSetPosnTy = CTyFun handlePosnTy ioUnitTy
+  hSeekTy = CTyFun handleTy (CTyFun seekModeTy (CTyFun intTy ioUnitTy))
+  hTellTy = CTyFun handleTy (ioTy intTy)
+  hHandleBoolTy = CTyFun handleTy (ioTy boolTy)
+  hSetEchoTy = CTyFun handleTy (CTyFun boolTy ioUnitTy)
+  hShowTy = CTyFun handleTy (ioTy stringTy)
+  hWaitForInputTy = CTyFun handleTy (CTyFun intTy (ioTy boolTy))
+  hReadyTy = CTyFun handleTy (ioTy boolTy)
+  hGetCharTy = CTyFun handleTy (ioTy charTy)
+  hGetLineTy = CTyFun handleTy (ioTy stringTy)
+  hPutCharTy = CTyFun handleTy (CTyFun charTy ioUnitTy)
+  hPutStrTy = CTyFun handleTy (CTyFun stringTy ioUnitTy)
+  hPrintTy = CTyForall [a] (CTyFun showDictA (CTyFun handleTy (CTyFun aTy ioUnitTy)))
+  interactTy = CTyFun (CTyFun stringTy stringTy) ioUnitTy
+  putCharTy = CTyFun charTy ioUnitTy
+  putStrTy = CTyFun stringTy ioUnitTy
   putStrLnTy = CTyFun stringTy ioUnitTy
   getLineTy = ioTy stringTy
+  getCharTy = ioTy charTy
+  getArgsTy = ioTy (CTyList stringTy)
+  getProgNameTy = ioTy stringTy
+  getEnvTy = CTyFun stringTy getProgNameTy
+  exitWithTy = CTyForall [a] (CTyFun exitCodeTy ioA)
+  exitFailureTy = CTyForall [a] ioA
+  exitSuccessTy = CTyForall [a] ioA
+  showSTy = CTyFun stringTy stringTy
+  showsPrecTy = CTyForall [showMethodA] (CTyFun showMethodDictA (CTyFun intTy (CTyFun showMethodATy showSTy)))
   showTy = CTyForall [showMethodA] (CTyFun showMethodDictA (CTyFun showMethodATy stringTy))
+  showsTy = CTyForall [a] (CTyFun showDictA (CTyFun aTy showSTy))
+  readSTy = CTyFun stringTy (CTyList (CTyTuple [aTy, stringTy]))
+  readMethodSTy = CTyFun stringTy (CTyList (CTyTuple [readMethodATy, stringTy]))
+  readsPrecTy = CTyForall [readMethodA] (CTyFun readMethodDictA (CTyFun intTy readMethodSTy))
+  readsTy = CTyForall [a] (CTyFun readDictA readSTy)
+  readTy = CTyForall [a] (CTyFun readDictA (CTyFun stringTy aTy))
+  lexTy = CTyFun stringTy (CTyList (CTyTuple [stringTy, stringTy]))
+  readParenTy = CTyForall [a] (CTyFun boolTy (CTyFun readSTy readSTy))
   printTy = CTyForall [a] (CTyFun showDictA (CTyFun aTy ioUnitTy))
+  readIOTy = CTyForall [a] (CTyFun readDictA (CTyFun stringTy (ioTy aTy)))
+  readLnTy = CTyForall [a] (CTyFun readDictA (ioTy aTy))
+  getEnvNameValue = preludeTermName "$get_env_name" (-1680)
+  exitWithCode = preludeTermName "$exit_with_code" (-1681)
+  exitFailureOne = constructorApp exitFailureDataConName [] [CLit (LInt 1) intTy] exitCodeTy
+  maybeHandleTy = CTyApp (CTyCon maybeTyConName) handleTy
+  maybeFilePathTy = CTyApp (CTyCon maybeTyConName) stringTy
+  userErrorTy = CTyFun stringTy ioErrorTy
+  mkIOErrorTy = CTyFun ioErrorTypeTy (CTyFun stringTy (CTyFun maybeHandleTy (CTyFun maybeFilePathTy ioErrorTy)))
+  annotateIOErrorTy = CTyFun ioErrorTy (CTyFun stringTy (CTyFun maybeHandleTy (CTyFun maybeFilePathTy ioErrorTy)))
+  ioErrorPredicateTy = CTyFun ioErrorTy boolTy
+  ioeGetErrorStringTy = CTyFun ioErrorTy stringTy
+  ioeGetHandleTy = CTyFun ioErrorTy maybeHandleTy
+  ioeGetFileNameTy = CTyFun ioErrorTy maybeFilePathTy
+  ioErrorTy_ = CTyForall [a] (CTyFun ioErrorTy (ioTy aTy))
+  catchTy = CTyForall [a] (CTyFun (ioTy aTy) (CTyFun (CTyFun ioErrorTy (ioTy aTy)) (ioTy aTy)))
+  tryTy = CTyForall [a] (CTyFun (ioTy aTy) (ioTy (CTyApp (CTyApp (CTyCon eitherTyConName) ioErrorTy) aTy)))
+  nullPtrTy = CTyForall [a] ptrA
+  castPtrTy = CTyForall [a, b] (CTyFun ptrA ptrB)
+  nullFunPtrTy = CTyForall [a] funPtrA
+  castFunPtrTy = CTyForall [a, b] (CTyFun funPtrA funPtrB)
+  castFunPtrToPtrTy = CTyForall [a, b] (CTyFun funPtrA ptrB)
+  castPtrToFunPtrTy = CTyForall [a, b] (CTyFun ptrA funPtrB)
+  freeHaskellFunPtrTy = CTyForall [a] (CTyFun funPtrA ioUnitTy)
   newStablePtrTy = CTyForall [a] (CTyFun aTy (ioTy stablePtrA))
   deRefStablePtrTy = CTyForall [a] (CTyFun stablePtrA (ioTy aTy))
   freeStablePtrTy = CTyForall [a] (CTyFun stablePtrA ioUnitTy)
@@ -6879,8 +9470,99 @@ preludeCorePair name =
   newForeignPtrTy_ = CTyForall [a] (CTyFun ptrA (ioTy foreignPtrA))
   addForeignPtrFinalizerTy = CTyForall [a] (CTyFun finalizerPtrA (CTyFun foreignPtrA ioUnitTy))
   finalizeForeignPtrTy = CTyForall [a] (CTyFun foreignPtrA ioUnitTy)
+  unsafeForeignPtrToPtrTy = CTyForall [a] (CTyFun foreignPtrA ptrA)
   withForeignPtrTy = CTyForall [a, b] (CTyFun foreignPtrA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))
   touchForeignPtrTy = CTyForall [a] (CTyFun foreignPtrA ioUnitTy)
+  castForeignPtrTy = CTyForall [a, b] (CTyFun foreignPtrA foreignPtrB)
+  throwIfTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun (CTyFun aTy stringTy) (CTyFun ioA ioA)))
+  throwIfUnitTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun (CTyFun aTy stringTy) (CTyFun ioA ioUnitTy)))
+  throwIfNullTy = CTyForall [a] (CTyFun stringTy (CTyFun (ioTy ptrA) (ioTy ptrA)))
+  maybeNewTy = CTyForall [a] (CTyFun (CTyFun aTy (ioTy ptrA)) (CTyFun maybeA (ioTy ptrA)))
+  maybeWithTy = CTyForall [a, b, c] (CTyFun (CTyFun aTy (CTyFun (CTyFun ptrB (ioTy cTy)) (ioTy cTy))) (CTyFun maybeA (CTyFun (CTyFun ptrB (ioTy cTy)) (ioTy cTy))))
+  maybePeekTy = CTyForall [a, b] (CTyFun (CTyFun ptrA (ioTy bTy)) (CTyFun ptrA (ioTy maybeB)))
+  storableDictA = CTyApp (CTyCon (classDictionaryTypeName builtinStorableClassName)) aTy
+  storableDictB = CTyApp (CTyCon (classDictionaryTypeName builtinStorableClassName)) bTy
+  eqDictA = CTyApp (CTyCon (classDictionaryTypeName builtinEqClassName)) aTy
+  numDictA = CTyApp (CTyCon (classDictionaryTypeName builtinNumClassName)) aTy
+  cCharTy = fixedIntegralTy FixedInt8
+  cUCharTy = fixedIntegralTy FixedWord8
+  cWCharTy = fixedIntegralTy FixedInt32
+  cStringTy = ptrTy cCharTy
+  cWStringTy = ptrTy cWCharTy
+  cStringLenTy = CTyTuple [cStringTy, intTy]
+  cWStringLenTy = CTyTuple [cWStringTy, intTy]
+  errnoTy = fixedIntegralTy FixedInt32
+  plusPtrTy = CTyForall [a, b] (CTyFun ptrA (CTyFun intTy ptrB))
+  minusPtrTy = CTyForall [a, b] (CTyFun ptrA (CTyFun ptrB intTy))
+  alignPtrTy = CTyForall [a] (CTyFun ptrA (CTyFun intTy ptrA))
+  mallocTy = CTyForall [a] (CTyFun storableDictA (ioTy ptrA))
+  mallocBytesTy = CTyForall [a] (CTyFun intTy (ioTy ptrA))
+  allocaTy = CTyForall [a, b] (CTyFun storableDictA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))
+  allocaBytesTy = CTyForall [a, b] (CTyFun intTy (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))
+  reallocTy = CTyForall [a, b] (CTyFun storableDictB (CTyFun ptrA (ioTy ptrB)))
+  reallocBytesTy = CTyForall [a] (CTyFun ptrA (CTyFun intTy (ioTy ptrA)))
+  freeTy = CTyForall [a] (CTyFun ptrA ioUnitTy)
+  finalizerFreeTy = CTyForall [a] finalizerPtrA
+  advancePtrTy = CTyForall [a] (CTyFun storableDictA (CTyFun ptrA (CTyFun intTy ptrA)))
+  mallocArrayTy = CTyForall [a] (CTyFun storableDictA (CTyFun intTy (ioTy ptrA)))
+  allocaArrayTy = CTyForall [a, b] (CTyFun storableDictA (CTyFun intTy (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy))))
+  reallocArrayTy = CTyForall [a] (CTyFun storableDictA (CTyFun ptrA (CTyFun intTy (ioTy ptrA))))
+  peekArrayTy = CTyForall [a] (CTyFun storableDictA (CTyFun intTy (CTyFun ptrA (ioTy listA))))
+  peekArray0Ty = CTyForall [a] (CTyFun storableDictA (CTyFun eqDictA (CTyFun aTy (CTyFun ptrA (ioTy listA)))))
+  pokeArrayTy = CTyForall [a] (CTyFun storableDictA (CTyFun ptrA (CTyFun listA ioUnitTy)))
+  pokeArray0Ty = CTyForall [a] (CTyFun storableDictA (CTyFun aTy (CTyFun ptrA (CTyFun listA ioUnitTy))))
+  newArrayTy = CTyForall [a] (CTyFun storableDictA (CTyFun listA (ioTy ptrA)))
+  newArray0Ty = CTyForall [a] (CTyFun storableDictA (CTyFun aTy (CTyFun listA (ioTy ptrA))))
+  withArrayTy = CTyForall [a, b] (CTyFun storableDictA (CTyFun listA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy))))
+  withArray0Ty = CTyForall [a, b] (CTyFun storableDictA (CTyFun aTy (CTyFun listA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))))
+  withArrayLenTy = CTyForall [a, b] (CTyFun storableDictA (CTyFun listA (CTyFun (CTyFun intTy (CTyFun ptrA (ioTy bTy))) (ioTy bTy))))
+  withArrayLen0Ty = CTyForall [a, b] (CTyFun storableDictA (CTyFun aTy (CTyFun listA (CTyFun (CTyFun intTy (CTyFun ptrA (ioTy bTy))) (ioTy bTy)))))
+  copyArrayTy = CTyForall [a] (CTyFun storableDictA (CTyFun ptrA (CTyFun ptrA (CTyFun intTy ioUnitTy))))
+  lengthArray0Ty = CTyForall [a] (CTyFun storableDictA (CTyFun eqDictA (CTyFun aTy (CTyFun ptrA (ioTy intTy)))))
+  copyBytesTy = CTyForall [a, b] (CTyFun ptrA (CTyFun ptrB (CTyFun intTy ioUnitTy)))
+  peekCStringTy = CTyFun cStringTy (ioTy stringTy)
+  peekCStringLenTy = CTyFun cStringLenTy (ioTy stringTy)
+  newCStringTy = CTyFun stringTy (ioTy cStringTy)
+  newCStringLenTy = CTyFun stringTy (ioTy cStringLenTy)
+  withCStringTy = CTyForall [a] (CTyFun stringTy (CTyFun (CTyFun cStringTy (ioTy aTy)) (ioTy aTy)))
+  withCStringLenTy = CTyForall [a] (CTyFun stringTy (CTyFun (CTyFun cStringLenTy (ioTy aTy)) (ioTy aTy)))
+  peekCWStringTy = CTyFun cWStringTy (ioTy stringTy)
+  peekCWStringLenTy = CTyFun cWStringLenTy (ioTy stringTy)
+  newCWStringTy = CTyFun stringTy (ioTy cWStringTy)
+  newCWStringLenTy = CTyFun stringTy (ioTy cWStringLenTy)
+  withCWStringTy = CTyForall [a] (CTyFun stringTy (CTyFun (CTyFun cWStringTy (ioTy aTy)) (ioTy aTy)))
+  withCWStringLenTy = CTyForall [a] (CTyFun stringTy (CTyFun (CTyFun cWStringLenTy (ioTy aTy)) (ioTy aTy)))
+  charIsRepresentableTy = CTyFun charTy (ioTy boolTy)
+  castCharToCCharTy = CTyFun charTy cCharTy
+  castCCharToCharTy = CTyFun cCharTy charTy
+  castCharToCUCharTy = CTyFun charTy cUCharTy
+  castCUCharToCharTy = CTyFun cUCharTy charTy
+  getErrnoTy = ioTy errnoTy
+  resetErrnoTy = ioUnitTy
+  isValidErrnoTy = CTyFun errnoTy boolTy
+  errnoToIOErrorTy = CTyFun stringTy (CTyFun errnoTy (CTyFun maybeHandleTy (CTyFun maybeFilePathTy ioErrorTy)))
+  throwErrnoTy = CTyForall [a] (CTyFun stringTy (ioTy aTy))
+  throwErrnoIfTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun stringTy (CTyFun (ioTy aTy) (ioTy aTy))))
+  throwErrnoIfUnitTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun stringTy (CTyFun (ioTy aTy) ioUnitTy)))
+  throwErrnoIfRetryTy = throwErrnoIfTy
+  throwErrnoIfRetryUnitTy = throwErrnoIfUnitTy
+  throwErrnoIfMinus1Ty = CTyForall [a] (CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun (ioTy aTy) (ioTy aTy)))))
+  throwErrnoIfMinus1UnitTy = CTyForall [a] (CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun (ioTy aTy) ioUnitTy))))
+  throwErrnoIfMinus1RetryTy = throwErrnoIfMinus1Ty
+  throwErrnoIfMinus1RetryUnitTy = throwErrnoIfMinus1UnitTy
+  throwErrnoIfNullTy = CTyForall [a] (CTyFun stringTy (CTyFun (ioTy ptrA) (ioTy ptrA)))
+  throwErrnoIfNullRetryTy = throwErrnoIfNullTy
+  throwErrnoIfRetryMayBlockTy = CTyForall [a, b] (CTyFun (CTyFun aTy boolTy) (CTyFun stringTy (CTyFun (ioTy aTy) (CTyFun (ioTy bTy) (ioTy aTy)))))
+  throwErrnoIfRetryMayBlockUnitTy = CTyForall [a, b] (CTyFun (CTyFun aTy boolTy) (CTyFun stringTy (CTyFun (ioTy aTy) (CTyFun (ioTy bTy) ioUnitTy))))
+  throwErrnoIfMinus1RetryMayBlockTy = CTyForall [a, b] (CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun (ioTy aTy) (CTyFun (ioTy bTy) (ioTy aTy))))))
+  throwErrnoIfMinus1RetryMayBlockUnitTy = CTyForall [a, b] (CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun (ioTy aTy) (CTyFun (ioTy bTy) ioUnitTy)))))
+  throwErrnoIfNullRetryMayBlockTy = CTyForall [a, b] (CTyFun stringTy (CTyFun (ioTy ptrA) (CTyFun (ioTy bTy) (ioTy ptrA))))
+  throwErrnoPathTy = CTyForall [a] (CTyFun stringTy (CTyFun stringTy (ioTy aTy)))
+  throwErrnoPathIfTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun stringTy (CTyFun stringTy (CTyFun (ioTy aTy) (ioTy aTy)))))
+  throwErrnoPathIfUnitTy = CTyForall [a] (CTyFun (CTyFun aTy boolTy) (CTyFun stringTy (CTyFun stringTy (CTyFun (ioTy aTy) ioUnitTy))))
+  throwErrnoPathIfNullTy = CTyForall [a] (CTyFun stringTy (CTyFun stringTy (CTyFun (ioTy ptrA) (ioTy ptrA))))
+  throwErrnoPathIfMinus1Ty = CTyForall [a] (CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun stringTy (CTyFun (ioTy aTy) (ioTy aTy))))))
+  throwErrnoPathIfMinus1UnitTy = CTyForall [a] (CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun stringTy (CTyFun (ioTy aTy) ioUnitTy)))))
 
   idX = preludeTermName "$id_x" (-3001)
   constX = preludeTermName "$const_x" (-3002)
@@ -6949,8 +9631,57 @@ preludeCorePair name =
   appendRest = preludeTermName "$append_rest" (-3073)
   appendCase = preludeTermName "$append_case" (-3074)
   putStrLnS = preludeTermName "$putStrLn_s" (-3060)
+  showsDict = preludeTermName "$shows_dict" (-3080)
+  showsX = preludeTermName "$shows_x" (-3081)
+  showsRest = preludeTermName "$shows_rest" (-3082)
+  readsDict = preludeTermName "$reads_dict" (-3083)
+  readsInput = preludeTermName "$reads_input" (-3084)
+  readDict = preludeTermName "$read_dict" (-3085)
+  readInput = preludeTermName "$read_input" (-3086)
+  ioFilePath = preludeTermName "$io_file_path" (-3160)
+  ioMode = preludeTermName "$io_mode" (-3161)
+  ioHandle = preludeTermName "$io_handle" (-3162)
+  ioString = preludeTermName "$io_string" (-3163)
+  ioInt = preludeTermName "$io_int" (-3164)
+  ioBool = preludeTermName "$io_bool" (-3165)
+  ioChar = preludeTermName "$io_char" (-3166)
+  ioBufferMode = preludeTermName "$io_buffer_mode" (-3167)
+  ioSeekMode = preludeTermName "$io_seek_mode" (-3168)
+  ioPosn = preludeTermName "$io_posn" (-3169)
+  withFilePath = preludeTermName "$with_file_path" (-3170)
+  withFileMode = preludeTermName "$with_file_mode" (-3171)
+  withFileAction = preludeTermName "$with_file_action" (-3172)
+  withFileHandle = preludeTermName "$with_file_handle" (-3173)
+  withFileValue = preludeTermName "$with_file_value" (-3174)
+  withFileError = preludeTermName "$with_file_error" (-3179)
+  hPrintDict = preludeTermName "$hprint_dict" (-3175)
+  hPrintHandle = preludeTermName "$hprint_handle" (-3176)
+  hPrintX = preludeTermName "$hprint_x" (-3177)
+  interactFunction = preludeTermName "$interact_function" (-3178)
+  interactInput = preludeTermName "$interact_input" (-3183)
+  readIOValue = preludeTermName "$read_io_value" (-3180)
+  readLnLine = preludeTermName "$read_ln_line" (-3181)
+  fixIOFunction = preludeTermName "$fix_io_function" (-3182)
   printDict = preludeTermName "$print_dict" (-3061)
   printX = preludeTermName "$print_x" (-3062)
+  userErrorMessage = preludeTermName "$user_error_message" (-3200)
+  mkIOErrorType = preludeTermName "$mk_io_error_type" (-3201)
+  mkIOErrorString = preludeTermName "$mk_io_error_string" (-3202)
+  mkIOErrorHandle = preludeTermName "$mk_io_error_handle" (-3203)
+  mkIOErrorFile = preludeTermName "$mk_io_error_file" (-3204)
+  annotateError = preludeTermName "$annotate_io_error" (-3205)
+  annotateString = preludeTermName "$annotate_io_error_string" (-3206)
+  annotateHandle = preludeTermName "$annotate_io_error_handle" (-3207)
+  annotateFile = preludeTermName "$annotate_io_error_file" (-3208)
+  ioErrorRaise = preludeTermName "$io_error_raise" (-3209)
+  catchAction = preludeTermName "$catch_action" (-3210)
+  catchHandler = preludeTermName "$catch_handler" (-3211)
+  tryAction = preludeTermName "$try_action" (-3212)
+  ptrCastValue = preludeTermName "$ptr_cast_value" (-3500)
+  funPtrCastValue = preludeTermName "$fun_ptr_cast_value" (-3501)
+  funPtrToPtrValue = preludeTermName "$fun_ptr_to_ptr_value" (-3502)
+  ptrToFunPtrValue = preludeTermName "$ptr_to_fun_ptr_value" (-3503)
+  freeHaskellFunPtrValue = preludeTermName "$free_haskell_fun_ptr_value" (-3543)
   stablePtrNewValue = preludeTermName "$stable_ptr_new_value" (-3063)
   stablePtrDeRefValue = preludeTermName "$stable_ptr_deref_value" (-3064)
   stablePtrFreeValue = preludeTermName "$stable_ptr_free_value" (-3065)
@@ -6962,9 +9693,97 @@ preludeCorePair name =
   foreignPtrAddFinalizerValue = preludeTermName "$foreign_ptr_add_finalizer" (-3076)
   foreignPtrAddValue = preludeTermName "$foreign_ptr_add_value" (-3077)
   foreignPtrFinalizeValue = preludeTermName "$foreign_ptr_finalize_value" (-3078)
+  foreignPtrUnsafeValue = preludeTermName "$foreign_ptr_unsafe_value" (-3504)
   foreignPtrWithValue = preludeTermName "$foreign_ptr_with_value" (-3079)
   withForeignPtrK = preludeTermName "$with_foreign_ptr_k" (-3080)
   foreignPtrTouchValue = preludeTermName "$foreign_ptr_touch_value" (-3081)
+  foreignPtrCastValue = preludeTermName "$foreign_ptr_cast_value" (-3505)
+  throwIfPredicate = preludeTermName "$throw_if_predicate" (-3510)
+  throwIfMessage = preludeTermName "$throw_if_message" (-3511)
+  throwIfAction = preludeTermName "$throw_if_action" (-3512)
+  throwIfValue = preludeTermName "$throw_if_value" (-3513)
+  throwIfCase = preludeTermName "$throw_if_case" (-3514)
+  throwIfUnitPredicate = preludeTermName "$throw_if_unit_predicate" (-3515)
+  throwIfUnitMessage = preludeTermName "$throw_if_unit_message" (-3516)
+  throwIfUnitAction = preludeTermName "$throw_if_unit_action" (-3517)
+  throwIfUnitValue = preludeTermName "$throw_if_unit_value" (-3518)
+  throwIfUnitCase = preludeTermName "$throw_if_unit_case" (-3519)
+  throwIfNullLocation = preludeTermName "$throw_if_null_location" (-3520)
+  throwIfNullAction = preludeTermName "$throw_if_null_action" (-3521)
+  throwIfNullPointer = preludeTermName "$throw_if_null_pointer" (-3522)
+  throwIfNullCase = preludeTermName "$throw_if_null_case" (-3523)
+  maybeNewFunction = preludeTermName "$maybe_new_function" (-3530)
+  maybeNewValue = preludeTermName "$maybe_new_value" (-3531)
+  maybeNewCase = preludeTermName "$maybe_new_case" (-3532)
+  maybeNewJust = preludeTermName "$maybe_new_just" (-3533)
+  maybeWithFunction = preludeTermName "$maybe_with_function" (-3534)
+  maybeWithValue = preludeTermName "$maybe_with_value" (-3535)
+  maybeWithContinuation = preludeTermName "$maybe_with_continuation" (-3536)
+  maybeWithCase = preludeTermName "$maybe_with_case" (-3537)
+  maybeWithJust = preludeTermName "$maybe_with_just" (-3538)
+  maybePeekFunction = preludeTermName "$maybe_peek_function" (-3539)
+  maybePeekPointer = preludeTermName "$maybe_peek_pointer" (-3540)
+  maybePeekCase = preludeTermName "$maybe_peek_case" (-3541)
+  maybePeekValue = preludeTermName "$maybe_peek_value" (-3542)
+  ptrPlusValue = preludeTermName "$ptr_plus_value" (-3550)
+  ptrPlusOffset = preludeTermName "$ptr_plus_offset" (-3551)
+  ptrMinusLeft = preludeTermName "$ptr_minus_left" (-3552)
+  ptrMinusRight = preludeTermName "$ptr_minus_right" (-3553)
+  ptrAlignValue = preludeTermName "$ptr_align_value" (-3554)
+  ptrAlignOffset = preludeTermName "$ptr_align_offset" (-3555)
+  mallocDict = preludeTermName "$malloc_dict" (-3560)
+  mallocBytesSize = preludeTermName "$malloc_bytes_size" (-3561)
+  allocaDict = preludeTermName "$alloca_dict" (-3562)
+  allocaContinuation = preludeTermName "$alloca_continuation" (-3563)
+  allocaBytesSize = preludeTermName "$alloca_bytes_size" (-3564)
+  allocaBytesContinuation = preludeTermName "$alloca_bytes_continuation" (-3565)
+  allocaBytesPointer = preludeTermName "$alloca_bytes_pointer" (-3566)
+  allocaBytesResult = preludeTermName "$alloca_bytes_result" (-3567)
+  allocaBytesError = preludeTermName "$alloca_bytes_error" (-3568)
+  reallocDict = preludeTermName "$realloc_dict" (-3569)
+  reallocPointer = preludeTermName "$realloc_pointer" (-3570)
+  reallocBytesPointer = preludeTermName "$realloc_bytes_pointer" (-3571)
+  reallocBytesSize = preludeTermName "$realloc_bytes_size" (-3572)
+  freePointer = preludeTermName "$free_pointer" (-3573)
+  arrayDict = preludeTermName "$array_dict" (-3580)
+  arrayCount = preludeTermName "$array_count" (-3581)
+  arrayPointer = preludeTermName "$array_pointer" (-3582)
+  arrayValues = preludeTermName "$array_values" (-3584)
+  arrayValue = preludeTermName "$array_value" (-3585)
+  arrayRest = preludeTermName "$array_rest" (-3586)
+  arrayCase = preludeTermName "$array_case" (-3587)
+  arrayTail = preludeTermName "$array_tail" (-3588)
+  arrayContinuation = preludeTermName "$array_continuation" (-3589)
+  arrayEqDict = preludeTermName "$array_eq_dict" (-3621)
+  arrayMarker = preludeTermName "$array_marker" (-3622)
+  arrayLength = preludeTermName "$array_length" (-3623)
+  copyDest = preludeTermName "$copy_dest" (-3591)
+  copySource = preludeTermName "$copy_source" (-3592)
+  copyCount = preludeTermName "$copy_count" (-3593)
+  cStringPointer = preludeTermName "$cstring_pointer" (-3594)
+  cWStringPointer = preludeTermName "$cwstring_pointer" (-3595)
+  cStringLength = preludeTermName "$cstring_length" (-3596)
+  cStringSource = preludeTermName "$cstring_source" (-3597)
+  cStringPair = preludeTermName "$cstring_pair" (-3598)
+  cStringContinuation = preludeTermName "$cstring_continuation" (-3599)
+  cStringChar = preludeTermName "$cstring_char" (-3601)
+  cStringCChar = preludeTermName "$cstring_cchar" (-3602)
+  cStringCUChar = preludeTermName "$cstring_cuchar" (-3603)
+  errnoValue = preludeTermName "$errno_value" (-3610)
+  errnoLocation = preludeTermName "$errno_location" (-3611)
+  errnoHandle = preludeTermName "$errno_handle" (-3612)
+  errnoFile = preludeTermName "$errno_file" (-3613)
+  throwErrnoLocation = preludeTermName "$throw_errno_location" (-3614)
+  throwErrnoPredicate = preludeTermName "$throw_errno_predicate" (-3615)
+  throwErrnoAction = preludeTermName "$throw_errno_action" (-3616)
+  throwErrnoResult = preludeTermName "$throw_errno_result" (-3617)
+  throwErrnoCase = preludeTermName "$throw_errno_case" (-3618)
+  throwErrnoDictNum = preludeTermName "$throw_errno_num_dict" (-3619)
+  throwErrnoDictEq = preludeTermName "$throw_errno_eq_dict" (-3620)
+  throwErrnoPathName = preludeTermName "$throw_errno_path" (-3624)
+  throwErrnoBlockAction = preludeTermName "$throw_errno_block_action" (-3625)
+  throwErrnoRetryCase = preludeTermName "$throw_errno_retry_case" (-3627)
+  throwErrnoWouldBlockCase = preludeTermName "$throw_errno_would_block_case" (-3628)
 
   binderFor binderName ty = CoreBinder binderName ty
   lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
@@ -6995,6 +9814,8 @@ preludeCorePair name =
     CApp fn arg resultTy
   intLiteral value =
     CLit (LInt value) intTy
+  integerLiteral value =
+    CLit (LInteger value) integerTy
   nil elementTy =
     constructorApp listNilDataConName [elementTy] [] (CTyList elementTy)
   cons elementTy headExpr tailExpr =
@@ -7273,6 +10094,59 @@ preludeCorePair name =
         appendRest
         (cons aTy (var appendX aTy) recursive)
 
+  showsRhs =
+    CTypeLam [a] (lam showsDict showDictA (lam showsX aTy (lam showsRest stringTy showsBody))) showsTy
+   where
+    showsPrecFunction =
+      apply
+        (CTypeApp (CVar (preludeTermName "showsPrec" (-1430)) showsPrecTy) [aTy] (CTyFun showDictA (CTyFun intTy (CTyFun aTy showSTy))))
+        (var showsDict showDictA)
+        (CTyFun intTy (CTyFun aTy showSTy))
+    showsBody =
+      apply
+        ( apply
+            (apply showsPrecFunction zeroInt (CTyFun aTy showSTy))
+            (var showsX aTy)
+            showSTy
+        )
+        (var showsRest stringTy)
+        stringTy
+
+  readsRhs =
+    CTypeLam [a] (lam readsDict readDictA (lam readsInput stringTy readsBody)) readsTy
+   where
+    readsPrecFunction =
+      apply
+        (CTypeApp (CVar (preludeTermName "readsPrec" (-1433)) readsPrecTy) [aTy] (CTyFun readDictA (CTyFun intTy readSTy)))
+        (var readsDict readDictA)
+        (CTyFun intTy readSTy)
+    readsBody =
+      apply
+        (apply readsPrecFunction zeroInt readSTy)
+        (var readsInput stringTy)
+        (CTyList (CTyTuple [aTy, stringTy]))
+
+  readRhs =
+    CTypeLam [a] (lam readDict readDictA (lam readInput stringTy readBody)) readTy
+   where
+    readsPrecFunction =
+      apply
+        (CTypeApp (CVar (preludeTermName "readsPrec" (-1433)) readsPrecTy) [aTy] (CTyFun readDictA (CTyFun intTy readSTy)))
+        (var readDict readDictA)
+        (CTyFun intTy readSTy)
+    parsed =
+      apply
+        (apply readsPrecFunction zeroInt readSTy)
+        (var readInput stringTy)
+        (CTyList (CTyTuple [aTy, stringTy]))
+    completeFunction =
+      CTypeApp
+        (CVar readCompleteName readCompleteCoreType)
+        [aTy]
+        (CTyFun (CTyList (CTyTuple [aTy, stringTy])) aTy)
+    readBody =
+      apply completeFunction parsed aTy
+
   printRhs =
     CTypeLam [a] (lam printDict showDictA (lam printX aTy printBody)) printTy
    where
@@ -7284,7 +10158,3818 @@ preludeCorePair name =
     shownValue =
       apply showFunction (var printX aTy) stringTy
     printBody =
-      CPrimOp PrimPutStrLn [shownValue] ioUnitTy
+      CPrimOp PrimHPutStrLn [CPrimOp (PrimStdHandle StdOutHandle) [] handleTy, shownValue] ioUnitTy
+
+  hPrintRhs =
+    CTypeLam [a] (lam hPrintDict showDictA (lam hPrintHandle handleTy (lam hPrintX aTy hPrintBody))) hPrintTy
+   where
+    showFunction =
+      apply
+        (CTypeApp (CVar (preludeTermName "show" (-1431)) showTy) [aTy] (CTyFun showDictA (CTyFun aTy stringTy)))
+        (var hPrintDict showDictA)
+        (CTyFun aTy stringTy)
+    shownValue =
+      apply showFunction (var hPrintX aTy) stringTy
+    hPrintBody =
+      CPrimOp PrimHPutStrLn [var hPrintHandle handleTy, shownValue] ioUnitTy
+
+  fixIORhs =
+    CTypeLam [a] (lam fixIOFunction (CTyFun aTy (ioTy aTy)) (CPrimOp PrimIOFix [var fixIOFunction (CTyFun aTy (ioTy aTy))] (ioTy aTy))) fixIOTy
+
+  withFileRhs =
+    CTypeLam [r] (lam withFilePath stringTy (lam withFileMode ioModeTy (lam withFileAction (CTyFun handleTy (ioTy rTy)) withOpen))) withFileTy
+   where
+    openAction =
+      CPrimOp PrimOpenFile [var withFilePath stringTy, var withFileMode ioModeTy] (ioTy handleTy)
+    withOpen =
+      CPrimOp PrimIOBind [openAction, CLam (CoreBinder withFileHandle handleTy) withBody (CTyFun handleTy (ioTy rTy))] (ioTy rTy)
+    userAction =
+      apply (var withFileAction (CTyFun handleTy (ioTy rTy))) (var withFileHandle handleTy) (ioTy rTy)
+    withBody =
+      CPrimOp
+        PrimIOCatch
+        [ successPath
+        , CLam
+            (CoreBinder withFileError ioErrorTy)
+            (CPrimOp PrimIOThen [CPrimOp PrimHClose [var withFileHandle handleTy] ioUnitTy, CPrimOp PrimIOError [var withFileError ioErrorTy] (ioTy rTy)] (ioTy rTy))
+            (CTyFun ioErrorTy (ioTy rTy))
+        ]
+        (ioTy rTy)
+    successPath =
+      CPrimOp
+        PrimIOBind
+        [ userAction
+        , CLam
+            (CoreBinder withFileValue rTy)
+            (CPrimOp PrimIOThen [CPrimOp PrimHClose [var withFileHandle handleTy] ioUnitTy, CPrimOp PrimIOReturn [var withFileValue rTy] (ioTy rTy)] (ioTy rTy))
+            (CTyFun rTy (ioTy rTy))
+        ]
+        (ioTy rTy)
+
+  interactRhs =
+    lam interactFunction (CTyFun stringTy stringTy) $
+      CPrimOp
+        PrimIOBind
+        [ CPrimOp PrimHGetContents [CPrimOp (PrimStdHandle StdInHandle) [] handleTy] (ioTy stringTy)
+        , CLam
+            (CoreBinder interactInput stringTy)
+            ( CPrimOp
+                PrimHPutStr
+                [ CPrimOp (PrimStdHandle StdOutHandle) [] handleTy
+                , apply (var interactFunction (CTyFun stringTy stringTy)) (var interactInput stringTy) stringTy
+                ]
+                ioUnitTy
+            )
+            (CTyFun stringTy ioUnitTy)
+        ]
+        ioUnitTy
+
+  readIORhs =
+    CTypeLam [a] (lam readDict readDictA (lam readIOValue stringTy (CPrimOp PrimIOReturn [readValue] (ioTy aTy)))) readIOTy
+   where
+    readFunction =
+      apply
+        (CTypeApp (CVar (preludeTermName "read" (-1432)) readTy) [aTy] (CTyFun readDictA (CTyFun stringTy aTy)))
+        (var readDict readDictA)
+        (CTyFun stringTy aTy)
+    readValue =
+      apply readFunction (var readIOValue stringTy) aTy
+
+  readLnRhs =
+    CTypeLam [a] (lam readDict readDictA readLnBody) readLnTy
+   where
+    readIOFunction =
+      apply
+        (CTypeApp (CVar (preludeTermName "readIO" (-3185)) readIOTy) [aTy] (CTyFun readDictA (CTyFun stringTy (ioTy aTy))))
+        (var readDict readDictA)
+        (CTyFun stringTy (ioTy aTy))
+    readLnBody =
+      CPrimOp
+        PrimIOBind
+        [ CPrimOp PrimHGetLine [CPrimOp (PrimStdHandle StdInHandle) [] handleTy] (ioTy stringTy)
+        , CLam
+            (CoreBinder readLnLine stringTy)
+            (apply readIOFunction (var readLnLine stringTy) (ioTy aTy))
+            (CTyFun stringTy (ioTy aTy))
+        ]
+        (ioTy aTy)
+
+  userErrorRhs =
+    lam userErrorMessage stringTy $
+      ioErrorValue
+        (CCon ioErrorUserTypeDataConName ioErrorTypeTy)
+        (var userErrorMessage stringTy)
+        (nothingCore handleTy)
+        (nothingCore stringTy)
+
+  mkIOErrorRhs =
+    lam mkIOErrorType ioErrorTypeTy $
+      lam mkIOErrorString stringTy $
+        lam mkIOErrorHandle maybeHandleTy $
+          lam mkIOErrorFile maybeFilePathTy $
+            ioErrorValue
+              (var mkIOErrorType ioErrorTypeTy)
+              (var mkIOErrorString stringTy)
+              (var mkIOErrorHandle maybeHandleTy)
+              (var mkIOErrorFile maybeFilePathTy)
+
+  annotateIOErrorRhs =
+    lam annotateError ioErrorTy $
+      lam annotateString stringTy $
+        lam annotateHandle maybeHandleTy $
+          lam annotateFile maybeFilePathTy $
+            CCase
+              (var annotateError ioErrorTy)
+              (CoreBinder annotateCase ioErrorTy)
+              [ CoreAlt
+                  (ConstructorAlt ioErrorDataConName)
+                  [ CoreBinder annotateOldType ioErrorTypeTy
+                  , CoreBinder annotateOldString stringTy
+                  , CoreBinder annotateOldHandle maybeHandleTy
+                  , CoreBinder annotateOldFile maybeFilePathTy
+                  ]
+                  ( ioErrorValue
+                      (var annotateOldType ioErrorTypeTy)
+                      (var annotateString stringTy)
+                      (maybeOverride handleTy (var annotateOldHandle maybeHandleTy) (var annotateHandle maybeHandleTy) annotateHandleCase annotateHandleJust)
+                      (maybeOverride stringTy (var annotateOldFile maybeFilePathTy) (var annotateFile maybeFilePathTy) annotateFileCase annotateFileJust)
+                  )
+              ]
+              ioErrorTy
+
+  annotateCase = preludeTermName "$annotate_io_error_case" (-3220)
+  annotateOldType = preludeTermName "$annotate_io_error_old_type" (-3221)
+  annotateOldString = preludeTermName "$annotate_io_error_old_string" (-3222)
+  annotateOldHandle = preludeTermName "$annotate_io_error_old_handle" (-3223)
+  annotateOldFile = preludeTermName "$annotate_io_error_old_file" (-3224)
+  annotateHandleCase = preludeTermName "$annotate_io_error_handle_case" (-3225)
+  annotateHandleJust = preludeTermName "$annotate_io_error_handle_just" (-3226)
+  annotateFileCase = preludeTermName "$annotate_io_error_file_case" (-3227)
+  annotateFileJust = preludeTermName "$annotate_io_error_file_just" (-3228)
+
+  ioErrorRhs =
+    CTypeLam [a] (lam ioErrorRaise ioErrorTy (CPrimOp PrimIOError [var ioErrorRaise ioErrorTy] (ioTy aTy))) ioErrorTy_
+
+  catchRhs =
+    CTypeLam [a] (lam catchAction (ioTy aTy) (lam catchHandler (CTyFun ioErrorTy (ioTy aTy)) (CPrimOp PrimIOCatch [var catchAction (ioTy aTy), var catchHandler (CTyFun ioErrorTy (ioTy aTy))] (ioTy aTy)))) catchTy
+
+  tryRhs =
+    CTypeLam [a] (lam tryAction (ioTy aTy) (CPrimOp PrimIOTry [var tryAction (ioTy aTy)] (ioTy (CTyApp (CTyApp (CTyCon eitherTyConName) ioErrorTy) aTy)))) tryTy
+
+  throwIfRhs =
+    CTypeLam [a] (lam throwIfPredicate (CTyFun aTy boolTy) (lam throwIfMessage (CTyFun aTy stringTy) (lam throwIfAction ioA (CPrimOp PrimIOBind [var throwIfAction ioA, CLam (CoreBinder throwIfValue aTy) throwIfBody (CTyFun aTy ioA)] ioA)))) throwIfTy
+   where
+    value = var throwIfValue aTy
+    throwIfBody =
+      boolCase
+        (apply (var throwIfPredicate (CTyFun aTy boolTy)) value boolTy)
+        throwIfCase
+        ioA
+        (ioThrowUserError aTy (apply (var throwIfMessage (CTyFun aTy stringTy)) value stringTy))
+        (ioReturn aTy value)
+
+  throwIfUnitRhs =
+    CTypeLam [a] (lam throwIfUnitPredicate (CTyFun aTy boolTy) (lam throwIfUnitMessage (CTyFun aTy stringTy) (lam throwIfUnitAction ioA (CPrimOp PrimIOBind [var throwIfUnitAction ioA, CLam (CoreBinder throwIfUnitValue aTy) throwIfUnitBody (CTyFun aTy ioUnitTy)] ioUnitTy)))) throwIfUnitTy
+   where
+    value = var throwIfUnitValue aTy
+    throwIfUnitBody =
+      boolCase
+        (apply (var throwIfUnitPredicate (CTyFun aTy boolTy)) value boolTy)
+        throwIfUnitCase
+        ioUnitTy
+        (ioThrowUserError unitTy (apply (var throwIfUnitMessage (CTyFun aTy stringTy)) value stringTy))
+        (ioReturn unitTy unitValue)
+
+  throwIfNullRhs =
+    CTypeLam [a] (lam throwIfNullLocation stringTy (lam throwIfNullAction (ioTy ptrA) (CPrimOp PrimIOBind [var throwIfNullAction (ioTy ptrA), CLam (CoreBinder throwIfNullPointer ptrA) throwIfNullBody (CTyFun ptrA (ioTy ptrA))] (ioTy ptrA)))) throwIfNullTy
+   where
+    pointer = var throwIfNullPointer ptrA
+    throwIfNullBody =
+      boolCase
+        (CPrimOp PrimIsNullPtr [pointer] boolTy)
+        throwIfNullCase
+        (ioTy ptrA)
+        (ioThrowUserError ptrA (var throwIfNullLocation stringTy))
+        (ioReturn ptrA pointer)
+
+  maybeNewRhs =
+    CTypeLam [a] (lam maybeNewFunction (CTyFun aTy (ioTy ptrA)) (lam maybeNewValue maybeA maybeNewBody)) maybeNewTy
+   where
+    maybeNewBody =
+      CCase
+        (var maybeNewValue maybeA)
+        (CoreBinder maybeNewCase maybeA)
+        [ CoreAlt (ConstructorAlt maybeNothingDataConName) [] (ioReturn ptrA (CPrimOp PrimNullPtr [] ptrA))
+        , CoreAlt
+            (ConstructorAlt maybeJustDataConName)
+            [CoreBinder maybeNewJust aTy]
+            (apply (var maybeNewFunction (CTyFun aTy (ioTy ptrA))) (var maybeNewJust aTy) (ioTy ptrA))
+        ]
+        (ioTy ptrA)
+
+  maybeWithRhs =
+    CTypeLam [a, b, c] (lam maybeWithFunction withFunctionTy (lam maybeWithValue maybeA (lam maybeWithContinuation continuationTy maybeWithBody))) maybeWithTy
+   where
+    withFunctionTy = CTyFun aTy (CTyFun continuationTy (ioTy cTy))
+    continuationTy = CTyFun ptrB (ioTy cTy)
+    maybeWithBody =
+      CCase
+        (var maybeWithValue maybeA)
+        (CoreBinder maybeWithCase maybeA)
+        [ CoreAlt (ConstructorAlt maybeNothingDataConName) [] (apply (var maybeWithContinuation continuationTy) (CPrimOp PrimNullPtr [] ptrB) (ioTy cTy))
+        , CoreAlt
+            (ConstructorAlt maybeJustDataConName)
+            [CoreBinder maybeWithJust aTy]
+            ( apply
+                (apply (var maybeWithFunction withFunctionTy) (var maybeWithJust aTy) (CTyFun continuationTy (ioTy cTy)))
+                (var maybeWithContinuation continuationTy)
+                (ioTy cTy)
+            )
+        ]
+        (ioTy cTy)
+
+  maybePeekRhs =
+    CTypeLam [a, b] (lam maybePeekFunction (CTyFun ptrA (ioTy bTy)) (lam maybePeekPointer ptrA maybePeekBody)) maybePeekTy
+   where
+    pointer = var maybePeekPointer ptrA
+    maybePeekBody =
+      boolCase
+        (CPrimOp PrimIsNullPtr [pointer] boolTy)
+        maybePeekCase
+        (ioTy maybeB)
+        (ioReturn maybeB (maybeNothing bTy))
+        ( CPrimOp
+            PrimIOBind
+            [ apply (var maybePeekFunction (CTyFun ptrA (ioTy bTy))) pointer (ioTy bTy)
+            , CLam (CoreBinder maybePeekValue bTy) (ioReturn maybeB (maybeJust bTy (var maybePeekValue bTy))) (CTyFun bTy (ioTy maybeB))
+            ]
+            (ioTy maybeB)
+        )
+
+  storableClassA = preludeTypeVariable "a" (-1572)
+  storableClassATy = CTyVar storableClassA
+  storableClassDictA = CTyApp (CTyCon (classDictionaryTypeName builtinStorableClassName)) storableClassATy
+  storableClassPtrA = ptrTy storableClassATy
+  sizeOfSelectorTy = CTyForall [storableClassA] (CTyFun storableClassDictA (CTyFun storableClassATy intTy))
+  peekSelectorTy = CTyForall [storableClassA] (CTyFun storableClassDictA (CTyFun storableClassPtrA (ioTy storableClassATy)))
+  pokeSelectorTy = CTyForall [storableClassA] (CTyFun storableClassDictA (CTyFun storableClassPtrA (CTyFun storableClassATy ioUnitTy)))
+  sizeOfSelector = preludeTermName "sizeOf" (-1497)
+  storableSizeA =
+    storableSizeExpr a aTy storableDictA (var mallocDict storableDictA)
+  storableSizeExpr typeVar valueTy dictTy dictExpr =
+    CLet
+      (CoreRec [(CoreBinder storableDummy valueTy, var storableDummy valueTy)])
+      ( apply
+          ( apply
+              (specialize sizeOfSelector sizeOfSelectorTy [valueTy] (CTyFun dictTy (CTyFun valueTy intTy)))
+              dictExpr
+              (CTyFun valueTy intTy)
+          )
+          (var storableDummy valueTy)
+          intTy
+      )
+      intTy
+   where
+    storableDummy = RName TermNamespace ("$storable_dummy_" <> renderRName typeVar) (-6732 - nameUnique typeVar) False
+
+  mallocRhs =
+    CTypeLam [a] (lam mallocDict storableDictA (CPrimOp PrimMallocBytes [storableSizeA] (ioTy ptrA))) mallocTy
+
+  allocaRhs =
+    CTypeLam [a, b] (lam allocaDict storableDictA (lam allocaContinuation (CTyFun ptrA (ioTy bTy)) (allocaBytesBody ptrA bTy (storableSizeExpr a aTy storableDictA (var allocaDict storableDictA)) (var allocaContinuation (CTyFun ptrA (ioTy bTy)))))) allocaTy
+
+  allocaBytesRhs =
+    CTypeLam [a, b] (lam allocaBytesSize intTy (lam allocaBytesContinuation (CTyFun ptrA (ioTy bTy)) (allocaBytesBody ptrA bTy (var allocaBytesSize intTy) (var allocaBytesContinuation (CTyFun ptrA (ioTy bTy)))))) allocaBytesTy
+
+  allocaBytesBody pointerTy resultTy sizeExpr continuationExpr =
+    CPrimOp
+      PrimIOBind
+      [ CPrimOp PrimMallocBytes [sizeExpr] (ioTy pointerTy)
+      , CLam (CoreBinder allocaBytesPointer pointerTy) (CPrimOp PrimIOCatch [successAction, failureHandler] (ioTy resultTy)) (CTyFun pointerTy (ioTy resultTy))
+      ]
+      (ioTy resultTy)
+   where
+    pointer = var allocaBytesPointer pointerTy
+    freeAction = CPrimOp PrimFree [pointer] ioUnitTy
+    successAction =
+      CPrimOp
+        PrimIOBind
+        [ apply continuationExpr pointer (ioTy resultTy)
+        , CLam
+            (CoreBinder allocaBytesResult resultTy)
+            (CPrimOp PrimIOThen [freeAction, ioReturn resultTy (var allocaBytesResult resultTy)] (ioTy resultTy))
+            (CTyFun resultTy (ioTy resultTy))
+        ]
+        (ioTy resultTy)
+    failureHandler =
+      CLam
+        (CoreBinder allocaBytesError ioErrorTy)
+        (CPrimOp PrimIOThen [freeAction, CPrimOp PrimIOError [var allocaBytesError ioErrorTy] (ioTy resultTy)] (ioTy resultTy))
+        (CTyFun ioErrorTy (ioTy resultTy))
+
+  withMallocedPointer pointer resultTy action =
+    CPrimOp PrimIOCatch [successAction, failureHandler] (ioTy resultTy)
+   where
+    freeAction = CPrimOp PrimFree [pointer] ioUnitTy
+    successAction =
+      CPrimOp
+        PrimIOBind
+        [ action
+        , CLam
+            (CoreBinder allocaBytesResult resultTy)
+            (CPrimOp PrimIOThen [freeAction, ioReturn resultTy (var allocaBytesResult resultTy)] (ioTy resultTy))
+            (CTyFun resultTy (ioTy resultTy))
+        ]
+        (ioTy resultTy)
+    failureHandler =
+      CLam
+        (CoreBinder allocaBytesError ioErrorTy)
+        (CPrimOp PrimIOThen [freeAction, CPrimOp PrimIOError [var allocaBytesError ioErrorTy] (ioTy resultTy)] (ioTy resultTy))
+        (CTyFun ioErrorTy (ioTy resultTy))
+
+  reallocRhs =
+    CTypeLam
+      [a, b]
+      ( lam reallocDict storableDictB $
+          lam reallocPointer ptrA $
+            CPrimOp PrimReallocBytes [var reallocPointer ptrA, storableSizeExpr b bTy storableDictB (var reallocDict storableDictB)] (ioTy ptrB)
+      )
+      reallocTy
+
+  advancePtrRhs =
+    CTypeLam
+      [a]
+      ( lam arrayDict storableDictA $
+          lam arrayPointer ptrA $
+            lam arrayCount intTy $
+              CPrimOp PrimPtrPlus [var arrayPointer ptrA, CPrimOp PrimMul [var arrayCount intTy, storableSizeExpr a aTy storableDictA (var arrayDict storableDictA)] intTy] ptrA
+      )
+      advancePtrTy
+
+  mallocArrayRhs extra =
+    CTypeLam
+      [a]
+      ( lam arrayDict storableDictA $
+          lam arrayCount intTy $
+            CPrimOp PrimMallocBytes [arrayByteCount extra (var arrayDict storableDictA) (var arrayCount intTy)] (ioTy ptrA)
+      )
+      mallocArrayTy
+
+  allocaArrayRhs extra =
+    CTypeLam
+      [a, b]
+      ( lam arrayDict storableDictA $
+          lam arrayCount intTy $
+            lam arrayContinuation (CTyFun ptrA (ioTy bTy)) $
+              allocaBytesBody ptrA bTy (arrayByteCount extra (var arrayDict storableDictA) (var arrayCount intTy)) (var arrayContinuation (CTyFun ptrA (ioTy bTy)))
+      )
+      allocaArrayTy
+
+  reallocArrayRhs extra =
+    CTypeLam
+      [a]
+      ( lam arrayDict storableDictA $
+          lam arrayPointer ptrA $
+            lam arrayCount intTy $
+              CPrimOp PrimReallocBytes [var arrayPointer ptrA, arrayByteCount extra (var arrayDict storableDictA) (var arrayCount intTy)] (ioTy ptrA)
+      )
+      reallocArrayTy
+
+  arrayByteCount extra dict count =
+    CPrimOp PrimMul [CPrimOp PrimAdd [count, intLiteral extra] intTy, storableSizeExpr a aTy storableDictA dict] intTy
+
+  advancePtrExpr dict pointer count =
+    CPrimOp PrimPtrPlus [pointer, CPrimOp PrimMul [count, storableSizeExpr a aTy storableDictA dict] intTy] ptrA
+
+  peekStorable dict pointer =
+    apply
+      (apply
+        (specialize (preludeTermName "peek" (-1503)) peekSelectorTy [aTy] (CTyFun storableDictA (CTyFun ptrA (ioTy aTy))))
+        dict
+        (CTyFun ptrA (ioTy aTy)))
+      pointer
+      (ioTy aTy)
+
+  pokeStorable dict pointer value =
+    apply
+      (apply
+        (apply
+          (specialize (preludeTermName "poke" (-1504)) pokeSelectorTy [aTy] (CTyFun storableDictA (CTyFun ptrA (CTyFun aTy ioUnitTy))))
+          dict
+          (CTyFun ptrA (CTyFun aTy ioUnitTy)))
+        pointer
+        (CTyFun aTy ioUnitTy))
+      value
+      ioUnitTy
+
+  eqAValue dict lhs rhs =
+    apply
+      (apply
+        (apply
+          (specialize eqSelectorName eqSelectorTy [aTy] (CTyFun eqDictA (CTyFun aTy (CTyFun aTy boolTy))))
+          dict
+          (CTyFun aTy (CTyFun aTy boolTy)))
+        lhs
+        (CTyFun aTy boolTy))
+      rhs
+      boolTy
+   where
+    eqSelectorName = preludeTermName "==" (-1401)
+    eqClassA = preludeTypeVariable "a" (-1301)
+    eqClassATy = CTyVar eqClassA
+    eqClassDictA = CTyApp (CTyCon (classDictionaryTypeName builtinEqClassName)) eqClassATy
+    eqSelectorTy = CTyForall [eqClassA] (CTyFun eqClassDictA (CTyFun eqClassATy (CTyFun eqClassATy boolTy)))
+
+  listLengthExpr elementTy xs =
+    let lenName = builtinLocalTermName "$foreign_list_length" (-6733)
+        lenArg = builtinLocalTermName "$foreign_list_length_xs" (-6734)
+        lenHead = builtinLocalTermName "$foreign_list_length_x" (-6735)
+        lenTail = builtinLocalTermName "$foreign_list_length_tail" (-6736)
+        lenCase = builtinLocalTermName "$foreign_list_length_case" (-6737)
+        listTy_ = CTyList elementTy
+        lenTy = CTyFun listTy_ intTy
+        recursive =
+          apply (var lenName lenTy) (var lenTail listTy_) intTy
+        lenRhs =
+          lam lenArg listTy_ $
+            listCase
+              (var lenArg listTy_)
+              lenCase
+              elementTy
+              intTy
+              (intLiteral 0)
+              lenHead
+              lenTail
+              (CPrimOp PrimAdd [intLiteral 1, recursive] intTy)
+     in CLet
+          (CoreRec [(CoreBinder lenName lenTy, lenRhs)])
+          (apply (var lenName lenTy) xs intTy)
+          intTy
+
+  peekArrayRhs functionName =
+    let dict = var arrayDict storableDictA
+        count = var arrayCount intTy
+        pointer = var arrayPointer ptrA
+        recursive =
+          \nextCount nextPtr ->
+            CApp
+              ( CApp
+                  ( CApp
+                      (specialize functionName peekArrayTy [aTy] (CTyFun storableDictA (CTyFun intTy (CTyFun ptrA (ioTy listA)))))
+                      dict
+                      (CTyFun intTy (CTyFun ptrA (ioTy listA)))
+                  )
+                  nextCount
+                  (CTyFun ptrA (ioTy listA))
+              )
+              nextPtr
+              (ioTy listA)
+        peekTail =
+          \value ->
+            CPrimOp
+              PrimIOBind
+              [ recursive (CPrimOp PrimSub [count, intLiteral 1] intTy) (advancePtrExpr dict pointer (intLiteral 1))
+              , CLam (CoreBinder arrayTail listA) (ioReturn listA (cons aTy value (var arrayTail listA))) (CTyFun listA (ioTy listA))
+              ]
+              (ioTy listA)
+        peekBody =
+          boolCase
+            (CPrimOp PrimLt [count, intLiteral 1] boolTy)
+            arrayCase
+            (ioTy listA)
+            (ioReturn listA (nil aTy))
+            ( CPrimOp
+                PrimIOBind
+                [ peekStorable dict pointer
+                , CLam (CoreBinder arrayValue aTy) (peekTail (var arrayValue aTy)) (CTyFun aTy (ioTy listA))
+                ]
+                (ioTy listA)
+            )
+     in CTypeLam [a] (lam arrayDict storableDictA (lam arrayCount intTy (lam arrayPointer ptrA peekBody))) peekArrayTy
+
+  pokeArrayRhs functionName =
+    let dict = var arrayDict storableDictA
+        pointer = var arrayPointer ptrA
+        values = var arrayValues listA
+        recursive =
+          \nextPtr rest ->
+            CApp
+              ( CApp
+                  ( CApp
+                      (specialize functionName pokeArrayTy [aTy] (CTyFun storableDictA (CTyFun ptrA (CTyFun listA ioUnitTy))))
+                      dict
+                      (CTyFun ptrA (CTyFun listA ioUnitTy))
+                  )
+                  nextPtr
+                  (CTyFun listA ioUnitTy)
+              )
+              rest
+              ioUnitTy
+        pokeBody =
+          listCase
+            values
+            arrayCase
+            aTy
+            ioUnitTy
+            (ioReturn unitTy unitValue)
+            arrayValue
+            arrayRest
+            ( CPrimOp
+                PrimIOThen
+                [ pokeStorable dict pointer (var arrayValue aTy)
+                , recursive (advancePtrExpr dict pointer (intLiteral 1)) (var arrayRest listA)
+                ]
+                ioUnitTy
+            )
+     in CTypeLam [a] (lam arrayDict storableDictA (lam arrayPointer ptrA (lam arrayValues listA pokeBody))) pokeArrayTy
+
+  peekArray0Rhs functionName =
+    let storableDict = var arrayDict storableDictA
+        equalityDict = var arrayEqDict eqDictA
+        marker = var arrayMarker aTy
+        pointer = var arrayPointer ptrA
+        recursive nextPtr =
+          CApp
+            ( CApp
+                ( CApp
+                    ( CApp
+                        (specialize functionName peekArray0Ty [aTy] (CTyFun storableDictA (CTyFun eqDictA (CTyFun aTy (CTyFun ptrA (ioTy listA))))))
+                        storableDict
+                        (CTyFun eqDictA (CTyFun aTy (CTyFun ptrA (ioTy listA))))
+                    )
+                    equalityDict
+                    (CTyFun aTy (CTyFun ptrA (ioTy listA)))
+                )
+                marker
+                (CTyFun ptrA (ioTy listA))
+            )
+            nextPtr
+            (ioTy listA)
+        consTail value =
+          CPrimOp
+            PrimIOBind
+            [ recursive (advancePtrExpr storableDict pointer (intLiteral 1))
+            , CLam (CoreBinder arrayTail listA) (ioReturn listA (cons aTy value (var arrayTail listA))) (CTyFun listA (ioTy listA))
+            ]
+            (ioTy listA)
+        body =
+          CPrimOp
+            PrimIOBind
+            [ peekStorable storableDict pointer
+            , CLam
+                (CoreBinder arrayValue aTy)
+                ( boolCase
+                    (eqAValue equalityDict (var arrayValue aTy) marker)
+                    arrayCase
+                    (ioTy listA)
+                    (ioReturn listA (nil aTy))
+                    (consTail (var arrayValue aTy))
+                )
+                (CTyFun aTy (ioTy listA))
+            ]
+            (ioTy listA)
+     in CTypeLam [a] (lam arrayDict storableDictA (lam arrayEqDict eqDictA (lam arrayMarker aTy (lam arrayPointer ptrA body)))) peekArray0Ty
+
+  pokeArray0Rhs =
+    CTypeLam [a] (lam arrayDict storableDictA (lam arrayMarker aTy (lam arrayPointer ptrA (lam arrayValues listA body)))) pokeArray0Ty
+   where
+    dict = var arrayDict storableDictA
+    marker = var arrayMarker aTy
+    pointer = var arrayPointer ptrA
+    values = var arrayValues listA
+    len = listLengthExpr aTy values
+    body =
+      CPrimOp
+        PrimIOThen
+        [ CApp
+            ( CApp
+                ( CApp
+                    (specialize (standardLibraryTermName "pokeArray") pokeArrayTy [aTy] (CTyFun storableDictA (CTyFun ptrA (CTyFun listA ioUnitTy))))
+                    dict
+                    (CTyFun ptrA (CTyFun listA ioUnitTy))
+                )
+                pointer
+                (CTyFun listA ioUnitTy)
+            )
+            values
+            ioUnitTy
+        , pokeStorable dict (advancePtrExpr dict pointer len) marker
+        ]
+        ioUnitTy
+
+  lengthArray0Rhs functionName =
+    let storableDict = var arrayDict storableDictA
+        equalityDict = var arrayEqDict eqDictA
+        marker = var arrayMarker aTy
+        pointer = var arrayPointer ptrA
+        recursive nextPtr =
+          CApp
+            ( CApp
+                ( CApp
+                    ( CApp
+                        (specialize functionName lengthArray0Ty [aTy] (CTyFun storableDictA (CTyFun eqDictA (CTyFun aTy (CTyFun ptrA (ioTy intTy))))))
+                        storableDict
+                        (CTyFun eqDictA (CTyFun aTy (CTyFun ptrA (ioTy intTy))))
+                    )
+                    equalityDict
+                    (CTyFun aTy (CTyFun ptrA (ioTy intTy)))
+                )
+                marker
+                (CTyFun ptrA (ioTy intTy))
+            )
+            nextPtr
+            (ioTy intTy)
+        countTail =
+          CPrimOp
+            PrimIOBind
+            [ recursive (advancePtrExpr storableDict pointer (intLiteral 1))
+            , CLam (CoreBinder arrayLength intTy) (ioReturn intTy (CPrimOp PrimAdd [intLiteral 1, var arrayLength intTy] intTy)) (CTyFun intTy (ioTy intTy))
+            ]
+            (ioTy intTy)
+        body =
+          CPrimOp
+            PrimIOBind
+            [ peekStorable storableDict pointer
+            , CLam
+                (CoreBinder arrayValue aTy)
+                ( boolCase
+                    (eqAValue equalityDict (var arrayValue aTy) marker)
+                    arrayCase
+                    (ioTy intTy)
+                    (ioReturn intTy (intLiteral 0))
+                    countTail
+                )
+                (CTyFun aTy (ioTy intTy))
+            ]
+            (ioTy intTy)
+     in CTypeLam [a] (lam arrayDict storableDictA (lam arrayEqDict eqDictA (lam arrayMarker aTy (lam arrayPointer ptrA body)))) lengthArray0Ty
+
+  newArrayRhs =
+    CTypeLam [a] (lam arrayDict storableDictA (lam arrayValues listA body)) newArrayTy
+   where
+    dict = var arrayDict storableDictA
+    values = var arrayValues listA
+    len = listLengthExpr aTy values
+    body =
+      CPrimOp
+        PrimIOBind
+        [ CPrimOp PrimMallocBytes [arrayByteCount 0 dict len] (ioTy ptrA)
+        , CLam
+            (CoreBinder arrayPointer ptrA)
+            ( CPrimOp
+                PrimIOThen
+                [ CApp
+                    ( CApp
+                        ( CApp
+                            (specialize (standardLibraryTermName "pokeArray") pokeArrayTy [aTy] (CTyFun storableDictA (CTyFun ptrA (CTyFun listA ioUnitTy))))
+                            dict
+                            (CTyFun ptrA (CTyFun listA ioUnitTy))
+                        )
+                        (var arrayPointer ptrA)
+                        (CTyFun listA ioUnitTy)
+                    )
+                    values
+                    ioUnitTy
+                , ioReturn ptrA (var arrayPointer ptrA)
+                ]
+                (ioTy ptrA)
+            )
+            (CTyFun ptrA (ioTy ptrA))
+        ]
+        (ioTy ptrA)
+
+  newArray0Rhs =
+    CTypeLam [a] (lam arrayDict storableDictA (lam arrayMarker aTy (lam arrayValues listA body))) newArray0Ty
+   where
+    dict = var arrayDict storableDictA
+    marker = var arrayMarker aTy
+    values = var arrayValues listA
+    len = listLengthExpr aTy values
+    body =
+      CPrimOp
+        PrimIOBind
+        [ CPrimOp PrimMallocBytes [arrayByteCount 1 dict len] (ioTy ptrA)
+        , CLam
+            (CoreBinder arrayPointer ptrA)
+            ( CPrimOp
+                PrimIOThen
+                [ CApp
+                    ( CApp
+                        ( CApp
+                            ( CApp
+                                (specialize (standardLibraryTermName "pokeArray0") pokeArray0Ty [aTy] (CTyFun storableDictA (CTyFun aTy (CTyFun ptrA (CTyFun listA ioUnitTy)))))
+                                dict
+                                (CTyFun aTy (CTyFun ptrA (CTyFun listA ioUnitTy)))
+                            )
+                            marker
+                            (CTyFun ptrA (CTyFun listA ioUnitTy))
+                        )
+                        (var arrayPointer ptrA)
+                        (CTyFun listA ioUnitTy)
+                    )
+                    values
+                    ioUnitTy
+                , ioReturn ptrA (var arrayPointer ptrA)
+                ]
+                (ioTy ptrA)
+            )
+            (CTyFun ptrA (ioTy ptrA))
+        ]
+        (ioTy ptrA)
+
+  withArrayRhs =
+    CTypeLam [a, b] (lam arrayDict storableDictA (lam arrayValues listA (lam arrayContinuation (CTyFun ptrA (ioTy bTy)) body))) withArrayTy
+   where
+    dict = var arrayDict storableDictA
+    values = var arrayValues listA
+    body =
+      CPrimOp
+        PrimIOBind
+        [ CApp
+            ( CApp
+                (specialize (standardLibraryTermName "newArray") newArrayTy [aTy] (CTyFun storableDictA (CTyFun listA (ioTy ptrA))))
+                dict
+                (CTyFun listA (ioTy ptrA))
+            )
+            values
+            (ioTy ptrA)
+        , CLam (CoreBinder arrayPointer ptrA) (withMallocedPointer (var arrayPointer ptrA) bTy (var arrayContinuation (CTyFun ptrA (ioTy bTy)) `CApp` var arrayPointer ptrA $ ioTy bTy)) (CTyFun ptrA (ioTy bTy))
+        ]
+        (ioTy bTy)
+
+  withArray0Rhs =
+    CTypeLam [a, b] (lam arrayDict storableDictA (lam arrayMarker aTy (lam arrayValues listA (lam arrayContinuation (CTyFun ptrA (ioTy bTy)) body)))) withArray0Ty
+   where
+    dict = var arrayDict storableDictA
+    marker = var arrayMarker aTy
+    values = var arrayValues listA
+    body =
+      CPrimOp
+        PrimIOBind
+        [ CApp
+            ( CApp
+                ( CApp
+                    (specialize (standardLibraryTermName "newArray0") newArray0Ty [aTy] (CTyFun storableDictA (CTyFun aTy (CTyFun listA (ioTy ptrA)))))
+                    dict
+                    (CTyFun aTy (CTyFun listA (ioTy ptrA)))
+                )
+                marker
+                (CTyFun listA (ioTy ptrA))
+            )
+            values
+            (ioTy ptrA)
+        , CLam (CoreBinder arrayPointer ptrA) (withMallocedPointer (var arrayPointer ptrA) bTy (CApp (var arrayContinuation (CTyFun ptrA (ioTy bTy))) (var arrayPointer ptrA) (ioTy bTy))) (CTyFun ptrA (ioTy bTy))
+        ]
+        (ioTy bTy)
+
+  withArrayLenRhs =
+    CTypeLam [a, b] (lam arrayDict storableDictA (lam arrayValues listA (lam arrayContinuation (CTyFun intTy (CTyFun ptrA (ioTy bTy))) body))) withArrayLenTy
+   where
+    dict = var arrayDict storableDictA
+    values = var arrayValues listA
+    len = listLengthExpr aTy values
+    body =
+      CApp
+        ( CApp
+            ( CApp
+                (specialize (standardLibraryTermName "withArray") withArrayTy [aTy, bTy] (CTyFun storableDictA (CTyFun listA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))))
+                dict
+                (CTyFun listA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))
+            )
+            values
+            (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy))
+        )
+        (CLam (CoreBinder arrayPointer ptrA) (CApp (CApp (var arrayContinuation (CTyFun intTy (CTyFun ptrA (ioTy bTy)))) len (CTyFun ptrA (ioTy bTy))) (var arrayPointer ptrA) (ioTy bTy)) (CTyFun ptrA (ioTy bTy)))
+        (ioTy bTy)
+
+  withArrayLen0Rhs =
+    CTypeLam [a, b] (lam arrayDict storableDictA (lam arrayMarker aTy (lam arrayValues listA (lam arrayContinuation (CTyFun intTy (CTyFun ptrA (ioTy bTy))) body)))) withArrayLen0Ty
+   where
+    dict = var arrayDict storableDictA
+    marker = var arrayMarker aTy
+    values = var arrayValues listA
+    lenWithTerminator = CPrimOp PrimAdd [listLengthExpr aTy values, intLiteral 1] intTy
+    body =
+      CApp
+        ( CApp
+            ( CApp
+                ( CApp
+                    (specialize (standardLibraryTermName "withArray0") withArray0Ty [aTy, bTy] (CTyFun storableDictA (CTyFun aTy (CTyFun listA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy))))))
+                    dict
+                    (CTyFun aTy (CTyFun listA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy))))
+                )
+                marker
+                (CTyFun listA (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy)))
+            )
+            values
+            (CTyFun (CTyFun ptrA (ioTy bTy)) (ioTy bTy))
+        )
+        (CLam (CoreBinder arrayPointer ptrA) (CApp (CApp (var arrayContinuation (CTyFun intTy (CTyFun ptrA (ioTy bTy)))) lenWithTerminator (CTyFun ptrA (ioTy bTy))) (var arrayPointer ptrA) (ioTy bTy)) (CTyFun ptrA (ioTy bTy)))
+        (ioTy bTy)
+
+  copyArrayRhs prim =
+    CTypeLam
+      [a]
+      ( lam arrayDict storableDictA $
+          lam copyDest ptrA $
+            lam copySource ptrA $
+              lam copyCount intTy $
+                CPrimOp prim [var copyDest ptrA, var copySource ptrA, CPrimOp PrimMul [var copyCount intTy, storableSizeExpr a aTy storableDictA (var arrayDict storableDictA)] intTy] ioUnitTy
+      )
+      copyArrayTy
+
+  peekCStringLenRhs prim ptrTy_ =
+    lam cStringPair (CTyTuple [ptrTy_, intTy]) $
+      CCase
+        (var cStringPair (CTyTuple [ptrTy_, intTy]))
+        (CoreBinder arrayCase (CTyTuple [ptrTy_, intTy]))
+        [CoreAlt (ConstructorAlt (tupleDataConName 2)) [CoreBinder cStringPointer ptrTy_, CoreBinder cStringLength intTy] (CPrimOp prim [var cStringPointer ptrTy_, var cStringLength intTy] (ioTy stringTy))]
+        (ioTy stringTy)
+
+  newCStringLenRhs prim ptrTy_ tupleTy =
+    lam cStringSource stringTy $
+      CPrimOp
+        PrimIOBind
+        [ CPrimOp prim [var cStringSource stringTy] (ioTy ptrTy_)
+        , CLam
+            (CoreBinder cStringPointer ptrTy_)
+            (ioReturn tupleTy (constructorApp (tupleDataConName 2) [ptrTy_, intTy] [var cStringPointer ptrTy_, listLengthExpr charTy (var cStringSource stringTy)] tupleTy))
+            (CTyFun ptrTy_ (ioTy tupleTy))
+        ]
+        (ioTy tupleTy)
+
+  withCStringRhs ptrTy_ =
+    CTypeLam [a] (lam cStringSource stringTy (lam cStringContinuation (CTyFun ptrTy_ (ioTy aTy)) body)) (CTyForall [a] (CTyFun stringTy (CTyFun (CTyFun ptrTy_ (ioTy aTy)) (ioTy aTy))))
+   where
+    body =
+      CPrimOp
+        PrimIOBind
+        [ CPrimOp (if ptrTy_ == cWStringTy then PrimNewCWString else PrimNewCString) [var cStringSource stringTy] (ioTy ptrTy_)
+        , CLam (CoreBinder cStringPointer ptrTy_) (withMallocedPointer (var cStringPointer ptrTy_) aTy (var cStringContinuation (CTyFun ptrTy_ (ioTy aTy)) `CApp` var cStringPointer ptrTy_ $ ioTy aTy)) (CTyFun ptrTy_ (ioTy aTy))
+        ]
+        (ioTy aTy)
+
+  withCStringLenRhs tupleTy ptrTy_ =
+    CTypeLam [a] (lam cStringSource stringTy (lam cStringContinuation (CTyFun tupleTy (ioTy aTy)) body)) (CTyForall [a] (CTyFun stringTy (CTyFun (CTyFun tupleTy (ioTy aTy)) (ioTy aTy))))
+   where
+    body =
+      CPrimOp
+        PrimIOBind
+        [ newCStringLenRhs (if ptrTy_ == cWStringTy then PrimNewCWString else PrimNewCString) ptrTy_ tupleTy `CApp` var cStringSource stringTy $ ioTy tupleTy
+        , CLam
+            (CoreBinder cStringPair tupleTy)
+            ( CCase
+                (var cStringPair tupleTy)
+                (CoreBinder arrayCase tupleTy)
+                [ CoreAlt
+                    (ConstructorAlt (tupleDataConName 2))
+                    [CoreBinder cStringPointer ptrTy_, CoreBinder cStringLength intTy]
+                    (withMallocedPointer (var cStringPointer ptrTy_) aTy (var cStringContinuation (CTyFun tupleTy (ioTy aTy)) `CApp` var cStringPair tupleTy $ ioTy aTy))
+                ]
+                (ioTy aTy)
+            )
+            (CTyFun tupleTy (ioTy aTy))
+        ]
+        (ioTy aTy)
+
+  errnoToIOErrorRhs =
+    lam errnoLocation stringTy $
+      lam errnoValue errnoTy $
+        lam errnoHandle maybeHandleTy $
+          lam errnoFile maybeFilePathTy $
+            ioErrorValue (errnoErrorType (var errnoValue errnoTy)) (var errnoLocation stringTy) (var errnoHandle maybeHandleTy) (var errnoFile maybeFilePathTy)
+
+  isValidErrnoRhs =
+    lam errnoValue errnoTy $
+      boolOrChain [errnoEq (var errnoValue errnoTy) value | value <- validErrnoValues]
+
+  boolOrChain = \case
+    [] -> con falseDataConName boolTy
+    predicate : rest ->
+      boolCase
+        predicate
+        throwErrnoCase
+        boolTy
+        (con trueDataConName boolTy)
+        (boolOrChain rest)
+
+  errnoErrorType value =
+    boolCase
+      (errnoEq value 2)
+      throwErrnoCase
+      ioErrorTypeTy
+      (CCon ioErrorDoesNotExistTypeDataConName ioErrorTypeTy)
+      ( boolCase
+          (boolOrChain [errnoEq value 1, errnoEq value 13])
+          throwErrnoCase
+          ioErrorTypeTy
+          (CCon ioErrorPermissionTypeDataConName ioErrorTypeTy)
+          ( boolCase
+              (errnoEq value 17)
+              throwErrnoCase
+              ioErrorTypeTy
+              (CCon ioErrorAlreadyExistsTypeDataConName ioErrorTypeTy)
+              ( boolCase
+                  (errnoEq value 28)
+                  throwErrnoCase
+                  ioErrorTypeTy
+                  (CCon ioErrorFullTypeDataConName ioErrorTypeTy)
+                  ( boolCase
+                      (boolOrChain [errnoEq value 16, errnoEq value 48])
+                      throwErrnoCase
+                      ioErrorTypeTy
+                      (CCon ioErrorAlreadyInUseTypeDataConName ioErrorTypeTy)
+                      (CCon ioErrorIllegalOperationTypeDataConName ioErrorTypeTy)
+                  )
+              )
+          )
+      )
+  errnoEq value intValue =
+    CPrimOp (PrimFixedIntegral FixedInt32 FixedEq) [value, errnoLiteral intValue] boolTy
+  errnoLiteral value =
+    CPrimOp (PrimFixedIntegral FixedInt32 FixedFromInteger) [integerLiteral value] errnoTy
+
+  throwErrnoRhs =
+    CTypeLam [a] (lam throwErrnoLocation stringTy (throwErrnoWithFile aTy (var throwErrnoLocation stringTy) (maybeNothing stringTy))) throwErrnoTy
+
+  throwErrnoWithFile resultTy location maybeFile =
+    CPrimOp
+      PrimIOBind
+      [ CPrimOp PrimGetErrno [] (ioTy errnoTy)
+      , CLam
+          (CoreBinder errnoValue errnoTy)
+          (errnoIOError resultTy location maybeFile (var errnoValue errnoTy))
+          (CTyFun errnoTy (ioTy resultTy))
+      ]
+      (ioTy resultTy)
+
+  errnoIOError resultTy location maybeFile errno =
+    CPrimOp PrimIOError [errnoToIOErrorCallWithFile location errno maybeFile] (ioTy resultTy)
+
+  errnoToIOErrorCallWithFile location errno maybeFile =
+    apply
+      (apply
+        (apply
+          (apply errnoToIOErrorRhs location (CTyFun errnoTy (CTyFun maybeHandleTy (CTyFun maybeFilePathTy ioErrorTy))))
+          errno
+          (CTyFun maybeHandleTy (CTyFun maybeFilePathTy ioErrorTy)))
+        (maybeNothing handleTy)
+        (CTyFun maybeFilePathTy ioErrorTy))
+      maybeFile
+      ioErrorTy
+
+  throwErrnoIfRhs =
+    CTypeLam [a] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (throwErrnoIfBody aTy (maybeNothing stringTy))))) throwErrnoIfTy
+  throwErrnoIfBody resultTy maybeFile =
+    CPrimOp
+      PrimIOBind
+      [ var throwErrnoAction (ioTy resultTy)
+      , CLam
+          (CoreBinder throwErrnoResult resultTy)
+          ( boolCase
+              (apply (var throwErrnoPredicate (CTyFun resultTy boolTy)) (var throwErrnoResult resultTy) boolTy)
+              throwErrnoCase
+              (ioTy resultTy)
+              (throwErrnoWithFile resultTy (var throwErrnoLocation stringTy) maybeFile)
+              (ioReturn resultTy (var throwErrnoResult resultTy))
+          )
+          (CTyFun resultTy (ioTy resultTy))
+      ]
+      (ioTy resultTy)
+
+  throwErrnoIfUnitRhs =
+    CTypeLam [a] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (CPrimOp PrimIOThen [throwErrnoIfBody aTy (maybeNothing stringTy), ioReturn unitTy unitValue] ioUnitTy)))) throwErrnoIfUnitTy
+
+  throwErrnoIfRetryRhs functionName =
+    CTypeLam [a] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (throwErrnoRetryBody aTy predicate retryAction Nothing)))) throwErrnoIfRetryTy
+   where
+    predicate value = apply (var throwErrnoPredicate (CTyFun aTy boolTy)) value boolTy
+    retryAction = genericRetryCall functionName throwErrnoIfRetryTy aTy Nothing
+
+  throwErrnoIfRetryUnitRhs _functionName =
+    CTypeLam [a] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (CPrimOp PrimIOThen [genericRetryCall (standardLibraryTermName "throwErrnoIfRetry") throwErrnoIfRetryTy aTy Nothing, ioReturn unitTy unitValue] ioUnitTy)))) throwErrnoIfRetryUnitTy
+
+  throwErrnoIfMinus1Rhs =
+    CTypeLam [a] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (throwErrnoIfMinus1Body aTy (maybeNothing stringTy)))))) throwErrnoIfMinus1Ty
+  throwErrnoIfMinus1UnitRhs =
+    CTypeLam [a] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (CPrimOp PrimIOThen [throwErrnoIfMinus1Body aTy (maybeNothing stringTy), ioReturn unitTy unitValue] ioUnitTy))))) throwErrnoIfMinus1UnitTy
+  throwErrnoIfMinus1Body resultTy maybeFile =
+    CPrimOp
+      PrimIOBind
+      [ var throwErrnoAction (ioTy resultTy)
+      , CLam
+          (CoreBinder throwErrnoResult resultTy)
+          ( boolCase
+              (minusOnePredicate resultTy (var throwErrnoResult resultTy))
+              throwErrnoCase
+              (ioTy resultTy)
+              (throwErrnoWithFile resultTy (var throwErrnoLocation stringTy) maybeFile)
+              (ioReturn resultTy (var throwErrnoResult resultTy))
+          )
+          (CTyFun resultTy (ioTy resultTy))
+      ]
+      (ioTy resultTy)
+
+  throwErrnoIfMinus1RetryRhs functionName =
+    CTypeLam [a] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (throwErrnoRetryBody aTy predicate retryAction Nothing))))) throwErrnoIfMinus1RetryTy
+   where
+    predicate value = minusOnePredicate aTy value
+    retryAction = minusOneRetryCall functionName throwErrnoIfMinus1RetryTy aTy Nothing
+
+  throwErrnoIfMinus1RetryUnitRhs _functionName =
+    CTypeLam [a] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (CPrimOp PrimIOThen [minusOneRetryCall (standardLibraryTermName "throwErrnoIfMinus1Retry") throwErrnoIfMinus1RetryTy aTy Nothing, ioReturn unitTy unitValue] ioUnitTy))))) throwErrnoIfMinus1RetryUnitTy
+  minusOnePredicate resultTy value =
+    apply
+      (apply
+        (apply
+          (specialize (preludeTermName "==" (-1401)) eqSelectorTy [resultTy] (CTyFun eqDictResult (CTyFun resultTy (CTyFun resultTy boolTy))))
+          (var throwErrnoDictEq eqDictA)
+          (CTyFun resultTy (CTyFun resultTy boolTy)))
+        value
+        (CTyFun resultTy boolTy))
+      ( apply
+          (apply
+            (specialize (preludeTermName "fromInteger" (-1427)) fromIntegerSelectorTy [resultTy] (CTyFun numDictResult (CTyFun integerTy resultTy)))
+            (var throwErrnoDictNum numDictA)
+            (CTyFun integerTy resultTy))
+          (integerLiteral (-1))
+          resultTy
+      )
+      boolTy
+   where
+    eqClassA = preludeTypeVariable "a" (-1301)
+    eqClassATy = CTyVar eqClassA
+    eqClassDictA = CTyApp (CTyCon (classDictionaryTypeName builtinEqClassName)) eqClassATy
+    eqSelectorTy = CTyForall [eqClassA] (CTyFun eqClassDictA (CTyFun eqClassATy (CTyFun eqClassATy boolTy)))
+    numClassA = preludeTypeVariable "a" (-1321)
+    numClassATy = CTyVar numClassA
+    numClassDictA = CTyApp (CTyCon (classDictionaryTypeName builtinNumClassName)) numClassATy
+    fromIntegerSelectorTy = CTyForall [numClassA] (CTyFun numClassDictA (CTyFun integerTy numClassATy))
+    eqDictResult = CTyApp (CTyCon (classDictionaryTypeName builtinEqClassName)) resultTy
+    numDictResult = CTyApp (CTyCon (classDictionaryTypeName builtinNumClassName)) resultTy
+
+  throwErrnoIfNullRhs =
+    CTypeLam [a] (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy ptrA) (throwErrnoIfNullBody ptrA (maybeNothing stringTy)))) throwErrnoIfNullTy
+
+  throwErrnoIfNullBody pointerTy maybeFile =
+    CPrimOp
+      PrimIOBind
+      [ var throwErrnoAction (ioTy pointerTy)
+      , CLam
+          (CoreBinder throwErrnoResult pointerTy)
+          ( boolCase
+              (CPrimOp PrimIsNullPtr [var throwErrnoResult pointerTy] boolTy)
+              throwErrnoCase
+              (ioTy pointerTy)
+              (throwErrnoWithFile pointerTy (var throwErrnoLocation stringTy) maybeFile)
+              (ioReturn pointerTy (var throwErrnoResult pointerTy))
+          )
+          (CTyFun pointerTy (ioTy pointerTy))
+      ]
+      (ioTy pointerTy)
+
+  throwErrnoIfNullRetryRhs functionName =
+    CTypeLam [a] (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy ptrA) (throwErrnoRetryBody ptrA predicate retryAction Nothing))) throwErrnoIfNullRetryTy
+   where
+    predicate value = CPrimOp PrimIsNullPtr [value] boolTy
+    retryAction = nullRetryCall functionName throwErrnoIfNullRetryTy ptrA Nothing
+
+  throwErrnoIfRetryMayBlockRhs functionName =
+    CTypeLam [a, b] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (lam throwErrnoBlockAction (ioTy bTy) (throwErrnoRetryBody aTy predicate retryAction (Just bTy)))))) throwErrnoIfRetryMayBlockTy
+   where
+    predicate value = apply (var throwErrnoPredicate (CTyFun aTy boolTy)) value boolTy
+    retryAction = genericRetryCall functionName throwErrnoIfRetryMayBlockTy aTy (Just bTy)
+
+  throwErrnoIfRetryMayBlockUnitRhs _functionName =
+    CTypeLam [a, b] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (lam throwErrnoBlockAction (ioTy bTy) (CPrimOp PrimIOThen [genericRetryCall (standardLibraryTermName "throwErrnoIfRetryMayBlock") throwErrnoIfRetryMayBlockTy aTy (Just bTy), ioReturn unitTy unitValue] ioUnitTy))))) throwErrnoIfRetryMayBlockUnitTy
+
+  throwErrnoIfMinus1RetryMayBlockRhs functionName =
+    CTypeLam [a, b] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (lam throwErrnoBlockAction (ioTy bTy) (throwErrnoRetryBody aTy predicate retryAction (Just bTy))))))) throwErrnoIfMinus1RetryMayBlockTy
+   where
+    predicate value = minusOnePredicate aTy value
+    retryAction = minusOneRetryCall functionName throwErrnoIfMinus1RetryMayBlockTy aTy (Just bTy)
+
+  throwErrnoIfMinus1RetryMayBlockUnitRhs _functionName =
+    CTypeLam [a, b] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy aTy) (lam throwErrnoBlockAction (ioTy bTy) (CPrimOp PrimIOThen [minusOneRetryCall (standardLibraryTermName "throwErrnoIfMinus1RetryMayBlock") throwErrnoIfMinus1RetryMayBlockTy aTy (Just bTy), ioReturn unitTy unitValue] ioUnitTy)))))) throwErrnoIfMinus1RetryMayBlockUnitTy
+
+  throwErrnoIfNullRetryMayBlockRhs functionName =
+    CTypeLam [a, b] (lam throwErrnoLocation stringTy (lam throwErrnoAction (ioTy ptrA) (lam throwErrnoBlockAction (ioTy bTy) (throwErrnoRetryBody ptrA predicate retryAction (Just bTy))))) throwErrnoIfNullRetryMayBlockTy
+   where
+    predicate value = CPrimOp PrimIsNullPtr [value] boolTy
+    retryAction = nullRetryCall functionName throwErrnoIfNullRetryMayBlockTy ptrA (Just bTy)
+
+  throwErrnoRetryBody resultTy predicate retryAction maybeBlockTy =
+    CPrimOp
+      PrimIOBind
+      [ var throwErrnoAction (ioTy resultTy)
+      , CLam
+          (CoreBinder throwErrnoResult resultTy)
+          ( boolCase
+              (predicate (var throwErrnoResult resultTy))
+              throwErrnoCase
+              (ioTy resultTy)
+              ( CPrimOp
+                  PrimIOBind
+                  [ CPrimOp PrimGetErrno [] (ioTy errnoTy)
+                  , CLam
+                      (CoreBinder errnoValue errnoTy)
+                      (retryErrnoDecision resultTy retryAction maybeBlockTy (var errnoValue errnoTy))
+                      (CTyFun errnoTy (ioTy resultTy))
+                  ]
+                  (ioTy resultTy)
+              )
+              (ioReturn resultTy (var throwErrnoResult resultTy))
+          )
+          (CTyFun resultTy (ioTy resultTy))
+      ]
+      (ioTy resultTy)
+
+  retryErrnoDecision resultTy retryAction maybeBlockTy currentErrno =
+    boolCase
+      (errnoEq currentErrno (errnoConstant "eINTR" 4))
+      throwErrnoRetryCase
+      (ioTy resultTy)
+      retryAction
+      ( case maybeBlockTy of
+          Nothing ->
+            errnoIOError resultTy (var throwErrnoLocation stringTy) (maybeNothing stringTy) currentErrno
+          Just blockTy ->
+            boolCase
+              (errnoWouldBlock currentErrno)
+              throwErrnoWouldBlockCase
+              (ioTy resultTy)
+              (CPrimOp PrimIOThen [var throwErrnoBlockAction (ioTy blockTy), retryAction] (ioTy resultTy))
+              (errnoIOError resultTy (var throwErrnoLocation stringTy) (maybeNothing stringTy) currentErrno)
+      )
+
+  errnoWouldBlock currentErrno =
+    boolOrChain
+      [ errnoEq currentErrno (errnoConstant "eAGAIN" 35)
+      , errnoEq currentErrno (errnoConstant "eWOULDBLOCK" 35)
+      ]
+
+  errnoConstant occurrence fallback =
+    fromMaybe fallback (errnoConstantValue occurrence)
+
+  genericRetryCall functionName functionTy resultTy maybeBlockTy =
+    case maybeBlockTy of
+      Nothing ->
+        let ioResultTy = ioTy resultTy
+            predicateTy = CTyFun resultTy boolTy
+            functionResultTy = CTyFun predicateTy (CTyFun stringTy (CTyFun ioResultTy ioResultTy))
+            afterPredicateTy = CTyFun stringTy (CTyFun ioResultTy ioResultTy)
+            afterLocationTy = CTyFun ioResultTy ioResultTy
+            specialized = specialize functionName functionTy [resultTy] functionResultTy
+            withPredicate = apply specialized (var throwErrnoPredicate predicateTy) afterPredicateTy
+            withLocation = apply withPredicate (var throwErrnoLocation stringTy) afterLocationTy
+         in apply withLocation (var throwErrnoAction ioResultTy) ioResultTy
+      Just blockTy ->
+        let ioResultTy = ioTy resultTy
+            ioBlockTy = ioTy blockTy
+            predicateTy = CTyFun resultTy boolTy
+            functionResultTy = CTyFun predicateTy (CTyFun stringTy (CTyFun ioResultTy (CTyFun ioBlockTy ioResultTy)))
+            afterPredicateTy = CTyFun stringTy (CTyFun ioResultTy (CTyFun ioBlockTy ioResultTy))
+            afterLocationTy = CTyFun ioResultTy (CTyFun ioBlockTy ioResultTy)
+            afterActionTy = CTyFun ioBlockTy ioResultTy
+            specialized = specialize functionName functionTy [resultTy, blockTy] functionResultTy
+            withPredicate = apply specialized (var throwErrnoPredicate predicateTy) afterPredicateTy
+            withLocation = apply withPredicate (var throwErrnoLocation stringTy) afterLocationTy
+            withAction = apply withLocation (var throwErrnoAction ioResultTy) afterActionTy
+         in apply withAction (var throwErrnoBlockAction ioBlockTy) ioResultTy
+
+  minusOneRetryCall functionName functionTy resultTy maybeBlockTy =
+    case maybeBlockTy of
+      Nothing ->
+        let ioResultTy = ioTy resultTy
+            functionResultTy = CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun ioResultTy ioResultTy)))
+            afterNumTy = CTyFun eqDictA (CTyFun stringTy (CTyFun ioResultTy ioResultTy))
+            afterEqTy = CTyFun stringTy (CTyFun ioResultTy ioResultTy)
+            afterLocationTy = CTyFun ioResultTy ioResultTy
+            specialized = specialize functionName functionTy [resultTy] functionResultTy
+            withNum = apply specialized (var throwErrnoDictNum numDictA) afterNumTy
+            withEq = apply withNum (var throwErrnoDictEq eqDictA) afterEqTy
+            withLocation = apply withEq (var throwErrnoLocation stringTy) afterLocationTy
+         in apply withLocation (var throwErrnoAction ioResultTy) ioResultTy
+      Just blockTy ->
+        let ioResultTy = ioTy resultTy
+            ioBlockTy = ioTy blockTy
+            functionResultTy = CTyFun numDictA (CTyFun eqDictA (CTyFun stringTy (CTyFun ioResultTy (CTyFun ioBlockTy ioResultTy))))
+            afterNumTy = CTyFun eqDictA (CTyFun stringTy (CTyFun ioResultTy (CTyFun ioBlockTy ioResultTy)))
+            afterEqTy = CTyFun stringTy (CTyFun ioResultTy (CTyFun ioBlockTy ioResultTy))
+            afterLocationTy = CTyFun ioResultTy (CTyFun ioBlockTy ioResultTy)
+            afterActionTy = CTyFun ioBlockTy ioResultTy
+            specialized = specialize functionName functionTy [resultTy, blockTy] functionResultTy
+            withNum = apply specialized (var throwErrnoDictNum numDictA) afterNumTy
+            withEq = apply withNum (var throwErrnoDictEq eqDictA) afterEqTy
+            withLocation = apply withEq (var throwErrnoLocation stringTy) afterLocationTy
+            withAction = apply withLocation (var throwErrnoAction ioResultTy) afterActionTy
+         in apply withAction (var throwErrnoBlockAction ioBlockTy) ioResultTy
+
+  nullRetryCall functionName functionTy pointerTy maybeBlockTy =
+    case maybeBlockTy of
+      Nothing ->
+        let ioPointerTy = ioTy pointerTy
+            functionResultTy = CTyFun stringTy (CTyFun ioPointerTy ioPointerTy)
+            afterLocationTy = CTyFun ioPointerTy ioPointerTy
+            specialized = specialize functionName functionTy [aTy] functionResultTy
+            withLocation = apply specialized (var throwErrnoLocation stringTy) afterLocationTy
+         in apply withLocation (var throwErrnoAction ioPointerTy) ioPointerTy
+      Just blockTy ->
+        let ioPointerTy = ioTy pointerTy
+            ioBlockTy = ioTy blockTy
+            functionResultTy = CTyFun stringTy (CTyFun ioPointerTy (CTyFun ioBlockTy ioPointerTy))
+            afterLocationTy = CTyFun ioPointerTy (CTyFun ioBlockTy ioPointerTy)
+            afterActionTy = CTyFun ioBlockTy ioPointerTy
+            specialized = specialize functionName functionTy [aTy, blockTy] functionResultTy
+            withLocation = apply specialized (var throwErrnoLocation stringTy) afterLocationTy
+            withAction = apply withLocation (var throwErrnoAction ioPointerTy) afterActionTy
+         in apply withAction (var throwErrnoBlockAction ioBlockTy) ioPointerTy
+
+  throwErrnoPathRhs =
+    CTypeLam [a] (lam throwErrnoLocation stringTy (lam throwErrnoPathName stringTy (throwErrnoWithFile aTy (var throwErrnoLocation stringTy) (maybeJust stringTy (var throwErrnoPathName stringTy))))) throwErrnoPathTy
+
+  throwErrnoPathIfRhs =
+    CTypeLam [a] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoPathName stringTy (lam throwErrnoAction (ioTy aTy) (throwErrnoIfBody aTy (maybeJust stringTy (var throwErrnoPathName stringTy))))))) throwErrnoPathIfTy
+
+  throwErrnoPathIfUnitRhs =
+    CTypeLam [a] (lam throwErrnoPredicate (CTyFun aTy boolTy) (lam throwErrnoLocation stringTy (lam throwErrnoPathName stringTy (lam throwErrnoAction (ioTy aTy) (CPrimOp PrimIOThen [throwErrnoIfBody aTy (maybeJust stringTy (var throwErrnoPathName stringTy)), ioReturn unitTy unitValue] ioUnitTy))))) throwErrnoPathIfUnitTy
+
+  throwErrnoPathIfNullRhs =
+    CTypeLam [a] (lam throwErrnoLocation stringTy (lam throwErrnoPathName stringTy (lam throwErrnoAction (ioTy ptrA) (throwErrnoIfNullBody ptrA (maybeJust stringTy (var throwErrnoPathName stringTy)))))) throwErrnoPathIfNullTy
+
+  throwErrnoPathIfMinus1Rhs =
+    CTypeLam [a] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoPathName stringTy (lam throwErrnoAction (ioTy aTy) (throwErrnoIfMinus1Body aTy (maybeJust stringTy (var throwErrnoPathName stringTy)))))))) throwErrnoPathIfMinus1Ty
+
+  throwErrnoPathIfMinus1UnitRhs =
+    CTypeLam [a] (lam throwErrnoDictNum numDictA (lam throwErrnoDictEq eqDictA (lam throwErrnoLocation stringTy (lam throwErrnoPathName stringTy (lam throwErrnoAction (ioTy aTy) (CPrimOp PrimIOThen [throwErrnoIfMinus1Body aTy (maybeJust stringTy (var throwErrnoPathName stringTy)), ioReturn unitTy unitValue] ioUnitTy)))))) throwErrnoPathIfMinus1UnitTy
+
+  ioErrorValue errorType message maybeHandle maybeFile =
+    constructorApp ioErrorDataConName [] [errorType, message, maybeHandle, maybeFile] ioErrorTy
+
+  ioThrowUserError resultTy message =
+    CPrimOp PrimIOError [ioErrorValue (CCon ioErrorUserTypeDataConName ioErrorTypeTy) message (maybeNothing handleTy) (maybeNothing stringTy)] (ioTy resultTy)
+
+  ioReturn resultTy value =
+    CPrimOp PrimIOReturn [value] (ioTy resultTy)
+
+  unitValue =
+    CCon unitDataConName unitTy
+
+  maybeNothing elementTy =
+    constructorApp maybeNothingDataConName [elementTy] [] (CTyApp (CTyCon maybeTyConName) elementTy)
+
+  maybeJust elementTy value =
+    constructorApp maybeJustDataConName [elementTy] [value] (CTyApp (CTyCon maybeTyConName) elementTy)
+
+
+  ioErrorPredicateRhs expectedType occurrence unique =
+    lam (preludeTermName (occurrence <> "_error") unique) ioErrorTy $
+      CCase
+        (var (preludeTermName (occurrence <> "_error") unique) ioErrorTy)
+        (CoreBinder (preludeTermName (occurrence <> "_case") (unique - 1)) ioErrorTy)
+        [ CoreAlt
+            (ConstructorAlt ioErrorDataConName)
+            [ CoreBinder (preludeTermName (occurrence <> "_type") (unique - 2)) ioErrorTypeTy
+            , CoreBinder (preludeTermName (occurrence <> "_message") (unique - 3)) stringTy
+            , CoreBinder (preludeTermName (occurrence <> "_handle") (unique - 4)) maybeHandleTy
+            , CoreBinder (preludeTermName (occurrence <> "_file") (unique - 5)) maybeFilePathTy
+            ]
+            ( CCase
+                (var (preludeTermName (occurrence <> "_type") (unique - 2)) ioErrorTypeTy)
+                (CoreBinder (preludeTermName (occurrence <> "_type_case") (unique - 6)) ioErrorTypeTy)
+                [ CoreAlt (ConstructorAlt expectedType) [] (con trueDataConName boolTy)
+                , CoreAlt DefaultAlt [] (con falseDataConName boolTy)
+                ]
+                boolTy
+            )
+        ]
+        boolTy
+
+  ioErrorAccessorRhs fieldTy field occurrence unique =
+    lam (preludeTermName (occurrence <> "_error") unique) ioErrorTy $
+      CCase
+        (var (preludeTermName (occurrence <> "_error") unique) ioErrorTy)
+        (CoreBinder (preludeTermName (occurrence <> "_case") (unique - 1)) ioErrorTy)
+        [ CoreAlt
+            (ConstructorAlt ioErrorDataConName)
+            [ CoreBinder (preludeTermName (occurrence <> "_type") (unique - 2)) ioErrorTypeTy
+            , CoreBinder (preludeTermName (occurrence <> "_message") (unique - 3)) stringTy
+            , CoreBinder (preludeTermName (occurrence <> "_handle") (unique - 4)) maybeHandleTy
+            , CoreBinder (preludeTermName (occurrence <> "_file") (unique - 5)) maybeFilePathTy
+            ]
+            (field (preludeTermName (occurrence <> "_message") (unique - 3)) (preludeTermName (occurrence <> "_handle") (unique - 4)) (preludeTermName (occurrence <> "_file") (unique - 5)))
+        ]
+        fieldTy
+
+  ioErrorStringField message _handle _file = var message stringTy
+  ioErrorHandleField _message handle _file = var handle maybeHandleTy
+  ioErrorFilePathField _message _handle file = var file maybeFilePathTy
+
+  maybeOverride elementTy oldMaybe newMaybe caseName justName =
+    CCase
+      newMaybe
+      (CoreBinder caseName (CTyApp (CTyCon maybeTyConName) elementTy))
+      [ CoreAlt (ConstructorAlt maybeNothingDataConName) [] oldMaybe
+      , CoreAlt (ConstructorAlt maybeJustDataConName) [CoreBinder justName elementTy] newMaybe
+      ]
+      (CTyApp (CTyCon maybeTyConName) elementTy)
+
+controlMonadCorePair :: RName -> Maybe (CoreBinder, CoreExpr)
+controlMonadCorePair name =
+  case nameOcc name of
+    "mapM" -> Just (CoreBinder name mapMTy, mapMRhs name)
+    "mapM_" -> Just (CoreBinder name mapMUnitTy, mapMUnitRhs name)
+    "forM" -> Just (CoreBinder name forMTy, forMRhs name)
+    "forM_" -> Just (CoreBinder name forMUnitTy, forMUnitRhs name)
+    "sequence" -> Just (CoreBinder name sequenceTy, sequenceRhs name)
+    "sequence_" -> Just (CoreBinder name sequenceUnitTy, sequenceUnitRhs name)
+    "=<<" -> Just (CoreBinder name bindFlippedTy, bindFlippedRhs)
+    ">=>" -> Just (CoreBinder name composeKleisliTy, composeKleisliRhs)
+    "<=<" -> Just (CoreBinder name composeKleisliFlippedTy, composeKleisliFlippedRhs)
+    "forever" -> Just (CoreBinder name foreverTy, foreverRhs name)
+    "void" -> Just (CoreBinder name controlVoidTy, controlVoidRhs)
+    "join" -> Just (CoreBinder name joinTy, joinRhs)
+    "msum" -> Just (CoreBinder name msumTy, msumRhs name)
+    "filterM" -> Just (CoreBinder name filterMTy, filterMRhs name)
+    "mapAndUnzipM" -> Just (CoreBinder name mapAndUnzipMTy, mapAndUnzipMRhs name)
+    "zipWithM" -> Just (CoreBinder name zipWithMTy, zipWithMRhs name)
+    "zipWithM_" -> Just (CoreBinder name zipWithMUnitTy, zipWithMUnitRhs name)
+    "foldM" -> Just (CoreBinder name foldMTy, foldMRhs name)
+    "foldM_" -> Just (CoreBinder name foldMUnitTy, foldMUnitRhs name)
+    "replicateM" -> Just (CoreBinder name replicateMTy, replicateMRhs name)
+    "replicateM_" -> Just (CoreBinder name replicateMUnitTy, replicateMUnitRhs name)
+    "guard" -> Just (CoreBinder name guardTy, guardRhs)
+    "when" -> Just (CoreBinder name whenTy, whenRhs)
+    "unless" -> Just (CoreBinder name unlessTy, unlessRhs)
+    "liftM" -> Just (CoreBinder name liftMTy, liftMRhs)
+    "liftM2" -> Just (CoreBinder name liftM2Ty, liftM2Rhs)
+    "liftM3" -> Just (CoreBinder name liftM3Ty, liftM3Rhs)
+    "liftM4" -> Just (CoreBinder name liftM4Ty, liftM4Rhs)
+    "liftM5" -> Just (CoreBinder name liftM5Ty, liftM5Rhs)
+    "ap" -> Just (CoreBinder name apTy, apRhs)
+    _ -> Nothing
+ where
+  a = preludeTypeVariable "a" (-1201)
+  b = preludeTypeVariable "b" (-1202)
+  c = preludeTypeVariable "c" (-1203)
+  d = preludeTypeVariable "d" (-1204)
+  e = preludeTypeVariable "e" (-1205)
+  r = preludeTypeVariable "r" (-1206)
+  f = preludeTypeVariable "f" (-1207)
+  m = preludeTypeVariable "m" (-1208)
+  mTy = CTyVar m
+  fTy = CTyVar f
+  aTy = CTyVar a
+  bTy = CTyVar b
+  cTy = CTyVar c
+  dTy = CTyVar d
+  eTy = CTyVar e
+  rTy = CTyVar r
+  listA = CTyList aTy
+  listB = CTyList bTy
+  listC = CTyList cTy
+  mA = applyMonadCoreType mTy aTy
+  mB = applyMonadCoreType mTy bTy
+  mC = applyMonadCoreType mTy cTy
+  mD = applyMonadCoreType mTy dTy
+  mE = applyMonadCoreType mTy eTy
+  mR = applyMonadCoreType mTy rTy
+  mUnit = applyMonadCoreType mTy unitTy
+  mBool = applyMonadCoreType mTy boolTy
+  mListA = applyMonadCoreType mTy listA
+  mListB = applyMonadCoreType mTy listB
+  mListC = applyMonadCoreType mTy listC
+  listMA = CTyList mA
+  tupleBC = CTyTuple [bTy, cTy]
+  tupleListBC = CTyTuple [listB, listC]
+  mTupleBC = applyMonadCoreType mTy tupleBC
+  mTupleListBC = applyMonadCoreType mTy tupleListBC
+  mMA = applyMonadCoreType mTy mA
+  funAB = CTyFun aTy bTy
+  funAR = CTyFun aTy rTy
+  funAMB = CTyFun aTy mB
+  funBMC = CTyFun bTy mC
+  monadDictM = monadDictCoreType mTy
+  monadPlusDictM = monadPlusDictCoreType mTy
+  functorDictF = functorDictCoreType fTy
+
+  mapMTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun funAMB (CTyFun listA mListB)))
+  mapMUnitTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun funAMB (CTyFun listA mUnit)))
+  forMTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun listA (CTyFun funAMB mListB)))
+  forMUnitTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun listA (CTyFun funAMB mUnit)))
+  sequenceTy = CTyForall [m, a] (CTyFun monadDictM (CTyFun listMA mListA))
+  sequenceUnitTy = CTyForall [m, a] (CTyFun monadDictM (CTyFun listMA mUnit))
+  bindFlippedTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun funAMB (CTyFun mA mB)))
+  composeKleisliTy = CTyForall [m, a, b, c] (CTyFun monadDictM (CTyFun funAMB (CTyFun funBMC (CTyFun aTy mC))))
+  composeKleisliFlippedTy = CTyForall [m, a, b, c] (CTyFun monadDictM (CTyFun funBMC (CTyFun funAMB (CTyFun aTy mC))))
+  foreverTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun mA mB))
+  controlVoidTy = CTyForall [f, a] (CTyFun functorDictF (CTyFun (applyFunctorCoreType fTy aTy) (applyFunctorCoreType fTy unitTy)))
+  joinTy = CTyForall [m, a] (CTyFun monadDictM (CTyFun mMA mA))
+  msumTy = CTyForall [m, a] (CTyFun monadPlusDictM (CTyFun listMA mA))
+  filterMTy = CTyForall [m, a] (CTyFun monadDictM (CTyFun (CTyFun aTy mBool) (CTyFun listA mListA)))
+  mapAndUnzipMTy = CTyForall [m, a, b, c] (CTyFun monadDictM (CTyFun (CTyFun aTy mTupleBC) (CTyFun listA mTupleListBC)))
+  zipWithMTy = CTyForall [m, a, b, c] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy mC)) (CTyFun listA (CTyFun listB mListC))))
+  zipWithMUnitTy = CTyForall [m, a, b, c] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy mC)) (CTyFun listA (CTyFun listB mUnit))))
+  foldMTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy mA)) (CTyFun aTy (CTyFun listB mA))))
+  foldMUnitTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy mA)) (CTyFun aTy (CTyFun listB mUnit))))
+  replicateMTy = CTyForall [m, a] (CTyFun monadDictM (CTyFun intTy (CTyFun mA mListA)))
+  replicateMUnitTy = CTyForall [m, a] (CTyFun monadDictM (CTyFun intTy (CTyFun mA mUnit)))
+  guardTy = CTyForall [m] (CTyFun monadPlusDictM (CTyFun boolTy mUnit))
+  whenTy = CTyForall [m] (CTyFun monadDictM (CTyFun boolTy (CTyFun mUnit mUnit)))
+  unlessTy = CTyForall [m] (CTyFun monadDictM (CTyFun boolTy (CTyFun mUnit mUnit)))
+  liftMTy = CTyForall [m, a, r] (CTyFun monadDictM (CTyFun funAR (CTyFun mA mR)))
+  liftM2Ty = CTyForall [m, a, b, r] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy rTy)) (CTyFun mA (CTyFun mB mR))))
+  liftM3Ty = CTyForall [m, a, b, c, r] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy (CTyFun cTy rTy))) (CTyFun mA (CTyFun mB (CTyFun mC mR)))))
+  liftM4Ty = CTyForall [m, a, b, c, d, r] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy (CTyFun cTy (CTyFun dTy rTy)))) (CTyFun mA (CTyFun mB (CTyFun mC (CTyFun mD mR))))))
+  liftM5Ty = CTyForall [m, a, b, c, d, e, r] (CTyFun monadDictM (CTyFun (CTyFun aTy (CTyFun bTy (CTyFun cTy (CTyFun dTy (CTyFun eTy rTy))))) (CTyFun mA (CTyFun mB (CTyFun mC (CTyFun mD (CTyFun mE mR)))))))
+  apTy = CTyForall [m, a, b] (CTyFun monadDictM (CTyFun (applyMonadCoreType mTy funAB) (CTyFun mA mB)))
+
+  mapMRhs functionName =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam function funAMB (lam xs listA (mapMBody functionName mapMTy (var dict monadDictM) (var function funAMB) (var xs listA))))) mapMTy
+   where
+    dict = builtinLocalTermName "$control_mapM_dict" (-7608)
+    function = builtinLocalTermName "$control_mapM_f" (-7609)
+    xs = builtinLocalTermName "$control_mapM_xs" (-7610)
+
+  forMRhs functionName =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam xs listA (lam function funAMB (forMBody functionName forMTy (var dict monadDictM) (var xs listA) (var function funAMB))))) forMTy
+   where
+    dict = builtinLocalTermName "$control_forM_dict" (-7611)
+    xs = builtinLocalTermName "$control_forM_xs" (-7612)
+    function = builtinLocalTermName "$control_forM_f" (-7613)
+
+  mapMUnitRhs functionName =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam function funAMB (lam xs listA (mapMUnitBody functionName mapMUnitTy (var dict monadDictM) (var function funAMB) (var xs listA))))) mapMUnitTy
+   where
+    dict = builtinLocalTermName "$control_mapM__dict" (-7614)
+    function = builtinLocalTermName "$control_mapM__f" (-7615)
+    xs = builtinLocalTermName "$control_mapM__xs" (-7616)
+
+  forMUnitRhs functionName =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam xs listA (lam function funAMB (forMUnitBody functionName forMUnitTy (var dict monadDictM) (var xs listA) (var function funAMB))))) forMUnitTy
+   where
+    dict = builtinLocalTermName "$control_forM__dict" (-7617)
+    xs = builtinLocalTermName "$control_forM__xs" (-7618)
+    function = builtinLocalTermName "$control_forM__f" (-7619)
+
+  sequenceRhs functionName =
+    CTypeLam [m, a] (lam dict monadDictM (lam actions listMA body)) sequenceTy
+   where
+    dict = builtinLocalTermName "$control_sequence_dict" (-7620)
+    actions = builtinLocalTermName "$control_sequence_actions" (-7621)
+    x = builtinLocalTermName "$control_sequence_x" (-7622)
+    xs = builtinLocalTermName "$control_sequence_xs" (-7623)
+    y = builtinLocalTermName "$control_sequence_y" (-7624)
+    ys = builtinLocalTermName "$control_sequence_ys" (-7625)
+    caseName = builtinLocalTermName "$control_sequence_case" (-7626)
+    recursive =
+      callPoly functionName sequenceTy [mTy, aTy] mListA [var dict monadDictM, var xs listMA]
+    consContinuation =
+      lam ys listA (returnCall mTy listA (var dict monadDictM) (consCore aTy (var y aTy) (var ys listA)))
+    firstContinuation =
+      lam y aTy (bindCall mTy listA listA (var dict monadDictM) recursive consContinuation)
+    body =
+      listCaseCore
+        (var actions listMA)
+        caseName
+        mA
+        mListA
+        (returnCall mTy listA (var dict monadDictM) (nilCore aTy))
+        x
+        xs
+        (bindCall mTy aTy listA (var dict monadDictM) (var x mA) firstContinuation)
+
+  sequenceUnitRhs functionName =
+    CTypeLam [m, a] (lam dict monadDictM (lam actions listMA body)) sequenceUnitTy
+   where
+    dict = builtinLocalTermName "$control_sequence__dict" (-7627)
+    actions = builtinLocalTermName "$control_sequence__actions" (-7628)
+    x = builtinLocalTermName "$control_sequence__x" (-7629)
+    xs = builtinLocalTermName "$control_sequence__xs" (-7630)
+    caseName = builtinLocalTermName "$control_sequence__case" (-7631)
+    recursive =
+      callPoly functionName sequenceUnitTy [mTy, aTy] mUnit [var dict monadDictM, var xs listMA]
+    body =
+      listCaseCore
+        (var actions listMA)
+        caseName
+        mA
+        mUnit
+        (returnCall mTy unitTy (var dict monadDictM) unitCore)
+        x
+        xs
+        (thenCall mTy aTy unitTy (var dict monadDictM) (var x mA) recursive)
+
+  bindFlippedRhs =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam function funAMB (lam action mA (bindCall mTy aTy bTy (var dict monadDictM) (var action mA) (var function funAMB))))) bindFlippedTy
+   where
+    dict = builtinLocalTermName "$control_bind_flipped_dict" (-7632)
+    function = builtinLocalTermName "$control_bind_flipped_f" (-7633)
+    action = builtinLocalTermName "$control_bind_flipped_action" (-7634)
+
+  composeKleisliRhs =
+    CTypeLam [m, a, b, c] (lam dict monadDictM (lam fName funAMB (lam gName funBMC (lam xName aTy body)))) composeKleisliTy
+   where
+    dict = builtinLocalTermName "$control_kleisli_dict" (-7635)
+    fName = builtinLocalTermName "$control_kleisli_f" (-7636)
+    gName = builtinLocalTermName "$control_kleisli_g" (-7637)
+    xName = builtinLocalTermName "$control_kleisli_x" (-7638)
+    body =
+      bindCall
+        mTy
+        bTy
+        cTy
+        (var dict monadDictM)
+        (applyCore (var fName funAMB) (var xName aTy) mB)
+        (var gName funBMC)
+
+  composeKleisliFlippedRhs =
+    CTypeLam [m, a, b, c] (lam dict monadDictM (lam gName funBMC (lam fName funAMB (lam xName aTy body)))) composeKleisliFlippedTy
+   where
+    dict = builtinLocalTermName "$control_kleisli_flip_dict" (-7639)
+    gName = builtinLocalTermName "$control_kleisli_flip_g" (-7640)
+    fName = builtinLocalTermName "$control_kleisli_flip_f" (-7641)
+    xName = builtinLocalTermName "$control_kleisli_flip_x" (-7642)
+    body =
+      bindCall
+        mTy
+        bTy
+        cTy
+        (var dict monadDictM)
+        (applyCore (var fName funAMB) (var xName aTy) mB)
+        (var gName funBMC)
+
+  foreverRhs functionName =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam action mA body)) foreverTy
+   where
+    dict = builtinLocalTermName "$control_forever_dict" (-7643)
+    action = builtinLocalTermName "$control_forever_action" (-7644)
+    recursive =
+      callPoly functionName foreverTy [mTy, aTy, bTy] mB [var dict monadDictM, var action mA]
+    body =
+      thenCall mTy aTy bTy (var dict monadDictM) (var action mA) recursive
+
+  controlVoidRhs =
+    CTypeLam [f, a] (lam dict functorDictF (lam value fA body)) controlVoidTy
+   where
+    dict = builtinLocalTermName "$control_void_dict" (-7645)
+    value = builtinLocalTermName "$control_void_value" (-7646)
+    ignored = builtinLocalTermName "$control_void_ignored" (-7647)
+    fA = applyFunctorCoreType fTy aTy
+    toUnit = lam ignored aTy unitCore
+    body = fmapCall fTy aTy unitTy (var dict functorDictF) toUnit (var value fA)
+
+  joinRhs =
+    CTypeLam [m, a] (lam dict monadDictM (lam action mMA body)) joinTy
+   where
+    dict = builtinLocalTermName "$control_join_dict" (-7648)
+    action = builtinLocalTermName "$control_join_action" (-7649)
+    body = bindCall mTy mA aTy (var dict monadDictM) (var action mMA) (idLam mA)
+
+  msumRhs functionName =
+    CTypeLam [m, a] (lam dict monadPlusDictM (lam actions listMA body)) msumTy
+   where
+    dict = builtinLocalTermName "$control_msum_dict" (-7650)
+    actions = builtinLocalTermName "$control_msum_actions" (-7651)
+    x = builtinLocalTermName "$control_msum_x" (-7652)
+    xs = builtinLocalTermName "$control_msum_xs" (-7653)
+    caseName = builtinLocalTermName "$control_msum_case" (-7654)
+    recursive =
+      callPoly functionName msumTy [mTy, aTy] mA [var dict monadPlusDictM, var xs listMA]
+    body =
+      listCaseCore
+        (var actions listMA)
+        caseName
+        mA
+        mA
+        (mzeroCall mTy aTy (var dict monadPlusDictM))
+        x
+        xs
+        (mplusCall mTy aTy (var dict monadPlusDictM) (var x mA) recursive)
+
+  filterMRhs functionName =
+    CTypeLam [m, a] (lam dict monadDictM (lam predicate (CTyFun aTy mBool) (lam xs listA body))) filterMTy
+   where
+    dict = builtinLocalTermName "$control_filterM_dict" (-7655)
+    predicate = builtinLocalTermName "$control_filterM_predicate" (-7656)
+    xs = builtinLocalTermName "$control_filterM_xs" (-7657)
+    x = builtinLocalTermName "$control_filterM_x" (-7658)
+    rest = builtinLocalTermName "$control_filterM_rest" (-7659)
+    keep = builtinLocalTermName "$control_filterM_keep" (-7660)
+    ys = builtinLocalTermName "$control_filterM_ys" (-7661)
+    caseName = builtinLocalTermName "$control_filterM_case" (-7662)
+    recursive =
+      callPoly functionName filterMTy [mTy, aTy] mListA [var dict monadDictM, var predicate (CTyFun aTy mBool), var rest listA]
+    returnFiltered =
+      boolCaseCore
+        "$control_filterM_bool"
+        (-7663)
+        (var keep boolTy)
+        mListA
+        (returnCall mTy listA (var dict monadDictM) (consCore aTy (var x aTy) (var ys listA)))
+        (returnCall mTy listA (var dict monadDictM) (var ys listA))
+    restContinuation =
+      lam ys listA returnFiltered
+    keepContinuation =
+      lam keep boolTy (bindCall mTy listA listA (var dict monadDictM) recursive restContinuation)
+    body =
+      listCaseCore
+        (var xs listA)
+        caseName
+        aTy
+        mListA
+        (returnCall mTy listA (var dict monadDictM) (nilCore aTy))
+        x
+        rest
+        ( bindCall
+            mTy
+            boolTy
+            listA
+            (var dict monadDictM)
+            (applyCore (var predicate (CTyFun aTy mBool)) (var x aTy) mBool)
+            keepContinuation
+        )
+
+  mapAndUnzipMRhs functionName =
+    CTypeLam [m, a, b, c] (lam dict monadDictM (lam function (CTyFun aTy mTupleBC) (lam xs listA body))) mapAndUnzipMTy
+   where
+    dict = builtinLocalTermName "$control_mapAndUnzipM_dict" (-7664)
+    function = builtinLocalTermName "$control_mapAndUnzipM_f" (-7665)
+    xs = builtinLocalTermName "$control_mapAndUnzipM_xs" (-7666)
+    x = builtinLocalTermName "$control_mapAndUnzipM_x" (-7667)
+    rest = builtinLocalTermName "$control_mapAndUnzipM_rest" (-7668)
+    yz = builtinLocalTermName "$control_mapAndUnzipM_yz" (-7669)
+    y = builtinLocalTermName "$control_mapAndUnzipM_y" (-7670)
+    z = builtinLocalTermName "$control_mapAndUnzipM_z" (-7671)
+    lists = builtinLocalTermName "$control_mapAndUnzipM_lists" (-7672)
+    ys = builtinLocalTermName "$control_mapAndUnzipM_ys" (-7673)
+    zs = builtinLocalTermName "$control_mapAndUnzipM_zs" (-7674)
+    caseName = builtinLocalTermName "$control_mapAndUnzipM_case" (-7675)
+    yzCase = builtinLocalTermName "$control_mapAndUnzipM_yz_case" (-7676)
+    listsCase = builtinLocalTermName "$control_mapAndUnzipM_lists_case" (-7677)
+    recursive =
+      callPoly functionName mapAndUnzipMTy [mTy, aTy, bTy, cTy] mTupleListBC [var dict monadDictM, var function (CTyFun aTy mTupleBC), var rest listA]
+    nilPair =
+      tuple2Core listB listC (nilCore bTy) (nilCore cTy)
+    consPair =
+      tuple2Core listB listC (consCore bTy (var y bTy) (var ys listB)) (consCore cTy (var z cTy) (var zs listC))
+    listsContinuation =
+      lam lists tupleListBC $
+        CCase
+          (var lists tupleListBC)
+          (CoreBinder listsCase tupleListBC)
+          [CoreAlt (ConstructorAlt (tupleDataConName 2)) [CoreBinder ys listB, CoreBinder zs listC] (returnCall mTy tupleListBC (var dict monadDictM) consPair)]
+          mTupleListBC
+    yzContinuation =
+      lam yz tupleBC $
+        CCase
+          (var yz tupleBC)
+          (CoreBinder yzCase tupleBC)
+          [CoreAlt (ConstructorAlt (tupleDataConName 2)) [CoreBinder y bTy, CoreBinder z cTy] (bindCall mTy tupleListBC tupleListBC (var dict monadDictM) recursive listsContinuation)]
+          mTupleListBC
+    body =
+      listCaseCore
+        (var xs listA)
+        caseName
+        aTy
+        mTupleListBC
+        (returnCall mTy tupleListBC (var dict monadDictM) nilPair)
+        x
+        rest
+        (bindCall mTy tupleBC tupleListBC (var dict monadDictM) (applyCore (var function (CTyFun aTy mTupleBC)) (var x aTy) mTupleBC) yzContinuation)
+
+  zipWithMRhs functionName =
+    CTypeLam [m, a, b, c] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy mC)) (lam xs listA (lam ys listB body)))) zipWithMTy
+   where
+    dict = builtinLocalTermName "$control_zipWithM_dict" (-7678)
+    function = builtinLocalTermName "$control_zipWithM_f" (-7679)
+    xs = builtinLocalTermName "$control_zipWithM_xs" (-7680)
+    ys = builtinLocalTermName "$control_zipWithM_ys" (-7681)
+    x = builtinLocalTermName "$control_zipWithM_x" (-7682)
+    xt = builtinLocalTermName "$control_zipWithM_xt" (-7683)
+    y = builtinLocalTermName "$control_zipWithM_y" (-7684)
+    yt = builtinLocalTermName "$control_zipWithM_yt" (-7685)
+    z = builtinLocalTermName "$control_zipWithM_z" (-7686)
+    zs = builtinLocalTermName "$control_zipWithM_zs" (-7687)
+    xCase = builtinLocalTermName "$control_zipWithM_x_case" (-7688)
+    yCase = builtinLocalTermName "$control_zipWithM_y_case" (-7689)
+    nilResult = returnCall mTy listC (var dict monadDictM) (nilCore cTy)
+    recursive =
+      callPoly functionName zipWithMTy [mTy, aTy, bTy, cTy] mListC [var dict monadDictM, var function (CTyFun aTy (CTyFun bTy mC)), var xt listA, var yt listB]
+    consContinuation =
+      lam zs listC (returnCall mTy listC (var dict monadDictM) (consCore cTy (var z cTy) (var zs listC)))
+    zContinuation =
+      lam z cTy (bindCall mTy listC listC (var dict monadDictM) recursive consContinuation)
+    pairAction =
+      applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy mC))) (var x aTy) (CTyFun bTy mC)) (var y bTy) mC
+    body =
+      listCaseCore
+        (var xs listA)
+        xCase
+        aTy
+        mListC
+        nilResult
+        x
+        xt
+        ( listCaseCore
+            (var ys listB)
+            yCase
+            bTy
+            mListC
+            nilResult
+            y
+            yt
+            (bindCall mTy cTy listC (var dict monadDictM) pairAction zContinuation)
+        )
+
+  zipWithMUnitRhs functionName =
+    CTypeLam [m, a, b, c] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy mC)) (lam xs listA (lam ys listB body)))) zipWithMUnitTy
+   where
+    dict = builtinLocalTermName "$control_zipWithM__dict" (-7690)
+    function = builtinLocalTermName "$control_zipWithM__f" (-7691)
+    xs = builtinLocalTermName "$control_zipWithM__xs" (-7692)
+    ys = builtinLocalTermName "$control_zipWithM__ys" (-7693)
+    x = builtinLocalTermName "$control_zipWithM__x" (-7694)
+    xt = builtinLocalTermName "$control_zipWithM__xt" (-7695)
+    y = builtinLocalTermName "$control_zipWithM__y" (-7696)
+    yt = builtinLocalTermName "$control_zipWithM__yt" (-7697)
+    xCase = builtinLocalTermName "$control_zipWithM__x_case" (-7698)
+    yCase = builtinLocalTermName "$control_zipWithM__y_case" (-7699)
+    nilResult = returnCall mTy unitTy (var dict monadDictM) unitCore
+    recursive =
+      callPoly functionName zipWithMUnitTy [mTy, aTy, bTy, cTy] mUnit [var dict monadDictM, var function (CTyFun aTy (CTyFun bTy mC)), var xt listA, var yt listB]
+    pairAction =
+      applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy mC))) (var x aTy) (CTyFun bTy mC)) (var y bTy) mC
+    body =
+      listCaseCore
+        (var xs listA)
+        xCase
+        aTy
+        mUnit
+        nilResult
+        x
+        xt
+        ( listCaseCore
+            (var ys listB)
+            yCase
+            bTy
+            mUnit
+            nilResult
+            y
+            yt
+            (thenCall mTy cTy unitTy (var dict monadDictM) pairAction recursive)
+        )
+
+  foldMRhs functionName =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy mA)) (lam initial aTy (lam xs listB body)))) foldMTy
+   where
+    dict = builtinLocalTermName "$control_foldM_dict" (-7700)
+    function = builtinLocalTermName "$control_foldM_f" (-7701)
+    initial = builtinLocalTermName "$control_foldM_initial" (-7702)
+    xs = builtinLocalTermName "$control_foldM_xs" (-7703)
+    x = builtinLocalTermName "$control_foldM_x" (-7704)
+    rest = builtinLocalTermName "$control_foldM_rest" (-7705)
+    next = builtinLocalTermName "$control_foldM_next" (-7706)
+    caseName = builtinLocalTermName "$control_foldM_case" (-7707)
+    recursive =
+      callPoly functionName foldMTy [mTy, aTy, bTy] mA [var dict monadDictM, var function (CTyFun aTy (CTyFun bTy mA)), var next aTy, var rest listB]
+    nextContinuation = lam next aTy recursive
+    step =
+      applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy mA))) (var initial aTy) (CTyFun bTy mA)) (var x bTy) mA
+    body =
+      listCaseCore
+        (var xs listB)
+        caseName
+        bTy
+        mA
+        (returnCall mTy aTy (var dict monadDictM) (var initial aTy))
+        x
+        rest
+        (bindCall mTy aTy aTy (var dict monadDictM) step nextContinuation)
+
+  foldMUnitRhs functionName =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy mA)) (lam initial aTy (lam xs listB body)))) foldMUnitTy
+   where
+    dict = builtinLocalTermName "$control_foldM__dict" (-7708)
+    function = builtinLocalTermName "$control_foldM__f" (-7709)
+    initial = builtinLocalTermName "$control_foldM__initial" (-7710)
+    xs = builtinLocalTermName "$control_foldM__xs" (-7711)
+    x = builtinLocalTermName "$control_foldM__x" (-7712)
+    rest = builtinLocalTermName "$control_foldM__rest" (-7713)
+    next = builtinLocalTermName "$control_foldM__next" (-7714)
+    caseName = builtinLocalTermName "$control_foldM__case" (-7715)
+    recursive =
+      callPoly functionName foldMUnitTy [mTy, aTy, bTy] mUnit [var dict monadDictM, var function (CTyFun aTy (CTyFun bTy mA)), var next aTy, var rest listB]
+    nextContinuation = lam next aTy recursive
+    step =
+      applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy mA))) (var initial aTy) (CTyFun bTy mA)) (var x bTy) mA
+    body =
+      listCaseCore
+        (var xs listB)
+        caseName
+        bTy
+        mUnit
+        (returnCall mTy unitTy (var dict monadDictM) unitCore)
+        x
+        rest
+        (bindCall mTy aTy unitTy (var dict monadDictM) step nextContinuation)
+
+  replicateMRhs functionName =
+    CTypeLam [m, a] (lam dict monadDictM (lam count intTy (lam action mA body))) replicateMTy
+   where
+    dict = builtinLocalTermName "$control_replicateM_dict" (-7716)
+    count = builtinLocalTermName "$control_replicateM_count" (-7717)
+    action = builtinLocalTermName "$control_replicateM_action" (-7718)
+    x = builtinLocalTermName "$control_replicateM_x" (-7719)
+    xs = builtinLocalTermName "$control_replicateM_xs" (-7720)
+    recursive =
+      callPoly functionName replicateMTy [mTy, aTy] mListA [var dict monadDictM, intSub (var count intTy) oneInt, var action mA]
+    consContinuation =
+      lam xs listA (returnCall mTy listA (var dict monadDictM) (consCore aTy (var x aTy) (var xs listA)))
+    xContinuation =
+      lam x aTy (bindCall mTy listA listA (var dict monadDictM) recursive consContinuation)
+    body =
+      boolCaseCore
+        "$control_replicateM_positive"
+        (-7721)
+        (intLt zeroInt (var count intTy))
+        mListA
+        (bindCall mTy aTy listA (var dict monadDictM) (var action mA) xContinuation)
+        (returnCall mTy listA (var dict monadDictM) (nilCore aTy))
+
+  replicateMUnitRhs functionName =
+    CTypeLam [m, a] (lam dict monadDictM (lam count intTy (lam action mA body))) replicateMUnitTy
+   where
+    dict = builtinLocalTermName "$control_replicateM__dict" (-7722)
+    count = builtinLocalTermName "$control_replicateM__count" (-7723)
+    action = builtinLocalTermName "$control_replicateM__action" (-7724)
+    recursive =
+      callPoly functionName replicateMUnitTy [mTy, aTy] mUnit [var dict monadDictM, intSub (var count intTy) oneInt, var action mA]
+    body =
+      boolCaseCore
+        "$control_replicateM__positive"
+        (-7725)
+        (intLt zeroInt (var count intTy))
+        mUnit
+        (thenCall mTy aTy unitTy (var dict monadDictM) (var action mA) recursive)
+        (returnCall mTy unitTy (var dict monadDictM) unitCore)
+
+  guardRhs =
+    CTypeLam [m] (lam dict monadPlusDictM (lam test boolTy body)) guardTy
+   where
+    dict = builtinLocalTermName "$control_guard_dict" (-7726)
+    test = builtinLocalTermName "$control_guard_test" (-7727)
+    monadDict = monadPlusSuperclassDict mTy (var dict monadPlusDictM)
+    body =
+      boolCaseCore
+        "$control_guard_case"
+        (-7728)
+        (var test boolTy)
+        mUnit
+        (returnCall mTy unitTy monadDict unitCore)
+        (mzeroCall mTy unitTy (var dict monadPlusDictM))
+
+  whenRhs =
+    CTypeLam [m] (lam dict monadDictM (lam test boolTy (lam action mUnit body))) whenTy
+   where
+    dict = builtinLocalTermName "$control_when_dict" (-7729)
+    test = builtinLocalTermName "$control_when_test" (-7730)
+    action = builtinLocalTermName "$control_when_action" (-7731)
+    body =
+      boolCaseCore
+        "$control_when_case"
+        (-7732)
+        (var test boolTy)
+        mUnit
+        (var action mUnit)
+        (returnCall mTy unitTy (var dict monadDictM) unitCore)
+
+  unlessRhs =
+    CTypeLam [m] (lam dict monadDictM (lam test boolTy (lam action mUnit body))) unlessTy
+   where
+    dict = builtinLocalTermName "$control_unless_dict" (-7733)
+    test = builtinLocalTermName "$control_unless_test" (-7734)
+    action = builtinLocalTermName "$control_unless_action" (-7735)
+    body =
+      boolCaseCore
+        "$control_unless_case"
+        (-7736)
+        (var test boolTy)
+        mUnit
+        (returnCall mTy unitTy (var dict monadDictM) unitCore)
+        (var action mUnit)
+
+  liftMRhs =
+    CTypeLam [m, a, r] (lam dict monadDictM (lam function funAR (lam action mA body))) liftMTy
+   where
+    dict = builtinLocalTermName "$control_liftM_dict" (-7737)
+    function = builtinLocalTermName "$control_liftM_f" (-7738)
+    action = builtinLocalTermName "$control_liftM_action" (-7739)
+    x = builtinLocalTermName "$control_liftM_x" (-7740)
+    body =
+      bindCall
+        mTy
+        aTy
+        rTy
+        (var dict monadDictM)
+        (var action mA)
+        (lam x aTy (returnCall mTy rTy (var dict monadDictM) (applyCore (var function funAR) (var x aTy) rTy)))
+
+  liftM2Rhs =
+    CTypeLam [m, a, b, r] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy rTy)) (lam actionA mA (lam actionB mB body)))) liftM2Ty
+   where
+    dict = builtinLocalTermName "$control_liftM2_dict" (-7741)
+    function = builtinLocalTermName "$control_liftM2_f" (-7742)
+    actionA = builtinLocalTermName "$control_liftM2_action_a" (-7743)
+    actionB = builtinLocalTermName "$control_liftM2_action_b" (-7744)
+    x = builtinLocalTermName "$control_liftM2_x" (-7745)
+    y = builtinLocalTermName "$control_liftM2_y" (-7746)
+    body =
+      bindCall mTy aTy rTy (var dict monadDictM) (var actionA mA) $
+        lam x aTy $
+          bindCall mTy bTy rTy (var dict monadDictM) (var actionB mB) $
+            lam y bTy $
+              returnCall mTy rTy (var dict monadDictM) (applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy rTy))) (var x aTy) (CTyFun bTy rTy)) (var y bTy) rTy)
+
+  liftM3Rhs =
+    CTypeLam [m, a, b, c, r] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy (CTyFun cTy rTy))) (lam actionA mA (lam actionB mB (lam actionC mC body))))) liftM3Ty
+   where
+    dict = builtinLocalTermName "$control_liftM3_dict" (-7747)
+    function = builtinLocalTermName "$control_liftM3_f" (-7748)
+    actionA = builtinLocalTermName "$control_liftM3_action_a" (-7749)
+    actionB = builtinLocalTermName "$control_liftM3_action_b" (-7750)
+    actionC = builtinLocalTermName "$control_liftM3_action_c" (-7751)
+    x = builtinLocalTermName "$control_liftM3_x" (-7752)
+    y = builtinLocalTermName "$control_liftM3_y" (-7753)
+    z = builtinLocalTermName "$control_liftM3_z" (-7754)
+    applied =
+      applyCore
+        (applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy (CTyFun cTy rTy)))) (var x aTy) (CTyFun bTy (CTyFun cTy rTy))) (var y bTy) (CTyFun cTy rTy))
+        (var z cTy)
+        rTy
+    body =
+      bindCall mTy aTy rTy (var dict monadDictM) (var actionA mA) $
+        lam x aTy $
+          bindCall mTy bTy rTy (var dict monadDictM) (var actionB mB) $
+            lam y bTy $
+              bindCall mTy cTy rTy (var dict monadDictM) (var actionC mC) $
+                lam z cTy $
+                  returnCall mTy rTy (var dict monadDictM) applied
+
+  liftM4Rhs =
+    CTypeLam [m, a, b, c, d, r] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy (CTyFun cTy (CTyFun dTy rTy)))) (lam actionA mA (lam actionB mB (lam actionC mC (lam actionD mD body)))))) liftM4Ty
+   where
+    dict = builtinLocalTermName "$control_liftM4_dict" (-7755)
+    function = builtinLocalTermName "$control_liftM4_f" (-7756)
+    actionA = builtinLocalTermName "$control_liftM4_action_a" (-7757)
+    actionB = builtinLocalTermName "$control_liftM4_action_b" (-7758)
+    actionC = builtinLocalTermName "$control_liftM4_action_c" (-7759)
+    actionD = builtinLocalTermName "$control_liftM4_action_d" (-7760)
+    x = builtinLocalTermName "$control_liftM4_x" (-7761)
+    y = builtinLocalTermName "$control_liftM4_y" (-7762)
+    z = builtinLocalTermName "$control_liftM4_z" (-7763)
+    w = builtinLocalTermName "$control_liftM4_w" (-7764)
+    applied =
+      applyCore
+        ( applyCore
+            (applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy (CTyFun cTy (CTyFun dTy rTy))))) (var x aTy) (CTyFun bTy (CTyFun cTy (CTyFun dTy rTy)))) (var y bTy) (CTyFun cTy (CTyFun dTy rTy)))
+            (var z cTy)
+            (CTyFun dTy rTy)
+        )
+        (var w dTy)
+        rTy
+    body =
+      bindCall mTy aTy rTy (var dict monadDictM) (var actionA mA) $
+        lam x aTy $
+          bindCall mTy bTy rTy (var dict monadDictM) (var actionB mB) $
+            lam y bTy $
+              bindCall mTy cTy rTy (var dict monadDictM) (var actionC mC) $
+                lam z cTy $
+                  bindCall mTy dTy rTy (var dict monadDictM) (var actionD mD) $
+                    lam w dTy $
+                      returnCall mTy rTy (var dict monadDictM) applied
+
+  liftM5Rhs =
+    CTypeLam [m, a, b, c, d, e, r] (lam dict monadDictM (lam function (CTyFun aTy (CTyFun bTy (CTyFun cTy (CTyFun dTy (CTyFun eTy rTy))))) (lam actionA mA (lam actionB mB (lam actionC mC (lam actionD mD (lam actionE mE body))))))) liftM5Ty
+   where
+    dict = builtinLocalTermName "$control_liftM5_dict" (-7765)
+    function = builtinLocalTermName "$control_liftM5_f" (-7766)
+    actionA = builtinLocalTermName "$control_liftM5_action_a" (-7767)
+    actionB = builtinLocalTermName "$control_liftM5_action_b" (-7768)
+    actionC = builtinLocalTermName "$control_liftM5_action_c" (-7769)
+    actionD = builtinLocalTermName "$control_liftM5_action_d" (-7770)
+    actionE = builtinLocalTermName "$control_liftM5_action_e" (-7771)
+    x = builtinLocalTermName "$control_liftM5_x" (-7772)
+    y = builtinLocalTermName "$control_liftM5_y" (-7773)
+    z = builtinLocalTermName "$control_liftM5_z" (-7774)
+    w = builtinLocalTermName "$control_liftM5_w" (-7775)
+    v = builtinLocalTermName "$control_liftM5_v" (-7776)
+    applied =
+      applyCore
+        ( applyCore
+            ( applyCore
+                (applyCore (applyCore (var function (CTyFun aTy (CTyFun bTy (CTyFun cTy (CTyFun dTy (CTyFun eTy rTy)))))) (var x aTy) (CTyFun bTy (CTyFun cTy (CTyFun dTy (CTyFun eTy rTy))))) (var y bTy) (CTyFun cTy (CTyFun dTy (CTyFun eTy rTy))))
+                (var z cTy)
+                (CTyFun dTy (CTyFun eTy rTy))
+            )
+            (var w dTy)
+            (CTyFun eTy rTy)
+        )
+        (var v eTy)
+        rTy
+    body =
+      bindCall mTy aTy rTy (var dict monadDictM) (var actionA mA) $
+        lam x aTy $
+          bindCall mTy bTy rTy (var dict monadDictM) (var actionB mB) $
+            lam y bTy $
+              bindCall mTy cTy rTy (var dict monadDictM) (var actionC mC) $
+                lam z cTy $
+                  bindCall mTy dTy rTy (var dict monadDictM) (var actionD mD) $
+                    lam w dTy $
+                      bindCall mTy eTy rTy (var dict monadDictM) (var actionE mE) $
+                        lam v eTy $
+                          returnCall mTy rTy (var dict monadDictM) applied
+
+  apRhs =
+    CTypeLam [m, a, b] (lam dict monadDictM (lam functionAction (applyMonadCoreType mTy funAB) (lam action mA body))) apTy
+   where
+    dict = builtinLocalTermName "$control_ap_dict" (-7777)
+    functionAction = builtinLocalTermName "$control_ap_function_action" (-7778)
+    action = builtinLocalTermName "$control_ap_action" (-7779)
+    function = builtinLocalTermName "$control_ap_function" (-7780)
+    value = builtinLocalTermName "$control_ap_value" (-7781)
+    body =
+      bindCall mTy funAB bTy (var dict monadDictM) (var functionAction (applyMonadCoreType mTy funAB)) $
+        lam function funAB $
+          bindCall mTy aTy bTy (var dict monadDictM) (var action mA) $
+            lam value aTy $
+              returnCall mTy bTy (var dict monadDictM) (applyCore (var function funAB) (var value aTy) bTy)
+
+  mapMBody functionName functionTy dict function xs =
+    listCaseCore xs caseName aTy mListB (returnCall mTy listB dict (nilCore bTy)) x rest consBranch
+   where
+    x = builtinLocalTermName "$control_mapM_x" (-7782)
+    rest = builtinLocalTermName "$control_mapM_rest" (-7783)
+    y = builtinLocalTermName "$control_mapM_y" (-7784)
+    ys = builtinLocalTermName "$control_mapM_ys" (-7785)
+    caseName = builtinLocalTermName "$control_mapM_case" (-7786)
+    recursive =
+      callPoly functionName functionTy [mTy, aTy, bTy] mListB [dict, function, var rest listA]
+    consContinuation =
+      lam ys listB (returnCall mTy listB dict (consCore bTy (var y bTy) (var ys listB)))
+    yContinuation =
+      lam y bTy (bindCall mTy listB listB dict recursive consContinuation)
+    consBranch =
+      bindCall mTy bTy listB dict (applyCore function (var x aTy) mB) yContinuation
+
+  forMBody functionName functionTy dict xs function =
+    listCaseCore xs caseName aTy mListB (returnCall mTy listB dict (nilCore bTy)) x rest consBranch
+   where
+    x = builtinLocalTermName "$control_forM_x" (-7787)
+    rest = builtinLocalTermName "$control_forM_rest" (-7788)
+    y = builtinLocalTermName "$control_forM_y" (-7789)
+    ys = builtinLocalTermName "$control_forM_ys" (-7790)
+    caseName = builtinLocalTermName "$control_forM_case" (-7791)
+    recursive =
+      callPoly functionName functionTy [mTy, aTy, bTy] mListB [dict, var rest listA, function]
+    consContinuation =
+      lam ys listB (returnCall mTy listB dict (consCore bTy (var y bTy) (var ys listB)))
+    yContinuation =
+      lam y bTy (bindCall mTy listB listB dict recursive consContinuation)
+    consBranch =
+      bindCall mTy bTy listB dict (applyCore function (var x aTy) mB) yContinuation
+
+  mapMUnitBody functionName functionTy dict function xs =
+    listCaseCore xs caseName aTy mUnit (returnCall mTy unitTy dict unitCore) x rest consBranch
+   where
+    x = builtinLocalTermName "$control_mapM__x" (-7792)
+    rest = builtinLocalTermName "$control_mapM__rest" (-7793)
+    caseName = builtinLocalTermName "$control_mapM__case" (-7794)
+    recursive =
+      callPoly functionName functionTy [mTy, aTy, bTy] mUnit [dict, function, var rest listA]
+    consBranch =
+      thenCall mTy bTy unitTy dict (applyCore function (var x aTy) mB) recursive
+
+  forMUnitBody functionName functionTy dict xs function =
+    listCaseCore xs caseName aTy mUnit (returnCall mTy unitTy dict unitCore) x rest consBranch
+   where
+    x = builtinLocalTermName "$control_forM__x" (-7795)
+    rest = builtinLocalTermName "$control_forM__rest" (-7796)
+    caseName = builtinLocalTermName "$control_forM__case" (-7797)
+    recursive =
+      callPoly functionName functionTy [mTy, aTy, bTy] mUnit [dict, var rest listA, function]
+    consBranch =
+      thenCall mTy bTy unitTy dict (applyCore function (var x aTy) mB) recursive
+
+  bindCall monadTy inputTy outputTy dict action continuation =
+    callPoly (preludeTermName ">>=" (-1461)) monadBindSelectorCoreType [monadTy, inputTy, outputTy] (applyMonadCoreType monadTy outputTy) [dict, action, continuation]
+
+  thenCall monadTy inputTy outputTy dict first second =
+    callPoly (preludeTermName ">>" (-1462)) monadThenSelectorCoreType [monadTy, inputTy, outputTy] (applyMonadCoreType monadTy outputTy) [dict, first, second]
+
+  returnCall monadTy valueTy dict value =
+    callPoly (preludeTermName "return" (-1463)) monadReturnSelectorCoreType [monadTy, valueTy] (applyMonadCoreType monadTy valueTy) [dict, value]
+
+  fmapCall functorTy inputTy outputTy dict function value =
+    callPoly (preludeTermName "fmap" (-1491)) functorFmapSelectorCoreType [functorTy, inputTy, outputTy] (applyFunctorCoreType functorTy outputTy) [dict, function, value]
+
+  mzeroCall monadTy valueTy dict =
+    callPoly (preludeTermName "mzero" (-1495)) monadPlusMzeroSelectorCoreType [monadTy, valueTy] (applyMonadCoreType monadTy valueTy) [dict]
+
+  mplusCall monadTy valueTy dict lhs rhs =
+    callPoly (preludeTermName "mplus" (-1496)) monadPlusMplusSelectorCoreType [monadTy, valueTy] (applyMonadCoreType monadTy valueTy) [dict, lhs, rhs]
+
+  monadPlusSuperclassDict monadTy dict =
+    callPoly monadPlusMonadSelectorName monadPlusMonadSelectorCoreType [monadTy] (monadDictCoreType monadTy) [dict]
+
+  callPoly functionName functionTy typeArguments resultTy arguments =
+    foldl applyValue typed arguments
+   where
+    typed = CTypeApp (CVar functionName functionTy) typeArguments (foldr CTyFun resultTy (map exprType arguments))
+    applyValue callee argument =
+      let remainingResult =
+            case exprType callee of
+              CTyFun _ result -> result
+              _ -> resultTy
+       in CApp callee argument remainingResult
+
+  idLam valueTy =
+    lam value valueTy (var value valueTy)
+   where
+    value = builtinLocalTermName "$control_id_x" (-7798)
+
+  tuple2Core leftTy rightTy left right =
+    constructorApp (tupleDataConName 2) [leftTy, rightTy] [left, right] (CTyTuple [leftTy, rightTy])
+
+  lam = coreLam
+  var = CVar
+  unitCore = CCon unitDataConName unitTy
+
+  monadDictCoreType monadTy =
+    CTyApp (CTyCon (classDictionaryTypeName builtinMonadClassName)) monadTy
+
+  monadPlusDictCoreType monadTy =
+    CTyApp (CTyCon (classDictionaryTypeName builtinMonadPlusClassName)) monadTy
+
+  functorDictCoreType functorTy =
+    CTyApp (CTyCon (classDictionaryTypeName builtinFunctorClassName)) functorTy
+
+  selectorFunctorF = preludeTypeVariable "f" (-1391)
+  selectorFunctorA = preludeTypeVariable "a" (-1201)
+  selectorFunctorB = preludeTypeVariable "b" (-1202)
+  selectorFunctorFTy = CTyVar selectorFunctorF
+  selectorFunctorATy = CTyVar selectorFunctorA
+  selectorFunctorBTy = CTyVar selectorFunctorB
+  selectorMonadM = preludeTypeVariable "m" (-1361)
+  selectorMonadA = preludeTypeVariable "a" (-1362)
+  selectorMonadB = preludeTypeVariable "b" (-1363)
+  selectorMonadMTy = CTyVar selectorMonadM
+  selectorMonadATy = CTyVar selectorMonadA
+  selectorMonadBTy = CTyVar selectorMonadB
+  selectorMonadPlusM = preludeTypeVariable "m" (-1396)
+  selectorMonadPlusA = preludeTypeVariable "a" (-1397)
+  selectorMonadPlusMTy = CTyVar selectorMonadPlusM
+  selectorMonadPlusATy = CTyVar selectorMonadPlusA
+
+  functorFmapSelectorCoreType =
+    CTyForall
+      [selectorFunctorF, selectorFunctorA, selectorFunctorB]
+      ( CTyFun
+          (functorDictCoreType selectorFunctorFTy)
+          ( CTyFun
+              (CTyFun selectorFunctorATy selectorFunctorBTy)
+              (CTyFun (applyFunctorCoreType selectorFunctorFTy selectorFunctorATy) (applyFunctorCoreType selectorFunctorFTy selectorFunctorBTy))
+          )
+      )
+
+  monadBindSelectorCoreType =
+    CTyForall
+      [selectorMonadM, selectorMonadA, selectorMonadB]
+      ( CTyFun
+          (monadDictCoreType selectorMonadMTy)
+          ( CTyFun
+              (applyMonadCoreType selectorMonadMTy selectorMonadATy)
+              (CTyFun (CTyFun selectorMonadATy (applyMonadCoreType selectorMonadMTy selectorMonadBTy)) (applyMonadCoreType selectorMonadMTy selectorMonadBTy))
+          )
+      )
+
+  monadThenSelectorCoreType =
+    CTyForall
+      [selectorMonadM, selectorMonadA, selectorMonadB]
+      ( CTyFun
+          (monadDictCoreType selectorMonadMTy)
+          (CTyFun (applyMonadCoreType selectorMonadMTy selectorMonadATy) (CTyFun (applyMonadCoreType selectorMonadMTy selectorMonadBTy) (applyMonadCoreType selectorMonadMTy selectorMonadBTy)))
+      )
+
+  monadReturnSelectorCoreType =
+    CTyForall
+      [selectorMonadM, selectorMonadA]
+      (CTyFun (monadDictCoreType selectorMonadMTy) (CTyFun selectorMonadATy (applyMonadCoreType selectorMonadMTy selectorMonadATy)))
+
+  monadPlusMzeroSelectorCoreType =
+    CTyForall
+      [selectorMonadPlusM, selectorMonadPlusA]
+      (CTyFun (monadPlusDictCoreType selectorMonadPlusMTy) (applyMonadCoreType selectorMonadPlusMTy selectorMonadPlusATy))
+
+  monadPlusMplusSelectorCoreType =
+    CTyForall
+      [selectorMonadPlusM, selectorMonadPlusA]
+      ( CTyFun
+          (monadPlusDictCoreType selectorMonadPlusMTy)
+          ( CTyFun
+              (applyMonadCoreType selectorMonadPlusMTy selectorMonadPlusATy)
+              (CTyFun (applyMonadCoreType selectorMonadPlusMTy selectorMonadPlusATy) (applyMonadCoreType selectorMonadPlusMTy selectorMonadPlusATy))
+          )
+      )
+
+  monadPlusMonadSelectorName =
+    superclassSelectorName builtinMonadPlusInfo 0 (singleClassConstraint builtinMonadClassName (TyVar (classInfoVariable builtinMonadPlusInfo)))
+
+  monadPlusMonadSelectorCoreType =
+    CTyForall
+      [selectorMonadPlusM]
+      (CTyFun (monadPlusDictCoreType selectorMonadPlusMTy) (monadDictCoreType selectorMonadPlusMTy))
+
+readSupportPreludeNames :: [RName]
+readSupportPreludeNames =
+  [ readAppendName
+  , readBindName
+  , readDropSpacesName
+  , readExactName
+  , readExactRawName
+  , readExactGoName
+  , readEndName
+  , readCompleteName
+  , readDefaultListName
+  , readDefaultListTailName
+  , readParenName
+  , readLexName
+  , readLexIdentTailName
+  , readLexDigitTailName
+  , readLexSymbolTailName
+  , readIntName
+  , readIntStartName
+  , readIntDigitsName
+  , readBoolName
+  , readEscapeName
+  , readCharName
+  , readCharBodyName
+  , readStringName
+  , readStringCharsName
+  , readIntegerName
+  , readIntegerStartName
+  , readIntegerDigitsName
+  ]
+
+readAppendName, readBindName, readDropSpacesName, readExactName, readExactRawName, readExactGoName, readEndName, readCompleteName :: RName
+readAppendName = preludeTermName "$read_append" (-2500)
+readBindName = preludeTermName "$read_bind" (-2501)
+readDropSpacesName = preludeTermName "$read_drop_spaces" (-2502)
+readExactName = preludeTermName "$read_exact" (-2503)
+readExactRawName = preludeTermName "$read_exact_raw" (-2504)
+readExactGoName = preludeTermName "$read_exact_go" (-2505)
+readEndName = preludeTermName "$read_end" (-2506)
+readCompleteName = preludeTermName "$read_complete" (-2507)
+
+readDefaultListName, readDefaultListTailName, readParenName, readLexName, readLexIdentTailName, readLexDigitTailName, readLexSymbolTailName :: RName
+readDefaultListName = preludeTermName "$read_default_list" (-2508)
+readDefaultListTailName = preludeTermName "$read_default_list_tail" (-2509)
+readParenName = preludeTermName "$read_paren" (-2510)
+readLexName = preludeTermName "$read_lex" (-2511)
+readLexIdentTailName = preludeTermName "$read_lex_ident_tail" (-2512)
+readLexDigitTailName = preludeTermName "$read_lex_digit_tail" (-2513)
+readLexSymbolTailName = preludeTermName "$read_lex_symbol_tail" (-2514)
+
+readIntName, readIntStartName, readIntDigitsName, readBoolName, readEscapeName, readCharName, readCharBodyName, readStringName, readStringCharsName :: RName
+readIntName = preludeTermName "$read_int" (-2515)
+readIntStartName = preludeTermName "$read_int_start" (-2516)
+readIntDigitsName = preludeTermName "$read_int_digits" (-2517)
+readBoolName = preludeTermName "$read_bool" (-2518)
+readEscapeName = preludeTermName "$read_escape" (-2519)
+readCharName = preludeTermName "$read_char" (-2520)
+readCharBodyName = preludeTermName "$read_char_body" (-2521)
+readStringName = preludeTermName "$read_string" (-2522)
+readStringCharsName = preludeTermName "$read_string_chars" (-2523)
+
+readIntegerName, readIntegerStartName, readIntegerDigitsName :: RName
+readIntegerName = preludeTermName "$read_integer" (-2524)
+readIntegerStartName = preludeTermName "$read_integer_start" (-2525)
+readIntegerDigitsName = preludeTermName "$read_integer_digits" (-2526)
+
+ratioSupportPreludeNames :: [RName]
+ratioSupportPreludeNames =
+  [ ratioReduceName
+  , ratioGcdName
+  , ratioGcdGoName
+  , ratioSimplestName
+  , ratioSimplestPositiveName
+  ]
+
+ratioReduceName, ratioGcdName, ratioGcdGoName, ratioSimplestName, ratioSimplestPositiveName :: RName
+ratioReduceName = preludeTermName "$ratio_reduce" (-4000)
+ratioGcdName = preludeTermName "$ratio_gcd" (-4001)
+ratioGcdGoName = preludeTermName "$ratio_gcd_go" (-4002)
+ratioSimplestName = preludeTermName "$ratio_simplest" (-4003)
+ratioSimplestPositiveName = preludeTermName "$ratio_simplest_positive" (-4004)
+
+ratioPreludeCorePair :: RName -> Maybe (CoreBinder, CoreExpr)
+ratioPreludeCorePair name =
+  case nameOcc name of
+    "$ratio_reduce" -> Just ratioReduceCorePair
+    "$ratio_gcd" -> Just ratioGcdCorePair
+    "$ratio_gcd_go" -> Just ratioGcdGoCorePair
+    "$ratio_simplest" -> Just ratioSimplestCorePair
+    "$ratio_simplest_positive" -> Just ratioSimplestPositiveCorePair
+    _ -> Nothing
+
+ratioPercentCoreType :: CoreType
+ratioPercentCoreType =
+  CTyFun integerTy (CTyFun integerTy rationalCoreType)
+
+ratioAccessorCoreType :: CoreType
+ratioAccessorCoreType =
+  CTyFun rationalCoreType integerTy
+
+ratioApproxRationalCoreType :: CoreType
+ratioApproxRationalCoreType =
+  CTyFun rationalCoreType (CTyFun rationalCoreType rationalCoreType)
+
+ratioReduceCorePair :: (CoreBinder, CoreExpr)
+ratioReduceCorePair =
+  (CoreBinder ratioReduceName ratioPercentCoreType, ratioReduceRhs)
+
+ratioGcdCorePair :: (CoreBinder, CoreExpr)
+ratioGcdCorePair =
+  (CoreBinder ratioGcdName ratioGcdCoreType, ratioGcdRhs)
+
+ratioGcdGoCorePair :: (CoreBinder, CoreExpr)
+ratioGcdGoCorePair =
+  (CoreBinder ratioGcdGoName ratioGcdCoreType, ratioGcdGoRhs)
+
+ratioSimplestCorePair :: (CoreBinder, CoreExpr)
+ratioSimplestCorePair =
+  (CoreBinder ratioSimplestName ratioSimplestCoreType, ratioSimplestRhs)
+
+ratioSimplestPositiveCorePair :: (CoreBinder, CoreExpr)
+ratioSimplestPositiveCorePair =
+  (CoreBinder ratioSimplestPositiveName ratioSimplestPositiveCoreType, ratioSimplestPositiveRhs)
+
+ratioGcdCoreType :: CoreType
+ratioGcdCoreType =
+  CTyFun integerTy (CTyFun integerTy integerTy)
+
+ratioSimplestCoreType :: CoreType
+ratioSimplestCoreType =
+  CTyFun rationalCoreType (CTyFun rationalCoreType rationalCoreType)
+
+ratioSimplestPositiveCoreType :: CoreType
+ratioSimplestPositiveCoreType =
+  CTyFun integerTy (CTyFun integerTy (CTyFun integerTy (CTyFun integerTy rationalCoreType)))
+
+ratioReduceRhs :: CoreExpr
+ratioReduceRhs =
+  coreLam xName integerTy $
+    coreLam yName integerTy $
+      boolCaseCore
+        "$ratio_reduce_zero"
+        (-4010)
+        (CPrimOp PrimIntegerEq [y, zeroInteger] boolTy)
+        rationalCoreType
+        (bottomCore "$ratio_reduce_zero_denominator" (-4011) rationalCoreType)
+        ( letCore signedName integerTy (integerMul x (integerSignumCore y)) $
+            letCore positiveDenName integerTy (integerAbsCore y) $
+              letCore gcdName integerTy (ratioGcdCall signed positiveDen) $
+                ratioIntegerCore (integerQuot signed gcdValue) (integerQuot positiveDen gcdValue)
+        )
+ where
+  xName = builtinLocalTermName "$ratio_reduce_x" (-4012)
+  yName = builtinLocalTermName "$ratio_reduce_y" (-4013)
+  signedName = builtinLocalTermName "$ratio_reduce_signed" (-4014)
+  positiveDenName = builtinLocalTermName "$ratio_reduce_den" (-4015)
+  gcdName = builtinLocalTermName "$ratio_reduce_gcd" (-4016)
+  x = CVar xName integerTy
+  y = CVar yName integerTy
+  signed = CVar signedName integerTy
+  positiveDen = CVar positiveDenName integerTy
+  gcdValue = CVar gcdName integerTy
+
+ratioGcdRhs :: CoreExpr
+ratioGcdRhs =
+  coreLam xName integerTy $
+    coreLam yName integerTy $
+      ratioGcdGoCall (integerAbsCore x) (integerAbsCore y)
+ where
+  xName = builtinLocalTermName "$ratio_gcd_x" (-4020)
+  yName = builtinLocalTermName "$ratio_gcd_y" (-4021)
+  x = CVar xName integerTy
+  y = CVar yName integerTy
+
+ratioGcdGoRhs :: CoreExpr
+ratioGcdGoRhs =
+  coreLam xName integerTy $
+    coreLam yName integerTy $
+      boolCaseCore
+        "$ratio_gcd_go_zero"
+        (-4030)
+        (CPrimOp PrimIntegerEq [y, zeroInteger] boolTy)
+        integerTy
+        x
+        (ratioGcdGoCall y (integerRem x y))
+ where
+  xName = builtinLocalTermName "$ratio_gcd_go_x" (-4031)
+  yName = builtinLocalTermName "$ratio_gcd_go_y" (-4032)
+  x = CVar xName integerTy
+  y = CVar yName integerTy
+
+ratioGcdCall :: CoreExpr -> CoreExpr -> CoreExpr
+ratioGcdCall lhs rhs =
+  applyCore (applyCore (CVar ratioGcdName ratioGcdCoreType) lhs (CTyFun integerTy integerTy)) rhs integerTy
+
+ratioGcdGoCall :: CoreExpr -> CoreExpr -> CoreExpr
+ratioGcdGoCall lhs rhs =
+  applyCore (applyCore (CVar ratioGcdGoName ratioGcdCoreType) lhs (CTyFun integerTy integerTy)) rhs integerTy
+
+ratioSimplestRhs :: CoreExpr
+ratioSimplestRhs =
+  coreLam xName rationalCoreType $
+    coreLam yName rationalCoreType $
+      boolCaseCore
+        "$ratio_simplest_swap"
+        (-4070)
+        (ratioLtCore y x)
+        rationalCoreType
+        (ratioSimplestCall y x)
+        ( boolCaseCore
+            "$ratio_simplest_equal"
+            (-4071)
+            (ratioEqCore x y)
+            rationalCoreType
+            x
+            ( boolCaseCore
+                "$ratio_simplest_positive"
+                (-4072)
+                (ratioLtCore zeroRatio x)
+                rationalCoreType
+                (ratioZipCore "$ratio_simplest_positive_fields" (-4073) x y rationalCoreType ratioSimplestPositiveCall)
+                ( boolCaseCore
+                    "$ratio_simplest_negative"
+                    (-4079)
+                    (ratioLtCore y zeroRatio)
+                    rationalCoreType
+                    (ratioZipCore "$ratio_simplest_negative_fields" (-4080) x y rationalCoreType $ \xN xD yN yD ->
+                      ratioNegateCore (ratioSimplestPositiveCall (CPrimOp PrimIntegerNegate [yN] integerTy) yD (CPrimOp PrimIntegerNegate [xN] integerTy) xD)
+                    )
+                    zeroRatio
+                )
+            )
+        )
+ where
+  xName = builtinLocalTermName "$ratio_simplest_x" (-4086)
+  yName = builtinLocalTermName "$ratio_simplest_y" (-4087)
+  x = CVar xName rationalCoreType
+  y = CVar yName rationalCoreType
+  zeroRatio = ratioIntegerCore zeroInteger oneInteger
+
+ratioSimplestPositiveRhs :: CoreExpr
+ratioSimplestPositiveRhs =
+  coreLam nName integerTy $
+    coreLam dName integerTy $
+      coreLam nPrimeName integerTy $
+        coreLam dPrimeName integerTy $
+          letCore qName integerTy (integerQuot n d) $
+            letCore rName integerTy (integerRem n d) $
+              boolCaseCore
+                "$ratio_simplest_positive_exact"
+                (-4090)
+                (CPrimOp PrimIntegerEq [r, zeroInteger] boolTy)
+                rationalCoreType
+                (ratioIntegerCore q oneInteger)
+                ( letCore qPrimeName integerTy (integerQuot nPrime dPrime) $
+                    letCore rPrimeName integerTy (integerRem nPrime dPrime) $
+                      boolCaseCore
+                        "$ratio_simplest_positive_step"
+                        (-4091)
+                        (boolNotCore "$ratio_simplest_positive_q_ne" (-4092) (CPrimOp PrimIntegerEq [q, qPrime] boolTy))
+                        rationalCoreType
+                        (ratioIntegerCore (integerAdd q oneInteger) oneInteger)
+                        ( ratioCaseCore
+                            "$ratio_simplest_positive_recurse"
+                            (-4093)
+                            (ratioSimplestPositiveCall dPrime rPrime d r)
+                            rationalCoreType
+                            (-4094)
+                            (-4095)
+                            (\nextN nextD -> ratioIntegerCore (integerAdd (integerMul q nextN) nextD) nextN)
+                        )
+                )
+ where
+  nName = builtinLocalTermName "$ratio_simplest_positive_n" (-4096)
+  dName = builtinLocalTermName "$ratio_simplest_positive_d" (-4097)
+  nPrimeName = builtinLocalTermName "$ratio_simplest_positive_n_prime" (-4098)
+  dPrimeName = builtinLocalTermName "$ratio_simplest_positive_d_prime" (-4099)
+  qName = builtinLocalTermName "$ratio_simplest_positive_q" (-4100)
+  rName = builtinLocalTermName "$ratio_simplest_positive_r" (-4101)
+  qPrimeName = builtinLocalTermName "$ratio_simplest_positive_q_prime" (-4102)
+  rPrimeName = builtinLocalTermName "$ratio_simplest_positive_r_prime" (-4103)
+  n = CVar nName integerTy
+  d = CVar dName integerTy
+  nPrime = CVar nPrimeName integerTy
+  dPrime = CVar dPrimeName integerTy
+  q = CVar qName integerTy
+  r = CVar rName integerTy
+  qPrime = CVar qPrimeName integerTy
+  rPrime = CVar rPrimeName integerTy
+
+ratioSimplestCall :: CoreExpr -> CoreExpr -> CoreExpr
+ratioSimplestCall lhs rhs =
+  applyCore (applyCore (CVar ratioSimplestName ratioSimplestCoreType) lhs (CTyFun rationalCoreType rationalCoreType)) rhs rationalCoreType
+
+ratioSimplestPositiveCall :: CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+ratioSimplestPositiveCall n d nPrime dPrime =
+  applyCore
+    ( applyCore
+        ( applyCore
+            (applyCore (CVar ratioSimplestPositiveName ratioSimplestPositiveCoreType) n (CTyFun integerTy (CTyFun integerTy (CTyFun integerTy rationalCoreType))))
+            d
+            (CTyFun integerTy (CTyFun integerTy rationalCoreType))
+        )
+        nPrime
+        (CTyFun integerTy rationalCoreType)
+    )
+    dPrime
+    rationalCoreType
+
+ratioNumeratorRhs :: CoreExpr
+ratioNumeratorRhs =
+  ratioAccessorRhs "$ratio_numerator" (-4040) $ \numeratorExpr _ -> numeratorExpr
+
+ratioDenominatorRhs :: CoreExpr
+ratioDenominatorRhs =
+  ratioAccessorRhs "$ratio_denominator" (-4050) $ \_ denominatorExpr -> denominatorExpr
+
+ratioAccessorRhs :: Text -> Int -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+ratioAccessorRhs occurrence unique selectField =
+  coreLam valueName rationalCoreType $
+    ratioCaseCore
+      (occurrence <> "_case")
+      (unique - 1)
+      (CVar valueName rationalCoreType)
+      integerTy
+      (unique - 2)
+      (unique - 3)
+      selectField
+ where
+  valueName = builtinLocalTermName (occurrence <> "_value") unique
+
+ratioApproxRationalRhs :: CoreExpr
+ratioApproxRationalRhs =
+  coreLam valueName rationalCoreType $
+    coreLam _epsilonName rationalCoreType $
+      ratioSimplestCall
+        (ratioSubCore (CVar valueName rationalCoreType) (CVar _epsilonName rationalCoreType))
+        (ratioAddCore (CVar valueName rationalCoreType) (CVar _epsilonName rationalCoreType))
+ where
+  valueName = builtinLocalTermName "$approx_rational_value" (-4060)
+  _epsilonName = builtinLocalTermName "$approx_rational_epsilon" (-4061)
+
+ratioCaseCore :: Text -> Int -> CoreExpr -> CoreType -> Int -> Int -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+ratioCaseCore occurrence caseUnique scrutinee resultTy numeratorUnique denominatorUnique body =
+  CCase
+    scrutinee
+    (CoreBinder (builtinLocalTermName occurrence caseUnique) rationalCoreType)
+    [ CoreAlt
+        (ConstructorAlt ratioDataConName)
+        [CoreBinder numeratorName integerTy, CoreBinder denominatorName integerTy]
+        (body (CVar numeratorName integerTy) (CVar denominatorName integerTy))
+    ]
+    resultTy
+ where
+  numeratorName = builtinLocalTermName (occurrence <> "_n") numeratorUnique
+  denominatorName = builtinLocalTermName (occurrence <> "_d") denominatorUnique
+
+readPreludeCorePair :: RName -> Maybe (CoreBinder, CoreExpr)
+readPreludeCorePair name =
+  case nameOcc name of
+    "$read_append" -> Just readAppendCorePair
+    "$read_bind" -> Just readBindCorePair
+    "$read_drop_spaces" -> Just readDropSpacesCorePair
+    "$read_exact" -> Just readExactCorePair
+    "$read_exact_raw" -> Just readExactRawCorePair
+    "$read_exact_go" -> Just readExactGoCorePair
+    "$read_end" -> Just readEndCorePair
+    "$read_complete" -> Just readCompleteCorePair
+    "$read_default_list" -> Just readDefaultListCorePair
+    "$read_default_list_tail" -> Just readDefaultListTailCorePair
+    "$read_paren" -> Just readParenCorePair
+    "$read_lex" -> Just readLexCorePair
+    "$read_lex_ident_tail" -> Just (readLexTailCorePair readLexIdentTailName readIsIdentCharCore readLexIdentTailCoreType)
+    "$read_lex_digit_tail" -> Just (readLexTailCorePair readLexDigitTailName readIsDigitCore readLexDigitTailCoreType)
+    "$read_lex_symbol_tail" -> Just (readLexTailCorePair readLexSymbolTailName readIsSymbolCore readLexSymbolTailCoreType)
+    "$read_int" -> Just readIntCorePair
+    "$read_int_start" -> Just readIntStartCorePair
+    "$read_int_digits" -> Just readIntDigitsCorePair
+    "$read_bool" -> Just readBoolCorePair
+    "$read_escape" -> Just readEscapeCorePair
+    "$read_char" -> Just readCharCorePair
+    "$read_char_body" -> Just readCharBodyCorePair
+    "$read_string" -> Just readStringCorePair
+    "$read_string_chars" -> Just readStringCharsCorePair
+    "$read_integer" -> Just readIntegerCorePair
+    "$read_integer_start" -> Just readIntegerStartCorePair
+    "$read_integer_digits" -> Just readIntegerDigitsCorePair
+    _ -> Nothing
+
+readResultCoreType :: CoreType -> CoreType
+readResultCoreType valueTy =
+  CTyTuple [valueTy, stringTy]
+
+readResultsCoreType :: CoreType -> CoreType
+readResultsCoreType valueTy =
+  CTyList (readResultCoreType valueTy)
+
+readSCoreType :: CoreType -> CoreType
+readSCoreType valueTy =
+  CTyFun stringTy (readResultsCoreType valueTy)
+
+readAppendCoreType :: CoreType
+readAppendCoreType =
+  CTyForall [a] (CTyFun listA (CTyFun listA listA))
+ where
+  a = preludeTypeVariable "a" (-1201)
+  aTy = CTyVar a
+  listA = CTyList aTy
+
+readBindCoreType :: CoreType
+readBindCoreType =
+  CTyForall [a, b] (CTyFun resultsA (CTyFun continuation resultsB))
+ where
+  a = preludeTypeVariable "a" (-1201)
+  b = preludeTypeVariable "b" (-1202)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  resultsA = readResultsCoreType aTy
+  resultsB = readResultsCoreType bTy
+  continuation = CTyFun aTy (CTyFun stringTy resultsB)
+
+readExactCoreType, readExactRawCoreType, readExactGoCoreType, readEndCoreType :: CoreType
+readExactCoreType = CTyFun stringTy (CTyFun stringTy (readResultsCoreType unitTy))
+readExactRawCoreType = readExactCoreType
+readExactGoCoreType = readExactCoreType
+readEndCoreType = readSCoreType unitTy
+
+readCompleteCoreType :: CoreType
+readCompleteCoreType =
+  CTyForall [a] (CTyFun (readResultsCoreType aTy) aTy)
+ where
+  a = preludeTypeVariable "a" (-1201)
+  aTy = CTyVar a
+
+readDefaultListCoreType, readDefaultListTailCoreType :: CoreType
+readDefaultListCoreType =
+  CTyForall [a] (CTyFun (readSCoreType aTy) (readSCoreType listA))
+ where
+  a = preludeTypeVariable "a" (-1201)
+  aTy = CTyVar a
+  listA = CTyList aTy
+readDefaultListTailCoreType = readDefaultListCoreType
+
+readParenCoreType :: CoreType
+readParenCoreType =
+  CTyForall [a] (CTyFun boolTy (CTyFun (readSCoreType aTy) (readSCoreType aTy)))
+ where
+  a = preludeTypeVariable "a" (-1201)
+  aTy = CTyVar a
+
+readLexCoreType, readLexIdentTailCoreType, readLexDigitTailCoreType, readLexSymbolTailCoreType :: CoreType
+readLexCoreType = readSCoreType stringTy
+readLexIdentTailCoreType = readLexCoreType
+readLexDigitTailCoreType = readLexCoreType
+readLexSymbolTailCoreType = readLexCoreType
+
+readIntCoreType, readIntegerCoreType, readBoolCoreType, readEscapeCoreType, readCharCoreType, readCharBodyCoreType, readStringCoreType, readStringCharsCoreType :: CoreType
+readIntCoreType = readSCoreType intTy
+readIntegerCoreType = readSCoreType integerTy
+readBoolCoreType = readSCoreType boolTy
+readEscapeCoreType = readSCoreType charTy
+readCharCoreType = readSCoreType charTy
+readCharBodyCoreType = readSCoreType charTy
+readStringCoreType = readSCoreType stringTy
+readStringCharsCoreType = readSCoreType stringTy
+
+readIntStartCoreType, readIntDigitsCoreType :: CoreType
+readIntStartCoreType = CTyFun intTy readIntCoreType
+readIntDigitsCoreType = CTyFun intTy (CTyFun intTy readIntCoreType)
+
+readIntegerStartCoreType, readIntegerDigitsCoreType :: CoreType
+readIntegerStartCoreType = CTyFun integerTy readIntegerCoreType
+readIntegerDigitsCoreType = CTyFun integerTy (CTyFun integerTy readIntegerCoreType)
+
+readAppendCorePair :: (CoreBinder, CoreExpr)
+readAppendCorePair =
+  (CoreBinder readAppendName readAppendCoreType, CTypeLam [a] (lam xsName listA (lam ysName listA body)) readAppendCoreType)
+ where
+  a = preludeTypeVariable "a" (-1201)
+  aTy = CTyVar a
+  listA = CTyList aTy
+  xsName = builtinLocalTermName "$read_append_xs" (-2540)
+  ysName = builtinLocalTermName "$read_append_ys" (-2541)
+  xName = builtinLocalTermName "$read_append_x" (-2542)
+  restName = builtinLocalTermName "$read_append_rest" (-2543)
+  caseName = builtinLocalTermName "$read_append_case" (-2544)
+  lam = coreLam
+  recursive =
+    applyCore
+      (applyCore (CTypeApp (CVar readAppendName readAppendCoreType) [aTy] (CTyFun listA (CTyFun listA listA))) (CVar restName listA) (CTyFun listA listA))
+      (CVar ysName listA)
+      listA
+  body =
+    listCaseCore
+      (CVar xsName listA)
+      caseName
+      aTy
+      listA
+      (CVar ysName listA)
+      xName
+      restName
+      (consCore aTy (CVar xName aTy) recursive)
+
+readBindCorePair :: (CoreBinder, CoreExpr)
+readBindCorePair =
+  (CoreBinder readBindName readBindCoreType, CTypeLam [a, b] (lam xsName resultsA (lam kName continuation body)) readBindCoreType)
+ where
+  a = preludeTypeVariable "a" (-1201)
+  b = preludeTypeVariable "b" (-1202)
+  aTy = CTyVar a
+  bTy = CTyVar b
+  pairA = readResultCoreType aTy
+  resultsA = CTyList pairA
+  resultsB = readResultsCoreType bTy
+  continuation = CTyFun aTy (CTyFun stringTy resultsB)
+  xsName = builtinLocalTermName "$read_bind_xs" (-2545)
+  kName = builtinLocalTermName "$read_bind_k" (-2546)
+  pairName = builtinLocalTermName "$read_bind_pair" (-2547)
+  restName = builtinLocalTermName "$read_bind_rest" (-2548)
+  xName = builtinLocalTermName "$read_bind_x" (-2549)
+  sName = builtinLocalTermName "$read_bind_s" (-2550)
+  listCaseName = builtinLocalTermName "$read_bind_list_case" (-2551)
+  pairCaseName = builtinLocalTermName "$read_bind_pair_case" (-2552)
+  lam = coreLam
+  kCall =
+    applyCore
+      (applyCore (CVar kName continuation) (CVar xName aTy) (CTyFun stringTy resultsB))
+      (CVar sName stringTy)
+      resultsB
+  recursive =
+    applyCore
+      ( applyCore
+          (CTypeApp (CVar readBindName readBindCoreType) [aTy, bTy] (CTyFun resultsA (CTyFun continuation resultsB)))
+          (CVar restName resultsA)
+          (CTyFun continuation resultsB)
+      )
+      (CVar kName continuation)
+      resultsB
+  consBody =
+    CCase
+      (CVar pairName pairA)
+      (CoreBinder pairCaseName pairA)
+      [ CoreAlt
+          (ConstructorAlt (tupleDataConName 2))
+          [CoreBinder xName aTy, CoreBinder sName stringTy]
+          (readAppendCallCore (readResultCoreType bTy) kCall recursive)
+      ]
+      resultsB
+  body =
+    listCaseCore
+      (CVar xsName resultsA)
+      listCaseName
+      pairA
+      resultsB
+      (nilCore (readResultCoreType bTy))
+      pairName
+      restName
+      consBody
+
+readDropSpacesCorePair :: (CoreBinder, CoreExpr)
+readDropSpacesCorePair =
+  (CoreBinder readDropSpacesName (CTyFun stringTy stringTy), lam inputName stringTy body)
+ where
+  inputName = builtinLocalTermName "$read_drop_input" (-2553)
+  cName = builtinLocalTermName "$read_drop_c" (-2554)
+  csName = builtinLocalTermName "$read_drop_cs" (-2555)
+  caseName = builtinLocalTermName "$read_drop_case" (-2556)
+  lam = coreLam
+  input = CVar inputName stringTy
+  rest = CVar csName stringTy
+  recursive = applyCore (CVar readDropSpacesName (CTyFun stringTy stringTy)) rest stringTy
+  body =
+    listCaseCore
+      input
+      caseName
+      charTy
+      stringTy
+      input
+      cName
+      csName
+      (boolCaseCore "$read_drop_is_space" (-2557) (readIsSpaceCore (CVar cName charTy)) stringTy recursive input)
+
+readExactCorePair :: (CoreBinder, CoreExpr)
+readExactCorePair =
+  (CoreBinder readExactName readExactCoreType, lam tokenName stringTy (lam inputName stringTy body))
+ where
+  tokenName = builtinLocalTermName "$read_exact_token" (-2558)
+  inputName = builtinLocalTermName "$read_exact_input" (-2559)
+  lam = coreLam
+  stripped = applyCore (CVar readDropSpacesName (CTyFun stringTy stringTy)) (CVar inputName stringTy) stringTy
+  body =
+    applyCore
+      (applyCore (CVar readExactGoName readExactGoCoreType) (CVar tokenName stringTy) (CTyFun stringTy (readResultsCoreType unitTy)))
+      stripped
+      (readResultsCoreType unitTy)
+
+readExactRawCorePair :: (CoreBinder, CoreExpr)
+readExactRawCorePair =
+  (CoreBinder readExactRawName readExactRawCoreType, lam tokenName stringTy (lam inputName stringTy body))
+ where
+  tokenName = builtinLocalTermName "$read_exact_raw_token" (-2560)
+  inputName = builtinLocalTermName "$read_exact_raw_input" (-2561)
+  lam = coreLam
+  body =
+    applyCore
+      (applyCore (CVar readExactGoName readExactGoCoreType) (CVar tokenName stringTy) (CTyFun stringTy (readResultsCoreType unitTy)))
+      (CVar inputName stringTy)
+      (readResultsCoreType unitTy)
+
+readExactGoCorePair :: (CoreBinder, CoreExpr)
+readExactGoCorePair =
+  (CoreBinder readExactGoName readExactGoCoreType, lam tokenName stringTy (lam inputName stringTy body))
+ where
+  tokenName = builtinLocalTermName "$read_exact_go_token" (-2562)
+  inputName = builtinLocalTermName "$read_exact_go_input" (-2563)
+  tName = builtinLocalTermName "$read_exact_go_t" (-2564)
+  tsName = builtinLocalTermName "$read_exact_go_ts" (-2565)
+  cName = builtinLocalTermName "$read_exact_go_c" (-2566)
+  csName = builtinLocalTermName "$read_exact_go_cs" (-2567)
+  tokenCaseName = builtinLocalTermName "$read_exact_go_token_case" (-2568)
+  inputCaseName = builtinLocalTermName "$read_exact_go_input_case" (-2569)
+  lam = coreLam
+  resultsTy = readResultsCoreType unitTy
+  empty = nilCore (readResultCoreType unitTy)
+  input = CVar inputName stringTy
+  recursive =
+    applyCore
+      ( applyCore
+          (CVar readExactGoName readExactGoCoreType)
+          (CVar tsName stringTy)
+          (CTyFun stringTy resultsTy)
+      )
+      (CVar csName stringTy)
+      resultsTy
+  inputCase =
+    listCaseCore
+      input
+      inputCaseName
+      charTy
+      resultsTy
+      empty
+      cName
+      csName
+      (boolCaseCore "$read_exact_go_eq" (-2570) (CPrimOp PrimEq [CVar tName charTy, CVar cName charTy] boolTy) resultsTy recursive empty)
+  body =
+    listCaseCore
+      (CVar tokenName stringTy)
+      tokenCaseName
+      charTy
+      resultsTy
+      (readSingleResultCore unitTy (CCon unitDataConName unitTy) input)
+      tName
+      tsName
+      inputCase
+
+readEndCorePair :: (CoreBinder, CoreExpr)
+readEndCorePair =
+  (CoreBinder readEndName readEndCoreType, lam inputName stringTy body)
+ where
+  inputName = builtinLocalTermName "$read_end_input" (-2571)
+  cName = builtinLocalTermName "$read_end_c" (-2572)
+  csName = builtinLocalTermName "$read_end_cs" (-2573)
+  caseName = builtinLocalTermName "$read_end_case" (-2574)
+  lam = coreLam
+  stripped = applyCore (CVar readDropSpacesName (CTyFun stringTy stringTy)) (CVar inputName stringTy) stringTy
+  body =
+    listCaseCore
+      stripped
+      caseName
+      charTy
+      (readResultsCoreType unitTy)
+      (readSingleResultCore unitTy (CCon unitDataConName unitTy) emptyStringCore)
+      cName
+      csName
+      (nilCore (readResultCoreType unitTy))
+
+readCompleteCorePair :: (CoreBinder, CoreExpr)
+readCompleteCorePair =
+  (CoreBinder readCompleteName readCompleteCoreType, CTypeLam [a] (lam resultsName resultsTy body) readCompleteCoreType)
+ where
+  a = preludeTypeVariable "a" (-1201)
+  aTy = CTyVar a
+  pairTy = readResultCoreType aTy
+  resultsTy = CTyList pairTy
+  resultsName = builtinLocalTermName "$read_complete_results" (-2575)
+  pairName = builtinLocalTermName "$read_complete_pair" (-2576)
+  restResultsName = builtinLocalTermName "$read_complete_rest_results" (-2577)
+  xName = builtinLocalTermName "$read_complete_x" (-2578)
+  restName = builtinLocalTermName "$read_complete_rest" (-2579)
+  endPairName = builtinLocalTermName "$read_complete_end_pair" (-2580)
+  endRestName = builtinLocalTermName "$read_complete_end_rest" (-2581)
+  resultCaseName = builtinLocalTermName "$read_complete_result_case" (-2582)
+  restCaseName = builtinLocalTermName "$read_complete_rest_case" (-2583)
+  pairCaseName = builtinLocalTermName "$read_complete_pair_case" (-2584)
+  endCaseName = builtinLocalTermName "$read_complete_end_case" (-2585)
+  lam = coreLam
+  failure = readFailureCore aTy
+  endResults =
+    applyCore (CVar readEndName readEndCoreType) (CVar restName stringTy) (readResultsCoreType unitTy)
+  endCase =
+    listCaseCore
+      endResults
+      endCaseName
+      (readResultCoreType unitTy)
+      aTy
+      failure
+      endPairName
+      endRestName
+      (CVar xName aTy)
+  pairCase =
+    CCase
+      (CVar pairName pairTy)
+      (CoreBinder pairCaseName pairTy)
+      [CoreAlt (ConstructorAlt (tupleDataConName 2)) [CoreBinder xName aTy, CoreBinder restName stringTy] endCase]
+      aTy
+  oneResultCase =
+    listCaseCore
+      (CVar restResultsName resultsTy)
+      restCaseName
+      pairTy
+      aTy
+      pairCase
+      (builtinLocalTermName "$read_complete_extra" (-2586))
+      (builtinLocalTermName "$read_complete_extras" (-2587))
+      failure
+  body =
+    listCaseCore
+      (CVar resultsName resultsTy)
+      resultCaseName
+      pairTy
+      aTy
+      failure
+      pairName
+      restResultsName
+      oneResultCase
+
+readDefaultListCorePair :: (CoreBinder, CoreExpr)
+readDefaultListCorePair =
+  (CoreBinder readDefaultListName readDefaultListCoreType, CTypeLam [a] (lam parserName parserTy (lam inputName stringTy body)) readDefaultListCoreType)
+ where
+  a = preludeTypeVariable "a" (-1201)
+  aTy = CTyVar a
+  listA = CTyList aTy
+  parserTy = readSCoreType aTy
+  listParserTy = readSCoreType listA
+  inputName = builtinLocalTermName "$read_list_input" (-2588)
+  parserName = builtinLocalTermName "$read_list_parser" (-2589)
+  openUnitName = builtinLocalTermName "$read_list_open_unit" (-2590)
+  afterOpenName = builtinLocalTermName "$read_list_after_open" (-2591)
+  closeUnitName = builtinLocalTermName "$read_list_close_unit" (-2592)
+  afterCloseName = builtinLocalTermName "$read_list_after_close" (-2593)
+  xName = builtinLocalTermName "$read_list_x" (-2594)
+  afterXName = builtinLocalTermName "$read_list_after_x" (-2595)
+  xsName = builtinLocalTermName "$read_list_xs" (-2596)
+  restName = builtinLocalTermName "$read_list_rest" (-2597)
+  lam = coreLam
+  emptyListParser =
+    readBindCallCore
+      unitTy
+      listA
+      (readExactCallCore "]" (CVar afterOpenName stringTy))
+      (lam closeUnitName unitTy (lam afterCloseName stringTy (readSingleResultCore listA (nilCore aTy) (CVar afterCloseName stringTy))))
+  consParser =
+    readBindCallCore
+      aTy
+      listA
+      (applyCore (CVar parserName parserTy) (CVar afterOpenName stringTy) (readResultsCoreType aTy))
+      ( lam xName aTy $
+          lam afterXName stringTy $
+            readBindCallCore
+              listA
+              listA
+              (applyCore (applyCore (CTypeApp (CVar readDefaultListTailName readDefaultListTailCoreType) [aTy] (CTyFun parserTy listParserTy)) (CVar parserName parserTy) listParserTy) (CVar afterXName stringTy) (readResultsCoreType listA))
+              (lam xsName listA (lam restName stringTy (readSingleResultCore listA (consCore aTy (CVar xName aTy) (CVar xsName listA)) (CVar restName stringTy))))
+      )
+  afterOpen =
+    readAppendCallCore (readResultCoreType listA) emptyListParser consParser
+  body =
+    readBindCallCore
+      unitTy
+      listA
+      (readExactCallCore "[" (CVar inputName stringTy))
+      (lam openUnitName unitTy (lam afterOpenName stringTy afterOpen))
+
+readDefaultListTailCorePair :: (CoreBinder, CoreExpr)
+readDefaultListTailCorePair =
+  (CoreBinder readDefaultListTailName readDefaultListTailCoreType, CTypeLam [a] (lam parserName parserTy (lam inputName stringTy body)) readDefaultListTailCoreType)
+ where
+  a = preludeTypeVariable "a" (-1201)
+  aTy = CTyVar a
+  listA = CTyList aTy
+  parserTy = readSCoreType aTy
+  listParserTy = readSCoreType listA
+  inputName = builtinLocalTermName "$read_list_tail_input" (-2598)
+  parserName = builtinLocalTermName "$read_list_tail_parser" (-2599)
+  closeUnitName = builtinLocalTermName "$read_list_tail_close_unit" (-2600)
+  afterCloseName = builtinLocalTermName "$read_list_tail_after_close" (-2601)
+  commaUnitName = builtinLocalTermName "$read_list_tail_comma_unit" (-2602)
+  afterCommaName = builtinLocalTermName "$read_list_tail_after_comma" (-2603)
+  xName = builtinLocalTermName "$read_list_tail_x" (-2604)
+  afterXName = builtinLocalTermName "$read_list_tail_after_x" (-2605)
+  xsName = builtinLocalTermName "$read_list_tail_xs" (-2606)
+  restName = builtinLocalTermName "$read_list_tail_rest" (-2607)
+  lam = coreLam
+  emptyListParser =
+    readBindCallCore
+      unitTy
+      listA
+      (readExactCallCore "]" (CVar inputName stringTy))
+      (lam closeUnitName unitTy (lam afterCloseName stringTy (readSingleResultCore listA (nilCore aTy) (CVar afterCloseName stringTy))))
+  consParser =
+    readBindCallCore
+      unitTy
+      listA
+      (readExactCallCore "," (CVar inputName stringTy))
+      ( lam commaUnitName unitTy $
+          lam afterCommaName stringTy $
+            readBindCallCore
+              aTy
+              listA
+              (applyCore (CVar parserName parserTy) (CVar afterCommaName stringTy) (readResultsCoreType aTy))
+              ( lam xName aTy $
+                  lam afterXName stringTy $
+                    readBindCallCore
+                      listA
+                      listA
+                      (applyCore (applyCore (CTypeApp (CVar readDefaultListTailName readDefaultListTailCoreType) [aTy] (CTyFun parserTy listParserTy)) (CVar parserName parserTy) listParserTy) (CVar afterXName stringTy) (readResultsCoreType listA))
+                      (lam xsName listA (lam restName stringTy (readSingleResultCore listA (consCore aTy (CVar xName aTy) (CVar xsName listA)) (CVar restName stringTy))))
+              )
+      )
+  body =
+    readAppendCallCore (readResultCoreType listA) emptyListParser consParser
+
+readParenCorePair :: (CoreBinder, CoreExpr)
+readParenCorePair =
+  (CoreBinder readParenName readParenCoreType, CTypeLam [a] (lam mandatoryName boolTy (lam parserName parserTy (lam inputName stringTy body))) readParenCoreType)
+ where
+  a = preludeTypeVariable "a" (-1201)
+  aTy = CTyVar a
+  parserTy = readSCoreType aTy
+  mandatoryName = builtinLocalTermName "$read_paren_mandatory" (-2608)
+  parserName = builtinLocalTermName "$read_paren_parser" (-2609)
+  inputName = builtinLocalTermName "$read_paren_input" (-2610)
+  openUnitName = builtinLocalTermName "$read_paren_open_unit" (-2611)
+  afterOpenName = builtinLocalTermName "$read_paren_after_open" (-2612)
+  xName = builtinLocalTermName "$read_paren_x" (-2613)
+  afterXName = builtinLocalTermName "$read_paren_after_x" (-2614)
+  closeUnitName = builtinLocalTermName "$read_paren_close_unit" (-2615)
+  restName = builtinLocalTermName "$read_paren_rest" (-2616)
+  lam = coreLam
+  parenthesized =
+    readBindCallCore
+      unitTy
+      aTy
+      (readExactCallCore "(" (CVar inputName stringTy))
+      ( lam openUnitName unitTy $
+          lam afterOpenName stringTy $
+            readBindCallCore
+              aTy
+              aTy
+              (applyCore (CVar parserName parserTy) (CVar afterOpenName stringTy) (readResultsCoreType aTy))
+              ( lam xName aTy $
+                  lam afterXName stringTy $
+                    readBindCallCore
+                      unitTy
+                      aTy
+                      (readExactCallCore ")" (CVar afterXName stringTy))
+                      (lam closeUnitName unitTy (lam restName stringTy (readSingleResultCore aTy (CVar xName aTy) (CVar restName stringTy))))
+              )
+      )
+  direct =
+    applyCore (CVar parserName parserTy) (CVar inputName stringTy) (readResultsCoreType aTy)
+  body =
+    boolCaseCore
+      "$read_paren_case"
+      (-2617)
+      (CVar mandatoryName boolTy)
+      (readResultsCoreType aTy)
+      parenthesized
+      (readAppendCallCore (readResultCoreType aTy) direct parenthesized)
+
+readIntCorePair :: (CoreBinder, CoreExpr)
+readIntCorePair =
+  (CoreBinder readIntName readIntCoreType, lam inputName stringTy body)
+ where
+  inputName = builtinLocalTermName "$read_int_input" (-2618)
+  cName = builtinLocalTermName "$read_int_c" (-2619)
+  csName = builtinLocalTermName "$read_int_cs" (-2620)
+  caseName = builtinLocalTermName "$read_int_case" (-2621)
+  lam = coreLam
+  stripped = applyCore (CVar readDropSpacesName (CTyFun stringTy stringTy)) (CVar inputName stringTy) stringTy
+  start sign rest =
+    applyCore
+      (applyCore (CVar readIntStartName readIntStartCoreType) (CLit (LInt sign) intTy) readIntCoreType)
+      rest
+      (readResultsCoreType intTy)
+  consBranch =
+    CCase
+      (CVar cName charTy)
+      (CoreBinder (builtinLocalTermName "$read_int_char_case" (-2622)) charTy)
+      [ CoreAlt (LiteralAlt (LChar '-')) [] (start (-1) (CVar csName stringTy))
+      , CoreAlt DefaultAlt [] (start 1 stripped)
+      ]
+      (readResultsCoreType intTy)
+  body =
+    listCaseCore
+      stripped
+      caseName
+      charTy
+      (readResultsCoreType intTy)
+      (nilCore (readResultCoreType intTy))
+      cName
+      csName
+      consBranch
+
+readIntStartCorePair :: (CoreBinder, CoreExpr)
+readIntStartCorePair =
+  (CoreBinder readIntStartName readIntStartCoreType, lam signName intTy (lam inputName stringTy body))
+ where
+  signName = builtinLocalTermName "$read_int_start_sign" (-2623)
+  inputName = builtinLocalTermName "$read_int_start_input" (-2624)
+  cName = builtinLocalTermName "$read_int_start_c" (-2625)
+  csName = builtinLocalTermName "$read_int_start_cs" (-2626)
+  caseName = builtinLocalTermName "$read_int_start_case" (-2627)
+  lam = coreLam
+  digit = readDigitValueCore (CVar cName charTy)
+  digits =
+    applyCore
+      ( applyCore
+          (applyCore (CVar readIntDigitsName readIntDigitsCoreType) (CVar signName intTy) (CTyFun intTy readIntCoreType))
+          digit
+          readIntCoreType
+      )
+      (CVar csName stringTy)
+      (readResultsCoreType intTy)
+  body =
+    listCaseCore
+      (CVar inputName stringTy)
+      caseName
+      charTy
+      (readResultsCoreType intTy)
+      (nilCore (readResultCoreType intTy))
+      cName
+      csName
+      (boolCaseCore "$read_int_start_digit" (-2628) (readIsDigitCore (CVar cName charTy)) (readResultsCoreType intTy) digits (nilCore (readResultCoreType intTy)))
+
+readIntDigitsCorePair :: (CoreBinder, CoreExpr)
+readIntDigitsCorePair =
+  (CoreBinder readIntDigitsName readIntDigitsCoreType, lam signName intTy (lam accName intTy (lam inputName stringTy body)))
+ where
+  signName = builtinLocalTermName "$read_int_digits_sign" (-2629)
+  accName = builtinLocalTermName "$read_int_digits_acc" (-2630)
+  inputName = builtinLocalTermName "$read_int_digits_input" (-2631)
+  cName = builtinLocalTermName "$read_int_digits_c" (-2632)
+  csName = builtinLocalTermName "$read_int_digits_cs" (-2633)
+  caseName = builtinLocalTermName "$read_int_digits_case" (-2634)
+  lam = coreLam
+  signed = intMul (CVar signName intTy) (CVar accName intTy)
+  done rest = readSingleResultCore intTy signed rest
+  advanced = intAdd (intMul (CVar accName intTy) (CLit (LInt 10) intTy)) (readDigitValueCore (CVar cName charTy))
+  recursive =
+    applyCore
+      ( applyCore
+          (applyCore (CVar readIntDigitsName readIntDigitsCoreType) (CVar signName intTy) (CTyFun intTy readIntCoreType))
+          advanced
+          readIntCoreType
+      )
+      (CVar csName stringTy)
+      (readResultsCoreType intTy)
+  originalRest = consCharExprCore (CVar cName charTy) (CVar csName stringTy)
+  body =
+    listCaseCore
+      (CVar inputName stringTy)
+      caseName
+      charTy
+      (readResultsCoreType intTy)
+      (done emptyStringCore)
+      cName
+      csName
+      (boolCaseCore "$read_int_digits_digit" (-2635) (readIsDigitCore (CVar cName charTy)) (readResultsCoreType intTy) recursive (done originalRest))
+
+readIntegerCorePair :: (CoreBinder, CoreExpr)
+readIntegerCorePair =
+  (CoreBinder readIntegerName readIntegerCoreType, lam inputName stringTy body)
+ where
+  inputName = builtinLocalTermName "$read_integer_input" (-26300)
+  cName = builtinLocalTermName "$read_integer_c" (-26301)
+  csName = builtinLocalTermName "$read_integer_cs" (-26302)
+  caseName = builtinLocalTermName "$read_integer_case" (-26303)
+  lam = coreLam
+  stripped = applyCore (CVar readDropSpacesName (CTyFun stringTy stringTy)) (CVar inputName stringTy) stringTy
+  positive =
+    applyCore
+      (applyCore (CVar readIntegerStartName readIntegerStartCoreType) oneInteger (CTyFun stringTy (readResultsCoreType integerTy)))
+      stripped
+      (readResultsCoreType integerTy)
+  negative =
+    applyCore
+      ( applyCore
+          (CVar readIntegerStartName readIntegerStartCoreType)
+          (CLit (LInteger (-1)) integerTy)
+          (CTyFun stringTy (readResultsCoreType integerTy))
+      )
+      (CVar csName stringTy)
+      (readResultsCoreType integerTy)
+  consBranch =
+    CCase
+      (CVar cName charTy)
+      (CoreBinder (builtinLocalTermName "$read_integer_sign_case" (-26304)) charTy)
+      [ CoreAlt (LiteralAlt (LChar '-')) [] negative
+      , CoreAlt DefaultAlt [] positive
+      ]
+      (readResultsCoreType integerTy)
+  body =
+    listCaseCore
+      stripped
+      caseName
+      charTy
+      (readResultsCoreType integerTy)
+      (nilCore (readResultCoreType integerTy))
+      cName
+      csName
+      consBranch
+
+readIntegerStartCorePair :: (CoreBinder, CoreExpr)
+readIntegerStartCorePair =
+  (CoreBinder readIntegerStartName readIntegerStartCoreType, lam signName integerTy (lam inputName stringTy body))
+ where
+  signName = builtinLocalTermName "$read_integer_start_sign" (-26305)
+  inputName = builtinLocalTermName "$read_integer_start_input" (-26306)
+  cName = builtinLocalTermName "$read_integer_start_c" (-26307)
+  csName = builtinLocalTermName "$read_integer_start_cs" (-26308)
+  caseName = builtinLocalTermName "$read_integer_start_case" (-26309)
+  lam = coreLam
+  digit = intToIntegerCore (readDigitValueCore (CVar cName charTy))
+  digits =
+    applyCore
+      ( applyCore
+          (applyCore (CVar readIntegerDigitsName readIntegerDigitsCoreType) (CVar signName integerTy) (CTyFun integerTy readIntegerCoreType))
+          digit
+          readIntegerCoreType
+      )
+      (CVar csName stringTy)
+      (readResultsCoreType integerTy)
+  body =
+    listCaseCore
+      (CVar inputName stringTy)
+      caseName
+      charTy
+      (readResultsCoreType integerTy)
+      (nilCore (readResultCoreType integerTy))
+      cName
+      csName
+      (boolCaseCore "$read_integer_start_digit" (-26310) (readIsDigitCore (CVar cName charTy)) (readResultsCoreType integerTy) digits (nilCore (readResultCoreType integerTy)))
+
+readIntegerDigitsCorePair :: (CoreBinder, CoreExpr)
+readIntegerDigitsCorePair =
+  (CoreBinder readIntegerDigitsName readIntegerDigitsCoreType, lam signName integerTy (lam accName integerTy (lam inputName stringTy body)))
+ where
+  signName = builtinLocalTermName "$read_integer_digits_sign" (-26311)
+  accName = builtinLocalTermName "$read_integer_digits_acc" (-26312)
+  inputName = builtinLocalTermName "$read_integer_digits_input" (-26313)
+  cName = builtinLocalTermName "$read_integer_digits_c" (-26314)
+  csName = builtinLocalTermName "$read_integer_digits_cs" (-26315)
+  caseName = builtinLocalTermName "$read_integer_digits_case" (-26316)
+  lam = coreLam
+  signed = integerMul (CVar signName integerTy) (CVar accName integerTy)
+  done rest = readSingleResultCore integerTy signed rest
+  advanced = integerAdd (integerMul (CVar accName integerTy) (CLit (LInteger 10) integerTy)) (intToIntegerCore (readDigitValueCore (CVar cName charTy)))
+  recursive =
+    applyCore
+      ( applyCore
+          (applyCore (CVar readIntegerDigitsName readIntegerDigitsCoreType) (CVar signName integerTy) (CTyFun integerTy readIntegerCoreType))
+          advanced
+          readIntegerCoreType
+      )
+      (CVar csName stringTy)
+      (readResultsCoreType integerTy)
+  originalRest = consCharExprCore (CVar cName charTy) (CVar csName stringTy)
+  body =
+    listCaseCore
+      (CVar inputName stringTy)
+      caseName
+      charTy
+      (readResultsCoreType integerTy)
+      (done emptyStringCore)
+      cName
+      csName
+      (boolCaseCore "$read_integer_digits_digit" (-26317) (readIsDigitCore (CVar cName charTy)) (readResultsCoreType integerTy) recursive (done originalRest))
+
+readBoolCorePair :: (CoreBinder, CoreExpr)
+readBoolCorePair =
+  (CoreBinder readBoolName readBoolCoreType, lam inputName stringTy body)
+ where
+  inputName = builtinLocalTermName "$read_bool_input" (-2636)
+  lam = coreLam
+  body =
+    readAppendCallCore
+      (readResultCoreType boolTy)
+      (readConstantParserCore boolTy "True" (CCon trueDataConName boolTy) (CVar inputName stringTy))
+      (readConstantParserCore boolTy "False" (CCon falseDataConName boolTy) (CVar inputName stringTy))
+
+readEscapeCorePair :: (CoreBinder, CoreExpr)
+readEscapeCorePair =
+  (CoreBinder readEscapeName readEscapeCoreType, lam inputName stringTy body)
+ where
+  inputName = builtinLocalTermName "$read_escape_input" (-2637)
+  cName = builtinLocalTermName "$read_escape_c" (-2638)
+  csName = builtinLocalTermName "$read_escape_cs" (-2639)
+  caseName = builtinLocalTermName "$read_escape_case" (-2640)
+  lam = coreLam
+  input = CVar inputName stringTy
+  simpleEscapes =
+    listCaseCore
+      input
+      caseName
+      charTy
+      (readResultsCoreType charTy)
+      (nilCore (readResultCoreType charTy))
+      cName
+      csName
+      ( CCase
+          (CVar cName charTy)
+          (CoreBinder (builtinLocalTermName "$read_escape_char_case" (-2641)) charTy)
+          ( [CoreAlt (LiteralAlt (LChar source)) [] (readSingleResultCore charTy (CLit (LChar value) charTy) (CVar csName stringTy)) | (source, value) <- readSimpleEscapes]
+              <> [CoreAlt DefaultAlt [] (nilCore (readResultCoreType charTy))]
+          )
+          (readResultsCoreType charTy)
+      )
+  body =
+    foldr
+      (readAppendCallCore (readResultCoreType charTy))
+      simpleEscapes
+      [ readConstantParserCore charTy token (CLit (LChar value) charTy) input
+      | (value, token) <- readNamedEscapes
+      ]
+
+readCharCorePair :: (CoreBinder, CoreExpr)
+readCharCorePair =
+  (CoreBinder readCharName readCharCoreType, lam inputName stringTy body)
+ where
+  inputName = builtinLocalTermName "$read_char_input" (-2642)
+  openUnitName = builtinLocalTermName "$read_char_open_unit" (-2643)
+  afterOpenName = builtinLocalTermName "$read_char_after_open" (-2644)
+  lam = coreLam
+  body =
+    readBindCallCore
+      unitTy
+      charTy
+      (readExactCallCore "'" (CVar inputName stringTy))
+      (lam openUnitName unitTy (lam afterOpenName stringTy (applyCore (CVar readCharBodyName readCharBodyCoreType) (CVar afterOpenName stringTy) (readResultsCoreType charTy))))
+
+readCharBodyCorePair :: (CoreBinder, CoreExpr)
+readCharBodyCorePair =
+  (CoreBinder readCharBodyName readCharBodyCoreType, lam inputName stringTy body)
+ where
+  inputName = builtinLocalTermName "$read_char_body_input" (-2645)
+  cName = builtinLocalTermName "$read_char_body_c" (-2646)
+  csName = builtinLocalTermName "$read_char_body_cs" (-2647)
+  escapedName = builtinLocalTermName "$read_char_body_escaped" (-2648)
+  afterEscapeName = builtinLocalTermName "$read_char_body_after_escape" (-2649)
+  closeUnitName = builtinLocalTermName "$read_char_body_close_unit" (-2650)
+  restName = builtinLocalTermName "$read_char_body_rest" (-2651)
+  caseName = builtinLocalTermName "$read_char_body_case" (-2652)
+  charCaseName = builtinLocalTermName "$read_char_body_char_case" (-2653)
+  lam = coreLam
+  closeWith value afterValue =
+    readBindCallCore
+      unitTy
+      charTy
+      (readExactRawCallCore "'" afterValue)
+      (lam closeUnitName unitTy (lam restName stringTy (readSingleResultCore charTy value (CVar restName stringTy))))
+  escaped =
+    readBindCallCore
+      charTy
+      charTy
+      (applyCore (CVar readEscapeName readEscapeCoreType) (CVar csName stringTy) (readResultsCoreType charTy))
+      (lam escapedName charTy (lam afterEscapeName stringTy (closeWith (CVar escapedName charTy) (CVar afterEscapeName stringTy))))
+  regular =
+    closeWith (CVar cName charTy) (CVar csName stringTy)
+  charCase =
+    CCase
+      (CVar cName charTy)
+      (CoreBinder charCaseName charTy)
+      [ CoreAlt (LiteralAlt (LChar '\\')) [] escaped
+      , CoreAlt (LiteralAlt (LChar '\'')) [] (nilCore (readResultCoreType charTy))
+      , CoreAlt DefaultAlt [] regular
+      ]
+      (readResultsCoreType charTy)
+  body =
+    listCaseCore
+      (CVar inputName stringTy)
+      caseName
+      charTy
+      (readResultsCoreType charTy)
+      (nilCore (readResultCoreType charTy))
+      cName
+      csName
+      charCase
+
+readStringCorePair :: (CoreBinder, CoreExpr)
+readStringCorePair =
+  (CoreBinder readStringName readStringCoreType, lam inputName stringTy body)
+ where
+  inputName = builtinLocalTermName "$read_string_input" (-2654)
+  openUnitName = builtinLocalTermName "$read_string_open_unit" (-2655)
+  afterOpenName = builtinLocalTermName "$read_string_after_open" (-2656)
+  lam = coreLam
+  body =
+    readBindCallCore
+      unitTy
+      stringTy
+      (readExactCallCore "\"" (CVar inputName stringTy))
+      (lam openUnitName unitTy (lam afterOpenName stringTy (applyCore (CVar readStringCharsName readStringCharsCoreType) (CVar afterOpenName stringTy) (readResultsCoreType stringTy))))
+
+readStringCharsCorePair :: (CoreBinder, CoreExpr)
+readStringCharsCorePair =
+  (CoreBinder readStringCharsName readStringCharsCoreType, lam inputName stringTy body)
+ where
+  inputName = builtinLocalTermName "$read_string_chars_input" (-2657)
+  cName = builtinLocalTermName "$read_string_chars_c" (-2658)
+  csName = builtinLocalTermName "$read_string_chars_cs" (-2659)
+  escapedName = builtinLocalTermName "$read_string_chars_escaped" (-2660)
+  afterEscapeName = builtinLocalTermName "$read_string_chars_after_escape" (-2661)
+  ampUnitName = builtinLocalTermName "$read_string_chars_amp_unit" (-2662)
+  afterAmpName = builtinLocalTermName "$read_string_chars_after_amp" (-2663)
+  restStringName = builtinLocalTermName "$read_string_chars_rest_string" (-2664)
+  restName = builtinLocalTermName "$read_string_chars_rest" (-2665)
+  caseName = builtinLocalTermName "$read_string_chars_case" (-2666)
+  charCaseName = builtinLocalTermName "$read_string_chars_char_case" (-2667)
+  lam = coreLam
+  finishString rest =
+    readSingleResultCore stringTy emptyStringCore rest
+  continueWithChar charExpr afterChar =
+    readBindCallCore
+      stringTy
+      stringTy
+      (applyCore (CVar readStringCharsName readStringCharsCoreType) afterChar (readResultsCoreType stringTy))
+      (lam restStringName stringTy (lam restName stringTy (readSingleResultCore stringTy (consCharExprCore charExpr (CVar restStringName stringTy)) (CVar restName stringTy))))
+  emptyEscape =
+    readBindCallCore
+      unitTy
+      stringTy
+      (readExactRawCallCore "&" (CVar csName stringTy))
+      (lam ampUnitName unitTy (lam afterAmpName stringTy (applyCore (CVar readStringCharsName readStringCharsCoreType) (CVar afterAmpName stringTy) (readResultsCoreType stringTy))))
+  escaped =
+    readBindCallCore
+      charTy
+      stringTy
+      (applyCore (CVar readEscapeName readEscapeCoreType) (CVar csName stringTy) (readResultsCoreType charTy))
+      (lam escapedName charTy (lam afterEscapeName stringTy (continueWithChar (CVar escapedName charTy) (CVar afterEscapeName stringTy))))
+  backslashParser =
+    readAppendCallCore (readResultCoreType stringTy) emptyEscape escaped
+  charCase =
+    CCase
+      (CVar cName charTy)
+      (CoreBinder charCaseName charTy)
+      [ CoreAlt (LiteralAlt (LChar '"')) [] (finishString (CVar csName stringTy))
+      , CoreAlt (LiteralAlt (LChar '\\')) [] backslashParser
+      , CoreAlt DefaultAlt [] regular
+      ]
+      (readResultsCoreType stringTy)
+  regular =
+    continueWithChar (CVar cName charTy) (CVar csName stringTy)
+  body =
+    listCaseCore
+      (CVar inputName stringTy)
+      caseName
+      charTy
+      (readResultsCoreType stringTy)
+      (nilCore (readResultCoreType stringTy))
+      cName
+      csName
+      charCase
+
+readLexCorePair :: (CoreBinder, CoreExpr)
+readLexCorePair =
+  (CoreBinder readLexName readLexCoreType, lam inputName stringTy body)
+ where
+  inputName = builtinLocalTermName "$read_lex_input" (-2668)
+  cName = builtinLocalTermName "$read_lex_c" (-2669)
+  csName = builtinLocalTermName "$read_lex_cs" (-2670)
+  caseName = builtinLocalTermName "$read_lex_case" (-2671)
+  lam = coreLam
+  stripped = applyCore (CVar readDropSpacesName (CTyFun stringTy stringTy)) (CVar inputName stringTy) stringTy
+  charExpr = CVar cName charTy
+  restExpr = CVar csName stringTy
+  oneCharToken =
+    readSingleResultCore stringTy (consCharExprCore charExpr emptyStringCore) restExpr
+  tailCall tailName tailTy =
+    readBindCallCore
+      stringTy
+      stringTy
+      (applyCore (CVar tailName tailTy) restExpr (readResultsCoreType stringTy))
+      ( coreLam
+          (builtinLocalTermName "$read_lex_tail_token" (-2672))
+          stringTy
+          ( coreLam
+              (builtinLocalTermName "$read_lex_tail_rest" (-2673))
+              stringTy
+              ( readSingleResultCore
+                  stringTy
+                  (consCharExprCore charExpr (CVar (builtinLocalTermName "$read_lex_tail_token" (-2672)) stringTy))
+                  (CVar (builtinLocalTermName "$read_lex_tail_rest" (-2673)) stringTy)
+              )
+          )
+      )
+  identToken = tailCall readLexIdentTailName readLexIdentTailCoreType
+  digitToken = tailCall readLexDigitTailName readLexDigitTailCoreType
+  symbolToken = tailCall readLexSymbolTailName readLexSymbolTailCoreType
+  tokenForChar =
+    boolCaseCore
+      "$read_lex_is_ident"
+      (-2674)
+      (readIsIdentStartCore charExpr)
+      (readResultsCoreType stringTy)
+      identToken
+      ( boolCaseCore
+          "$read_lex_is_digit"
+          (-2675)
+          (readIsDigitCore charExpr)
+          (readResultsCoreType stringTy)
+          digitToken
+          ( boolCaseCore
+              "$read_lex_is_single"
+              (-2676)
+              (readIsSingleCore charExpr)
+              (readResultsCoreType stringTy)
+              oneCharToken
+              ( boolCaseCore
+                  "$read_lex_is_symbol"
+                  (-2677)
+                  (readIsSymbolCore charExpr)
+                  (readResultsCoreType stringTy)
+                  symbolToken
+                  (nilCore (readResultCoreType stringTy))
+              )
+          )
+      )
+  body =
+    listCaseCore
+      stripped
+      caseName
+      charTy
+      (readResultsCoreType stringTy)
+      (readSingleResultCore stringTy emptyStringCore emptyStringCore)
+      cName
+      csName
+      tokenForChar
+
+readLexTailCorePair :: RName -> (CoreExpr -> CoreExpr) -> CoreType -> (CoreBinder, CoreExpr)
+readLexTailCorePair functionName predicate functionTy =
+  (CoreBinder functionName functionTy, lam inputName stringTy body)
+ where
+  inputName = builtinLocalTermName ("$" <> nameOcc functionName <> "_input") (nameUnique functionName * 10 - 1)
+  cName = builtinLocalTermName ("$" <> nameOcc functionName <> "_c") (nameUnique functionName * 10 - 2)
+  csName = builtinLocalTermName ("$" <> nameOcc functionName <> "_cs") (nameUnique functionName * 10 - 3)
+  tokenName = builtinLocalTermName ("$" <> nameOcc functionName <> "_token") (nameUnique functionName * 10 - 4)
+  restName = builtinLocalTermName ("$" <> nameOcc functionName <> "_rest") (nameUnique functionName * 10 - 5)
+  caseName = builtinLocalTermName ("$" <> nameOcc functionName <> "_case") (nameUnique functionName * 10 - 6)
+  lam = coreLam
+  charExpr = CVar cName charTy
+  restExpr = CVar csName stringTy
+  recursive =
+    readBindCallCore
+      stringTy
+      stringTy
+      (applyCore (CVar functionName functionTy) restExpr (readResultsCoreType stringTy))
+      (lam tokenName stringTy (lam restName stringTy (readSingleResultCore stringTy (consCharExprCore charExpr (CVar tokenName stringTy)) (CVar restName stringTy))))
+  body =
+    listCaseCore
+      (CVar inputName stringTy)
+      caseName
+      charTy
+      (readResultsCoreType stringTy)
+      (readSingleResultCore stringTy emptyStringCore emptyStringCore)
+      cName
+      csName
+      (boolCaseCore ("$" <> nameOcc functionName <> "_predicate") (nameUnique functionName * 10 - 7) (predicate charExpr) (readResultsCoreType stringTy) recursive (readSingleResultCore stringTy emptyStringCore (CVar inputName stringTy)))
+
+readConstantParserCore :: CoreType -> Text -> CoreExpr -> CoreExpr -> CoreExpr
+readConstantParserCore valueTy token value input =
+  readBindCallCore
+    unitTy
+    valueTy
+    (readExactCallCore token input)
+    ( coreLam
+        (builtinLocalTermName "$read_constant_unit" (-2678 - Text.length token))
+        unitTy
+        ( coreLam
+            (builtinLocalTermName "$read_constant_rest" (-2688 - Text.length token))
+            stringTy
+            (readConstantResultCore valueTy token value (CVar (builtinLocalTermName "$read_constant_rest" (-2688 - Text.length token)) stringTy))
+        )
+    )
+
+readConstantResultCore :: CoreType -> Text -> CoreExpr -> CoreExpr -> CoreExpr
+readConstantResultCore valueTy token value rest
+  | readTokenNeedsBoundary token =
+      listCaseCore
+        rest
+        (builtinLocalTermName "$read_constant_boundary_case" (-2870 - Text.length token))
+        charTy
+        resultTy
+        success
+        (builtinLocalTermName "$read_constant_boundary_c" (-2880 - Text.length token))
+        (builtinLocalTermName "$read_constant_boundary_cs" (-2890 - Text.length token))
+        ( boolCaseCore
+            "$read_constant_boundary_ident"
+            (-2900 - Text.length token)
+            (readIsIdentCharCore (CVar (builtinLocalTermName "$read_constant_boundary_c" (-2880 - Text.length token)) charTy))
+            resultTy
+            (nilCore (readResultCoreType valueTy))
+            success
+        )
+  | otherwise = success
+ where
+  resultTy = readResultsCoreType valueTy
+  success = readSingleResultCore valueTy value rest
+
+readTokenNeedsBoundary :: Text -> Bool
+readTokenNeedsBoundary token =
+  case Text.unsnoc token of
+    Just (_, char) -> readTokenBoundaryChar char
+    Nothing -> False
+
+readTokenBoundaryChar :: Char -> Bool
+readTokenBoundaryChar char =
+  ('A' <= char && char <= 'Z')
+    || ('a' <= char && char <= 'z')
+    || ('0' <= char && char <= '9')
+    || char == '_'
+    || char == '\''
+
+readExactCallCore :: Text -> CoreExpr -> CoreExpr
+readExactCallCore token input =
+  applyCore
+    (applyCore (CVar readExactName readExactCoreType) (stringLiteralCore token) (CTyFun stringTy (readResultsCoreType unitTy)))
+    input
+    (readResultsCoreType unitTy)
+
+readExactRawCallCore :: Text -> CoreExpr -> CoreExpr
+readExactRawCallCore token input =
+  applyCore
+    (applyCore (CVar readExactRawName readExactRawCoreType) (stringLiteralCore token) (CTyFun stringTy (readResultsCoreType unitTy)))
+    input
+    (readResultsCoreType unitTy)
+
+readAppendCallCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr
+readAppendCallCore elementTy lhs rhs =
+  applyCore
+    (applyCore (CTypeApp (CVar readAppendName readAppendCoreType) [elementTy] (CTyFun listTy (CTyFun listTy listTy))) lhs (CTyFun listTy listTy))
+    rhs
+    listTy
+ where
+  listTy = CTyList elementTy
+
+readBindCallCore :: CoreType -> CoreType -> CoreExpr -> CoreExpr -> CoreExpr
+readBindCallCore inputTy outputTy results continuation =
+  applyCore
+    ( applyCore
+        (CTypeApp (CVar readBindName readBindCoreType) [inputTy, outputTy] (CTyFun resultsTy (CTyFun continuationTy outputResultsTy)))
+        results
+        (CTyFun continuationTy outputResultsTy)
+    )
+    continuation
+    outputResultsTy
+ where
+  resultsTy = readResultsCoreType inputTy
+  outputResultsTy = readResultsCoreType outputTy
+  continuationTy = CTyFun inputTy (CTyFun stringTy outputResultsTy)
+
+readSingleResultCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr
+readSingleResultCore valueTy value rest =
+  consCore resultTy pair (nilCore resultTy)
+ where
+  resultTy = readResultCoreType valueTy
+  pair = constructorApp (tupleDataConName 2) [valueTy, stringTy] [value, rest] resultTy
+
+readFailureCore :: CoreType -> CoreExpr
+readFailureCore resultTy =
+  CCase
+    (CCon falseDataConName boolTy)
+    (CoreBinder (builtinLocalTermName "$read_failure" (-2698)) boolTy)
+    []
+    resultTy
+
+coreLam :: RName -> CoreType -> CoreExpr -> CoreExpr
+coreLam binderName ty body =
+  CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
+
+readDigitValueCore :: CoreExpr -> CoreExpr
+readDigitValueCore charExpr =
+  intSub (charToIntCore charExpr) (CLit (LInt (toInteger (fromEnum '0'))) intTy)
+
+readIsDigitCore :: CoreExpr -> CoreExpr
+readIsDigitCore =
+  readCharBetweenCore '0' '9' "$read_is_digit" (-2699)
+
+readIsIdentStartCore :: CoreExpr -> CoreExpr
+readIsIdentStartCore charExpr =
+  boolCaseCore
+    "$read_is_ident_lower"
+    (-2700)
+    (readCharBetweenCore 'a' 'z' "$read_ident_lower" (-2701) charExpr)
+    boolTy
+    (CCon trueDataConName boolTy)
+    ( boolCaseCore
+        "$read_is_ident_upper"
+        (-2702)
+        (readCharBetweenCore 'A' 'Z' "$read_ident_upper" (-2703) charExpr)
+        boolTy
+        (CCon trueDataConName boolTy)
+        (CPrimOp PrimEq [charExpr, CLit (LChar '_') charTy] boolTy)
+    )
+
+readIsIdentCharCore :: CoreExpr -> CoreExpr
+readIsIdentCharCore charExpr =
+  boolCaseCore
+    "$read_is_ident_start"
+    (-2704)
+    (readIsIdentStartCore charExpr)
+    boolTy
+    (CCon trueDataConName boolTy)
+    ( boolCaseCore
+        "$read_is_ident_digit"
+        (-2705)
+        (readIsDigitCore charExpr)
+        boolTy
+        (CCon trueDataConName boolTy)
+        (CPrimOp PrimEq [charExpr, CLit (LChar '\'') charTy] boolTy)
+    )
+
+readIsSingleCore :: CoreExpr -> CoreExpr
+readIsSingleCore charExpr =
+  readCharMemberCore ",;()[]{}_`" charExpr
+
+readIsSymbolCore :: CoreExpr -> CoreExpr
+readIsSymbolCore charExpr =
+  readCharMemberCore "!#$%&*+./<=>?@\\^|-~:" charExpr
+
+readIsSpaceCore :: CoreExpr -> CoreExpr
+readIsSpaceCore charExpr =
+  readCharMemberCore " \n\t\r\f\v" charExpr
+
+readCharMemberCore :: Text -> CoreExpr -> CoreExpr
+readCharMemberCore chars charExpr =
+  CCase
+    charExpr
+    (CoreBinder (builtinLocalTermName "$read_char_member" (-2706 - Text.length chars)) charTy)
+    ([CoreAlt (LiteralAlt (LChar char)) [] (CCon trueDataConName boolTy) | char <- Text.unpack chars] <> [CoreAlt DefaultAlt [] (CCon falseDataConName boolTy)])
+    boolTy
+
+readCharBetweenCore :: Char -> Char -> Text -> Int -> CoreExpr -> CoreExpr
+readCharBetweenCore low high occurrence unique charExpr =
+  boolAndCore
+    occurrence
+    unique
+    (boolNotCore (occurrence <> "_below") (unique - 1) (intLt charInt (CLit (LInt (toInteger (fromEnum low))) intTy)))
+    (boolNotCore (occurrence <> "_above") (unique - 2) (intLt (CLit (LInt (toInteger (fromEnum high))) intTy) charInt))
+ where
+  charInt = charToIntCore charExpr
+
+readSimpleEscapes :: [(Char, Char)]
+readSimpleEscapes =
+  [ ('a', '\a')
+  , ('b', '\b')
+  , ('t', '\t')
+  , ('n', '\n')
+  , ('v', '\v')
+  , ('f', '\f')
+  , ('r', '\r')
+  , ('\\', '\\')
+  , ('"', '"')
+  , ('\'', '\'')
+  ]
+
+readNamedEscapes :: [(Char, Text)]
+readNamedEscapes =
+  [(char, token) | (char, token) <- showEscapedControlChars, Text.length token > 1]
 
 reverseGoCorePair :: (CoreBinder, CoreExpr)
 reverseGoCorePair =
@@ -7340,6 +14025,10 @@ reverseGoTy =
 preludeTermName :: Text -> Int -> RName
 preludeTermName occurrence unique =
   RName TermNamespace occurrence unique True
+
+standardLibraryTermName :: Text -> RName
+standardLibraryTermName =
+  standardLibraryExternalName TermNamespace
 
 arithmeticSequencePreludeNames :: [RName]
 arithmeticSequencePreludeNames =
@@ -7640,6 +14329,34 @@ intRem lhs rhs =
 intLt lhs rhs =
   CPrimOp PrimLt [lhs, rhs] boolTy
 
+integerAdd, integerSub, integerMul, integerQuot, integerRem, integerLt :: CoreExpr -> CoreExpr -> CoreExpr
+integerAdd lhs rhs =
+  CPrimOp PrimIntegerAdd [lhs, rhs] integerTy
+integerSub lhs rhs =
+  CPrimOp PrimIntegerSub [lhs, rhs] integerTy
+integerMul lhs rhs =
+  CPrimOp PrimIntegerMul [lhs, rhs] integerTy
+integerQuot lhs rhs =
+  CPrimOp PrimIntegerQuot [lhs, rhs] integerTy
+integerRem lhs rhs =
+  CPrimOp PrimIntegerRem [lhs, rhs] integerTy
+integerLt lhs rhs =
+  CPrimOp PrimIntegerLt [lhs, rhs] boolTy
+
+integerAbsCore :: CoreExpr -> CoreExpr
+integerAbsCore value =
+  CPrimOp PrimIntegerAbs [value] integerTy
+
+integerSignumCore :: CoreExpr -> CoreExpr
+integerSignumCore value =
+  CPrimOp PrimIntegerSignum [value] integerTy
+
+intToIntegerCore, integerToIntCore :: CoreExpr -> CoreExpr
+intToIntegerCore value =
+  CPrimOp PrimIntToInteger [value] integerTy
+integerToIntCore value =
+  CPrimOp PrimIntegerToInt [value] intTy
+
 charToIntCore, intToCharCore :: CoreExpr -> CoreExpr
 charToIntCore value =
   CPrimOp PrimCharToInt [value] intTy
@@ -7649,6 +14366,10 @@ intToCharCore value =
 zeroInt, oneInt :: CoreExpr
 zeroInt = CLit (LInt 0) intTy
 oneInt = CLit (LInt 1) intTy
+
+zeroInteger, oneInteger :: CoreExpr
+zeroInteger = CLit (LInteger 0) integerTy
+oneInteger = CLit (LInteger 1) integerTy
 
 nilCore :: CoreType -> CoreExpr
 nilCore elementTy =
@@ -7760,6 +14481,8 @@ bindingIsSelfRecursive binding =
   typedBindingName binding `Set.member` typedExprFreeTermNames (typedBindingRhs binding)
 
 exprToCore :: CoreElabEnv -> TypedExpr -> Either TypecheckError CoreExpr
+exprToCore env (TSpanned sourceRange expression) =
+  CSpanned sourceRange <$> exprToCore env expression
 exprToCore env expression =
   case newtypeApplicationToCore env expression of
     Just converted -> converted
@@ -7767,6 +14490,8 @@ exprToCore env expression =
 
 exprToCoreDefault :: CoreElabEnv -> TypedExpr -> Either TypecheckError CoreExpr
 exprToCoreDefault env = \case
+  TSpanned sourceRange expression ->
+    CSpanned sourceRange <$> exprToCore env expression
   TVar name scheme typeArguments ty -> do
     let subst = coreElabSubst env
         metas = coreElabMetas env
@@ -7892,6 +14617,8 @@ collectTypedValueApps =
   go arguments = \case
     TApp fn argument _ ->
       go (argument : arguments) fn
+    TSpanned _ expression ->
+      go arguments expression
     other ->
       (other, arguments)
 
@@ -8113,6 +14840,21 @@ builtinStructuralDictionary env wanted =
     (className, [TyList elementTy])
       | className == builtinShowClassName ->
           Just (showListDictionaryValue env elementTy)
+    (className, [TyList elementTy])
+      | className == builtinReadClassName ->
+          Just (readListDictionaryValue env elementTy)
+    (className, [TyTuple fields])
+      | className == builtinEqClassName && structuralTupleArity fields ->
+          Just (eqTupleDictionaryValue env fields)
+    (className, [TyTuple fields])
+      | className == builtinOrdClassName && structuralTupleArity fields ->
+          Just (ordTupleDictionaryValue env fields)
+    (className, [TyTuple fields])
+      | className == builtinIxClassName && structuralTupleArity fields ->
+          Just (ixTupleDictionaryValue env fields)
+    (className, [TyApp (TyCon ptrName) payloadTy])
+      | className == builtinStorableClassName && ptrName == ptrTyConName ->
+          Just (storablePtrDictionaryValue env payloadTy)
     _ -> Nothing
 
 eqListDictionaryValue :: CoreElabEnv -> MonoType -> Either TypecheckError CoreExpr
@@ -8172,6 +14914,480 @@ showListDictionaryValue env elementTy = do
           (CTyFun elementDictionaryTy listDictionaryTy)
   pure (CApp specializedFunction elementDictionary listDictionaryTy)
 
+readListDictionaryValue :: CoreElabEnv -> MonoType -> Either TypecheckError CoreExpr
+readListDictionaryValue env elementTy = do
+  let subst = coreElabSubst env
+      metas = coreElabMetas env
+      normalizedElementTy = replaceMetasWithVars metas (applySubst subst elementTy)
+      elementConstraint = singleClassConstraint builtinReadClassName normalizedElementTy
+      listConstraint = singleClassConstraint builtinReadClassName (TyList normalizedElementTy)
+  elementDictionary <- resolveDictionary env elementConstraint
+  elementCoreTy <- monoToCoreType subst metas normalizedElementTy
+  elementDictionaryTy <- classConstraintCoreType subst metas elementConstraint
+  listDictionaryTy <- classConstraintCoreType subst metas listConstraint
+  let listDictionaryFunctionTy = readListDictionaryCoreType
+      specializedFunction =
+        CTypeApp
+          (CVar readListDictionaryName listDictionaryFunctionTy)
+          [elementCoreTy]
+          (CTyFun elementDictionaryTy listDictionaryTy)
+  pure (CApp specializedFunction elementDictionary listDictionaryTy)
+
+eqTupleDictionaryValue :: CoreElabEnv -> [MonoType] -> Either TypecheckError CoreExpr
+eqTupleDictionaryValue env fields = do
+  let subst = coreElabSubst env
+      metas = coreElabMetas env
+      normalizedFields = map (replaceMetasWithVars metas . applySubst subst) fields
+  fieldCoreTys <- traverse (monoToCoreType subst metas) normalizedFields
+  fieldDictionaries <- traverse (resolveDictionary env . singleClassConstraint builtinEqClassName) normalizedFields
+  info <- requiredClassInfo env builtinEqClassName
+  eqTupleDictionaryCore info fieldCoreTys fieldDictionaries
+
+ordTupleDictionaryValue :: CoreElabEnv -> [MonoType] -> Either TypecheckError CoreExpr
+ordTupleDictionaryValue env fields = do
+  let subst = coreElabSubst env
+      metas = coreElabMetas env
+      normalizedFields = map (replaceMetasWithVars metas . applySubst subst) fields
+  fieldCoreTys <- traverse (monoToCoreType subst metas) normalizedFields
+  fieldDictionaries <- traverse (resolveDictionary env . singleClassConstraint builtinOrdClassName) normalizedFields
+  eqInfo <- requiredClassInfo env builtinEqClassName
+  ordInfo <- requiredClassInfo env builtinOrdClassName
+  ordTupleDictionaryCore eqInfo ordInfo fieldCoreTys fieldDictionaries
+
+ixTupleDictionaryValue :: CoreElabEnv -> [MonoType] -> Either TypecheckError CoreExpr
+ixTupleDictionaryValue env fields = do
+  let subst = coreElabSubst env
+      metas = coreElabMetas env
+      normalizedFields = map (replaceMetasWithVars metas . applySubst subst) fields
+  fieldCoreTys <- traverse (monoToCoreType subst metas) normalizedFields
+  fieldDictionaries <- traverse (resolveDictionary env . singleClassConstraint builtinIxClassName) normalizedFields
+  eqInfo <- requiredClassInfo env builtinEqClassName
+  ordInfo <- requiredClassInfo env builtinOrdClassName
+  ixInfo <- requiredClassInfo env builtinIxClassName
+  let fieldOrdDictionaries = zipWith ixOrdSuperclassCore fieldCoreTys fieldDictionaries
+  ordSuperclass <- ordTupleDictionaryCore eqInfo ordInfo fieldCoreTys fieldOrdDictionaries
+  ixTupleDictionaryCore ixInfo fieldCoreTys fieldDictionaries ordSuperclass
+
+requiredClassInfo :: CoreElabEnv -> RName -> Either TypecheckError ClassInfo
+requiredClassInfo env className =
+  case Map.lookup className (coreElabClasses env) <|> Map.lookup className builtinClassInfos of
+    Just info -> pure info
+    Nothing -> Left (UnsupportedCore0 ("missing built-in class info for structural instance `" <> renderRName className <> "`"))
+
+eqTupleDictionaryCore :: ClassInfo -> [CoreType] -> [CoreExpr] -> Either TypecheckError CoreExpr
+eqTupleDictionaryCore info fieldTys fieldDictionaries = do
+  constructorTy <- classDictionaryConstructorCoreType info
+  let tupleTy = CTyTuple fieldTys
+      dictTy = eqDictCoreType tupleTy
+      eqMethod = eqTupleMethodCore "$eq_tuple" (-8200 - length fieldTys) fieldTys fieldDictionaries
+      neqMethod =
+        tupleBinaryMethod "$neq_tuple" (-8250 - length fieldTys) fieldTys boolTy $ \lhs rhs ->
+          boolNotCore
+            "$neq_tuple_not"
+            (-8290 - length fieldTys)
+            (eqTupleBody "$neq_tuple_eq" (-8295 - length fieldTys) fieldTys fieldDictionaries lhs rhs)
+      typedConstructor =
+        CTypeApp
+          (CCon (classInfoDictConstructorName info) constructorTy)
+          [tupleTy]
+          (CTyFun (exprType eqMethod) (CTyFun (exprType neqMethod) dictTy))
+  pure (applyCore (applyCore typedConstructor eqMethod (CTyFun (exprType neqMethod) dictTy)) neqMethod dictTy)
+
+eqTupleMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> CoreExpr
+eqTupleMethodCore occurrence unique fieldTys fieldDictionaries =
+  tupleBinaryMethod occurrence unique fieldTys boolTy (eqTupleBody occurrence (unique - 40) fieldTys fieldDictionaries)
+
+eqTupleBody :: Text -> Int -> [CoreType] -> [CoreExpr] -> [CoreExpr] -> [CoreExpr] -> CoreExpr
+eqTupleBody occurrence unique fieldTys fieldDictionaries lhsFields rhsFields =
+  foldr combine (CCon trueDataConName boolTy) (List.zip4 [0 :: Int ..] fieldTys fieldDictionaries (zip lhsFields rhsFields))
+ where
+  combine (index, fieldTy, dictionary, (lhs, rhs)) rest =
+    boolAndCore
+      (occurrence <> "_field_" <> renderInt index)
+      (unique - index)
+      (eqElementCore fieldTy dictionary lhs rhs)
+      rest
+
+ordTupleDictionaryCore :: ClassInfo -> ClassInfo -> [CoreType] -> [CoreExpr] -> Either TypecheckError CoreExpr
+ordTupleDictionaryCore eqInfo ordInfo fieldTys fieldDictionaries = do
+  constructorTy <- classDictionaryFullConstructorCoreType ordInfo
+  eqSuperclass <- eqTupleDictionaryCore eqInfo fieldTys (zipWith ordEqSuperclassCore fieldTys fieldDictionaries)
+  let tupleTy = CTyTuple fieldTys
+      dictTy = ordDictCoreType tupleTy
+      compareMethod = ordTupleCompareMethodCore "$compare_tuple" (-8300 - length fieldTys) fieldTys fieldDictionaries
+      ltMethod = ordTuplePredicateMethodCore "$lt_tuple" (-8350 - length fieldTys) fieldTys fieldDictionaries True False False
+      leMethod = ordTuplePredicateMethodCore "$le_tuple" (-8400 - length fieldTys) fieldTys fieldDictionaries True True False
+      gtMethod = ordTuplePredicateMethodCore "$gt_tuple" (-8450 - length fieldTys) fieldTys fieldDictionaries False False True
+      geMethod = ordTuplePredicateMethodCore "$ge_tuple" (-8500 - length fieldTys) fieldTys fieldDictionaries False True True
+      maxMethod = ordTupleChoiceMethodCore "$max_tuple" (-8550 - length fieldTys) fieldTys fieldDictionaries (\lhs rhs -> (rhs, rhs, lhs))
+      minMethod = ordTupleChoiceMethodCore "$min_tuple" (-8600 - length fieldTys) fieldTys fieldDictionaries (\lhs rhs -> (lhs, lhs, rhs))
+      fieldExprs = [eqSuperclass, compareMethod, ltMethod, leMethod, gtMethod, geMethod, maxMethod, minMethod]
+      typedConstructor =
+        CTypeApp
+          (CCon (classInfoDictConstructorName ordInfo) constructorTy)
+          [tupleTy]
+          (foldr CTyFun dictTy (map exprType fieldExprs))
+  pure (foldl applyValue typedConstructor fieldExprs)
+ where
+  applyValue callee argument =
+    let remainingResult =
+          case exprType callee of
+            CTyFun _ result -> result
+            _ -> exprType callee
+     in CApp callee argument remainingResult
+
+ordTupleCompareMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> CoreExpr
+ordTupleCompareMethodCore occurrence unique fieldTys fieldDictionaries =
+  tupleBinaryMethod occurrence unique fieldTys orderingTy (ordTupleCompareBody occurrence (unique - 40) fieldTys fieldDictionaries)
+
+ordTupleCompareBody :: Text -> Int -> [CoreType] -> [CoreExpr] -> [CoreExpr] -> [CoreExpr] -> CoreExpr
+ordTupleCompareBody occurrence unique fieldTys fieldDictionaries lhsFields rhsFields =
+  compareFields 0 (List.zip4 fieldTys fieldDictionaries lhsFields rhsFields)
+ where
+  compareFields _ [] = CCon orderingEQDataConName orderingTy
+  compareFields index ((fieldTy, dictionary, lhs, rhs) : rest) =
+    orderingCaseCore
+      (occurrence <> "_field_" <> renderInt index)
+      (unique - index)
+      (ordElementCompareCore fieldTy dictionary lhs rhs)
+      orderingTy
+      (CCon orderingLTDataConName orderingTy)
+      (compareFields (index + 1) rest)
+      (CCon orderingGTDataConName orderingTy)
+
+ordTuplePredicateMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> Bool -> Bool -> Bool -> CoreExpr
+ordTuplePredicateMethodCore occurrence unique fieldTys fieldDictionaries ltResult eqResult gtResult =
+  tupleBinaryMethod occurrence unique fieldTys boolTy $ \lhs rhs ->
+    orderingCaseCore
+      (occurrence <> "_case")
+      (unique - 40)
+      (ordTupleCompareBody occurrence (unique - 80) fieldTys fieldDictionaries lhs rhs)
+      boolTy
+      (boolExpr ltResult)
+      (boolExpr eqResult)
+      (boolExpr gtResult)
+ where
+  boolExpr result =
+    if result then CCon trueDataConName boolTy else CCon falseDataConName boolTy
+
+ordTupleChoiceMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> (CoreExpr -> CoreExpr -> (CoreExpr, CoreExpr, CoreExpr)) -> CoreExpr
+ordTupleChoiceMethodCore occurrence unique fieldTys fieldDictionaries choices =
+  tupleBinaryMethodWithValues occurrence unique fieldTys tupleTy $ \lhsTuple rhsTuple lhsFields rhsFields ->
+    let (ltBody, eqBody, gtBody) = choices lhsTuple rhsTuple
+     in orderingCaseCore
+          (occurrence <> "_case")
+          (unique - 40)
+          (ordTupleCompareBody occurrence (unique - 80) fieldTys fieldDictionaries lhsFields rhsFields)
+          tupleTy
+          ltBody
+          eqBody
+          gtBody
+ where
+  tupleTy = CTyTuple fieldTys
+
+ixTupleDictionaryCore :: ClassInfo -> [CoreType] -> [CoreExpr] -> CoreExpr -> Either TypecheckError CoreExpr
+ixTupleDictionaryCore info fieldTys fieldDictionaries ordSuperclass = do
+  constructorTy <- classDictionaryFullConstructorCoreType info
+  let tupleTy = CTyTuple fieldTys
+      dictTy = ixDictCoreType tupleTy
+      rangeMethod = ixTupleRangeMethodCore "$ix_range_tuple" (-8650 - length fieldTys) fieldTys fieldDictionaries
+      indexMethod = ixTupleIndexMethodCore "$ix_index_tuple" (-8750 - length fieldTys) fieldTys fieldDictionaries
+      inRangeMethod = ixTupleInRangeMethodCore "$ix_in_range_tuple" (-8850 - length fieldTys) fieldTys fieldDictionaries
+      rangeSizeMethod = ixTupleRangeSizeMethodCore "$ix_range_size_tuple" (-8950 - length fieldTys) fieldTys fieldDictionaries
+      fieldExprs = [ordSuperclass, rangeMethod, indexMethod, inRangeMethod, rangeSizeMethod]
+      typedConstructor =
+        CTypeApp
+          (CCon (classInfoDictConstructorName info) constructorTy)
+          [tupleTy]
+          (foldr CTyFun dictTy (map exprType fieldExprs))
+  pure (foldl applyValue typedConstructor fieldExprs)
+ where
+  applyValue callee argument =
+    let remainingResult =
+          case exprType callee of
+            CTyFun _ result -> result
+            _ -> exprType callee
+     in CApp callee argument remainingResult
+
+ixTupleRangeMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> CoreExpr
+ixTupleRangeMethodCore occurrence unique fieldTys fieldDictionaries =
+  ixTupleBoundsCaseMethod occurrence unique fieldTys (CTyList tupleTy) $ \lowerFields upperFields ->
+    ixTupleRangeProduct (occurrence <> "_product") (unique - 40) fieldTys fieldDictionaries lowerFields upperFields []
+ where
+  tupleTy = CTyTuple fieldTys
+
+ixTupleIndexMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> CoreExpr
+ixTupleIndexMethodCore occurrence unique fieldTys fieldDictionaries =
+  ixTupleValueMethod occurrence unique fieldTys intTy $ \lowerFields upperFields valueFields ->
+    let indexes = List.zipWith4 ixIndexCallCore fieldTys fieldDictionaries (zip lowerFields upperFields) valueFields
+        sizes = List.zipWith3 ixRangeSizeCallCore fieldTys fieldDictionaries (zip lowerFields upperFields)
+     in case indexes of
+          [] -> zeroInt
+          firstIndex : restIndexes ->
+            foldl
+              (\acc (size, fieldIndex) -> intAdd (intMul acc size) fieldIndex)
+              firstIndex
+              (zip (drop 1 sizes) restIndexes)
+
+ixTupleInRangeMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> CoreExpr
+ixTupleInRangeMethodCore occurrence unique fieldTys fieldDictionaries =
+  ixTupleValueMethod occurrence unique fieldTys boolTy $ \lowerFields upperFields valueFields ->
+    foldr
+      (\(index, fieldTy, dictionary, bounds, value) rest -> boolAndCore (occurrence <> "_field_" <> renderInt index) (unique - 80 - index) (ixInRangeCallCore fieldTy dictionary bounds value) rest)
+      (CCon trueDataConName boolTy)
+      (List.zip5 [0 :: Int ..] fieldTys fieldDictionaries (zip lowerFields upperFields) valueFields)
+
+ixTupleRangeSizeMethodCore :: Text -> Int -> [CoreType] -> [CoreExpr] -> CoreExpr
+ixTupleRangeSizeMethodCore occurrence unique fieldTys fieldDictionaries =
+  ixTupleBoundsCaseMethod occurrence unique fieldTys intTy $ \lowerFields upperFields ->
+    foldl
+      intMul
+      oneInt
+      (List.zipWith3 ixRangeSizeCallCore fieldTys fieldDictionaries (zip lowerFields upperFields))
+
+ixTupleRangeProduct :: Text -> Int -> [CoreType] -> [CoreExpr] -> [CoreExpr] -> [CoreExpr] -> [CoreExpr] -> CoreExpr
+ixTupleRangeProduct occurrence unique allFieldTys fieldDictionaries lowerFields upperFields selected =
+  case (drop selectedCount allFieldTys, drop selectedCount fieldDictionaries, drop selectedCount lowerFields, drop selectedCount upperFields) of
+    ([], [], [], []) ->
+      consCore tupleTy (tupleValueCore allFieldTys selected) (nilCore tupleTy)
+    (fieldTy : _, dictionary : _, lower : _, upper : _) ->
+      let valueName = builtinLocalTermName (occurrence <> "_value_" <> renderInt selectedCount) (unique - selectedCount)
+          value = CVar valueName fieldTy
+          continuation =
+            CLam
+              (CoreBinder valueName fieldTy)
+              (ixTupleRangeProduct occurrence unique allFieldTys fieldDictionaries lowerFields upperFields (selected <> [value]))
+              (CTyFun fieldTy (CTyList tupleTy))
+       in listBindCore fieldTy tupleTy (ixRangeCallCore fieldTy dictionary (lower, upper)) continuation
+    _ -> bottomCore (occurrence <> "_malformed") (unique - 1000) (CTyList tupleTy)
+ where
+  selectedCount = length selected
+  tupleTy = CTyTuple allFieldTys
+
+tupleBinaryMethod :: Text -> Int -> [CoreType] -> CoreType -> ([CoreExpr] -> [CoreExpr] -> CoreExpr) -> CoreExpr
+tupleBinaryMethod occurrence unique fieldTys resultTy body =
+  tupleBinaryMethodWithValues occurrence unique fieldTys resultTy (\_ _ lhs rhs -> body lhs rhs)
+
+tupleBinaryMethodWithValues :: Text -> Int -> [CoreType] -> CoreType -> (CoreExpr -> CoreExpr -> [CoreExpr] -> [CoreExpr] -> CoreExpr) -> CoreExpr
+tupleBinaryMethodWithValues occurrence unique fieldTys resultTy body =
+  CLam (CoreBinder lhsName tupleTy) (CLam (CoreBinder rhsName tupleTy) lhsCase (CTyFun tupleTy resultTy)) (CTyFun tupleTy (CTyFun tupleTy resultTy))
+ where
+  tupleTy = CTyTuple fieldTys
+  lhsName = builtinLocalTermName (occurrence <> "_lhs") unique
+  rhsName = builtinLocalTermName (occurrence <> "_rhs") (unique - 1)
+  lhsCaseName = builtinLocalTermName (occurrence <> "_lhs_case") (unique - 2)
+  rhsCaseName = builtinLocalTermName (occurrence <> "_rhs_case") (unique - 3)
+  lhsFieldNames = [builtinLocalTermName (occurrence <> "_lhs_" <> renderInt index) (unique - 10 - index) | index <- [0 .. length fieldTys - 1]]
+  rhsFieldNames = [builtinLocalTermName (occurrence <> "_rhs_" <> renderInt index) (unique - 30 - index) | index <- [0 .. length fieldTys - 1]]
+  lhsFields = zipWith CVar lhsFieldNames fieldTys
+  rhsFields = zipWith CVar rhsFieldNames fieldTys
+  lhsTuple = CVar lhsName tupleTy
+  rhsTuple = CVar rhsName tupleTy
+  rhsCase =
+    CCase
+      rhsTuple
+      (CoreBinder rhsCaseName tupleTy)
+      [CoreAlt (ConstructorAlt (tupleDataConName (length fieldTys))) (zipWith CoreBinder rhsFieldNames fieldTys) (body lhsTuple rhsTuple lhsFields rhsFields)]
+      resultTy
+  lhsCase =
+    CCase
+      lhsTuple
+      (CoreBinder lhsCaseName tupleTy)
+      [CoreAlt (ConstructorAlt (tupleDataConName (length fieldTys))) (zipWith CoreBinder lhsFieldNames fieldTys) rhsCase]
+      resultTy
+
+ixTupleBoundsCaseMethod :: Text -> Int -> [CoreType] -> CoreType -> ([CoreExpr] -> [CoreExpr] -> CoreExpr) -> CoreExpr
+ixTupleBoundsCaseMethod occurrence unique fieldTys resultTy body =
+  CLam (CoreBinder boundsName boundsTy) boundsCase (CTyFun boundsTy resultTy)
+ where
+  tupleTy = CTyTuple fieldTys
+  boundsTy = CTyTuple [tupleTy, tupleTy]
+  boundsName = builtinLocalTermName (occurrence <> "_bounds") unique
+  boundsCaseName = builtinLocalTermName (occurrence <> "_bounds_case") (unique - 1)
+  lowerName = builtinLocalTermName (occurrence <> "_lower_tuple") (unique - 2)
+  upperName = builtinLocalTermName (occurrence <> "_upper_tuple") (unique - 3)
+  lowerTuple = CVar lowerName tupleTy
+  upperTuple = CVar upperName tupleTy
+  boundsCase =
+    CCase
+      (CVar boundsName boundsTy)
+      (CoreBinder boundsCaseName boundsTy)
+      [ CoreAlt
+          (ConstructorAlt (tupleDataConName 2))
+          [CoreBinder lowerName tupleTy, CoreBinder upperName tupleTy]
+          (caseTupleFields (occurrence <> "_lower") (unique - 20) fieldTys lowerTuple resultTy $ \lowerFields ->
+             caseTupleFields (occurrence <> "_upper") (unique - 40) fieldTys upperTuple resultTy $ \upperFields ->
+               body lowerFields upperFields)
+      ]
+      resultTy
+
+ixTupleValueMethod :: Text -> Int -> [CoreType] -> CoreType -> ([CoreExpr] -> [CoreExpr] -> [CoreExpr] -> CoreExpr) -> CoreExpr
+ixTupleValueMethod occurrence unique fieldTys resultTy body =
+  CLam (CoreBinder boundsName boundsTy) (CLam (CoreBinder valueName tupleTy) boundsCase (CTyFun tupleTy resultTy)) (CTyFun boundsTy (CTyFun tupleTy resultTy))
+ where
+  tupleTy = CTyTuple fieldTys
+  boundsTy = CTyTuple [tupleTy, tupleTy]
+  boundsName = builtinLocalTermName (occurrence <> "_bounds") unique
+  valueName = builtinLocalTermName (occurrence <> "_value") (unique - 1)
+  boundsCaseName = builtinLocalTermName (occurrence <> "_bounds_case") (unique - 2)
+  lowerName = builtinLocalTermName (occurrence <> "_lower_tuple") (unique - 3)
+  upperName = builtinLocalTermName (occurrence <> "_upper_tuple") (unique - 4)
+  lowerTuple = CVar lowerName tupleTy
+  upperTuple = CVar upperName tupleTy
+  valueTuple = CVar valueName tupleTy
+  boundsCase =
+    CCase
+      (CVar boundsName boundsTy)
+      (CoreBinder boundsCaseName boundsTy)
+      [ CoreAlt
+          (ConstructorAlt (tupleDataConName 2))
+          [CoreBinder lowerName tupleTy, CoreBinder upperName tupleTy]
+          (caseTupleFields (occurrence <> "_lower") (unique - 20) fieldTys lowerTuple resultTy $ \lowerFields ->
+             caseTupleFields (occurrence <> "_upper") (unique - 40) fieldTys upperTuple resultTy $ \upperFields ->
+               caseTupleFields (occurrence <> "_value") (unique - 60) fieldTys valueTuple resultTy $ \valueFields ->
+                 body lowerFields upperFields valueFields)
+      ]
+      resultTy
+
+caseTupleFields :: Text -> Int -> [CoreType] -> CoreExpr -> CoreType -> ([CoreExpr] -> CoreExpr) -> CoreExpr
+caseTupleFields occurrence unique fieldTys scrutinee resultTy body =
+  CCase
+    scrutinee
+    (CoreBinder caseName tupleTy)
+    [CoreAlt (ConstructorAlt (tupleDataConName (length fieldTys))) (zipWith CoreBinder fieldNames fieldTys) (body fields)]
+    resultTy
+ where
+  tupleTy = CTyTuple fieldTys
+  caseName = builtinLocalTermName (occurrence <> "_case") unique
+  fieldNames = [builtinLocalTermName (occurrence <> "_field_" <> renderInt index) (unique - 1 - index) | index <- [0 .. length fieldTys - 1]]
+  fields = zipWith CVar fieldNames fieldTys
+
+tupleValueCore :: [CoreType] -> [CoreExpr] -> CoreExpr
+tupleValueCore fieldTys fields =
+  constructorApp (tupleDataConName (length fieldTys)) fieldTys fields (CTyTuple fieldTys)
+
+listBindCore :: CoreType -> CoreType -> CoreExpr -> CoreExpr -> CoreExpr
+listBindCore elementTy resultElementTy xs continuation =
+  applyCore (applyCore bindFunction xs (CTyFun (CTyFun elementTy resultListTy) resultListTy)) continuation resultListTy
+ where
+  listA = CTyList elementTy
+  resultListTy = CTyList resultElementTy
+  bindFunction =
+    CTypeApp
+      (CVar monadListBindName monadListBindCoreType)
+      [elementTy, resultElementTy]
+      (CTyFun listA (CTyFun (CTyFun elementTy resultListTy) resultListTy))
+
+ixDictCoreType :: CoreType -> CoreType
+ixDictCoreType ty =
+  CTyApp (CTyCon (classDictionaryTypeName builtinIxClassName)) ty
+
+ixOrdSuperclassCore :: CoreType -> CoreExpr -> CoreExpr
+ixOrdSuperclassCore elementTy dictionary =
+  CCase
+    dictionary
+    (CoreBinder caseName ixDictA)
+    [ CoreAlt
+        (ConstructorAlt (classDictionaryConstructorName builtinIxClassName))
+        [ CoreBinder ordName ordDictA
+        , CoreBinder rangeName rangeTy
+        , CoreBinder indexName indexTy
+        , CoreBinder inRangeName inRangeTy
+        , CoreBinder rangeSizeName rangeSizeTy
+        ]
+        (CVar ordName ordDictA)
+    ]
+    ordDictA
+ where
+  ixDictA = ixDictCoreType elementTy
+  ordDictA = ordDictCoreType elementTy
+  boundsTy = CTyTuple [elementTy, elementTy]
+  rangeTy = CTyFun boundsTy (CTyList elementTy)
+  indexTy = CTyFun boundsTy (CTyFun elementTy intTy)
+  inRangeTy = CTyFun boundsTy (CTyFun elementTy boolTy)
+  rangeSizeTy = CTyFun boundsTy intTy
+  caseName = builtinLocalTermName "$ix_ord_super_case" (-9000)
+  ordName = builtinLocalTermName "$ix_ord_super_ord" (-9001)
+  rangeName = builtinLocalTermName "$ix_ord_super_range" (-9002)
+  indexName = builtinLocalTermName "$ix_ord_super_index" (-9003)
+  inRangeName = builtinLocalTermName "$ix_ord_super_in_range" (-9004)
+  rangeSizeName = builtinLocalTermName "$ix_ord_super_range_size" (-9005)
+
+ixRangeCallCore :: CoreType -> CoreExpr -> (CoreExpr, CoreExpr) -> CoreExpr
+ixRangeCallCore elementTy dictionary bounds =
+  applyCore (applyCore ixRangeFunction dictionary (CTyFun boundsTy listTy)) (tupleValueCore [elementTy, elementTy] [fst bounds, snd bounds]) listTy
+ where
+  boundsTy = CTyTuple [elementTy, elementTy]
+  listTy = CTyList elementTy
+  ixRangeFunction =
+    CTypeApp
+      (CVar (preludeTermName "range" (-3601)) ixRangeSelectorCoreType)
+      [elementTy]
+      (CTyFun (ixDictCoreType elementTy) (CTyFun boundsTy listTy))
+
+ixIndexCallCore :: CoreType -> CoreExpr -> (CoreExpr, CoreExpr) -> CoreExpr -> CoreExpr
+ixIndexCallCore elementTy dictionary bounds value =
+  applyCore (applyCore (applyCore ixIndexFunction dictionary (CTyFun boundsTy (CTyFun elementTy intTy))) (tupleValueCore [elementTy, elementTy] [fst bounds, snd bounds]) (CTyFun elementTy intTy)) value intTy
+ where
+  boundsTy = CTyTuple [elementTy, elementTy]
+  ixIndexFunction =
+    CTypeApp
+      (CVar (preludeTermName "index" (-3602)) ixIndexSelectorCoreType)
+      [elementTy]
+      (CTyFun (ixDictCoreType elementTy) (CTyFun boundsTy (CTyFun elementTy intTy)))
+
+ixInRangeCallCore :: CoreType -> CoreExpr -> (CoreExpr, CoreExpr) -> CoreExpr -> CoreExpr
+ixInRangeCallCore elementTy dictionary bounds value =
+  applyCore (applyCore (applyCore ixInRangeFunction dictionary (CTyFun boundsTy (CTyFun elementTy boolTy))) (tupleValueCore [elementTy, elementTy] [fst bounds, snd bounds]) (CTyFun elementTy boolTy)) value boolTy
+ where
+  boundsTy = CTyTuple [elementTy, elementTy]
+  ixInRangeFunction =
+    CTypeApp
+      (CVar (preludeTermName "inRange" (-3603)) ixInRangeSelectorCoreType)
+      [elementTy]
+      (CTyFun (ixDictCoreType elementTy) (CTyFun boundsTy (CTyFun elementTy boolTy)))
+
+ixRangeSizeCallCore :: CoreType -> CoreExpr -> (CoreExpr, CoreExpr) -> CoreExpr
+ixRangeSizeCallCore elementTy dictionary bounds =
+  applyCore (applyCore ixRangeSizeFunction dictionary (CTyFun boundsTy intTy)) (tupleValueCore [elementTy, elementTy] [fst bounds, snd bounds]) intTy
+ where
+  boundsTy = CTyTuple [elementTy, elementTy]
+  ixRangeSizeFunction =
+    CTypeApp
+      (CVar (preludeTermName "rangeSize" (-3604)) ixRangeSizeSelectorCoreType)
+      [elementTy]
+      (CTyFun (ixDictCoreType elementTy) (CTyFun boundsTy intTy))
+
+ixRangeSelectorCoreType, ixIndexSelectorCoreType, ixInRangeSelectorCoreType, ixRangeSizeSelectorCoreType :: CoreType
+ixRangeSelectorCoreType =
+  CTyForall [a] (CTyFun ixDictA (CTyFun boundsA (CTyList aTy)))
+ where
+  a = preludeTypeVariable "a" (-1398)
+  aTy = CTyVar a
+  ixDictA = ixDictCoreType aTy
+  boundsA = CTyTuple [aTy, aTy]
+ixIndexSelectorCoreType =
+  CTyForall [a] (CTyFun ixDictA (CTyFun boundsA (CTyFun aTy intTy)))
+ where
+  a = preludeTypeVariable "a" (-1398)
+  aTy = CTyVar a
+  ixDictA = ixDictCoreType aTy
+  boundsA = CTyTuple [aTy, aTy]
+ixInRangeSelectorCoreType =
+  CTyForall [a] (CTyFun ixDictA (CTyFun boundsA (CTyFun aTy boolTy)))
+ where
+  a = preludeTypeVariable "a" (-1398)
+  aTy = CTyVar a
+  ixDictA = ixDictCoreType aTy
+  boundsA = CTyTuple [aTy, aTy]
+ixRangeSizeSelectorCoreType =
+  CTyForall [a] (CTyFun ixDictA (CTyFun boundsA intTy))
+ where
+  a = preludeTypeVariable "a" (-1398)
+  aTy = CTyVar a
+  ixDictA = ixDictCoreType aTy
+  boundsA = CTyTuple [aTy, aTy]
+
 normalizeConstraint :: Subst -> Map.Map Int RName -> ClassConstraint -> Either TypecheckError ClassConstraint
 normalizeConstraint subst metas =
   pure . mapClassConstraintArguments (replaceMetasWithVars metas . applySubst subst)
@@ -8218,11 +15434,20 @@ builtinInstanceDictionaries classes =
     , maybe [] numInstances (Map.lookup builtinNumClassName classes)
     , maybe [] realInstances (Map.lookup builtinRealClassName classes)
     , maybe [] integralInstances (Map.lookup builtinIntegralClassName classes)
+    , maybe [] fractionalInstances (Map.lookup builtinFractionalClassName classes)
+    , maybe [] floatingInstances (Map.lookup builtinFloatingClassName classes)
+    , maybe [] realFracInstances (Map.lookup builtinRealFracClassName classes)
+    , maybe [] realFloatInstances (Map.lookup builtinRealFloatClassName classes)
+    , maybe [] bitsInstances (Map.lookup builtinBitsClassName classes)
     , maybe [] showInstances (Map.lookup builtinShowClassName classes)
+    , maybe [] readInstances (Map.lookup builtinReadClassName classes)
     , maybe [] enumInstances (Map.lookup builtinEnumClassName classes)
     , maybe [] boundedInstances (Map.lookup builtinBoundedClassName classes)
+    , maybe [] ixInstances (Map.lookup builtinIxClassName classes)
     , maybe [] functorInstances (Map.lookup builtinFunctorClassName classes)
     , maybe [] monadInstances (Map.lookup builtinMonadClassName classes)
+    , maybe [] monadPlusInstances (Map.lookup builtinMonadPlusClassName classes)
+    , maybe [] storableInstances (Map.lookup builtinStorableClassName classes)
     ]
  where
   eqInstances info =
@@ -8233,6 +15458,11 @@ builtinInstanceDictionaries classes =
         [intEqMethod, intNotEqMethod]
     , BuiltinInstanceDictionary
         (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fEqInteger" (-15010))
+        [integerEqMethod, integerNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
         boolMonoType
         (preludeTermName "$fEqBool" (-1502))
         [boolEqMethod, boolNotEqMethod]
@@ -8241,7 +15471,43 @@ builtinInstanceDictionaries classes =
         charMonoType
         (preludeTermName "$fEqChar" (-1503))
         [charEqMethod, charNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        ioErrorTypeMonoType
+        (preludeTermName "$fEqIOErrorType" (-1505))
+        [ioErrorTypeEqMethod, ioErrorTypeNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        orderingMonoType
+        (preludeTermName "$fEqOrdering" (-1506))
+        [orderingEqMethod, orderingNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        exitCodeMonoType
+        (preludeTermName "$fEqExitCode" (-1509))
+        [exitCodeEqMethod, exitCodeNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        unitMonoType
+        (preludeTermName "$fEqUnit" (-1507))
+        [unitEqMethod, unitNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        rationalMonoType
+        (preludeTermName "$fEqRatioInt" (-1508))
+        [ratioEqMethod, ratioNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fEqFloat" (-5801))
+        [floatEqMethod, floatNotEqMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fEqDouble" (-5802))
+        [doubleEqMethod, doubleNotEqMethod]
     ]
+      <> fixedIntegralBuiltinInstances info "Eq" (-6400) fixedEqMethods
 
   ordInstances info =
     [ BuiltinInstanceDictionary
@@ -8255,6 +15521,18 @@ builtinInstanceDictionaries classes =
         , intGeMethod
         , intMaxMethod
         , intMinMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fOrdInteger" (-15110))
+        [ integerCompareMethod
+        , integerLtMethod
+        , integerLeMethod
+        , integerGtMethod
+        , integerGeMethod
+        , integerMaxMethod
+        , integerMinMethod
         ]
     , BuiltinInstanceDictionary
         (classInfoName info)
@@ -8280,7 +15558,80 @@ builtinInstanceDictionaries classes =
         , charMaxMethod
         , charMinMethod
         ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        orderingMonoType
+        (preludeTermName "$fOrdOrdering" (-1515))
+        [ orderingCompareMethod
+        , orderingLtMethod
+        , orderingLeMethod
+        , orderingGtMethod
+        , orderingGeMethod
+        , orderingMaxMethod
+        , orderingMinMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        exitCodeMonoType
+        (preludeTermName "$fOrdExitCode" (-1518))
+        [ exitCodeCompareMethod
+        , exitCodeLtMethod
+        , exitCodeLeMethod
+        , exitCodeGtMethod
+        , exitCodeGeMethod
+        , exitCodeMaxMethod
+        , exitCodeMinMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        unitMonoType
+        (preludeTermName "$fOrdUnit" (-1516))
+        [ unitCompareMethod
+        , unitLtMethod
+        , unitLeMethod
+        , unitGtMethod
+        , unitGeMethod
+        , unitMaxMethod
+        , unitMinMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        rationalMonoType
+        (preludeTermName "$fOrdRatioInt" (-1517))
+        [ ratioCompareMethod
+        , ratioLtMethod
+        , ratioLeMethod
+        , ratioGtMethod
+        , ratioGeMethod
+        , ratioMaxMethod
+        , ratioMinMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fOrdFloat" (-5803))
+        [ floatCompareMethod
+        , floatLtMethod
+        , floatLeMethod
+        , floatGtMethod
+        , floatGeMethod
+        , floatMaxMethod
+        , floatMinMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fOrdDouble" (-5804))
+        [ doubleCompareMethod
+        , doubleLtMethod
+        , doubleLeMethod
+        , doubleGtMethod
+        , doubleGeMethod
+        , doubleMaxMethod
+        , doubleMinMethod
+        ]
     ]
+      <> fixedIntegralBuiltinInstances info "Ord" (-6420) fixedOrdMethods
 
   numInstances info =
     [ BuiltinInstanceDictionary
@@ -8295,7 +15646,56 @@ builtinInstanceDictionaries classes =
         , intSignumMethod
         , intFromIntegerMethod
         ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fNumInteger" (-15210))
+        [ integerAddMethod
+        , integerSubMethod
+        , integerMulMethod
+        , integerNegateMethod
+        , integerAbsMethod
+        , integerSignumMethod
+        , integerFromIntegerMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        rationalMonoType
+        (preludeTermName "$fNumRatioInt" (-1522))
+        [ ratioAddMethod
+        , ratioSubMethod
+        , ratioMulMethod
+        , ratioNegateMethod
+        , ratioAbsMethod
+        , ratioSignumMethod
+        , ratioFromIntegerMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fNumFloat" (-5805))
+        [ floatAddMethod
+        , floatSubMethod
+        , floatMulMethod
+        , floatNegateMethod
+        , floatAbsMethod
+        , floatSignumMethod
+        , floatFromIntegerMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fNumDouble" (-5806))
+        [ doubleAddMethod
+        , doubleSubMethod
+        , doubleMulMethod
+        , doubleNegateMethod
+        , doubleAbsMethod
+        , doubleSignumMethod
+        , doubleFromIntegerMethod
+        ]
     ]
+      <> fixedIntegralBuiltinInstances info "Num" (-6440) fixedNumMethods
 
   realInstances info =
     [ BuiltinInstanceDictionary
@@ -8303,7 +15703,28 @@ builtinInstanceDictionaries classes =
         intMonoType
         (preludeTermName "$fRealInt" (-1571))
         [intToRationalMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fRealInteger" (-15710))
+        [integerToRationalMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        rationalMonoType
+        (preludeTermName "$fRealRatioInt" (-1572))
+        [ratioToRationalMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fRealFloat" (-5807))
+        [floatToRationalMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fRealDouble" (-5808))
+        [doubleToRationalMethod]
     ]
+      <> fixedIntegralBuiltinInstances info "Real" (-6460) fixedRealMethods
 
   integralInstances info =
     [ BuiltinInstanceDictionary
@@ -8318,30 +15739,208 @@ builtinInstanceDictionaries classes =
         , intDivModMethod
         , intToIntegerMethod
         ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fIntegralInteger" (-15810))
+        [ integerQuotMethod
+        , integerRemMethod
+        , integerDivMethod
+        , integerModMethod
+        , integerQuotRemMethod
+        , integerDivModMethod
+        , integerToIntegerMethod
+        ]
     ]
+      <> fixedIntegralBuiltinInstances info "Integral" (-6480) fixedIntegralMethods
+
+  fractionalInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fFractionalFloat" (-5809))
+        [floatDivMethod, floatRecipMethod, floatFromRationalMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fFractionalDouble" (-5810))
+        [doubleDivMethod, doubleRecipMethod, doubleFromRationalMethod]
+    ]
+
+  floatingInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fFloatingFloat" (-5811))
+        (floatingMethods FloatWidth floatTy (-3460))
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fFloatingDouble" (-5812))
+        (floatingMethods DoubleWidth doubleTy (-3490))
+    ]
+
+  realFracInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fRealFracFloat" (-5813))
+        (realFracMethods FloatWidth floatTy (-3520))
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fRealFracDouble" (-5814))
+        (realFracMethods DoubleWidth doubleTy (-3540))
+    ]
+
+  realFloatInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fRealFloatFloat" (-5815))
+        (realFloatMethods FloatWidth floatTy floatInfo (-3560))
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fRealFloatDouble" (-5816))
+        (realFloatMethods DoubleWidth doubleTy doubleInfo (-3590))
+    ]
+  floatInfo = FloatingTypeInfo 24 (-125) 128
+  doubleInfo = FloatingTypeInfo 53 (-1021) 1024
+
+  bitsInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fBitsInt" (-3921))
+        [ intBitAndMethod
+        , intBitOrMethod
+        , intBitXorMethod
+        , intBitComplementMethod
+        , intShiftMethod
+        , intRotateMethod
+        , intBitMethod
+        , intSetBitMethod
+        , intClearBitMethod
+        , intComplementBitMethod
+        , intTestBitMethod
+        , intBitSizeMethod
+        , intIsSignedMethod
+        , intShiftLMethod
+        , intShiftRMethod
+        , intRotateLMethod
+        , intRotateRMethod
+        ]
+    ]
+      <> fixedIntegralBuiltinInstances info "Bits" (-6500) fixedBitsMethods
 
   showInstances info =
     [ BuiltinInstanceDictionary
         (classInfoName info)
         intMonoType
         (preludeTermName "$fShowInt" (-1531))
-        [intShowMethod]
+        [intShowsPrecMethod, intShowMethod, intShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fShowInteger" (-15310))
+        [integerShowsPrecMethod, integerShowMethod, integerShowListMethod]
     , BuiltinInstanceDictionary
         (classInfoName info)
         boolMonoType
         (preludeTermName "$fShowBool" (-1532))
-        [boolShowMethod]
+        [boolShowsPrecMethod, boolShowMethod, boolShowListMethod]
     , BuiltinInstanceDictionary
         (classInfoName info)
         charMonoType
         (preludeTermName "$fShowChar" (-1533))
-        [charShowMethod]
+        [charShowsPrecMethod, charShowMethod, charShowListMethod]
     , BuiltinInstanceDictionary
         (classInfoName info)
         stringMonoType
         (preludeTermName "$fShowString" (-1534))
-        [stringShowMethod]
+        [stringShowsPrecMethod, stringShowMethod, stringShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        ioErrorTypeMonoType
+        (preludeTermName "$fShowIOErrorType" (-1535))
+        [ioErrorTypeShowsPrecMethod, ioErrorTypeShowMethod, ioErrorTypeShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        orderingMonoType
+        (preludeTermName "$fShowOrdering" (-1536))
+        [orderingShowsPrecMethod, orderingShowMethod, orderingShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        exitCodeMonoType
+        (preludeTermName "$fShowExitCode" (-1539))
+        [exitCodeShowsPrecMethod, exitCodeShowMethod, exitCodeShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        unitMonoType
+        (preludeTermName "$fShowUnit" (-1537))
+        [unitShowsPrecMethod, unitShowMethod, unitShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        rationalMonoType
+        (preludeTermName "$fShowRatioInt" (-1538))
+        [ratioShowsPrecMethod, ratioShowMethod, ratioShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fShowFloat" (-5821))
+        [floatShowsPrecMethod, floatShowMethod, floatShowListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fShowDouble" (-5822))
+        [doubleShowsPrecMethod, doubleShowMethod, doubleShowListMethod]
     ]
+      <> fixedIntegralBuiltinInstances info "Show" (-6520) fixedShowMethods
+
+  readInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fReadInt" (-1701))
+        [intReadsPrecMethod, intReadListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fReadInteger" (-17010))
+        [integerReadsPrecMethod, integerReadListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        boolMonoType
+        (preludeTermName "$fReadBool" (-1702))
+        [boolReadsPrecMethod, boolReadListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        charMonoType
+        (preludeTermName "$fReadChar" (-1703))
+        [charReadsPrecMethod, charReadListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        orderingMonoType
+        (preludeTermName "$fReadOrdering" (-1704))
+        [orderingReadsPrecMethod, orderingReadListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        exitCodeMonoType
+        (preludeTermName "$fReadExitCode" (-1707))
+        [exitCodeReadsPrecMethod, exitCodeReadListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        unitMonoType
+        (preludeTermName "$fReadUnit" (-1705))
+        [unitReadsPrecMethod, unitReadListMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        rationalMonoType
+        (preludeTermName "$fReadRatioInt" (-1706))
+        [ratioReadsPrecMethod, ratioReadListMethod]
+    ]
+      <> fixedIntegralBuiltinInstances info "Read" (-6540) fixedReadMethods
 
   enumInstances info =
     [ BuiltinInstanceDictionary
@@ -8359,6 +15958,19 @@ builtinInstanceDictionaries classes =
         ]
     , BuiltinInstanceDictionary
         (classInfoName info)
+        integerMonoType
+        (preludeTermName "$fEnumInteger" (-15410))
+        [ integerSuccMethod
+        , integerPredMethod
+        , integerToEnumMethod
+        , integerFromEnumMethod
+        , integerEnumFromMethod
+        , integerEnumFromThenMethod
+        , integerEnumFromToMethod
+        , integerEnumFromThenToMethod
+        ]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
         charMonoType
         (preludeTermName "$fEnumChar" (-1542))
         [ charSuccMethod
@@ -8371,6 +15983,7 @@ builtinInstanceDictionaries classes =
         , charEnumFromThenToMethod
         ]
     ]
+      <> fixedIntegralBuiltinInstances info "Enum" (-6560) fixedEnumMethods
 
   boundedInstances info =
     [ BuiltinInstanceDictionary
@@ -8389,6 +16002,36 @@ builtinInstanceDictionaries classes =
         (preludeTermName "$fBoundedBool" (-1553))
         [boolMinBoundMethod, boolMaxBoundMethod]
     ]
+      <> fixedIntegralBuiltinInstances info "Bounded" (-6580) fixedBoundedMethods
+
+  ixInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fIxInt" (-3611))
+        [ixRangeIntMethod, ixIndexIntMethod, ixInRangeIntMethod, ixRangeSizeIntMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        charMonoType
+        (preludeTermName "$fIxChar" (-3612))
+        [ixRangeCharMethod, ixIndexCharMethod, ixInRangeCharMethod, ixRangeSizeCharMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        boolMonoType
+        (preludeTermName "$fIxBool" (-3613))
+        [ixRangeBoolMethod, ixIndexBoolMethod, ixInRangeBoolMethod, ixRangeSizeBoolMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        orderingMonoType
+        (preludeTermName "$fIxOrdering" (-3614))
+        [ixRangeOrderingMethod, ixIndexOrderingMethod, ixInRangeOrderingMethod, ixRangeSizeOrderingMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        unitMonoType
+        (preludeTermName "$fIxUnit" (-3615))
+        [ixRangeUnitMethod, ixIndexUnitMethod, ixInRangeUnitMethod, ixRangeSizeUnitMethod]
+    ]
+      <> fixedIntegralBuiltinInstances info "Ix" (-6600) fixedIxMethods
 
   functorInstances info =
     [ BuiltinInstanceDictionary
@@ -8426,6 +16069,64 @@ builtinInstanceDictionaries classes =
         [listMonadBindMethod, listMonadThenMethod, listMonadReturnMethod, listMonadFailMethod]
     ]
 
+  monadPlusInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        (TyCon maybeTyConName)
+        (preludeTermName "$fMonadPlusMaybe" (-1594))
+        [maybeMonadPlusMzeroMethod, maybeMonadPlusMplusMethod]
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        (TyCon listTyConName)
+        (preludeTermName "$fMonadPlusList" (-1595))
+        [listMonadPlusMzeroMethod, listMonadPlusMplusMethod]
+    ]
+
+  storableInstances info =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        intMonoType
+        (preludeTermName "$fStorableInt" (-6700))
+        (storableMethods StoreInt 8 8 intTy)
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        boolMonoType
+        (preludeTermName "$fStorableBool" (-6701))
+        (storableMethods StoreBool 1 1 boolTy)
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        charMonoType
+        (preludeTermName "$fStorableChar" (-6702))
+        (storableMethods StoreChar 4 4 charTy)
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        floatMonoType
+        (preludeTermName "$fStorableFloat" (-6703))
+        (storableMethods StoreFloat 4 4 floatTy)
+    , BuiltinInstanceDictionary
+        (classInfoName info)
+        doubleMonoType
+        (preludeTermName "$fStorableDouble" (-6704))
+        (storableMethods StoreDouble 8 8 doubleTy)
+    ]
+      <> [ BuiltinInstanceDictionary
+            (classInfoName info)
+            (fixedIntegralMonoType fixed)
+            (preludeTermName ("$fStorable" <> fixedIntegralOccurrence fixed) (-6710 - fromEnum fixed))
+            (storableMethods kind size align (fixedIntegralTy fixed))
+         | fixed <- fixedIntegralAll
+         , let (kind, size, align) = fixedIntegralStorableLayout fixed
+         ]
+
+  fixedIntegralBuiltinInstances info classTag uniqueBase methods =
+    [ BuiltinInstanceDictionary
+        (classInfoName info)
+        (fixedIntegralMonoType fixed)
+        (preludeTermName ("$f" <> classTag <> fixedIntegralOccurrence fixed) (uniqueBase - fromEnum fixed))
+        (methods fixed)
+    | fixed <- fixedIntegralAll
+    ]
+
 builtinInstanceDictionaryRefs :: [BuiltinInstanceDictionary] -> [InstanceDictionaryRef]
 builtinInstanceDictionaryRefs =
   map
@@ -8457,10 +16158,22 @@ isBuiltinStructuralInstanceConstraint wanted =
       | className == builtinOrdClassName -> True
     (className, [TyList _])
       | className == builtinShowClassName -> True
+    (className, [TyList _])
+      | className == builtinReadClassName -> True
+    (className, [TyTuple fields])
+      | className == builtinEqClassName && structuralTupleArity fields -> True
+    (className, [TyTuple fields])
+      | className == builtinOrdClassName && structuralTupleArity fields -> True
+    (className, [TyTuple fields])
+      | className == builtinIxClassName && structuralTupleArity fields -> True
     (className, [TyCon typeName])
       | className == builtinFunctorClassName && typeName == listTyConName -> True
     (className, [TyCon typeName])
       | className == builtinMonadClassName && typeName == listTyConName -> True
+    (className, [TyCon typeName])
+      | className == builtinMonadPlusClassName && typeName == listTyConName -> True
+    (className, [TyApp (TyCon ptrName) _])
+      | className == builtinStorableClassName && ptrName == ptrTyConName -> True
     _ -> False
 
 overlapsBuiltinStructuralInstanceConstraint :: ClassConstraint -> Bool
@@ -8469,19 +16182,49 @@ overlapsBuiltinStructuralInstanceConstraint wanted =
     (className, [argument])
       | className == builtinEqClassName ->
           typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$eq_list_overlap" (-1598))))
+            || typeMayUnifyStructuralTuple argument
     (className, [argument])
       | className == builtinOrdClassName ->
           typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$ord_list_overlap" (-1597))))
+            || typeMayUnifyStructuralTuple argument
     (className, [argument])
       | className == builtinShowClassName ->
           typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$show_list_overlap" (-1599))))
+    (className, [argument])
+      | className == builtinReadClassName ->
+          typesMayUnify argument (TyList (TyVar (preludeTypeVariable "$read_list_overlap" (-1600))))
+    (className, [argument])
+      | className == builtinIxClassName ->
+          typeMayUnifyStructuralTuple argument
     (className, [argument])
       | className == builtinFunctorClassName ->
           typesMayUnify argument (TyCon listTyConName)
     (className, [argument])
       | className == builtinMonadClassName ->
           typesMayUnify argument (TyCon listTyConName)
+    (className, [argument])
+      | className == builtinMonadPlusClassName ->
+          typesMayUnify argument (TyCon listTyConName)
+    (className, [argument])
+      | className == builtinStorableClassName ->
+          case argument of
+            TyApp (TyCon ptrName) _ | ptrName == ptrTyConName -> True
+            TyApp fn _ -> typesMayUnify fn (TyCon ptrTyConName)
+            TyVar {} -> True
+            TyMeta {} -> True
+            _ -> False
     _ -> False
+
+structuralTupleArity :: [a] -> Bool
+structuralTupleArity fields =
+  length fields >= 2 && length fields <= 15
+
+typeMayUnifyStructuralTuple :: MonoType -> Bool
+typeMayUnifyStructuralTuple = \case
+  TyTuple fields -> structuralTupleArity fields
+  TyVar {} -> True
+  TyMeta {} -> True
+  _ -> False
 
 builtinInstanceDictionaryToCore :: Map.Map RName ClassInfo -> BuiltinInstanceDictionary -> Either TypecheckError CoreBind
 builtinInstanceDictionaryToCore classes dictionary = do
@@ -8514,6 +16257,112 @@ builtinInstanceDictionaryToCore classes dictionary = do
             _ -> exprType callee
      in CApp callee argument remainingResult
 
+fixedIntegralStorableLayout :: FixedIntegral -> (ForeignStorableKind, Integer, Integer)
+fixedIntegralStorableLayout = \case
+  FixedInt8 -> (StoreInt8, 1, 1)
+  FixedInt16 -> (StoreInt16, 2, 2)
+  FixedInt32 -> (StoreInt32, 4, 4)
+  FixedInt64 -> (StoreInt64, 8, 8)
+  FixedWord -> (StoreWord, 8, 8)
+  FixedWord8 -> (StoreWord8, 1, 1)
+  FixedWord16 -> (StoreWord16, 2, 2)
+  FixedWord32 -> (StoreWord32, 4, 4)
+  FixedWord64 -> (StoreWord64, 8, 8)
+
+storableMethods :: ForeignStorableKind -> Integer -> Integer -> CoreType -> [CoreExpr]
+storableMethods kind size align valueTy =
+  [ sizeOfMethod
+  , alignmentMethod
+  , peekElemOffMethod
+  , pokeElemOffMethod
+  , peekByteOffMethod
+  , pokeByteOffMethod
+  , peekMethod
+  , pokeMethod
+  ]
+ where
+  b = preludeTypeVariable "b" (-1573)
+  bTy = CTyVar b
+  ptrValueTy = ptrTy valueTy
+  ptrBTy = ptrTy bTy
+  ioValueTy = ioTy valueTy
+  ioUnitTy = ioTy unitTy
+  intLit n = CLit (LInt n) intTy
+  var name ty = CVar name ty
+  lam name ty body = CLam (CoreBinder name ty) body (CTyFun ty (exprType body))
+  byteOffset index =
+    CPrimOp PrimMul [index, intLit size] intTy
+  sizeOfArg = builtinLocalTermName "$storable_size_arg" (-6721)
+  alignmentArg = builtinLocalTermName "$storable_alignment_arg" (-6722)
+  elemPtr = builtinLocalTermName "$storable_elem_ptr" (-6723)
+  elemIndex = builtinLocalTermName "$storable_elem_index" (-6724)
+  elemValue = builtinLocalTermName "$storable_elem_value" (-6725)
+  bytePtr = builtinLocalTermName "$storable_byte_ptr" (-6726)
+  byteOffsetArg = builtinLocalTermName "$storable_byte_offset" (-6727)
+  byteValue = builtinLocalTermName "$storable_byte_value" (-6728)
+  peekPtr = builtinLocalTermName "$storable_peek_ptr" (-6729)
+  pokePtr = builtinLocalTermName "$storable_poke_ptr" (-6730)
+  pokeValue = builtinLocalTermName "$storable_poke_value" (-6731)
+  sizeOfMethod =
+    lam sizeOfArg valueTy (intLit size)
+  alignmentMethod =
+    lam alignmentArg valueTy (intLit align)
+  peekElemOffMethod =
+    lam elemPtr ptrValueTy $
+      lam elemIndex intTy $
+        CPrimOp (PrimPeek kind) [var elemPtr ptrValueTy, byteOffset (var elemIndex intTy)] ioValueTy
+  pokeElemOffMethod =
+    lam elemPtr ptrValueTy $
+      lam elemIndex intTy $
+        lam elemValue valueTy $
+          CPrimOp (PrimPoke kind) [var elemPtr ptrValueTy, byteOffset (var elemIndex intTy), var elemValue valueTy] ioUnitTy
+  peekByteOffMethod =
+    CTypeLam
+      [b]
+      ( lam bytePtr ptrBTy $
+          lam byteOffsetArg intTy $
+            CPrimOp (PrimPeek kind) [var bytePtr ptrBTy, var byteOffsetArg intTy] ioValueTy
+      )
+      (CTyForall [b] (CTyFun ptrBTy (CTyFun intTy ioValueTy)))
+  pokeByteOffMethod =
+    CTypeLam
+      [b]
+      ( lam bytePtr ptrBTy $
+          lam byteOffsetArg intTy $
+            lam byteValue valueTy $
+              CPrimOp (PrimPoke kind) [var bytePtr ptrBTy, var byteOffsetArg intTy, var byteValue valueTy] ioUnitTy
+      )
+      (CTyForall [b] (CTyFun ptrBTy (CTyFun intTy (CTyFun valueTy ioUnitTy))))
+  peekMethod =
+    lam peekPtr ptrValueTy (CPrimOp (PrimPeek kind) [var peekPtr ptrValueTy, intLit 0] ioValueTy)
+  pokeMethod =
+    lam pokePtr ptrValueTy $
+      lam pokeValue valueTy $
+        CPrimOp (PrimPoke kind) [var pokePtr ptrValueTy, intLit 0, var pokeValue valueTy] ioUnitTy
+
+storablePtrDictionaryValue :: CoreElabEnv -> MonoType -> Either TypecheckError CoreExpr
+storablePtrDictionaryValue env payloadTy = do
+  let subst = coreElabSubst env
+      metas = coreElabMetas env
+      normalizedPayload = replaceMetasWithVars metas (applySubst subst payloadTy)
+      ptrMono = TyApp (TyCon ptrTyConName) normalizedPayload
+      constraint = singleClassConstraint builtinStorableClassName ptrMono
+      info = builtinStorableInfo
+  dictTy <- classConstraintCoreType subst metas constraint
+  ptrCoreTy <- monoToCoreType subst metas ptrMono
+  let fieldExprs = storableMethods StorePtr 8 8 ptrCoreTy
+  constructorTy <- classDictionaryFullConstructorCoreType info
+  let constructorResultTy = foldr CTyFun dictTy (map exprType fieldExprs)
+      typedConstructor = CTypeApp (CCon (classInfoDictConstructorName info) constructorTy) [ptrCoreTy] constructorResultTy
+  pure (foldl applyValue typedConstructor fieldExprs)
+ where
+  applyValue callee argument =
+    let remainingResult =
+          case exprType callee of
+            CTyFun _ result -> result
+            _ -> exprType callee
+     in CApp callee argument remainingResult
+
 intEqMethod :: CoreExpr
 intEqMethod =
   binaryPrimMethod "$eq_int" (-1601) intTy boolTy PrimEq
@@ -8537,6 +16386,44 @@ charEqMethod =
 charNotEqMethod :: CoreExpr
 charNotEqMethod =
   binaryBoolMethod "$neq_char" (-1881) charTy (\lhs rhs -> boolNotCore "$neq_char_not" (-1884) (CPrimOp PrimEq [lhs, rhs] boolTy))
+
+ioErrorTypeEqMethod :: CoreExpr
+ioErrorTypeEqMethod =
+  binaryBoolMethod "$eq_io_error_type" (-2801) ioErrorTypeTy ioErrorTypeEqCore
+
+ioErrorTypeNotEqMethod :: CoreExpr
+ioErrorTypeNotEqMethod =
+  binaryBoolMethod "$neq_io_error_type" (-2811) ioErrorTypeTy (\lhs rhs -> boolNotCore "$neq_io_error_type_not" (-2814) (ioErrorTypeEqCore lhs rhs))
+
+ioErrorTypeEqCore :: CoreExpr -> CoreExpr -> CoreExpr
+ioErrorTypeEqCore lhs rhs =
+  CCase lhs (CoreBinder lhsCase ioErrorTypeTy) lhsAlts boolTy
+ where
+  lhsCase = builtinLocalTermName "$eq_io_error_type_lhs_case" (-2820)
+  lhsAlts =
+    [ CoreAlt (ConstructorAlt constructorName) [] (rhsCase constructorName index)
+    | (index, constructorName) <- zip [0 :: Int ..] ioErrorTypeConstructors
+    ]
+  rhsCase constructorName index =
+    CCase
+      rhs
+      (CoreBinder (builtinLocalTermName ("$eq_io_error_type_rhs_case" <> renderInt index) (-2821 - index)) ioErrorTypeTy)
+      [ CoreAlt (ConstructorAlt constructorName) [] (CCon trueDataConName boolTy)
+      , CoreAlt DefaultAlt [] (CCon falseDataConName boolTy)
+      ]
+      boolTy
+
+ioErrorTypeConstructors :: [RName]
+ioErrorTypeConstructors =
+  [ ioErrorAlreadyExistsTypeDataConName
+  , ioErrorDoesNotExistTypeDataConName
+  , ioErrorAlreadyInUseTypeDataConName
+  , ioErrorFullTypeDataConName
+  , ioErrorEOFTypeDataConName
+  , ioErrorIllegalOperationTypeDataConName
+  , ioErrorPermissionTypeDataConName
+  , ioErrorUserTypeDataConName
+  ]
 
 intCompareMethod :: CoreExpr
 intCompareMethod =
@@ -8683,6 +16570,449 @@ charLtCore lhs rhs =
     ]
     boolTy
 
+unitEqMethod :: CoreExpr
+unitEqMethod =
+  binaryMethod "$eq_unit" (-1991) unitTy boolTy (\_ _ -> CCon trueDataConName boolTy)
+
+unitNotEqMethod :: CoreExpr
+unitNotEqMethod =
+  binaryMethod "$neq_unit" (-1992) unitTy boolTy (\_ _ -> CCon falseDataConName boolTy)
+
+orderingEqMethod :: CoreExpr
+orderingEqMethod =
+  binaryMethod "$eq_ordering" (-1993) orderingTy boolTy $ \lhs rhs ->
+    CPrimOp PrimEq [orderingOrdinalCore "$eq_ordering_lhs" (-19931) lhs, orderingOrdinalCore "$eq_ordering_rhs" (-19932) rhs] boolTy
+
+orderingNotEqMethod :: CoreExpr
+orderingNotEqMethod =
+  binaryMethod "$neq_ordering" (-1994) orderingTy boolTy $ \lhs rhs ->
+    boolNotCore
+      "$neq_ordering_not"
+      (-19941)
+      (CPrimOp PrimEq [orderingOrdinalCore "$neq_ordering_lhs" (-19942) lhs, orderingOrdinalCore "$neq_ordering_rhs" (-19943) rhs] boolTy)
+
+orderingCompareMethod :: CoreExpr
+orderingCompareMethod =
+  binaryMethod "$compare_ordering" (-1995) orderingTy orderingTy $ \lhs rhs ->
+    intCompareCore "$compare_ordering" (-19951) (orderingOrdinalCore "$compare_ordering_lhs" (-19952) lhs) (orderingOrdinalCore "$compare_ordering_rhs" (-19953) rhs)
+
+orderingLtMethod :: CoreExpr
+orderingLtMethod =
+  binaryBoolMethod "$lt_ordering" (-1996) orderingTy $ \lhs rhs ->
+    intLt (orderingOrdinalCore "$lt_ordering_lhs" (-19961) lhs) (orderingOrdinalCore "$lt_ordering_rhs" (-19962) rhs)
+
+orderingLeMethod :: CoreExpr
+orderingLeMethod =
+  binaryBoolMethod "$le_ordering" (-1997) orderingTy $ \lhs rhs ->
+    intLeCore "$le_ordering" (-19971) (orderingOrdinalCore "$le_ordering_lhs" (-19972) lhs) (orderingOrdinalCore "$le_ordering_rhs" (-19973) rhs)
+
+orderingGtMethod :: CoreExpr
+orderingGtMethod =
+  binaryBoolMethod "$gt_ordering" (-1998) orderingTy $ \lhs rhs ->
+    intLt (orderingOrdinalCore "$gt_ordering_rhs" (-19981) rhs) (orderingOrdinalCore "$gt_ordering_lhs" (-19982) lhs)
+
+orderingGeMethod :: CoreExpr
+orderingGeMethod =
+  binaryBoolMethod "$ge_ordering" (-1999) orderingTy $ \lhs rhs ->
+    intLeCore "$ge_ordering" (-19991) (orderingOrdinalCore "$ge_ordering_rhs" (-19992) rhs) (orderingOrdinalCore "$ge_ordering_lhs" (-19993) lhs)
+
+orderingMaxMethod :: CoreExpr
+orderingMaxMethod =
+  binaryMethod "$max_ordering" (-2001) orderingTy orderingTy $ \lhs rhs ->
+    boolCaseCore "$max_ordering_case" (-20011) (intLt (orderingOrdinalCore "$max_ordering_lhs" (-20012) lhs) (orderingOrdinalCore "$max_ordering_rhs" (-20013) rhs)) orderingTy rhs lhs
+
+orderingMinMethod :: CoreExpr
+orderingMinMethod =
+  binaryMethod "$min_ordering" (-2002) orderingTy orderingTy $ \lhs rhs ->
+    boolCaseCore "$min_ordering_case" (-20021) (intLt (orderingOrdinalCore "$min_ordering_lhs" (-20022) lhs) (orderingOrdinalCore "$min_ordering_rhs" (-20023) rhs)) orderingTy lhs rhs
+
+exitCodeEqMethod :: CoreExpr
+exitCodeEqMethod =
+  binaryBoolMethod "$eq_exit_code" (-2021) exitCodeTy exitCodeEqCore
+
+exitCodeNotEqMethod :: CoreExpr
+exitCodeNotEqMethod =
+  binaryBoolMethod "$neq_exit_code" (-2022) exitCodeTy $ \lhs rhs ->
+    boolNotCore "$neq_exit_code_not" (-20221) (exitCodeEqCore lhs rhs)
+
+exitCodeCompareMethod :: CoreExpr
+exitCodeCompareMethod =
+  binaryMethod "$compare_exit_code" (-2023) exitCodeTy orderingTy exitCodeCompareCore
+
+exitCodeLtMethod :: CoreExpr
+exitCodeLtMethod =
+  binaryBoolMethod "$lt_exit_code" (-2024) exitCodeTy $ \lhs rhs ->
+    orderingEqualCore (exitCodeCompareCore lhs rhs) (CCon orderingLTDataConName orderingTy)
+
+exitCodeLeMethod :: CoreExpr
+exitCodeLeMethod =
+  binaryBoolMethod "$le_exit_code" (-2025) exitCodeTy $ \lhs rhs ->
+    boolNotCore "$le_exit_code_not" (-20251) (orderingEqualCore (exitCodeCompareCore lhs rhs) (CCon orderingGTDataConName orderingTy))
+
+exitCodeGtMethod :: CoreExpr
+exitCodeGtMethod =
+  binaryBoolMethod "$gt_exit_code" (-2026) exitCodeTy $ \lhs rhs ->
+    orderingEqualCore (exitCodeCompareCore lhs rhs) (CCon orderingGTDataConName orderingTy)
+
+exitCodeGeMethod :: CoreExpr
+exitCodeGeMethod =
+  binaryBoolMethod "$ge_exit_code" (-2027) exitCodeTy $ \lhs rhs ->
+    boolNotCore "$ge_exit_code_not" (-20271) (orderingEqualCore (exitCodeCompareCore lhs rhs) (CCon orderingLTDataConName orderingTy))
+
+exitCodeMaxMethod :: CoreExpr
+exitCodeMaxMethod =
+  binaryMethod "$max_exit_code" (-2028) exitCodeTy exitCodeTy $ \lhs rhs ->
+    boolCaseCore "$max_exit_code_case" (-20281) (orderingEqualCore (exitCodeCompareCore lhs rhs) (CCon orderingLTDataConName orderingTy)) exitCodeTy rhs lhs
+
+exitCodeMinMethod :: CoreExpr
+exitCodeMinMethod =
+  binaryMethod "$min_exit_code" (-2029) exitCodeTy exitCodeTy $ \lhs rhs ->
+    boolCaseCore "$min_exit_code_case" (-20291) (orderingEqualCore (exitCodeCompareCore lhs rhs) (CCon orderingGTDataConName orderingTy)) exitCodeTy rhs lhs
+
+orderingEqualCore :: CoreExpr -> CoreExpr -> CoreExpr
+orderingEqualCore lhs rhs =
+  CPrimOp
+    PrimEq
+    [ orderingOrdinalCore "$ordering_equal_lhs" (-20300) lhs
+    , orderingOrdinalCore "$ordering_equal_rhs" (-20301) rhs
+    ]
+    boolTy
+
+exitCodeEqCore :: CoreExpr -> CoreExpr -> CoreExpr
+exitCodeEqCore lhs rhs =
+  CCase lhs (CoreBinder lhsCase exitCodeTy) lhsAlts boolTy
+ where
+  lhsCase = builtinLocalTermName "$eq_exit_code_lhs_case" (-2030)
+  rhsCaseSuccess = builtinLocalTermName "$eq_exit_code_rhs_success_case" (-2031)
+  rhsCaseFailure = builtinLocalTermName "$eq_exit_code_rhs_failure_case" (-2032)
+  lhsFailureCode = builtinLocalTermName "$eq_exit_code_lhs_failure" (-2033)
+  rhsFailureCode = builtinLocalTermName "$eq_exit_code_rhs_failure" (-2034)
+  lhsAlts =
+    [ CoreAlt
+        (ConstructorAlt exitSuccessDataConName)
+        []
+        ( CCase
+            rhs
+            (CoreBinder rhsCaseSuccess exitCodeTy)
+            [ CoreAlt (ConstructorAlt exitSuccessDataConName) [] (CCon trueDataConName boolTy)
+            , CoreAlt (ConstructorAlt exitFailureDataConName) [CoreBinder rhsFailureCode intTy] (CCon falseDataConName boolTy)
+            ]
+            boolTy
+        )
+    , CoreAlt
+        (ConstructorAlt exitFailureDataConName)
+        [CoreBinder lhsFailureCode intTy]
+        ( CCase
+            rhs
+            (CoreBinder rhsCaseFailure exitCodeTy)
+            [ CoreAlt (ConstructorAlt exitSuccessDataConName) [] (CCon falseDataConName boolTy)
+            , CoreAlt
+                (ConstructorAlt exitFailureDataConName)
+                [CoreBinder rhsFailureCode intTy]
+                (CPrimOp PrimEq [CVar lhsFailureCode intTy, CVar rhsFailureCode intTy] boolTy)
+            ]
+            boolTy
+        )
+    ]
+
+exitCodeCompareCore :: CoreExpr -> CoreExpr -> CoreExpr
+exitCodeCompareCore lhs rhs =
+  CCase lhs (CoreBinder lhsCase exitCodeTy) lhsAlts orderingTy
+ where
+  lhsCase = builtinLocalTermName "$compare_exit_code_lhs_case" (-2040)
+  rhsCaseSuccess = builtinLocalTermName "$compare_exit_code_rhs_success_case" (-2041)
+  rhsCaseFailure = builtinLocalTermName "$compare_exit_code_rhs_failure_case" (-2042)
+  lhsFailureCode = builtinLocalTermName "$compare_exit_code_lhs_failure" (-2043)
+  rhsFailureCode = builtinLocalTermName "$compare_exit_code_rhs_failure" (-2044)
+  lhsAlts =
+    [ CoreAlt
+        (ConstructorAlt exitSuccessDataConName)
+        []
+        ( CCase
+            rhs
+            (CoreBinder rhsCaseSuccess exitCodeTy)
+            [ CoreAlt (ConstructorAlt exitSuccessDataConName) [] (CCon orderingEQDataConName orderingTy)
+            , CoreAlt (ConstructorAlt exitFailureDataConName) [CoreBinder rhsFailureCode intTy] (CCon orderingLTDataConName orderingTy)
+            ]
+            orderingTy
+        )
+    , CoreAlt
+        (ConstructorAlt exitFailureDataConName)
+        [CoreBinder lhsFailureCode intTy]
+        ( CCase
+            rhs
+            (CoreBinder rhsCaseFailure exitCodeTy)
+            [ CoreAlt (ConstructorAlt exitSuccessDataConName) [] (CCon orderingGTDataConName orderingTy)
+            , CoreAlt
+                (ConstructorAlt exitFailureDataConName)
+                [CoreBinder rhsFailureCode intTy]
+                (intCompareCore "$compare_exit_code_failure" (-2045) (CVar lhsFailureCode intTy) (CVar rhsFailureCode intTy))
+            ]
+            orderingTy
+        )
+    ]
+
+unitCompareMethod :: CoreExpr
+unitCompareMethod =
+  binaryMethod "$compare_unit" (-2003) unitTy orderingTy (\_ _ -> CCon orderingEQDataConName orderingTy)
+
+unitLtMethod :: CoreExpr
+unitLtMethod =
+  binaryMethod "$lt_unit" (-2004) unitTy boolTy (\_ _ -> CCon falseDataConName boolTy)
+
+unitLeMethod :: CoreExpr
+unitLeMethod =
+  binaryMethod "$le_unit" (-2005) unitTy boolTy (\_ _ -> CCon trueDataConName boolTy)
+
+unitGtMethod :: CoreExpr
+unitGtMethod =
+  binaryMethod "$gt_unit" (-2006) unitTy boolTy (\_ _ -> CCon falseDataConName boolTy)
+
+unitGeMethod :: CoreExpr
+unitGeMethod =
+  binaryMethod "$ge_unit" (-2007) unitTy boolTy (\_ _ -> CCon trueDataConName boolTy)
+
+unitMaxMethod :: CoreExpr
+unitMaxMethod =
+  binaryMethod "$max_unit" (-2008) unitTy unitTy (\lhs _ -> lhs)
+
+unitMinMethod :: CoreExpr
+unitMinMethod =
+  binaryMethod "$min_unit" (-2009) unitTy unitTy (\lhs _ -> lhs)
+
+orderingOrdinalCore :: Text -> Int -> CoreExpr -> CoreExpr
+orderingOrdinalCore occurrence unique value =
+  orderingCaseCore
+    occurrence
+    unique
+    value
+    intTy
+    (CLit (LInt 0) intTy)
+    (CLit (LInt 1) intTy)
+    (CLit (LInt 2) intTy)
+
+intCompareCore :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
+intCompareCore occurrence unique lhs rhs =
+  boolCaseCore
+    (occurrence <> "_lt")
+    unique
+    (intLt lhs rhs)
+    orderingTy
+    (CCon orderingLTDataConName orderingTy)
+    ( boolCaseCore
+        (occurrence <> "_gt")
+        (unique - 1)
+        (intLt rhs lhs)
+        orderingTy
+        (CCon orderingGTDataConName orderingTy)
+        (CCon orderingEQDataConName orderingTy)
+    )
+
+intLeCore :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
+intLeCore occurrence unique lhs rhs =
+  boolNotCore (occurrence <> "_not_gt") unique (intLt rhs lhs)
+
+ixRangeIntMethod, ixIndexIntMethod, ixInRangeIntMethod, ixRangeSizeIntMethod :: CoreExpr
+ixRangeIntMethod =
+  ixRangeDirectMethod "$ix_range_int" (-3630) intTy intListCoreType enumFromToIntName enumFromToIntCoreType
+ixIndexIntMethod =
+  ixIndexOrdinalMethod "$ix_index_int" (-3640) intTy id
+ixInRangeIntMethod =
+  ixInRangeOrdinalMethod "$ix_in_range_int" (-3650) intTy id
+ixRangeSizeIntMethod =
+  ixRangeSizeOrdinalMethod "$ix_range_size_int" (-3660) intTy id
+
+ixRangeCharMethod, ixIndexCharMethod, ixInRangeCharMethod, ixRangeSizeCharMethod :: CoreExpr
+ixRangeCharMethod =
+  ixRangeDirectMethod "$ix_range_char" (-3670) charTy charListCoreType enumFromToCharName enumFromToCharCoreType
+ixIndexCharMethod =
+  ixIndexOrdinalMethod "$ix_index_char" (-3680) charTy charToIntCore
+ixInRangeCharMethod =
+  ixInRangeOrdinalMethod "$ix_in_range_char" (-3690) charTy charToIntCore
+ixRangeSizeCharMethod =
+  ixRangeSizeOrdinalMethod "$ix_range_size_char" (-3700) charTy charToIntCore
+
+ixRangeBoolMethod, ixIndexBoolMethod, ixInRangeBoolMethod, ixRangeSizeBoolMethod :: CoreExpr
+ixRangeBoolMethod =
+  ixRangeMappedOrdinalMethod "$ix_range_bool" (-3710) boolTy boolOrdinalCore intToBoolCore
+ixIndexBoolMethod =
+  ixIndexOrdinalMethod "$ix_index_bool" (-3720) boolTy boolOrdinalCore
+ixInRangeBoolMethod =
+  ixInRangeOrdinalMethod "$ix_in_range_bool" (-3730) boolTy boolOrdinalCore
+ixRangeSizeBoolMethod =
+  ixRangeSizeOrdinalMethod "$ix_range_size_bool" (-3740) boolTy boolOrdinalCore
+
+ixRangeOrderingMethod, ixIndexOrderingMethod, ixInRangeOrderingMethod, ixRangeSizeOrderingMethod :: CoreExpr
+ixRangeOrderingMethod =
+  ixRangeMappedOrdinalMethod "$ix_range_ordering" (-3750) orderingTy (orderingOrdinalCore "$ix_range_ordering_ord" (-3755)) (intToOrderingCore "$ix_range_ordering_from" (-3756))
+ixIndexOrderingMethod =
+  ixIndexOrdinalMethod "$ix_index_ordering" (-3760) orderingTy (orderingOrdinalCore "$ix_index_ordering_ord" (-3765))
+ixInRangeOrderingMethod =
+  ixInRangeOrdinalMethod "$ix_in_range_ordering" (-3770) orderingTy (orderingOrdinalCore "$ix_in_range_ordering_ord" (-3775))
+ixRangeSizeOrderingMethod =
+  ixRangeSizeOrdinalMethod "$ix_range_size_ordering" (-3780) orderingTy (orderingOrdinalCore "$ix_range_size_ordering_ord" (-3785))
+
+ixRangeUnitMethod, ixIndexUnitMethod, ixInRangeUnitMethod, ixRangeSizeUnitMethod :: CoreExpr
+ixRangeUnitMethod =
+  ixBoundsCaseMethod "$ix_range_unit" (-3790) unitTy (CTyList unitTy) (\_ _ -> consCore unitTy (CCon unitDataConName unitTy) (nilCore unitTy))
+ixIndexUnitMethod =
+  ixIndexMethod "$ix_index_unit" (-3800) unitTy (\_ _ _ -> zeroInt)
+ixInRangeUnitMethod =
+  ixIndexMethod "$ix_in_range_unit" (-3810) unitTy (\_ _ _ -> CCon trueDataConName boolTy)
+ixRangeSizeUnitMethod =
+  ixBoundsCaseMethod "$ix_range_size_unit" (-3820) unitTy intTy (\_ _ -> oneInt)
+
+ixRangeDirectMethod :: Text -> Int -> CoreType -> CoreType -> RName -> CoreType -> CoreExpr
+ixRangeDirectMethod occurrence unique valueTy listTy functionName functionTy =
+  ixBoundsCaseMethod occurrence unique valueTy listTy $ \lower upper ->
+    applyCore (applyCore (CVar functionName functionTy) lower (CTyFun valueTy listTy)) upper listTy
+
+ixRangeMappedOrdinalMethod :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr) -> (CoreExpr -> CoreExpr) -> CoreExpr
+ixRangeMappedOrdinalMethod occurrence unique valueTy toOrdinal fromOrdinal =
+  ixBoundsCaseMethod occurrence unique valueTy (CTyList valueTy) $ \lower upper ->
+    mapIntListCore
+      (occurrence <> "_map")
+      (unique - 4)
+      valueTy
+      fromOrdinal
+      (applyCore (applyCore (CVar enumFromToIntName enumFromToIntCoreType) (toOrdinal lower) (CTyFun intTy intListCoreType)) (toOrdinal upper) intListCoreType)
+
+ixIndexOrdinalMethod :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr) -> CoreExpr
+ixIndexOrdinalMethod occurrence unique valueTy toOrdinal =
+  ixIndexMethod occurrence unique valueTy $ \lower upper value ->
+    let lowerOrdinal = toOrdinal lower
+        upperOrdinal = toOrdinal upper
+        valueOrdinal = toOrdinal value
+        inBounds = ixInRangeOrdinalCore (occurrence <> "_check") (unique - 4) lowerOrdinal upperOrdinal valueOrdinal
+     in boolCaseCore
+          (occurrence <> "_case")
+          (unique - 5)
+          inBounds
+          intTy
+          (intSub valueOrdinal lowerOrdinal)
+          (bottomCore (occurrence <> "_bottom") (unique - 6) intTy)
+
+ixInRangeOrdinalMethod :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr) -> CoreExpr
+ixInRangeOrdinalMethod occurrence unique valueTy toOrdinal =
+  ixIndexMethod occurrence unique valueTy $ \lower upper value ->
+    ixInRangeOrdinalCore (occurrence <> "_check") (unique - 4) (toOrdinal lower) (toOrdinal upper) (toOrdinal value)
+
+ixRangeSizeOrdinalMethod :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr) -> CoreExpr
+ixRangeSizeOrdinalMethod occurrence unique valueTy toOrdinal =
+  ixBoundsCaseMethod occurrence unique valueTy intTy $ \lower upper ->
+    let lowerOrdinal = toOrdinal lower
+        upperOrdinal = toOrdinal upper
+     in boolCaseCore
+          (occurrence <> "_case")
+          (unique - 4)
+          (intLeCore (occurrence <> "_le") (unique - 5) lowerOrdinal upperOrdinal)
+          intTy
+          (intAdd (intSub upperOrdinal lowerOrdinal) oneInt)
+          zeroInt
+
+ixInRangeOrdinalCore :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+ixInRangeOrdinalCore occurrence unique lower upper value =
+  boolAndCore
+    (occurrence <> "_and")
+    unique
+    (intLeCore (occurrence <> "_lower") (unique - 1) lower value)
+    (intLeCore (occurrence <> "_upper") (unique - 2) value upper)
+
+ixBoundsCaseMethod :: Text -> Int -> CoreType -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+ixBoundsCaseMethod occurrence unique valueTy resultTy body =
+  CLam (CoreBinder boundsName boundsTy) boundsCase (CTyFun boundsTy resultTy)
+ where
+  boundsTy = CTyTuple [valueTy, valueTy]
+  boundsName = builtinLocalTermName (occurrence <> "_bounds") unique
+  caseName = builtinLocalTermName (occurrence <> "_case_bounds") (unique - 1)
+  lowerName = builtinLocalTermName (occurrence <> "_lower") (unique - 2)
+  upperName = builtinLocalTermName (occurrence <> "_upper") (unique - 3)
+  boundsCase =
+    CCase
+      (CVar boundsName boundsTy)
+      (CoreBinder caseName boundsTy)
+      [ CoreAlt
+          (ConstructorAlt (tupleDataConName 2))
+          [CoreBinder lowerName valueTy, CoreBinder upperName valueTy]
+          (body (CVar lowerName valueTy) (CVar upperName valueTy))
+      ]
+      resultTy
+
+ixIndexMethod :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+ixIndexMethod occurrence unique valueTy body =
+  CLam (CoreBinder boundsName boundsTy) (CLam (CoreBinder valueName valueTy) boundsCase (CTyFun valueTy (exprType boundsCase))) (CTyFun boundsTy (CTyFun valueTy (exprType boundsCase)))
+ where
+  boundsTy = CTyTuple [valueTy, valueTy]
+  boundsName = builtinLocalTermName (occurrence <> "_bounds") unique
+  valueName = builtinLocalTermName (occurrence <> "_value") (unique - 1)
+  caseName = builtinLocalTermName (occurrence <> "_case_bounds") (unique - 2)
+  lowerName = builtinLocalTermName (occurrence <> "_lower") (unique - 3)
+  upperName = builtinLocalTermName (occurrence <> "_upper") (unique - 4)
+  value = CVar valueName valueTy
+  boundsCase =
+    CCase
+      (CVar boundsName boundsTy)
+      (CoreBinder caseName boundsTy)
+      [ CoreAlt
+          (ConstructorAlt (tupleDataConName 2))
+          [CoreBinder lowerName valueTy, CoreBinder upperName valueTy]
+          (body (CVar lowerName valueTy) (CVar upperName valueTy) value)
+      ]
+      (exprType (body (CVar lowerName valueTy) (CVar upperName valueTy) value))
+
+boolOrdinalCore :: CoreExpr -> CoreExpr
+boolOrdinalCore value =
+  boolCaseCore "$bool_ordinal" (-3830) value intTy oneInt zeroInt
+
+intToBoolCore :: CoreExpr -> CoreExpr
+intToBoolCore value =
+  CCase
+    value
+    (CoreBinder (builtinLocalTermName "$int_to_bool" (-3831)) intTy)
+    [ CoreAlt (LiteralAlt (LInt 0)) [] (CCon falseDataConName boolTy)
+    , CoreAlt (LiteralAlt (LInt 1)) [] (CCon trueDataConName boolTy)
+    , CoreAlt DefaultAlt [] (bottomCore "$int_to_bool_bottom" (-3832) boolTy)
+    ]
+    boolTy
+
+intToOrderingCore :: Text -> Int -> CoreExpr -> CoreExpr
+intToOrderingCore occurrence unique value =
+  CCase
+    value
+    (CoreBinder (builtinLocalTermName occurrence unique) intTy)
+    [ CoreAlt (LiteralAlt (LInt 0)) [] (CCon orderingLTDataConName orderingTy)
+    , CoreAlt (LiteralAlt (LInt 1)) [] (CCon orderingEQDataConName orderingTy)
+    , CoreAlt (LiteralAlt (LInt 2)) [] (CCon orderingGTDataConName orderingTy)
+    , CoreAlt DefaultAlt [] (bottomCore (occurrence <> "_bottom") (unique - 1) orderingTy)
+    ]
+    orderingTy
+
+mapIntListCore :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr) -> CoreExpr -> CoreExpr
+mapIntListCore occurrence unique valueTy mapper intList =
+  applyCore (applyCore mapFunction mapperExpr (CTyFun intListCoreType resultListTy)) intList resultListTy
+ where
+  resultListTy = CTyList valueTy
+  argumentName = builtinLocalTermName (occurrence <> "_arg") unique
+  mapperExpr = CLam (CoreBinder argumentName intTy) (mapper (CVar argumentName intTy)) (CTyFun intTy valueTy)
+  mapFunction =
+    CTypeApp
+      (CVar derivedMapName mapPreludeCoreType)
+      [intTy, valueTy]
+      (CTyFun (CTyFun intTy valueTy) (CTyFun intListCoreType resultListTy))
+
+mapPreludeCoreType :: CoreType
+mapPreludeCoreType =
+  CTyForall [a, b] (CTyFun (CTyFun aTy bTy) (CTyFun (CTyList aTy) (CTyList bTy)))
+ where
+  a = preludeTypeVariable "a" (-1201)
+  b = preludeTypeVariable "b" (-1202)
+  aTy = CTyVar a
+  bTy = CTyVar b
+
+bottomCore :: Text -> Int -> CoreType -> CoreExpr
+bottomCore occurrence unique resultTy =
+  CCase (CCon falseDataConName boolTy) (CoreBinder (builtinLocalTermName occurrence unique) boolTy) [] resultTy
+
 intAddMethod :: CoreExpr
 intAddMethod =
   binaryPrimMethod "$add_int" (-1781) intTy intTy PrimAdd
@@ -8730,12 +17060,12 @@ intSignumMethod =
 
 intFromIntegerMethod :: CoreExpr
 intFromIntegerMethod =
-  unaryMethod "$fromInteger_int" (-1861) intTy intTy id
+  unaryMethod "$fromInteger_int" (-1861) integerTy intTy integerToIntCore
 
 intToRationalMethod :: CoreExpr
 intToRationalMethod =
   unaryMethod "$toRational_int" (-1862) intTy rationalCoreType $ \value ->
-    tuple2IntCore value oneInt
+    ratioIntegerCore (intToIntegerCore value) oneInteger
 
 intQuotMethod :: CoreExpr
 intQuotMethod =
@@ -8755,12 +17085,12 @@ intModMethod =
 
 intQuotRemMethod :: CoreExpr
 intQuotRemMethod =
-  binaryMethod "$quotRem_int" (-1867) intTy rationalCoreType $ \lhs rhs ->
+  binaryMethod "$quotRem_int" (-1867) intTy intPairCoreType $ \lhs rhs ->
     tuple2IntCore (intQuot lhs rhs) (intRem lhs rhs)
 
 intDivModMethod :: CoreExpr
 intDivModMethod =
-  binaryMethod "$divMod_int" (-1868) intTy rationalCoreType $ \lhs rhs ->
+  binaryMethod "$divMod_int" (-1868) intTy intPairCoreType $ \lhs rhs ->
     letCore dName intTy (intDivCoreWith "$divMod_int" (-18680) lhs rhs) $
       letCore mName intTy (intSub lhs (intMul dVar rhs)) $
         tuple2IntCore dVar mVar
@@ -8772,7 +17102,1034 @@ intDivModMethod =
 
 intToIntegerMethod :: CoreExpr
 intToIntegerMethod =
-  unaryMethod "$toInteger_int" (-1869) intTy intTy id
+  unaryMethod "$toInteger_int" (-1869) intTy integerTy intToIntegerCore
+
+integerEqMethod :: CoreExpr
+integerEqMethod =
+  binaryPrimMethod "$eq_integer" (-18930) integerTy boolTy PrimIntegerEq
+
+integerNotEqMethod :: CoreExpr
+integerNotEqMethod =
+  binaryBoolMethod "$neq_integer" (-18931) integerTy (\lhs rhs -> boolNotCore "$neq_integer_not" (-18932) (CPrimOp PrimIntegerEq [lhs, rhs] boolTy))
+
+integerCompareMethod :: CoreExpr
+integerCompareMethod =
+  binaryMethod "$compare_integer" (-18933) integerTy orderingTy $ \lhs rhs ->
+    boolCaseCore
+      "$compare_integer_lt"
+      (-18934)
+      (integerLt lhs rhs)
+      orderingTy
+      (CCon orderingLTDataConName orderingTy)
+      ( boolCaseCore
+          "$compare_integer_gt"
+          (-18935)
+          (integerLt rhs lhs)
+          orderingTy
+          (CCon orderingGTDataConName orderingTy)
+          (CCon orderingEQDataConName orderingTy)
+      )
+
+integerLtMethod :: CoreExpr
+integerLtMethod =
+  binaryPrimMethod "$lt_integer" (-18936) integerTy boolTy PrimIntegerLt
+
+integerLeMethod :: CoreExpr
+integerLeMethod =
+  binaryBoolMethod "$le_integer" (-18937) integerTy (\lhs rhs -> boolNotCore "$le_integer_not" (-18938) (integerLt rhs lhs))
+
+integerGtMethod :: CoreExpr
+integerGtMethod =
+  binaryBoolMethod "$gt_integer" (-18939) integerTy (\lhs rhs -> integerLt rhs lhs)
+
+integerGeMethod :: CoreExpr
+integerGeMethod =
+  binaryBoolMethod "$ge_integer" (-18940) integerTy (\lhs rhs -> boolNotCore "$ge_integer_not" (-18941) (integerLt lhs rhs))
+
+integerMaxMethod :: CoreExpr
+integerMaxMethod =
+  binaryMethod "$max_integer" (-18942) integerTy integerTy $ \lhs rhs ->
+    boolCaseCore "$max_integer_case" (-18943) (integerLt lhs rhs) integerTy rhs lhs
+
+integerMinMethod :: CoreExpr
+integerMinMethod =
+  binaryMethod "$min_integer" (-18944) integerTy integerTy $ \lhs rhs ->
+    boolCaseCore "$min_integer_case" (-18945) (integerLt lhs rhs) integerTy lhs rhs
+
+integerAddMethod :: CoreExpr
+integerAddMethod =
+  binaryPrimMethod "$add_integer" (-18946) integerTy integerTy PrimIntegerAdd
+
+integerSubMethod :: CoreExpr
+integerSubMethod =
+  binaryPrimMethod "$sub_integer" (-18947) integerTy integerTy PrimIntegerSub
+
+integerMulMethod :: CoreExpr
+integerMulMethod =
+  binaryPrimMethod "$mul_integer" (-18948) integerTy integerTy PrimIntegerMul
+
+integerNegateMethod :: CoreExpr
+integerNegateMethod =
+  unaryPrimMethod "$negate_integer" (-18949) integerTy integerTy PrimIntegerNegate
+
+integerAbsMethod :: CoreExpr
+integerAbsMethod =
+  unaryPrimMethod "$abs_integer" (-18950) integerTy integerTy PrimIntegerAbs
+
+integerSignumMethod :: CoreExpr
+integerSignumMethod =
+  unaryPrimMethod "$signum_integer" (-18951) integerTy integerTy PrimIntegerSignum
+
+integerFromIntegerMethod :: CoreExpr
+integerFromIntegerMethod =
+  unaryMethod "$fromInteger_integer" (-18952) integerTy integerTy id
+
+integerToRationalMethod :: CoreExpr
+integerToRationalMethod =
+  unaryMethod "$toRational_integer" (-18953) integerTy rationalCoreType $ \value ->
+    ratioIntegerCore value oneInteger
+
+integerQuotMethod :: CoreExpr
+integerQuotMethod =
+  binaryPrimMethod "$quot_integer" (-18954) integerTy integerTy PrimIntegerQuot
+
+integerRemMethod :: CoreExpr
+integerRemMethod =
+  binaryPrimMethod "$rem_integer" (-18955) integerTy integerTy PrimIntegerRem
+
+integerDivMethod :: CoreExpr
+integerDivMethod =
+  binaryMethod "$div_integer" (-18956) integerTy integerTy (integerDivCoreWith "$div_integer" (-18957))
+
+integerModMethod :: CoreExpr
+integerModMethod =
+  binaryMethod "$mod_integer" (-18958) integerTy integerTy (integerModCoreWith "$mod_integer" (-18959))
+
+integerQuotRemMethod :: CoreExpr
+integerQuotRemMethod =
+  binaryMethod "$quotRem_integer" (-18960) integerTy integerPairCoreType $ \lhs rhs ->
+    tuple2IntegerCore (integerQuot lhs rhs) (integerRem lhs rhs)
+
+integerDivModMethod :: CoreExpr
+integerDivModMethod =
+  binaryMethod "$divMod_integer" (-18961) integerTy integerPairCoreType $ \lhs rhs ->
+    letCore dName integerTy (integerDivCoreWith "$divMod_integer" (-18962) lhs rhs) $
+      letCore mName integerTy (integerSub lhs (integerMul dVar rhs)) $
+        tuple2IntegerCore dVar mVar
+ where
+  dName = builtinLocalTermName "$divMod_integer_d" (-18963)
+  mName = builtinLocalTermName "$divMod_integer_m" (-18964)
+  dVar = CVar dName integerTy
+  mVar = CVar mName integerTy
+
+integerToIntegerMethod :: CoreExpr
+integerToIntegerMethod =
+  unaryMethod "$toInteger_integer" (-18965) integerTy integerTy id
+
+integerShowsPrecMethod, integerShowMethod, integerShowListMethod :: CoreExpr
+integerShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_integer" (-18966) integerTy (\value -> CPrimOp PrimShowInteger [value] stringTy)
+integerShowMethod =
+  unaryPrimMethod "$show_integer" (-18967) integerTy stringTy PrimShowInteger
+integerShowListMethod =
+  showListFromShowsMethod integerTy integerShowsPrecMethod
+
+ratioEqMethod :: CoreExpr
+ratioEqMethod =
+  ratioBinaryBoolMethod "$eq_ratio_int" (-18700) ratioEqCore
+
+ratioNotEqMethod :: CoreExpr
+ratioNotEqMethod =
+  ratioBinaryBoolMethod "$neq_ratio_int" (-18710) (\lhs rhs -> boolNotCore "$neq_ratio_int_not" (-18714) (ratioEqCore lhs rhs))
+
+ratioCompareMethod :: CoreExpr
+ratioCompareMethod =
+  ratioBinaryMethod "$compare_ratio_int" (-18720) orderingTy $ \lhs rhs ->
+    boolCaseCore
+      "$compare_ratio_int_lt"
+      (-18724)
+      (ratioLtCore lhs rhs)
+      orderingTy
+      (CCon orderingLTDataConName orderingTy)
+      ( boolCaseCore
+          "$compare_ratio_int_gt"
+          (-18725)
+          (ratioLtCore rhs lhs)
+          orderingTy
+          (CCon orderingGTDataConName orderingTy)
+          (CCon orderingEQDataConName orderingTy)
+      )
+
+ratioLtMethod :: CoreExpr
+ratioLtMethod =
+  ratioBinaryBoolMethod "$lt_ratio_int" (-18730) ratioLtCore
+
+ratioLeMethod :: CoreExpr
+ratioLeMethod =
+  ratioBinaryBoolMethod "$le_ratio_int" (-18740) (\lhs rhs -> boolNotCore "$le_ratio_int_not" (-18744) (ratioLtCore rhs lhs))
+
+ratioGtMethod :: CoreExpr
+ratioGtMethod =
+  ratioBinaryBoolMethod "$gt_ratio_int" (-18750) (\lhs rhs -> ratioLtCore rhs lhs)
+
+ratioGeMethod :: CoreExpr
+ratioGeMethod =
+  ratioBinaryBoolMethod "$ge_ratio_int" (-18760) (\lhs rhs -> boolNotCore "$ge_ratio_int_not" (-18764) (ratioLtCore lhs rhs))
+
+ratioMaxMethod :: CoreExpr
+ratioMaxMethod =
+  ratioBinaryMethod "$max_ratio_int" (-18770) rationalCoreType $ \lhs rhs ->
+    boolCaseCore "$max_ratio_int_case" (-18774) (ratioLtCore lhs rhs) rationalCoreType rhs lhs
+
+ratioMinMethod :: CoreExpr
+ratioMinMethod =
+  ratioBinaryMethod "$min_ratio_int" (-18780) rationalCoreType $ \lhs rhs ->
+    boolCaseCore "$min_ratio_int_case" (-18784) (ratioLtCore lhs rhs) rationalCoreType lhs rhs
+
+ratioAddMethod :: CoreExpr
+ratioAddMethod =
+  ratioBinaryMethod "$add_ratio_int" (-18790) rationalCoreType ratioAddCore
+
+ratioSubMethod :: CoreExpr
+ratioSubMethod =
+  ratioBinaryMethod "$sub_ratio_int" (-18800) rationalCoreType ratioSubCore
+
+ratioMulMethod :: CoreExpr
+ratioMulMethod =
+  ratioBinaryMethod "$mul_ratio_int" (-18810) rationalCoreType ratioMulCore
+
+ratioNegateMethod :: CoreExpr
+ratioNegateMethod =
+  unaryMethod "$negate_ratio_int" (-18820) rationalCoreType rationalCoreType $ \value ->
+    ratioCaseCore "$negate_ratio_int_case" (-18822) value rationalCoreType (-18823) (-18824) $ \n d ->
+      ratioIntegerCore (CPrimOp PrimIntegerNegate [n] integerTy) d
+
+ratioAbsMethod :: CoreExpr
+ratioAbsMethod =
+  unaryMethod "$abs_ratio_int" (-18830) rationalCoreType rationalCoreType $ \value ->
+    ratioCaseCore "$abs_ratio_int_case" (-18832) value rationalCoreType (-18833) (-18834) $ \n d ->
+      ratioIntegerCore (integerAbsCore n) d
+
+ratioSignumMethod :: CoreExpr
+ratioSignumMethod =
+  unaryMethod "$signum_ratio_int" (-18840) rationalCoreType rationalCoreType $ \value ->
+    ratioCaseCore "$signum_ratio_int_case" (-18842) value rationalCoreType (-18843) (-18844) $ \n _ ->
+      ratioIntegerCore (integerSignumCore n) oneInteger
+
+ratioFromIntegerMethod :: CoreExpr
+ratioFromIntegerMethod =
+  unaryMethod "$fromInteger_ratio_int" (-18850) integerTy rationalCoreType $ \value ->
+    ratioIntegerCore value oneInteger
+
+ratioToRationalMethod :: CoreExpr
+ratioToRationalMethod =
+  unaryMethod "$toRational_ratio_int" (-18860) rationalCoreType rationalCoreType id
+
+data FloatingTypeInfo = FloatingTypeInfo
+  { floatingInfoDigits :: Integer
+  , floatingInfoRangeLow :: Integer
+  , floatingInfoRangeHigh :: Integer
+  }
+
+floatEqMethod, floatNotEqMethod, doubleEqMethod, doubleNotEqMethod :: CoreExpr
+floatEqMethod = floatingEqMethod FloatWidth floatTy "$eq_float" (-6001)
+floatNotEqMethod = floatingNotEqMethod FloatWidth floatTy "$neq_float" (-6005)
+doubleEqMethod = floatingEqMethod DoubleWidth doubleTy "$eq_double" (-6011)
+doubleNotEqMethod = floatingNotEqMethod DoubleWidth doubleTy "$neq_double" (-6015)
+
+floatCompareMethod, floatLtMethod, floatLeMethod, floatGtMethod, floatGeMethod, floatMaxMethod, floatMinMethod :: CoreExpr
+floatCompareMethod = floatingCompareMethod FloatWidth floatTy "$compare_float" (-6021)
+floatLtMethod = floatingLtMethod FloatWidth floatTy "$lt_float" (-6031)
+floatLeMethod = floatingLeMethod FloatWidth floatTy "$le_float" (-6035)
+floatGtMethod = floatingGtMethod FloatWidth floatTy "$gt_float" (-6041)
+floatGeMethod = floatingGeMethod FloatWidth floatTy "$ge_float" (-6045)
+floatMaxMethod = floatingMaxMethod FloatWidth floatTy "$max_float" (-6051)
+floatMinMethod = floatingMinMethod FloatWidth floatTy "$min_float" (-6055)
+
+doubleCompareMethod, doubleLtMethod, doubleLeMethod, doubleGtMethod, doubleGeMethod, doubleMaxMethod, doubleMinMethod :: CoreExpr
+doubleCompareMethod = floatingCompareMethod DoubleWidth doubleTy "$compare_double" (-6061)
+doubleLtMethod = floatingLtMethod DoubleWidth doubleTy "$lt_double" (-6071)
+doubleLeMethod = floatingLeMethod DoubleWidth doubleTy "$le_double" (-6075)
+doubleGtMethod = floatingGtMethod DoubleWidth doubleTy "$gt_double" (-6081)
+doubleGeMethod = floatingGeMethod DoubleWidth doubleTy "$ge_double" (-6085)
+doubleMaxMethod = floatingMaxMethod DoubleWidth doubleTy "$max_double" (-6091)
+doubleMinMethod = floatingMinMethod DoubleWidth doubleTy "$min_double" (-6095)
+
+floatAddMethod, floatSubMethod, floatMulMethod, floatNegateMethod, floatAbsMethod, floatSignumMethod, floatFromIntegerMethod :: CoreExpr
+floatAddMethod = floatingBinaryPrimMethod FloatWidth floatTy FloatAdd "$add_float" (-6101)
+floatSubMethod = floatingBinaryPrimMethod FloatWidth floatTy FloatSub "$sub_float" (-6105)
+floatMulMethod = floatingBinaryPrimMethod FloatWidth floatTy FloatMul "$mul_float" (-6111)
+floatNegateMethod = floatingUnaryPrimMethod FloatWidth floatTy FloatNegate "$negate_float" (-6115)
+floatAbsMethod = floatingUnaryPrimMethod FloatWidth floatTy FloatAbs "$abs_float" (-6121)
+floatSignumMethod = floatingUnaryPrimMethod FloatWidth floatTy FloatSignum "$signum_float" (-6125)
+floatFromIntegerMethod = floatingFromIntegerMethod FloatWidth floatTy "$fromInteger_float" (-6131)
+
+doubleAddMethod, doubleSubMethod, doubleMulMethod, doubleNegateMethod, doubleAbsMethod, doubleSignumMethod, doubleFromIntegerMethod :: CoreExpr
+doubleAddMethod = floatingBinaryPrimMethod DoubleWidth doubleTy FloatAdd "$add_double" (-6141)
+doubleSubMethod = floatingBinaryPrimMethod DoubleWidth doubleTy FloatSub "$sub_double" (-6145)
+doubleMulMethod = floatingBinaryPrimMethod DoubleWidth doubleTy FloatMul "$mul_double" (-6151)
+doubleNegateMethod = floatingUnaryPrimMethod DoubleWidth doubleTy FloatNegate "$negate_double" (-6155)
+doubleAbsMethod = floatingUnaryPrimMethod DoubleWidth doubleTy FloatAbs "$abs_double" (-6161)
+doubleSignumMethod = floatingUnaryPrimMethod DoubleWidth doubleTy FloatSignum "$signum_double" (-6165)
+doubleFromIntegerMethod = floatingFromIntegerMethod DoubleWidth doubleTy "$fromInteger_double" (-6171)
+
+floatToRationalMethod, doubleToRationalMethod :: CoreExpr
+floatToRationalMethod = floatingToRationalMethod FloatWidth floatTy "$toRational_float" (-6181)
+doubleToRationalMethod = floatingToRationalMethod DoubleWidth doubleTy "$toRational_double" (-6191)
+
+floatDivMethod, floatRecipMethod, floatFromRationalMethod :: CoreExpr
+floatDivMethod = floatingBinaryPrimMethod FloatWidth floatTy FloatDiv "$div_float" (-6201)
+floatRecipMethod = floatingRecipMethod FloatWidth floatTy "$recip_float" (-6205)
+floatFromRationalMethod = floatingFromRationalMethod FloatWidth floatTy "$fromRational_float" (-6211)
+
+doubleDivMethod, doubleRecipMethod, doubleFromRationalMethod :: CoreExpr
+doubleDivMethod = floatingBinaryPrimMethod DoubleWidth doubleTy FloatDiv "$div_double" (-6221)
+doubleRecipMethod = floatingRecipMethod DoubleWidth doubleTy "$recip_double" (-6225)
+doubleFromRationalMethod = floatingFromRationalMethod DoubleWidth doubleTy "$fromRational_double" (-6231)
+
+floatingMethods :: FloatingWidth -> CoreType -> Int -> [CoreExpr]
+floatingMethods width ty unique =
+  [ floatingConstant ty (floatingLiteral width pi)
+  , floatingUnaryPrimMethod width ty FloatExp "$exp_float" unique
+  , floatingUnaryPrimMethod width ty FloatLog "$log_float" (unique - 1)
+  , floatingUnaryPrimMethod width ty FloatSqrt "$sqrt_float" (unique - 2)
+  , floatingBinaryPrimMethod width ty FloatPow "$pow_float" (unique - 3)
+  , floatingLogBaseMethod width ty "$log_base_float" (unique - 4)
+  , floatingUnaryPrimMethod width ty FloatSin "$sin_float" (unique - 5)
+  , floatingUnaryPrimMethod width ty FloatCos "$cos_float" (unique - 6)
+  , floatingUnaryPrimMethod width ty FloatTan "$tan_float" (unique - 7)
+  , floatingUnaryPrimMethod width ty FloatAsin "$asin_float" (unique - 8)
+  , floatingUnaryPrimMethod width ty FloatAcos "$acos_float" (unique - 9)
+  , floatingUnaryPrimMethod width ty FloatAtan "$atan_float" (unique - 10)
+  , floatingUnaryPrimMethod width ty FloatSinh "$sinh_float" (unique - 11)
+  , floatingUnaryPrimMethod width ty FloatCosh "$cosh_float" (unique - 12)
+  , floatingUnaryPrimMethod width ty FloatTanh "$tanh_float" (unique - 13)
+  , floatingUnaryPrimMethod width ty FloatAsinh "$asinh_float" (unique - 14)
+  , floatingUnaryPrimMethod width ty FloatAcosh "$acosh_float" (unique - 15)
+  , floatingUnaryPrimMethod width ty FloatAtanh "$atanh_float" (unique - 16)
+  ]
+
+realFracMethods :: FloatingWidth -> CoreType -> Int -> [CoreExpr]
+realFracMethods width ty unique =
+  [ floatingProperFractionMethod width ty "$proper_fraction_float" unique
+  , floatingToIntMethod width ty FloatTruncate "$truncate_float" (unique - 1)
+  , floatingToIntMethod width ty FloatRound "$round_float" (unique - 2)
+  , floatingToIntMethod width ty FloatCeiling "$ceiling_float" (unique - 3)
+  , floatingToIntMethod width ty FloatFloor "$floor_float" (unique - 4)
+  ]
+
+realFloatMethods :: FloatingWidth -> CoreType -> FloatingTypeInfo -> Int -> [CoreExpr]
+realFloatMethods width ty info unique =
+  [ unaryMethod "$float_radix" unique ty intTy (const (CLit (LInt 2) intTy))
+  , unaryMethod "$float_digits" (unique - 1) ty intTy (const (CLit (LInt (floatingInfoDigits info)) intTy))
+  , unaryMethod "$float_range" (unique - 2) ty intPairCoreType (const (tuple2IntCore (CLit (LInt (floatingInfoRangeLow info)) intTy) (CLit (LInt (floatingInfoRangeHigh info)) intTy)))
+  , floatingDecodeMethod width ty "$decode_float" (unique - 3)
+  , floatingEncodeMethod width ty "$encode_float" (unique - 4)
+  , floatingExponentMethod width ty "$exponent_float" (unique - 5)
+  , floatingSignificandMethod width ty "$significand_float" (unique - 6)
+  , floatingScaleFloatMethod width ty "$scale_float" (unique - 7)
+  , floatingPredicateMethod width ty FloatIsNaN "$is_nan_float" (unique - 8)
+  , floatingPredicateMethod width ty FloatIsInfinite "$is_infinite_float" (unique - 9)
+  , floatingPredicateMethod width ty FloatIsDenormalized "$is_denormalized_float" (unique - 10)
+  , floatingPredicateMethod width ty FloatIsNegativeZero "$is_negative_zero_float" (unique - 11)
+  , unaryMethod "$is_ieee_float" (unique - 12) ty boolTy (const (CCon trueDataConName boolTy))
+  , floatingBinaryPrimMethod width ty FloatAtan2 "$atan2_float" (unique - 13)
+  ]
+
+floatingEqMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingEqMethod width ty occurrence unique =
+  binaryPrimMethod occurrence unique ty boolTy (PrimFloat width FloatEq)
+
+floatingNotEqMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingNotEqMethod width ty occurrence unique =
+  binaryBoolMethod occurrence unique ty (\lhs rhs -> boolNotCore (occurrence <> "_not") (unique - 1) (CPrimOp (PrimFloat width FloatEq) [lhs, rhs] boolTy))
+
+floatingCompareMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingCompareMethod width ty occurrence unique =
+  binaryMethod occurrence unique ty orderingTy $ \lhs rhs ->
+    boolCaseCore
+      (occurrence <> "_lt")
+      (unique - 1)
+      (floatingLtCore width lhs rhs)
+      orderingTy
+      (CCon orderingLTDataConName orderingTy)
+      ( boolCaseCore
+          (occurrence <> "_gt")
+          (unique - 2)
+          (floatingLtCore width rhs lhs)
+          orderingTy
+          (CCon orderingGTDataConName orderingTy)
+          (CCon orderingEQDataConName orderingTy)
+      )
+
+floatingLtMethod, floatingLeMethod, floatingGtMethod, floatingGeMethod, floatingMaxMethod, floatingMinMethod ::
+  FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingLtMethod width ty occurrence unique =
+  binaryPrimMethod occurrence unique ty boolTy (PrimFloat width FloatLt)
+floatingLeMethod width ty occurrence unique =
+  binaryBoolMethod occurrence unique ty (\lhs rhs -> boolNotCore (occurrence <> "_not") (unique - 1) (floatingLtCore width rhs lhs))
+floatingGtMethod width ty occurrence unique =
+  binaryBoolMethod occurrence unique ty (\lhs rhs -> floatingLtCore width rhs lhs)
+floatingGeMethod width ty occurrence unique =
+  binaryBoolMethod occurrence unique ty (\lhs rhs -> boolNotCore (occurrence <> "_not") (unique - 1) (floatingLtCore width lhs rhs))
+floatingMaxMethod width ty occurrence unique =
+  binaryMethod occurrence unique ty ty $ \lhs rhs ->
+    boolCaseCore (occurrence <> "_case") (unique - 1) (floatingLtCore width lhs rhs) ty rhs lhs
+floatingMinMethod width ty occurrence unique =
+  binaryMethod occurrence unique ty ty $ \lhs rhs ->
+    boolCaseCore (occurrence <> "_case") (unique - 1) (floatingLtCore width lhs rhs) ty lhs rhs
+
+floatingBinaryPrimMethod :: FloatingWidth -> CoreType -> FloatingPrimOp -> Text -> Int -> CoreExpr
+floatingBinaryPrimMethod width ty op occurrence unique =
+  binaryMethod occurrence unique ty ty (\lhs rhs -> CPrimOp (PrimFloat width op) [lhs, rhs] ty)
+
+floatingUnaryPrimMethod :: FloatingWidth -> CoreType -> FloatingPrimOp -> Text -> Int -> CoreExpr
+floatingUnaryPrimMethod width ty op occurrence unique =
+  unaryMethod occurrence unique ty ty (\value -> CPrimOp (PrimFloat width op) [value] ty)
+
+floatingFromIntegerMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingFromIntegerMethod width ty occurrence unique =
+  unaryMethod occurrence unique integerTy ty (\value -> CPrimOp (PrimIntegerToFloat width) [value] ty)
+
+floatingToRationalMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingToRationalMethod width ty occurrence unique =
+  unaryMethod occurrence unique ty rationalCoreType $ \value ->
+    ratioIntegerCore (intToIntegerCore (CPrimOp (PrimFloatInt width FloatRound) [value] intTy)) oneInteger
+
+floatingRecipMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingRecipMethod width ty occurrence unique =
+  unaryMethod occurrence unique ty ty (\value -> CPrimOp (PrimFloat width FloatDiv) [floatingOne width, value] ty)
+
+floatingFromRationalMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingFromRationalMethod width ty occurrence unique =
+  unaryMethod occurrence unique rationalCoreType ty $ \value ->
+    ratioCaseCore (occurrence <> "_case") (unique - 1) value ty (unique - 2) (unique - 3) $ \numerator denominator ->
+      CPrimOp
+        (PrimFloat width FloatDiv)
+        [ CPrimOp (PrimIntegerToFloat width) [numerator] ty
+        , CPrimOp (PrimIntegerToFloat width) [denominator] ty
+        ]
+        ty
+
+floatingLogBaseMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingLogBaseMethod width ty occurrence unique =
+  binaryMethod occurrence unique ty ty $ \base value ->
+    CPrimOp
+      (PrimFloat width FloatDiv)
+      [CPrimOp (PrimFloat width FloatLog) [value] ty, CPrimOp (PrimFloat width FloatLog) [base] ty]
+      ty
+
+floatingProperFractionMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingProperFractionMethod width ty occurrence unique =
+  unaryMethod occurrence unique ty (CTyTuple [intTy, ty]) $ \value ->
+    letCore wholeName intTy (CPrimOp (PrimFloatInt width FloatTruncate) [value] intTy) $
+      constructorApp
+        (tupleDataConName 2)
+        [intTy, ty]
+        [ CVar wholeName intTy
+        , CPrimOp (PrimFloat width FloatSub) [value, CPrimOp (PrimFloat width FloatFromInt) [CVar wholeName intTy] ty] ty
+        ]
+        (CTyTuple [intTy, ty])
+ where
+  wholeName = builtinLocalTermName (occurrence <> "_whole") (unique - 1)
+
+floatingToIntMethod :: FloatingWidth -> CoreType -> FloatingIntPrimOp -> Text -> Int -> CoreExpr
+floatingToIntMethod width ty op occurrence unique =
+  unaryMethod occurrence unique ty intTy (\value -> CPrimOp (PrimFloatInt width op) [value] intTy)
+
+floatingDecodeMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingDecodeMethod width ty occurrence unique =
+  unaryMethod occurrence unique ty intPairCoreType $ \value ->
+    tuple2IntCore (CPrimOp (PrimFloatInt width FloatTruncate) [value] intTy) zeroInt
+
+floatingEncodeMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingEncodeMethod width ty occurrence unique =
+  coreLam significandName intTy $
+    coreLam exponentName intTy $
+      CPrimOp
+        (PrimFloat width FloatMul)
+        [ CPrimOp (PrimFloat width FloatFromInt) [CVar significandName intTy] ty
+        , floatingPow2 width ty (CVar exponentName intTy)
+        ]
+        ty
+ where
+  significandName = builtinLocalTermName (occurrence <> "_significand") unique
+  exponentName = builtinLocalTermName (occurrence <> "_exponent") (unique - 1)
+
+floatingExponentMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingExponentMethod width ty occurrence unique =
+  unaryMethod occurrence unique ty intTy $ \value ->
+    boolCaseCore
+      (occurrence <> "_zero")
+      (unique - 1)
+      (CPrimOp (PrimFloat width FloatEq) [value, floatingZero width] boolTy)
+      intTy
+      zeroInt
+      ( intAdd
+          ( CPrimOp
+              (PrimFloatInt width FloatFloor)
+              [ CPrimOp
+                  (PrimFloat width FloatDiv)
+                  [ CPrimOp (PrimFloat width FloatLog) [CPrimOp (PrimFloat width FloatAbs) [value] ty] ty
+                  , CPrimOp (PrimFloat width FloatLog) [floatingLiteral width 2] ty
+                  ]
+                  ty
+              ]
+              intTy
+          )
+          oneInt
+      )
+
+floatingSignificandMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingSignificandMethod width ty occurrence unique =
+  unaryMethod occurrence unique ty ty $ \value ->
+    letCore exponentName intTy (floatingExponentCore width ty value) $
+      CPrimOp
+        (PrimFloat width FloatDiv)
+        [value, floatingPow2 width ty (CVar exponentName intTy)]
+        ty
+ where
+  exponentName = builtinLocalTermName (occurrence <> "_exponent") (unique - 1)
+
+floatingScaleFloatMethod :: FloatingWidth -> CoreType -> Text -> Int -> CoreExpr
+floatingScaleFloatMethod width ty occurrence unique =
+  coreLam exponentName intTy $
+    coreLam valueName ty $
+      CPrimOp
+        (PrimFloat width FloatMul)
+        [CVar valueName ty, floatingPow2 width ty (CVar exponentName intTy)]
+        ty
+ where
+  exponentName = builtinLocalTermName (occurrence <> "_exponent") unique
+  valueName = builtinLocalTermName (occurrence <> "_value") (unique - 1)
+
+floatingPredicateMethod :: FloatingWidth -> CoreType -> FloatingIntPrimOp -> Text -> Int -> CoreExpr
+floatingPredicateMethod width ty op occurrence unique =
+  unaryMethod occurrence unique ty boolTy (\value -> CPrimOp (PrimFloatInt width op) [value] boolTy)
+
+floatingExponentCore :: FloatingWidth -> CoreType -> CoreExpr -> CoreExpr
+floatingExponentCore width ty value =
+  boolCaseCore
+    "$floating_exponent_zero"
+    (-6241)
+    (CPrimOp (PrimFloat width FloatEq) [value, floatingZero width] boolTy)
+    intTy
+    zeroInt
+    ( intAdd
+        ( CPrimOp
+            (PrimFloatInt width FloatFloor)
+            [ CPrimOp
+                (PrimFloat width FloatDiv)
+                [ CPrimOp (PrimFloat width FloatLog) [CPrimOp (PrimFloat width FloatAbs) [value] ty] ty
+                , CPrimOp (PrimFloat width FloatLog) [floatingLiteral width 2] ty
+                ]
+                ty
+            ]
+            intTy
+        )
+        oneInt
+    )
+
+floatingPow2 :: FloatingWidth -> CoreType -> CoreExpr -> CoreExpr
+floatingPow2 width ty exponentExpr =
+  CPrimOp
+    (PrimFloat width FloatPow)
+    [floatingLiteral width 2, CPrimOp (PrimFloat width FloatFromInt) [exponentExpr] ty]
+    ty
+
+floatingLtCore :: FloatingWidth -> CoreExpr -> CoreExpr -> CoreExpr
+floatingLtCore width lhs rhs =
+  CPrimOp (PrimFloat width FloatLt) [lhs, rhs] boolTy
+
+floatingConstant :: CoreType -> CoreExpr -> CoreExpr
+floatingConstant _ value =
+  value
+
+floatingZero, floatingOne :: FloatingWidth -> CoreExpr
+floatingZero width = floatingLiteral width 0
+floatingOne width = floatingLiteral width 1
+
+floatingLiteral :: FloatingWidth -> Double -> CoreExpr
+floatingLiteral width value =
+  case width of
+    FloatWidth -> CLit (LFloat (realToFrac value)) floatTy
+    DoubleWidth -> CLit (LDouble value) doubleTy
+
+ratioBinaryBoolMethod :: Text -> Int -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+ratioBinaryBoolMethod occurrence unique =
+  ratioBinaryMethod occurrence unique boolTy
+
+ratioBinaryMethod :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+ratioBinaryMethod occurrence unique resultTy body =
+  CLam lhsBinder (CLam rhsBinder methodBody (CTyFun rationalCoreType resultTy)) (CTyFun rationalCoreType (CTyFun rationalCoreType resultTy))
+ where
+  lhsName = builtinLocalTermName (occurrence <> "_lhs") unique
+  rhsName = builtinLocalTermName (occurrence <> "_rhs") (unique - 1)
+  lhsBinder = CoreBinder lhsName rationalCoreType
+  rhsBinder = CoreBinder rhsName rationalCoreType
+  lhs = CVar lhsName rationalCoreType
+  rhs = CVar rhsName rationalCoreType
+  methodBody = body lhs rhs
+
+ratioEqCore :: CoreExpr -> CoreExpr -> CoreExpr
+ratioEqCore lhs rhs =
+  ratioZipCore "$ratio_eq" (-18870) lhs rhs boolTy $ \lhsN lhsD rhsN rhsD ->
+    boolAndCore
+      "$ratio_eq_and"
+      (-18875)
+      (CPrimOp PrimIntegerEq [lhsN, rhsN] boolTy)
+      (CPrimOp PrimIntegerEq [lhsD, rhsD] boolTy)
+
+ratioLtCore :: CoreExpr -> CoreExpr -> CoreExpr
+ratioLtCore lhs rhs =
+  ratioZipCore "$ratio_lt" (-18880) lhs rhs boolTy $ \lhsN lhsD rhsN rhsD ->
+    integerLt (integerMul lhsN rhsD) (integerMul rhsN lhsD)
+
+ratioAddCore :: CoreExpr -> CoreExpr -> CoreExpr
+ratioAddCore lhs rhs =
+  ratioZipCore "$ratio_add" (-18890) lhs rhs rationalCoreType $ \lhsN lhsD rhsN rhsD ->
+    ratioReduceCall (integerAdd (integerMul lhsN rhsD) (integerMul rhsN lhsD)) (integerMul lhsD rhsD)
+
+ratioSubCore :: CoreExpr -> CoreExpr -> CoreExpr
+ratioSubCore lhs rhs =
+  ratioZipCore "$ratio_sub" (-18900) lhs rhs rationalCoreType $ \lhsN lhsD rhsN rhsD ->
+    ratioReduceCall (integerSub (integerMul lhsN rhsD) (integerMul rhsN lhsD)) (integerMul lhsD rhsD)
+
+ratioMulCore :: CoreExpr -> CoreExpr -> CoreExpr
+ratioMulCore lhs rhs =
+  ratioZipCore "$ratio_mul" (-18910) lhs rhs rationalCoreType $ \lhsN lhsD rhsN rhsD ->
+    ratioReduceCall (integerMul lhsN rhsN) (integerMul lhsD rhsD)
+
+ratioNegateCore :: CoreExpr -> CoreExpr
+ratioNegateCore value =
+  ratioCaseCore "$ratio_negate_core" (-18920) value rationalCoreType (-18921) (-18922) $ \n d ->
+    ratioIntegerCore (CPrimOp PrimIntegerNegate [n] integerTy) d
+
+ratioReduceCall :: CoreExpr -> CoreExpr -> CoreExpr
+ratioReduceCall numeratorExpr denominatorExpr =
+  applyCore (applyCore (CVar ratioReduceName ratioPercentCoreType) numeratorExpr (CTyFun integerTy rationalCoreType)) denominatorExpr rationalCoreType
+
+ratioZipCore :: Text -> Int -> CoreExpr -> CoreExpr -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+ratioZipCore occurrence unique lhs rhs resultTy body =
+  ratioCaseCore (occurrence <> "_lhs_case") unique lhs resultTy (unique - 1) (unique - 2) $ \lhsN lhsD ->
+    ratioCaseCore (occurrence <> "_rhs_case") (unique - 3) rhs resultTy (unique - 4) (unique - 5) $ \rhsN rhsD ->
+      body lhsN lhsD rhsN rhsD
+
+intBitAndMethod :: CoreExpr
+intBitAndMethod =
+  binaryPrimMethod "$bit_and_int" (-3931) intTy intTy PrimBitAnd
+
+intBitOrMethod :: CoreExpr
+intBitOrMethod =
+  binaryPrimMethod "$bit_or_int" (-3932) intTy intTy PrimBitOr
+
+intBitXorMethod :: CoreExpr
+intBitXorMethod =
+  binaryPrimMethod "$bit_xor_int" (-3933) intTy intTy PrimBitXor
+
+intBitComplementMethod :: CoreExpr
+intBitComplementMethod =
+  unaryPrimMethod "$bit_complement_int" (-3934) intTy intTy PrimBitComplement
+
+intShiftMethod :: CoreExpr
+intShiftMethod =
+  binaryPrimMethod "$shift_int" (-3935) intTy intTy PrimShift
+
+intRotateMethod :: CoreExpr
+intRotateMethod =
+  binaryPrimMethod "$rotate_int" (-3936) intTy intTy PrimRotate
+
+intBitMethod :: CoreExpr
+intBitMethod =
+  unaryPrimMethod "$bit_int" (-3937) intTy intTy PrimBit
+
+intSetBitMethod :: CoreExpr
+intSetBitMethod =
+  binaryMethod "$set_bit_int" (-3938) intTy intTy $ \value amount ->
+    CPrimOp PrimBitOr [value, CPrimOp PrimBit [amount] intTy] intTy
+
+intClearBitMethod :: CoreExpr
+intClearBitMethod =
+  binaryMethod "$clear_bit_int" (-3939) intTy intTy $ \value amount ->
+    CPrimOp PrimBitAnd [value, CPrimOp PrimBitComplement [CPrimOp PrimBit [amount] intTy] intTy] intTy
+
+intComplementBitMethod :: CoreExpr
+intComplementBitMethod =
+  binaryMethod "$complement_bit_int" (-3940) intTy intTy $ \value amount ->
+    CPrimOp PrimBitXor [value, CPrimOp PrimBit [amount] intTy] intTy
+
+intTestBitMethod :: CoreExpr
+intTestBitMethod =
+  binaryPrimMethod "$test_bit_int" (-3941) intTy boolTy PrimTestBit
+
+intBitSizeMethod :: CoreExpr
+intBitSizeMethod =
+  unaryMethod "$bit_size_int" (-3942) intTy intTy (const (CLit (LInt 64) intTy))
+
+intIsSignedMethod :: CoreExpr
+intIsSignedMethod =
+  unaryMethod "$is_signed_int" (-3943) intTy boolTy (const (CCon trueDataConName boolTy))
+
+intShiftLMethod :: CoreExpr
+intShiftLMethod =
+  binaryPrimMethod "$shift_l_int" (-3944) intTy intTy PrimShiftL
+
+intShiftRMethod :: CoreExpr
+intShiftRMethod =
+  binaryPrimMethod "$shift_r_int" (-3945) intTy intTy PrimShiftR
+
+intRotateLMethod :: CoreExpr
+intRotateLMethod =
+  binaryPrimMethod "$rotate_l_int" (-3946) intTy intTy PrimRotateL
+
+intRotateRMethod :: CoreExpr
+intRotateRMethod =
+  binaryPrimMethod "$rotate_r_int" (-3947) intTy intTy PrimRotateR
+
+fixedEqMethods :: FixedIntegral -> [CoreExpr]
+fixedEqMethods fixed =
+  [ fixedBinaryPrimMethod fixed FixedEq "eq" (-8001) boolTy
+  , fixedBinaryBoolMethod fixed "neq" (-8002) (\lhs rhs -> boolNotCore "$neq_fixed_not" (-8003) (fixedPrim fixed FixedEq [lhs, rhs] boolTy))
+  ]
+
+fixedOrdMethods :: FixedIntegral -> [CoreExpr]
+fixedOrdMethods fixed =
+  [ fixedCompareMethod fixed
+  , fixedBinaryPrimMethod fixed FixedLt "lt" (-8011) boolTy
+  , fixedBinaryBoolMethod fixed "le" (-8012) (\lhs rhs -> boolNotCore "$le_fixed_not" (-8013) (fixedPrim fixed FixedLt [rhs, lhs] boolTy))
+  , fixedBinaryBoolMethod fixed "gt" (-8014) (\lhs rhs -> fixedPrim fixed FixedLt [rhs, lhs] boolTy)
+  , fixedBinaryBoolMethod fixed "ge" (-8015) (\lhs rhs -> boolNotCore "$ge_fixed_not" (-8016) (fixedPrim fixed FixedLt [lhs, rhs] boolTy))
+  , fixedBinaryMethod fixed "max" (-8017) fixedTy $ \lhs rhs ->
+      boolCaseCore "$max_fixed_case" (-8018) (fixedPrim fixed FixedLt [lhs, rhs] boolTy) fixedTy rhs lhs
+  , fixedBinaryMethod fixed "min" (-8019) fixedTy $ \lhs rhs ->
+      boolCaseCore "$min_fixed_case" (-8020) (fixedPrim fixed FixedLt [lhs, rhs] boolTy) fixedTy lhs rhs
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+
+fixedCompareMethod :: FixedIntegral -> CoreExpr
+fixedCompareMethod fixed =
+  fixedBinaryMethod fixed "compare" (-8021) orderingTy $ \lhs rhs ->
+    boolCaseCore
+      "$compare_fixed_lt"
+      (-8022)
+      (fixedPrim fixed FixedLt [lhs, rhs] boolTy)
+      orderingTy
+      (CCon orderingLTDataConName orderingTy)
+      ( boolCaseCore
+          "$compare_fixed_gt"
+          (-8023)
+          (fixedPrim fixed FixedLt [rhs, lhs] boolTy)
+          orderingTy
+          (CCon orderingGTDataConName orderingTy)
+          (CCon orderingEQDataConName orderingTy)
+      )
+
+fixedNumMethods :: FixedIntegral -> [CoreExpr]
+fixedNumMethods fixed =
+  [ fixedBinaryPrimMethod fixed FixedAdd "add" (-8031) fixedTy
+  , fixedBinaryPrimMethod fixed FixedSub "sub" (-8032) fixedTy
+  , fixedBinaryPrimMethod fixed FixedMul "mul" (-8033) fixedTy
+  , fixedUnaryPrimMethod fixed FixedNegate "negate" (-8034) fixedTy
+  , fixedUnaryPrimMethod fixed FixedAbs "abs" (-8035) fixedTy
+  , fixedUnaryPrimMethod fixed FixedSignum "signum" (-8036) fixedTy
+  , unaryMethod ("$fromInteger_" <> fixedOccurrence) (-8037) integerTy fixedTy (\value -> fixedPrim fixed FixedFromInteger [value] fixedTy)
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+  fixedOccurrence = fixedIntegralOccurrence fixed
+
+fixedRealMethods :: FixedIntegral -> [CoreExpr]
+fixedRealMethods fixed =
+  [ unaryMethod ("$toRational_" <> fixedIntegralOccurrence fixed) (-8041) fixedTy rationalCoreType $ \value ->
+      ratioIntegerCore (fixedPrim fixed FixedToInteger [value] integerTy) oneInteger
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+
+fixedIntegralMethods :: FixedIntegral -> [CoreExpr]
+fixedIntegralMethods fixed =
+  [ fixedBinaryPrimMethod fixed FixedQuot "quot" (-8051) fixedTy
+  , fixedBinaryPrimMethod fixed FixedRem "rem" (-8052) fixedTy
+  , fixedBinaryMethod fixed "div" (-8053) fixedTy (fixedDivCore fixed)
+  , fixedBinaryMethod fixed "mod" (-8054) fixedTy (\lhs rhs -> fixedSub fixed lhs (fixedMul fixed (fixedDivCore fixed lhs rhs) rhs))
+  , fixedBinaryMethod fixed "quotRem" (-8055) fixedPairTy $ \lhs rhs -> fixedTuple2 fixed (fixedQuot fixed lhs rhs) (fixedRem fixed lhs rhs)
+  , fixedBinaryMethod fixed "divMod" (-8056) fixedPairTy $ \lhs rhs ->
+      letCore dName fixedTy (fixedDivCore fixed lhs rhs) $
+        fixedTuple2 fixed dVar (fixedSub fixed lhs (fixedMul fixed dVar rhs))
+  , fixedUnaryPrimMethod fixed FixedToInteger "toInteger" (-8057) integerTy
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+  fixedPairTy = CTyTuple [fixedTy, fixedTy]
+  dName = builtinLocalTermName ("$divMod_" <> fixedIntegralOccurrence fixed <> "_d") (-8058 - fromEnum fixed)
+  dVar = CVar dName fixedTy
+
+fixedBitsMethods :: FixedIntegral -> [CoreExpr]
+fixedBitsMethods fixed =
+  [ fixedBinaryPrimMethod fixed FixedBitAnd "bit_and" (-8061) fixedTy
+  , fixedBinaryPrimMethod fixed FixedBitOr "bit_or" (-8062) fixedTy
+  , fixedBinaryPrimMethod fixed FixedBitXor "bit_xor" (-8063) fixedTy
+  , fixedUnaryPrimMethod fixed FixedBitComplement "bit_complement" (-8064) fixedTy
+  , fixedIntBinaryPrimMethod fixed FixedShift "shift" (-8065)
+  , fixedIntBinaryPrimMethod fixed FixedRotate "rotate" (-8066)
+  , unaryMethod ("$bit_" <> fixedIntegralOccurrence fixed) (-8067) intTy fixedTy (\amount -> fixedPrim fixed FixedBit [amount] fixedTy)
+  , fixedIntBinaryMethod fixed "set_bit" (-8068) (\value amount -> fixedOr fixed value (fixedPrim fixed FixedBit [amount] fixedTy))
+  , fixedIntBinaryMethod fixed "clear_bit" (-8069) (\value amount -> fixedAnd fixed value (fixedComplement fixed (fixedPrim fixed FixedBit [amount] fixedTy)))
+  , fixedIntBinaryMethod fixed "complement_bit" (-8070) (\value amount -> fixedXor fixed value (fixedPrim fixed FixedBit [amount] fixedTy))
+  , fixedIntBinaryPrimMethodResult fixed FixedTestBit "test_bit" (-8071) boolTy
+  , unaryMethod ("$bit_size_" <> fixedIntegralOccurrence fixed) (-8072) fixedTy intTy (const (CLit (LInt (fixedIntegralBitSize fixed)) intTy))
+  , unaryMethod ("$is_signed_" <> fixedIntegralOccurrence fixed) (-8073) fixedTy boolTy (const (if fixedIntegralIsSigned fixed then CCon trueDataConName boolTy else CCon falseDataConName boolTy))
+  , fixedIntBinaryPrimMethod fixed FixedShiftL "shift_l" (-8074)
+  , fixedIntBinaryPrimMethod fixed FixedShiftR "shift_r" (-8075)
+  , fixedIntBinaryPrimMethod fixed FixedRotateL "rotate_l" (-8076)
+  , fixedIntBinaryPrimMethod fixed FixedRotateR "rotate_r" (-8077)
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+
+fixedShowMethods :: FixedIntegral -> [CoreExpr]
+fixedShowMethods fixed =
+  [ showsPrecFromRenderedMethod ("$shows_prec_" <> fixedIntegralOccurrence fixed) (-8081) fixedTy (\value -> fixedPrim fixed FixedShow [value] stringTy)
+  , fixedUnaryPrimMethod fixed FixedShow "show" (-8082) stringTy
+  , showListFromShowsMethod fixedTy (showsPrecFromRenderedMethod ("$show_list_shows_" <> fixedIntegralOccurrence fixed) (-8083) fixedTy (\value -> fixedPrim fixed FixedShow [value] stringTy))
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+
+fixedReadMethods :: FixedIntegral -> [CoreExpr]
+fixedReadMethods fixed =
+  [ readsPrecFromParserMethod ("$reads_prec_" <> fixedIntegralOccurrence fixed) (-8091) fixedTy (fixedReadParserCore fixed)
+  , readListFromParserMethod fixedTy (fixedReadParserCore fixed)
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+
+fixedReadParserCore :: FixedIntegral -> CoreExpr
+fixedReadParserCore fixed =
+  coreLam inputName stringTy $
+    readBindCallCore
+      integerTy
+      fixedTy
+      (applyCore (CVar readIntegerName readIntegerCoreType) (CVar inputName stringTy) (readResultsCoreType integerTy))
+      ( coreLam valueName integerTy $
+          coreLam restName stringTy $
+            readSingleResultCore fixedTy (fixedPrim fixed FixedFromInteger [CVar valueName integerTy] fixedTy) (CVar restName stringTy)
+      )
+ where
+  fixedTy = fixedIntegralTy fixed
+  inputName = builtinLocalTermName ("$read_" <> fixedIntegralOccurrence fixed <> "_input") (-8092 - fromEnum fixed)
+  valueName = builtinLocalTermName ("$read_" <> fixedIntegralOccurrence fixed <> "_value") (-8110 - fromEnum fixed)
+  restName = builtinLocalTermName ("$read_" <> fixedIntegralOccurrence fixed <> "_rest") (-8120 - fromEnum fixed)
+
+fixedEnumMethods :: FixedIntegral -> [CoreExpr]
+fixedEnumMethods fixed =
+  [ fixedUnaryMethod fixed "succ" (-8131) fixedTy (\value -> fixedAdd fixed value fixedOne)
+  , fixedUnaryMethod fixed "pred" (-8132) fixedTy (\value -> fixedSub fixed value fixedOne)
+  , unaryMethod ("$toEnum_" <> fixedIntegralOccurrence fixed) (-8133) intTy fixedTy (\value -> fixedPrim fixed FixedFromInteger [intToIntegerCore value] fixedTy)
+  , fixedUnaryMethod fixed "fromEnum" (-8134) intTy (\value -> integerToIntCore (fixedPrim fixed FixedToInteger [value] integerTy))
+  , fixedUnaryMethod fixed "enum_from" (-8135) listTy (\current -> fixedEnumFromToList fixed current (fixedMaxBound fixed))
+  , fixedBinaryMethod fixed "enum_from_then" (-8136) listTy $ \current next ->
+      boolCaseCore "$enum_fixed_from_then_desc" (-8137) (fixedLt fixed next current) listTy (fixedEnumFromThenToList fixed current next (fixedMinBound fixed)) (fixedEnumFromThenToList fixed current next (fixedMaxBound fixed))
+  , fixedBinaryMethod fixed "enum_from_to" (-8138) listTy (fixedEnumFromToList fixed)
+  , fixedTernaryMethod fixed "enum_from_then_to" (-8139) listTy (fixedEnumFromThenToList fixed)
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+  listTy = CTyList fixedTy
+  fixedOne = fixedPrim fixed FixedFromInteger [oneInteger] fixedTy
+
+fixedBoundedMethods :: FixedIntegral -> [CoreExpr]
+fixedBoundedMethods fixed =
+  [fixedMinBound fixed, fixedMaxBound fixed]
+
+fixedIxMethods :: FixedIntegral -> [CoreExpr]
+fixedIxMethods fixed =
+  [ fixedLam boundsName boundsTy (fixedBoundsCase "range" (-8142) (CTyList fixedTy) (fixedEnumFromToList fixed low high))
+  , fixedLam boundsName boundsTy (fixedLam valueName fixedTy (fixedBoundsCase "index" (-8143) intTy (fixedSubInt (fixedToInt value) (fixedToInt low))))
+  , fixedLam boundsName boundsTy (fixedLam valueName fixedTy (fixedBoundsCase "in_range" (-8144) boolTy (boolAndCore "$ix_fixed_in_range" (-8151) (boolNotCore "$ix_fixed_low" (-8152) (fixedLt fixed value low)) (boolNotCore "$ix_fixed_high" (-8153) (fixedLt fixed high value)))))
+  , fixedLam boundsName boundsTy (fixedBoundsCase "range_size" (-8145) intTy (intAdd (fixedSubInt (fixedToInt high) (fixedToInt low)) oneInt))
+  ]
+ where
+  fixedTy = fixedIntegralTy fixed
+  boundsTy = CTyTuple [fixedTy, fixedTy]
+  boundsName = builtinLocalTermName ("$ix_" <> fixedIntegralOccurrence fixed <> "_bounds") (-8141 - fromEnum fixed)
+  valueName = builtinLocalTermName ("$ix_" <> fixedIntegralOccurrence fixed <> "_value") (-8150 - fromEnum fixed)
+  lowName = builtinLocalTermName ("$ix_" <> fixedIntegralOccurrence fixed <> "_low") (-8160 - fromEnum fixed)
+  highName = builtinLocalTermName ("$ix_" <> fixedIntegralOccurrence fixed <> "_high") (-8170 - fromEnum fixed)
+  bounds = CVar boundsName boundsTy
+  value = CVar valueName fixedTy
+  low = CVar lowName fixedTy
+  high = CVar highName fixedTy
+  fixedLam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
+  fixedBoundsCase occurrence unique resultTy body =
+    CCase
+      bounds
+      (CoreBinder caseName boundsTy)
+      [CoreAlt (ConstructorAlt (tupleDataConName 2)) [CoreBinder lowName fixedTy, CoreBinder highName fixedTy] body]
+      resultTy
+   where
+    caseName = builtinLocalTermName ("$ix_" <> fixedIntegralOccurrence fixed <> "_" <> occurrence <> "_case") (unique - fromEnum fixed)
+
+fixedBinaryPrimMethod :: FixedIntegral -> FixedIntegralOp -> Text -> Int -> CoreType -> CoreExpr
+fixedBinaryPrimMethod fixed op occurrence unique resultTy =
+  fixedBinaryMethod fixed occurrence unique resultTy (\lhs rhs -> fixedPrim fixed op [lhs, rhs] resultTy)
+
+fixedBinaryBoolMethod :: FixedIntegral -> Text -> Int -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+fixedBinaryBoolMethod fixed occurrence unique =
+  fixedBinaryMethod fixed occurrence unique boolTy
+
+fixedBinaryMethod :: FixedIntegral -> Text -> Int -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+fixedBinaryMethod fixed occurrence unique resultTy =
+  binaryMethod ("$" <> occurrence <> "_" <> fixedIntegralOccurrence fixed) (unique - fromEnum fixed) (fixedIntegralTy fixed) resultTy
+
+fixedUnaryPrimMethod :: FixedIntegral -> FixedIntegralOp -> Text -> Int -> CoreType -> CoreExpr
+fixedUnaryPrimMethod fixed op occurrence unique resultTy =
+  fixedUnaryMethod fixed occurrence unique resultTy (\value -> fixedPrim fixed op [value] resultTy)
+
+fixedUnaryMethod :: FixedIntegral -> Text -> Int -> CoreType -> (CoreExpr -> CoreExpr) -> CoreExpr
+fixedUnaryMethod fixed occurrence unique resultTy =
+  unaryMethod ("$" <> occurrence <> "_" <> fixedIntegralOccurrence fixed) (unique - fromEnum fixed) (fixedIntegralTy fixed) resultTy
+
+fixedIntBinaryPrimMethod :: FixedIntegral -> FixedIntegralOp -> Text -> Int -> CoreExpr
+fixedIntBinaryPrimMethod fixed op occurrence unique =
+  fixedIntBinaryPrimMethodResult fixed op occurrence unique (fixedIntegralTy fixed)
+
+fixedIntBinaryPrimMethodResult :: FixedIntegral -> FixedIntegralOp -> Text -> Int -> CoreType -> CoreExpr
+fixedIntBinaryPrimMethodResult fixed op occurrence unique resultTy =
+  fixedIntBinaryMethod fixed occurrence unique (\value amount -> fixedPrim fixed op [value, amount] resultTy)
+
+fixedIntBinaryMethod :: FixedIntegral -> Text -> Int -> (CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+fixedIntBinaryMethod fixed occurrence unique body =
+  CLam valueBinder (CLam amountBinder methodBody (CTyFun intTy (exprType methodBody))) (CTyFun fixedTy (CTyFun intTy (exprType methodBody)))
+ where
+  fixedTy = fixedIntegralTy fixed
+  valueName = builtinLocalTermName ("$" <> occurrence <> "_" <> fixedIntegralOccurrence fixed <> "_value") (unique - fromEnum fixed)
+  amountName = builtinLocalTermName ("$" <> occurrence <> "_" <> fixedIntegralOccurrence fixed <> "_amount") (unique - 20 - fromEnum fixed)
+  valueBinder = CoreBinder valueName fixedTy
+  amountBinder = CoreBinder amountName intTy
+  methodBody = body (CVar valueName fixedTy) (CVar amountName intTy)
+
+fixedTernaryMethod :: FixedIntegral -> Text -> Int -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+fixedTernaryMethod fixed occurrence unique resultTy body =
+  CLam firstBinder (CLam secondBinder (CLam thirdBinder methodBody (CTyFun fixedTy resultTy)) (CTyFun fixedTy (CTyFun fixedTy resultTy))) (CTyFun fixedTy (CTyFun fixedTy (CTyFun fixedTy resultTy)))
+ where
+  fixedTy = fixedIntegralTy fixed
+  firstName = builtinLocalTermName ("$" <> occurrence <> "_" <> fixedIntegralOccurrence fixed <> "_first") (unique - fromEnum fixed)
+  secondName = builtinLocalTermName ("$" <> occurrence <> "_" <> fixedIntegralOccurrence fixed <> "_second") (unique - 20 - fromEnum fixed)
+  thirdName = builtinLocalTermName ("$" <> occurrence <> "_" <> fixedIntegralOccurrence fixed <> "_third") (unique - 40 - fromEnum fixed)
+  firstBinder = CoreBinder firstName fixedTy
+  secondBinder = CoreBinder secondName fixedTy
+  thirdBinder = CoreBinder thirdName fixedTy
+  methodBody = body (CVar firstName fixedTy) (CVar secondName fixedTy) (CVar thirdName fixedTy)
+
+fixedPrim :: FixedIntegral -> FixedIntegralOp -> [CoreExpr] -> CoreType -> CoreExpr
+fixedPrim fixed op arguments resultTy =
+  CPrimOp (PrimFixedIntegral fixed op) arguments resultTy
+
+fixedAdd, fixedSub, fixedMul, fixedQuot, fixedRem, fixedLt, fixedAnd, fixedOr, fixedXor :: FixedIntegral -> CoreExpr -> CoreExpr -> CoreExpr
+fixedAdd fixed lhs rhs = fixedPrim fixed FixedAdd [lhs, rhs] (fixedIntegralTy fixed)
+fixedSub fixed lhs rhs = fixedPrim fixed FixedSub [lhs, rhs] (fixedIntegralTy fixed)
+fixedMul fixed lhs rhs = fixedPrim fixed FixedMul [lhs, rhs] (fixedIntegralTy fixed)
+fixedQuot fixed lhs rhs = fixedPrim fixed FixedQuot [lhs, rhs] (fixedIntegralTy fixed)
+fixedRem fixed lhs rhs = fixedPrim fixed FixedRem [lhs, rhs] (fixedIntegralTy fixed)
+fixedLt fixed lhs rhs = fixedPrim fixed FixedLt [lhs, rhs] boolTy
+fixedAnd fixed lhs rhs = fixedPrim fixed FixedBitAnd [lhs, rhs] (fixedIntegralTy fixed)
+fixedOr fixed lhs rhs = fixedPrim fixed FixedBitOr [lhs, rhs] (fixedIntegralTy fixed)
+fixedXor fixed lhs rhs = fixedPrim fixed FixedBitXor [lhs, rhs] (fixedIntegralTy fixed)
+
+fixedComplement :: FixedIntegral -> CoreExpr -> CoreExpr
+fixedComplement fixed value =
+  fixedPrim fixed FixedBitComplement [value] (fixedIntegralTy fixed)
+
+fixedMinBound, fixedMaxBound :: FixedIntegral -> CoreExpr
+fixedMinBound fixed =
+  fixedPrim fixed FixedMinBound [] (fixedIntegralTy fixed)
+fixedMaxBound fixed =
+  fixedPrim fixed FixedMaxBound [] (fixedIntegralTy fixed)
+
+fixedToInt :: CoreExpr -> CoreExpr
+fixedToInt value =
+  case exprType value of
+    ty
+      | Just fixed <- fixedIntegralTypeByCoreType ty ->
+          integerToIntCore (fixedPrim fixed FixedToInteger [value] integerTy)
+    _ ->
+      value
+
+fixedSubInt :: CoreExpr -> CoreExpr -> CoreExpr
+fixedSubInt =
+  intSub
+
+fixedTuple2 :: FixedIntegral -> CoreExpr -> CoreExpr -> CoreExpr
+fixedTuple2 fixed lhs rhs =
+  constructorApp (tupleDataConName 2) [fixedTy, fixedTy] [lhs, rhs] (CTyTuple [fixedTy, fixedTy])
+ where
+  fixedTy = fixedIntegralTy fixed
+
+fixedDivCore :: FixedIntegral -> CoreExpr -> CoreExpr -> CoreExpr
+fixedDivCore fixed lhs rhs =
+  letCore qName fixedTy (fixedQuot fixed lhs rhs) $
+    letCore rName fixedTy (fixedRem fixed lhs rhs) $
+      boolCaseCore (fixedIntegralOccurrence fixed <> "_div_adjust") (unique - 3) needsAdjust fixedTy (fixedSub fixed qVar fixedOne) qVar
+ where
+  fixedTy = fixedIntegralTy fixed
+  unique = -8180 - fromEnum fixed
+  qName = builtinLocalTermName ("$div_" <> fixedIntegralOccurrence fixed <> "_q") (unique - 1)
+  rName = builtinLocalTermName ("$div_" <> fixedIntegralOccurrence fixed <> "_r") (unique - 2)
+  qVar = CVar qName fixedTy
+  rVar = CVar rName fixedTy
+  fixedZero = fixedPrim fixed FixedFromInteger [zeroInteger] fixedTy
+  fixedOne = fixedPrim fixed FixedFromInteger [oneInteger] fixedTy
+  remainderNonZero = boolNotCore "$fixed_div_rem_nonzero" (unique - 4) (fixedPrim fixed FixedEq [rVar, fixedZero] boolTy)
+  signsDiffer = boolXorCore "$fixed_div_signs_differ" (unique - 5) (fixedLt fixed lhs fixedZero) (fixedLt fixed rhs fixedZero)
+  needsAdjust = boolAndCore "$fixed_div_needs_adjust" (unique - 6) remainderNonZero signsDiffer
+
+fixedEnumFromToList :: FixedIntegral -> CoreExpr -> CoreExpr -> CoreExpr
+fixedEnumFromToList fixed current end =
+  fixedMapIntList fixed $
+    applyCore
+      (applyCore (CVar enumFromToIntName enumFromToIntCoreType) (fixedToInt current) (CTyFun intTy intListCoreType))
+      (fixedToInt end)
+      intListCoreType
+
+fixedEnumFromThenToList :: FixedIntegral -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+fixedEnumFromThenToList fixed current next end =
+  fixedMapIntList fixed $
+    applyCore
+      ( applyCore
+          (applyCore (CVar enumFromThenToIntName enumFromThenToIntCoreType) (fixedToInt current) (CTyFun intTy (CTyFun intTy intListCoreType)))
+          (fixedToInt next)
+          (CTyFun intTy intListCoreType)
+      )
+      (fixedToInt end)
+      intListCoreType
+
+fixedMapIntList :: FixedIntegral -> CoreExpr -> CoreExpr
+fixedMapIntList fixed intList =
+  applyCore
+    (applyCore mapFunction fromIntFunction (CTyFun intListCoreType resultListTy))
+    intList
+    resultListTy
+ where
+  fixedTy = fixedIntegralTy fixed
+  resultListTy = CTyList fixedTy
+  argumentName = builtinLocalTermName ("$map_" <> fixedIntegralOccurrence fixed <> "_int") (-8190 - fromEnum fixed)
+  fromIntFunction =
+    CLam
+      (CoreBinder argumentName intTy)
+      (fixedPrim fixed FixedFromInteger [intToIntegerCore (CVar argumentName intTy)] fixedTy)
+      (CTyFun intTy fixedTy)
+  mapFunction =
+    CTypeApp
+      (CVar derivedMapName mapPreludeCoreType)
+      [intTy, fixedTy]
+      (CTyFun (CTyFun intTy fixedTy) (CTyFun intListCoreType resultListTy))
+
+fixedIntegralTypeByCoreType :: CoreType -> Maybe FixedIntegral
+fixedIntegralTypeByCoreType = \case
+  CTyCon name -> fixedIntegralTypeByOccurrence (nameOcc name)
+  _ -> Nothing
 
 intDivCoreWith :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
 intDivCoreWith occurrence unique lhs rhs =
@@ -8804,13 +18161,59 @@ intDivFromQuotRem occurrence unique lhs rhs quotient remainder =
   needsAdjust =
     boolAndCore (occurrence <> "_needs_adjust") (unique - 4) remainderNonZero signsDiffer
 
+integerDivCoreWith :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
+integerDivCoreWith occurrence unique lhs rhs =
+  letCore qName integerTy (integerQuot lhs rhs) $
+    letCore rName integerTy (integerRem lhs rhs) $
+      integerDivFromQuotRem occurrence (unique - 3) lhs rhs qVar rVar
+ where
+  qName = builtinLocalTermName (occurrence <> "_q") (unique - 1)
+  rName = builtinLocalTermName (occurrence <> "_r") (unique - 2)
+  qVar = CVar qName integerTy
+  rVar = CVar rName integerTy
+
+integerModCoreWith :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr
+integerModCoreWith occurrence unique lhs rhs =
+  letCore dName integerTy (integerDivCoreWith occurrence (unique - 10) lhs rhs) $
+    integerSub lhs (integerMul dVar rhs)
+ where
+  dName = builtinLocalTermName (occurrence <> "_d") (unique - 1)
+  dVar = CVar dName integerTy
+
+integerDivFromQuotRem :: Text -> Int -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+integerDivFromQuotRem occurrence unique lhs rhs quotient remainder =
+  boolCaseCore (occurrence <> "_adjust") unique needsAdjust integerTy (integerSub quotient oneInteger) quotient
+ where
+  remainderNonZero =
+    boolNotCore (occurrence <> "_rem_nonzero") (unique - 1) (CPrimOp PrimIntegerEq [remainder, zeroInteger] boolTy)
+  signsDiffer =
+    boolXorCore (occurrence <> "_signs_differ") (unique - 2) (integerLt lhs zeroInteger) (integerLt rhs zeroInteger)
+  needsAdjust =
+    boolAndCore (occurrence <> "_needs_adjust") (unique - 4) remainderNonZero signsDiffer
+
 rationalCoreType :: CoreType
 rationalCoreType =
+  ratioTy integerTy
+
+intPairCoreType :: CoreType
+intPairCoreType =
   CTyTuple [intTy, intTy]
 
 tuple2IntCore :: CoreExpr -> CoreExpr -> CoreExpr
 tuple2IntCore lhs rhs =
-  constructorApp (tupleDataConName 2) [intTy, intTy] [lhs, rhs] rationalCoreType
+  constructorApp (tupleDataConName 2) [intTy, intTy] [lhs, rhs] intPairCoreType
+
+integerPairCoreType :: CoreType
+integerPairCoreType =
+  CTyTuple [integerTy, integerTy]
+
+tuple2IntegerCore :: CoreExpr -> CoreExpr -> CoreExpr
+tuple2IntegerCore lhs rhs =
+  constructorApp (tupleDataConName 2) [integerTy, integerTy] [lhs, rhs] integerPairCoreType
+
+ratioIntegerCore :: CoreExpr -> CoreExpr -> CoreExpr
+ratioIntegerCore numeratorExpr denominatorExpr =
+  constructorApp ratioDataConName [integerTy] [numeratorExpr, denominatorExpr] rationalCoreType
 
 letCore :: RName -> CoreType -> CoreExpr -> CoreExpr -> CoreExpr
 letCore name ty rhs body =
@@ -8847,6 +18250,84 @@ intEnumFromToMethod =
 intEnumFromThenToMethod :: CoreExpr
 intEnumFromThenToMethod =
   CVar enumFromThenToIntName enumFromThenToIntCoreType
+
+integerSuccMethod :: CoreExpr
+integerSuccMethod =
+  unaryMethod "$succ_integer" (-19710) integerTy integerTy (`integerAdd` oneInteger)
+
+integerPredMethod :: CoreExpr
+integerPredMethod =
+  unaryMethod "$pred_integer" (-19711) integerTy integerTy (`integerSub` oneInteger)
+
+integerToEnumMethod :: CoreExpr
+integerToEnumMethod =
+  unaryMethod "$toEnum_integer" (-19712) intTy integerTy intToIntegerCore
+
+integerFromEnumMethod :: CoreExpr
+integerFromEnumMethod =
+  unaryMethod "$fromEnum_integer" (-19713) integerTy intTy integerToIntCore
+
+integerEnumFromMethod :: CoreExpr
+integerEnumFromMethod =
+  unaryMethod "$enum_from_integer" (-19714) integerTy integerListCoreType $ \current ->
+    integerMapIntList (applyCore (CVar enumFromIntName enumFromIntCoreType) (integerToIntCore current) intListCoreType)
+
+integerEnumFromThenMethod :: CoreExpr
+integerEnumFromThenMethod =
+  binaryMethod "$enum_from_then_integer" (-19715) integerTy integerListCoreType $ \current next ->
+    integerMapIntList
+      ( applyCore
+          (applyCore (CVar enumFromThenIntName enumFromThenIntCoreType) (integerToIntCore current) (CTyFun intTy intListCoreType))
+          (integerToIntCore next)
+          intListCoreType
+      )
+
+integerEnumFromToMethod :: CoreExpr
+integerEnumFromToMethod =
+  binaryMethod "$enum_from_to_integer" (-19716) integerTy integerListCoreType $ \current end ->
+    integerMapIntList
+      ( applyCore
+          (applyCore (CVar enumFromToIntName enumFromToIntCoreType) (integerToIntCore current) (CTyFun intTy intListCoreType))
+          (integerToIntCore end)
+          intListCoreType
+      )
+
+integerEnumFromThenToMethod :: CoreExpr
+integerEnumFromThenToMethod =
+  ternaryMethod "$enum_from_then_to_integer" (-19717) integerTy integerListCoreType $ \current next end ->
+    integerMapIntList
+      ( applyCore
+          ( applyCore
+              (applyCore (CVar enumFromThenToIntName enumFromThenToIntCoreType) (integerToIntCore current) (CTyFun intTy (CTyFun intTy intListCoreType)))
+              (integerToIntCore next)
+              (CTyFun intTy intListCoreType)
+          )
+          (integerToIntCore end)
+          intListCoreType
+      )
+
+integerListCoreType :: CoreType
+integerListCoreType =
+  CTyList integerTy
+
+integerMapIntList :: CoreExpr -> CoreExpr
+integerMapIntList intList =
+  applyCore
+    (applyCore mapFunction fromIntFunction (CTyFun intListCoreType integerListCoreType))
+    intList
+    integerListCoreType
+ where
+  argumentName = builtinLocalTermName "$map_integer_int" (-19718)
+  fromIntFunction =
+    CLam
+      (CoreBinder argumentName intTy)
+      (intToIntegerCore (CVar argumentName intTy))
+      (CTyFun intTy integerTy)
+  mapFunction =
+    CTypeApp
+      (CVar derivedMapName mapPreludeCoreType)
+      [intTy, integerTy]
+      (CTyFun (CTyFun intTy integerTy) (CTyFun intListCoreType integerListCoreType))
 
 charSuccMethod :: CoreExpr
 charSuccMethod =
@@ -8904,22 +18385,362 @@ boolMaxBoundMethod :: CoreExpr
 boolMaxBoundMethod =
   CCon trueDataConName boolTy
 
+intShowsPrecMethod :: CoreExpr
+intShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_int" (-1840) intTy (\value -> CPrimOp PrimShowInt [value] stringTy)
+
 intShowMethod :: CoreExpr
 intShowMethod =
   unaryPrimMethod "$show_int" (-1841) intTy stringTy PrimShowInt
+
+intShowListMethod :: CoreExpr
+intShowListMethod =
+  showListFromShowsMethod intTy (showsPrecFromRenderedMethod "$show_list_shows_int" (-2401) intTy (\value -> CPrimOp PrimShowInt [value] stringTy))
+
+boolShowsPrecMethod :: CoreExpr
+boolShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_bool" (-1850) boolTy (\value -> CPrimOp PrimShowBool [value] stringTy)
 
 boolShowMethod :: CoreExpr
 boolShowMethod =
   unaryPrimMethod "$show_bool" (-1851) boolTy stringTy PrimShowBool
 
+boolShowListMethod :: CoreExpr
+boolShowListMethod =
+  showListFromShowsMethod boolTy (showsPrecFromRenderedMethod "$show_list_shows_bool" (-2411) boolTy (\value -> CPrimOp PrimShowBool [value] stringTy))
+
+charShowsPrecMethod :: CoreExpr
+charShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_char" (-1880) charTy (showCharLiteralCoreWith "$shows_prec_char_case" (-1883))
+
 charShowMethod :: CoreExpr
 charShowMethod =
   unaryMethod "$show_char" (-1881) charTy stringTy showCharLiteralCore
 
+charShowListMethod :: CoreExpr
+charShowListMethod =
+  binaryMethod "$show_char_list" (-1882) stringTy stringTy $ \value rest ->
+    appendStringCore (showStringLiteralCore value) rest
+
+stringShowsPrecMethod :: CoreExpr
+stringShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_string" (-1890) stringTy showStringLiteralCore
+
 stringShowMethod :: CoreExpr
 stringShowMethod =
-  unaryMethod "$show_string" (-1891) stringTy stringTy $ \value ->
-    consCharCore '"' (CApp (CVar showStringCharsName showStringCharsCoreType) value stringTy)
+  unaryMethod "$show_string" (-1891) stringTy stringTy showStringLiteralCore
+
+stringShowListMethod :: CoreExpr
+stringShowListMethod =
+  showListFromShowsMethod stringTy (showsPrecFromRenderedMethod "$show_list_shows_string" (-2421) stringTy showStringLiteralCore)
+
+ioErrorTypeShowsPrecMethod :: CoreExpr
+ioErrorTypeShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_io_error_type" (-2830) ioErrorTypeTy ioErrorTypeShowCore
+
+ioErrorTypeShowMethod :: CoreExpr
+ioErrorTypeShowMethod =
+  unaryMethod "$show_io_error_type" (-2831) ioErrorTypeTy stringTy ioErrorTypeShowCore
+
+ioErrorTypeShowListMethod :: CoreExpr
+ioErrorTypeShowListMethod =
+  showListFromShowsMethod ioErrorTypeTy (showsPrecFromRenderedMethod "$show_list_shows_io_error_type" (-2832) ioErrorTypeTy ioErrorTypeShowCore)
+
+ioErrorTypeShowCore :: CoreExpr -> CoreExpr
+ioErrorTypeShowCore value =
+  CCase value (CoreBinder caseName ioErrorTypeTy) alts stringTy
+ where
+  caseName = builtinLocalTermName "$show_io_error_type_case" (-2833)
+  alts =
+    [ CoreAlt (ConstructorAlt ioErrorAlreadyExistsTypeDataConName) [] (stringLiteralCore "already exists")
+    , CoreAlt (ConstructorAlt ioErrorDoesNotExistTypeDataConName) [] (stringLiteralCore "does not exist")
+    , CoreAlt (ConstructorAlt ioErrorAlreadyInUseTypeDataConName) [] (stringLiteralCore "already in use")
+    , CoreAlt (ConstructorAlt ioErrorFullTypeDataConName) [] (stringLiteralCore "resource exhausted")
+    , CoreAlt (ConstructorAlt ioErrorEOFTypeDataConName) [] (stringLiteralCore "end of file")
+    , CoreAlt (ConstructorAlt ioErrorIllegalOperationTypeDataConName) [] (stringLiteralCore "illegal operation")
+    , CoreAlt (ConstructorAlt ioErrorPermissionTypeDataConName) [] (stringLiteralCore "permission denied")
+    , CoreAlt (ConstructorAlt ioErrorUserTypeDataConName) [] (stringLiteralCore "user error")
+    ]
+
+orderingShowsPrecMethod, orderingShowMethod, orderingShowListMethod :: CoreExpr
+orderingShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_ordering" (-2840) orderingTy orderingShowCore
+
+orderingShowMethod =
+  unaryMethod "$show_ordering" (-2841) orderingTy stringTy orderingShowCore
+
+orderingShowListMethod =
+  showListFromShowsMethod orderingTy (showsPrecFromRenderedMethod "$show_list_shows_ordering" (-2842) orderingTy orderingShowCore)
+
+orderingShowCore :: CoreExpr -> CoreExpr
+orderingShowCore value =
+  orderingCaseCore
+    "$show_ordering_case"
+    (-2843)
+    value
+    stringTy
+    (stringLiteralCore "LT")
+    (stringLiteralCore "EQ")
+    (stringLiteralCore "GT")
+
+exitCodeShowsPrecMethod, exitCodeShowMethod, exitCodeShowListMethod :: CoreExpr
+exitCodeShowsPrecMethod =
+  CLam precBinder (CLam valueBinder (CLam restBinder body showSCoreType) (CTyFun exitCodeTy showSCoreType)) (showsPrecFunctionCoreType exitCodeTy)
+ where
+  precName = builtinLocalTermName "$shows_prec_exit_code_prec" (-2890)
+  valueName = builtinLocalTermName "$shows_prec_exit_code_value" (-2891)
+  restName = builtinLocalTermName "$shows_prec_exit_code_rest" (-2892)
+  precBinder = CoreBinder precName intTy
+  valueBinder = CoreBinder valueName exitCodeTy
+  restBinder = CoreBinder restName stringTy
+  body = appendStringCore (exitCodeShowWithPrecCore (CVar precName intTy) (CVar valueName exitCodeTy)) (CVar restName stringTy)
+
+exitCodeShowMethod =
+  unaryMethod "$show_exit_code" (-2893) exitCodeTy stringTy (exitCodeShowWithPrecCore (CLit (LInt 0) intTy))
+
+exitCodeShowListMethod =
+  showListFromShowsMethod exitCodeTy exitCodeShowsPrecMethod
+
+exitCodeShowWithPrecCore :: CoreExpr -> CoreExpr -> CoreExpr
+exitCodeShowWithPrecCore prec value =
+  CCase value (CoreBinder caseName exitCodeTy) alts stringTy
+ where
+  caseName = builtinLocalTermName "$show_exit_code_case" (-2894)
+  failureCode = builtinLocalTermName "$show_exit_code_failure" (-2895)
+  failureBody =
+    boolCaseCore
+      "$show_exit_code_parens"
+      (-2896)
+      (intLt (CLit (LInt 10) intTy) prec)
+      stringTy
+      (appendStringCore (stringLiteralCore "(") (appendStringCore rawFailure (stringLiteralCore ")")))
+      rawFailure
+  rawFailure =
+    appendStringCore (stringLiteralCore "ExitFailure ") (CPrimOp PrimShowInt [CVar failureCode intTy] stringTy)
+  alts =
+    [ CoreAlt (ConstructorAlt exitSuccessDataConName) [] (stringLiteralCore "ExitSuccess")
+    , CoreAlt (ConstructorAlt exitFailureDataConName) [CoreBinder failureCode intTy] failureBody
+    ]
+
+unitShowsPrecMethod, unitShowMethod, unitShowListMethod :: CoreExpr
+unitShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_unit" (-2850) unitTy (const (stringLiteralCore "()"))
+
+unitShowMethod =
+  unaryMethod "$show_unit" (-2851) unitTy stringTy (const (stringLiteralCore "()"))
+
+unitShowListMethod =
+  showListFromShowsMethod unitTy (showsPrecFromRenderedMethod "$show_list_shows_unit" (-2852) unitTy (const (stringLiteralCore "()")))
+
+ratioShowsPrecMethod, ratioShowMethod, ratioShowListMethod :: CoreExpr
+ratioShowsPrecMethod =
+  CLam precBinder (CLam valueBinder (CLam restBinder methodBody showSCoreType) (CTyFun rationalCoreType showSCoreType)) (showsPrecFunctionCoreType rationalCoreType)
+ where
+  precName = builtinLocalTermName "$shows_prec_ratio_int_prec" (-2860)
+  valueName = builtinLocalTermName "$shows_prec_ratio_int_value" (-2861)
+  restName = builtinLocalTermName "$shows_prec_ratio_int_rest" (-2862)
+  precBinder = CoreBinder precName intTy
+  valueBinder = CoreBinder valueName rationalCoreType
+  restBinder = CoreBinder restName stringTy
+  rendered = ratioShowBodyCore (CVar valueName rationalCoreType)
+  wrapped =
+    boolCaseCore
+      "$shows_prec_ratio_int_paren"
+      (-2863)
+      (intLt (CLit (LInt 7) intTy) (CVar precName intTy))
+      stringTy
+      (appendStringCore (stringLiteralCore "(") (appendStringCore rendered (stringLiteralCore ")")))
+      rendered
+  methodBody = appendStringCore wrapped (CVar restName stringTy)
+
+ratioShowMethod =
+  unaryMethod "$show_ratio_int" (-2864) rationalCoreType stringTy ratioShowBodyCore
+
+ratioShowListMethod =
+  showListFromShowsMethod rationalCoreType ratioShowsPrecMethod
+
+ratioShowBodyCore :: CoreExpr -> CoreExpr
+ratioShowBodyCore value =
+  ratioCaseCore "$show_ratio_int_case" (-2865) value stringTy (-2866) (-2867) $ \n d ->
+    appendStringCore (CPrimOp PrimShowInteger [n] stringTy) (appendStringCore (stringLiteralCore " % ") (CPrimOp PrimShowInteger [d] stringTy))
+
+floatShowsPrecMethod, floatShowMethod, floatShowListMethod :: CoreExpr
+floatShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_float" (-2870) floatTy (\value -> CPrimOp (PrimFloat FloatWidth FloatShow) [value] stringTy)
+floatShowMethod =
+  unaryPrimMethod "$show_float" (-2871) floatTy stringTy (PrimFloat FloatWidth FloatShow)
+floatShowListMethod =
+  showListFromShowsMethod floatTy floatShowsPrecMethod
+
+doubleShowsPrecMethod, doubleShowMethod, doubleShowListMethod :: CoreExpr
+doubleShowsPrecMethod =
+  showsPrecFromRenderedMethod "$shows_prec_double" (-2880) doubleTy (\value -> CPrimOp (PrimFloat DoubleWidth FloatShow) [value] stringTy)
+doubleShowMethod =
+  unaryPrimMethod "$show_double" (-2881) doubleTy stringTy (PrimFloat DoubleWidth FloatShow)
+doubleShowListMethod =
+  showListFromShowsMethod doubleTy doubleShowsPrecMethod
+
+intReadsPrecMethod, integerReadsPrecMethod, boolReadsPrecMethod, charReadsPrecMethod, orderingReadsPrecMethod, exitCodeReadsPrecMethod, unitReadsPrecMethod, ratioReadsPrecMethod :: CoreExpr
+intReadsPrecMethod =
+  readsPrecFromParserMethod "$reads_prec_int" (-2707) intTy (CVar readIntName readIntCoreType)
+integerReadsPrecMethod =
+  readsPrecFromParserMethod "$reads_prec_integer" (-27070) integerTy (CVar readIntegerName readIntegerCoreType)
+boolReadsPrecMethod =
+  readsPrecFromParserMethod "$reads_prec_bool" (-2708) boolTy (CVar readBoolName readBoolCoreType)
+charReadsPrecMethod =
+  readsPrecFromParserMethod "$reads_prec_char" (-2709) charTy (CVar readCharName readCharCoreType)
+orderingReadsPrecMethod =
+  readsPrecFromParserMethod "$reads_prec_ordering" (-2710) orderingTy orderingReadParserCore
+exitCodeReadsPrecMethod =
+  coreLam precName intTy $
+    applyCore
+      ( applyCore
+          (CTypeApp (CVar readParenName readParenCoreType) [exitCodeTy] (CTyFun boolTy (CTyFun exitCodeParserTy exitCodeParserTy)))
+          (intLt (CLit (LInt 10) intTy) (CVar precName intTy))
+          (CTyFun exitCodeParserTy exitCodeParserTy)
+      )
+      exitCodeReadParserCore
+      exitCodeParserTy
+ where
+  precName = builtinLocalTermName "$reads_prec_exit_code_prec" (-2722)
+  exitCodeParserTy = readSCoreType exitCodeTy
+unitReadsPrecMethod =
+  readsPrecFromParserMethod "$reads_prec_unit" (-2711) unitTy unitReadParserCore
+ratioReadsPrecMethod =
+  coreLam precName intTy $
+    applyCore
+      ( applyCore
+          (CTypeApp (CVar readParenName readParenCoreType) [rationalCoreType] (CTyFun boolTy (CTyFun ratioParserTy ratioParserTy)))
+          (intLt (CLit (LInt 7) intTy) (CVar precName intTy))
+          (CTyFun ratioParserTy ratioParserTy)
+      )
+      ratioReadParserCore
+      ratioParserTy
+ where
+  precName = builtinLocalTermName "$reads_prec_ratio_int_prec" (-2714)
+  ratioParserTy = readSCoreType rationalCoreType
+
+intReadListMethod, integerReadListMethod, boolReadListMethod, charReadListMethod, orderingReadListMethod, exitCodeReadListMethod, unitReadListMethod, ratioReadListMethod :: CoreExpr
+intReadListMethod =
+  readListFromParserMethod intTy (CVar readIntName readIntCoreType)
+integerReadListMethod =
+  readListFromParserMethod integerTy (CVar readIntegerName readIntegerCoreType)
+boolReadListMethod =
+  readListFromParserMethod boolTy (CVar readBoolName readBoolCoreType)
+charReadListMethod =
+  CVar readStringName readStringCoreType
+orderingReadListMethod =
+  readListFromParserMethod orderingTy orderingReadParserCore
+exitCodeReadListMethod =
+  readListFromParserMethod exitCodeTy exitCodeReadParserCore
+unitReadListMethod =
+  readListFromParserMethod unitTy unitReadParserCore
+ratioReadListMethod =
+  readListFromParserMethod rationalCoreType ratioReadParserCore
+
+readsPrecFromParserMethod :: Text -> Int -> CoreType -> CoreExpr -> CoreExpr
+readsPrecFromParserMethod occurrence unique _valueTy parser =
+  coreLam (builtinLocalTermName (occurrence <> "_prec") unique) intTy parser
+
+readListFromParserMethod :: CoreType -> CoreExpr -> CoreExpr
+readListFromParserMethod valueTy parser =
+  applyCore
+    (CTypeApp (CVar readDefaultListName readDefaultListCoreType) [valueTy] (CTyFun (readSCoreType valueTy) (readSCoreType (CTyList valueTy))))
+    parser
+    (readSCoreType (CTyList valueTy))
+
+orderingReadParserCore :: CoreExpr
+orderingReadParserCore =
+  coreLam inputName stringTy body
+ where
+  inputName = builtinLocalTermName "$read_ordering_input" (-2712)
+  input = CVar inputName stringTy
+  body =
+    readAppendCallCore
+      (readResultCoreType orderingTy)
+      (readConstantParserCore orderingTy "LT" (CCon orderingLTDataConName orderingTy) input)
+      ( readAppendCallCore
+          (readResultCoreType orderingTy)
+          (readConstantParserCore orderingTy "EQ" (CCon orderingEQDataConName orderingTy) input)
+          (readConstantParserCore orderingTy "GT" (CCon orderingGTDataConName orderingTy) input)
+      )
+
+exitCodeReadParserCore :: CoreExpr
+exitCodeReadParserCore =
+  coreLam inputName stringTy body
+ where
+  inputName = builtinLocalTermName "$read_exit_code_input" (-2723)
+  afterConstructorName = builtinLocalTermName "$read_exit_code_after_constructor" (-2724)
+  constructorUnitName = builtinLocalTermName "$read_exit_code_constructor_unit" (-2725)
+  codeName = builtinLocalTermName "$read_exit_code_failure_code" (-2726)
+  restName = builtinLocalTermName "$read_exit_code_failure_rest" (-2727)
+  input = CVar inputName stringTy
+  successParser =
+    readConstantParserCore exitCodeTy "ExitSuccess" (CCon exitSuccessDataConName exitCodeTy) input
+  failureParser =
+    readBindCallCore
+      unitTy
+      exitCodeTy
+      (readExactCallCore "ExitFailure" input)
+      ( coreLam constructorUnitName unitTy $
+          coreLam afterConstructorName stringTy $
+            readBindCallCore
+              intTy
+              exitCodeTy
+              (applyCore (CVar readIntName readIntCoreType) (CVar afterConstructorName stringTy) (readResultsCoreType intTy))
+              ( coreLam codeName intTy $
+                  coreLam restName stringTy $
+                    readSingleResultCore
+                      exitCodeTy
+                      (constructorApp exitFailureDataConName [] [CVar codeName intTy] exitCodeTy)
+                      (CVar restName stringTy)
+              )
+      )
+  body =
+    readAppendCallCore (readResultCoreType exitCodeTy) successParser failureParser
+
+unitReadParserCore :: CoreExpr
+unitReadParserCore =
+  coreLam inputName stringTy (readConstantParserCore unitTy "()" (CCon unitDataConName unitTy) (CVar inputName stringTy))
+ where
+  inputName = builtinLocalTermName "$read_unit_input" (-2713)
+
+ratioReadParserCore :: CoreExpr
+ratioReadParserCore =
+  coreLam inputName stringTy $
+    readBindCallCore
+      integerTy
+      rationalCoreType
+      (applyCore (CVar readIntegerName readIntegerCoreType) (CVar inputName stringTy) (readResultsCoreType integerTy))
+      ( coreLam numeratorName integerTy $
+          coreLam afterNumeratorName stringTy $
+            readBindCallCore
+              unitTy
+              rationalCoreType
+              (readExactCallCore "%" (CVar afterNumeratorName stringTy))
+              ( coreLam percentName unitTy $
+                  coreLam afterPercentName stringTy $
+                    readBindCallCore
+                      integerTy
+                      rationalCoreType
+                      (applyCore (CVar readIntegerName readIntegerCoreType) (CVar afterPercentName stringTy) (readResultsCoreType integerTy))
+                      ( coreLam denominatorName integerTy $
+                          coreLam restName stringTy $
+                            readSingleResultCore
+                              rationalCoreType
+                              (ratioReduceCall (CVar numeratorName integerTy) (CVar denominatorName integerTy))
+                              (CVar restName stringTy)
+                      )
+              )
+      )
+ where
+  inputName = builtinLocalTermName "$read_ratio_int_input" (-2715)
+  numeratorName = builtinLocalTermName "$read_ratio_int_numerator" (-2716)
+  afterNumeratorName = builtinLocalTermName "$read_ratio_int_after_numerator" (-2717)
+  percentName = builtinLocalTermName "$read_ratio_int_percent" (-2718)
+  afterPercentName = builtinLocalTermName "$read_ratio_int_after_percent" (-2719)
+  denominatorName = builtinLocalTermName "$read_ratio_int_denominator" (-2720)
+  restName = builtinLocalTermName "$read_ratio_int_rest" (-2721)
 
 ioFunctorFmapMethod :: CoreExpr
 ioFunctorFmapMethod =
@@ -9160,6 +18981,59 @@ listMonadFailMethod =
   message = builtinLocalTermName "$list_monad_fail_message" (-2224)
   lam binderName ty body = CLam (CoreBinder binderName ty) body (CTyFun ty (exprType body))
 
+maybeMonadPlusMzeroMethod :: CoreExpr
+maybeMonadPlusMzeroMethod =
+  CTypeLam [a] (nothingCore aTy) maybeMonadPlusMzeroCoreType
+ where
+  a = preludeTypeVariable "a" (-1397)
+  aTy = CTyVar a
+
+maybeMonadPlusMplusMethod :: CoreExpr
+maybeMonadPlusMplusMethod =
+  CTypeLam [a] (coreLam lhs maybeA (coreLam rhs maybeA body)) maybeMonadPlusMplusCoreType
+ where
+  a = preludeTypeVariable "a" (-1397)
+  aTy = CTyVar a
+  maybeA = CTyApp (CTyCon maybeTyConName) aTy
+  lhs = builtinLocalTermName "$maybe_monadplus_mplus_lhs" (-2242)
+  rhs = builtinLocalTermName "$maybe_monadplus_mplus_rhs" (-2243)
+  justValue = builtinLocalTermName "$maybe_monadplus_mplus_just" (-2244)
+  caseName = builtinLocalTermName "$maybe_monadplus_mplus_case" (-2245)
+  body =
+    CCase
+      (CVar lhs maybeA)
+      (CoreBinder caseName maybeA)
+      [ CoreAlt (ConstructorAlt maybeNothingDataConName) [] (CVar rhs maybeA)
+      , CoreAlt (ConstructorAlt maybeJustDataConName) [CoreBinder justValue aTy] (justCore aTy (CVar justValue aTy))
+      ]
+      maybeA
+
+listMonadPlusMzeroMethod :: CoreExpr
+listMonadPlusMzeroMethod =
+  CTypeLam [a] (nilCore aTy) listMonadPlusMzeroCoreType
+ where
+  a = preludeTypeVariable "a" (-1397)
+  aTy = CTyVar a
+
+listMonadPlusMplusMethod :: CoreExpr
+listMonadPlusMplusMethod =
+  CTypeLam [a] (coreLam lhs listA (coreLam rhs listA body)) listMonadPlusMplusCoreType
+ where
+  a = preludeTypeVariable "a" (-1397)
+  aTy = CTyVar a
+  listA = CTyList aTy
+  lhs = builtinLocalTermName "$list_monadplus_mplus_lhs" (-2246)
+  rhs = builtinLocalTermName "$list_monadplus_mplus_rhs" (-2247)
+  body =
+    applyCore
+      ( applyCore
+          (CTypeApp (CVar monadListAppendName monadListAppendCoreType) [aTy] (CTyFun listA (CTyFun listA listA)))
+          (CVar lhs listA)
+          (CTyFun listA listA)
+      )
+      (CVar rhs listA)
+      listA
+
 ioMonadBindCoreType, ioMonadThenCoreType, ioMonadReturnCoreType, ioMonadFailCoreType :: CoreType
 ioMonadBindCoreType = monadBindFieldCoreType (CTyCon ioTyConName)
 ioMonadThenCoreType = monadThenFieldCoreType (CTyCon ioTyConName)
@@ -9198,6 +19072,14 @@ listMonadThenCoreType = monadThenFieldCoreType listTyConCore
 listMonadReturnCoreType = monadReturnFieldCoreType listTyConCore
 listMonadFailCoreType = monadFailFieldCoreType listTyConCore
 
+maybeMonadPlusMzeroCoreType, maybeMonadPlusMplusCoreType :: CoreType
+maybeMonadPlusMzeroCoreType = monadPlusMzeroFieldCoreType (CTyCon maybeTyConName)
+maybeMonadPlusMplusCoreType = monadPlusMplusFieldCoreType (CTyCon maybeTyConName)
+
+listMonadPlusMzeroCoreType, listMonadPlusMplusCoreType :: CoreType
+listMonadPlusMzeroCoreType = monadPlusMzeroFieldCoreType listTyConCore
+listMonadPlusMplusCoreType = monadPlusMplusFieldCoreType listTyConCore
+
 monadBindFieldCoreType :: CoreType -> CoreType
 monadBindFieldCoreType monadTy =
   CTyForall [a, b] (CTyFun monadA (CTyFun (CTyFun aTy monadB) monadB))
@@ -9233,6 +19115,21 @@ monadFailFieldCoreType monadTy =
  where
   a = preludeTypeVariable "a" (-1362)
   aTy = CTyVar a
+
+monadPlusMzeroFieldCoreType :: CoreType -> CoreType
+monadPlusMzeroFieldCoreType monadTy =
+  CTyForall [a] (applyMonadCoreType monadTy aTy)
+ where
+  a = preludeTypeVariable "a" (-1397)
+  aTy = CTyVar a
+
+monadPlusMplusFieldCoreType :: CoreType -> CoreType
+monadPlusMplusFieldCoreType monadTy =
+  CTyForall [a] (CTyFun monadA (CTyFun monadA monadA))
+ where
+  a = preludeTypeVariable "a" (-1397)
+  aTy = CTyVar a
+  monadA = applyMonadCoreType monadTy aTy
 
 applyMonadCoreType :: CoreType -> CoreType -> CoreType
 applyMonadCoreType monadTy argumentTy
@@ -9297,6 +19194,18 @@ binaryMethod occurrence unique argumentTy resultTy body =
   lhs = CVar lhsName argumentTy
   rhs = CVar rhsName argumentTy
   methodBody = body lhs rhs
+
+ternaryMethod :: Text -> Int -> CoreType -> CoreType -> (CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr) -> CoreExpr
+ternaryMethod occurrence unique argumentTy resultTy body =
+  CLam firstBinder (CLam secondBinder (CLam thirdBinder methodBody (CTyFun argumentTy resultTy)) (CTyFun argumentTy (CTyFun argumentTy resultTy))) (CTyFun argumentTy (CTyFun argumentTy (CTyFun argumentTy resultTy)))
+ where
+  firstName = builtinLocalTermName (occurrence <> "_first") unique
+  secondName = builtinLocalTermName (occurrence <> "_second") (unique - 1)
+  thirdName = builtinLocalTermName (occurrence <> "_third") (unique - 2)
+  firstBinder = CoreBinder firstName argumentTy
+  secondBinder = CoreBinder secondName argumentTy
+  thirdBinder = CoreBinder thirdName argumentTy
+  methodBody = body (CVar firstName argumentTy) (CVar secondName argumentTy) (CVar thirdName argumentTy)
 
 unaryPrimMethod :: Text -> Int -> CoreType -> CoreType -> CorePrimOp -> CoreExpr
 unaryPrimMethod occurrence unique argumentTy resultTy prim =
@@ -9880,6 +19789,18 @@ showDictCoreType :: CoreType -> CoreType
 showDictCoreType ty =
   CTyApp (CTyCon (classDictionaryTypeName builtinShowClassName)) ty
 
+showSCoreType :: CoreType
+showSCoreType =
+  CTyFun stringTy stringTy
+
+showsPrecFunctionCoreType :: CoreType -> CoreType
+showsPrecFunctionCoreType valueTy =
+  CTyFun intTy (CTyFun valueTy showSCoreType)
+
+showListFieldCoreType :: CoreType -> CoreType
+showListFieldCoreType valueTy =
+  CTyFun (CTyList valueTy) showSCoreType
+
 showListDictionaryCoreType :: CoreType
 showListDictionaryCoreType =
   CTyForall [a] (CTyFun showDictA showDictListA)
@@ -9891,11 +19812,10 @@ showListDictionaryCoreType =
 
 showListMethodCoreType :: CoreType
 showListMethodCoreType =
-  CTyForall [a] (CTyFun showDictA (CTyFun listA stringTy))
+  CTyForall [a] (CTyFun (showsPrecFunctionCoreType aTy) (CTyFun listA showSCoreType))
  where
   a = showListTypeVariable
   aTy = CTyVar a
-  showDictA = showDictCoreType aTy
   listA = CTyList aTy
 
 showListTailCoreType :: CoreType
@@ -9910,9 +19830,9 @@ showStringCharsCoreType :: CoreType
 showStringCharsCoreType =
   CTyFun stringTy stringTy
 
-showSelectorCoreType :: CoreType
-showSelectorCoreType =
-  CTyForall [a] (CTyFun showDictA (CTyFun aTy stringTy))
+showListSelectorCoreType :: CoreType
+showListSelectorCoreType =
+  CTyForall [a] (CTyFun showDictA (showListFieldCoreType aTy))
  where
   a = preludeTypeVariable "a" (-1331)
   aTy = CTyVar a
@@ -9961,17 +19881,18 @@ showStringCharsCorePair =
 
 showListMethodCorePair :: (CoreBinder, CoreExpr)
 showListMethodCorePair =
-  (CoreBinder showListMethodName showListMethodCoreType, CTypeLam [a] (lam dictName showDictA (lam xsName listA body)) showListMethodCoreType)
+  (CoreBinder showListMethodName showListMethodCoreType, CTypeLam [a] (lam showsName showsTy (lam xsName listA (lam restName stringTy body))) showListMethodCoreType)
  where
   a = showListTypeVariable
   aTy = CTyVar a
   listA = CTyList aTy
-  showDictA = showDictCoreType aTy
-  dictName = builtinLocalTermName "$show_list_dict" (-1905)
+  showsTy = showsPrecFunctionCoreType aTy
+  showsName = builtinLocalTermName "$show_list_shows" (-1905)
   xsName = builtinLocalTermName "$show_list_xs" (-1906)
   yName = builtinLocalTermName "$show_list_y" (-1907)
   ysName = builtinLocalTermName "$show_list_ys" (-1908)
   caseName = builtinLocalTermName "$show_list_case" (-1909)
+  restName = builtinLocalTermName "$show_list_rest" (-1930)
   lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
   body =
     listCaseCore
@@ -9979,30 +19900,28 @@ showListMethodCorePair =
       caseName
       aTy
       stringTy
-      (stringLiteralCore "[]")
+      (appendStringCore (stringLiteralCore "[]") (CVar restName stringTy))
       yName
       ysName
       ( consCharCore
           '['
-          ( appendStringCore
-              (showElementCore aTy (CVar dictName showDictA) (CVar yName aTy))
-              (showListTailCallCore aTy (CVar dictName showDictA) (CVar ysName listA))
-          )
+          (showElementWithShowsCore aTy (CVar showsName showsTy) (CVar yName aTy) (showListTailCallCore aTy (CVar showsName showsTy) (CVar ysName listA) (CVar restName stringTy)))
       )
 
 showListTailCorePair :: (CoreBinder, CoreExpr)
 showListTailCorePair =
-  (CoreBinder showListTailName showListTailCoreType, CTypeLam [a] (lam dictName showDictA (lam xsName listA body)) showListTailCoreType)
+  (CoreBinder showListTailName showListTailCoreType, CTypeLam [a] (lam showsName showsTy (lam xsName listA (lam restName stringTy body))) showListTailCoreType)
  where
   a = showListTypeVariable
   aTy = CTyVar a
   listA = CTyList aTy
-  showDictA = showDictCoreType aTy
-  dictName = builtinLocalTermName "$show_tail_dict" (-1910)
+  showsTy = showsPrecFunctionCoreType aTy
+  showsName = builtinLocalTermName "$show_tail_shows" (-1910)
   xsName = builtinLocalTermName "$show_tail_xs" (-1911)
   yName = builtinLocalTermName "$show_tail_y" (-1912)
   ysName = builtinLocalTermName "$show_tail_ys" (-1913)
   caseName = builtinLocalTermName "$show_tail_case" (-1914)
+  restName = builtinLocalTermName "$show_tail_rest" (-1931)
   lam binderName ty bodyExpr = CLam (CoreBinder binderName ty) bodyExpr (CTyFun ty (exprType bodyExpr))
   body =
     listCaseCore
@@ -10010,15 +19929,12 @@ showListTailCorePair =
       caseName
       aTy
       stringTy
-      (stringLiteralCore "]")
+      (consCharCore ']' (CVar restName stringTy))
       yName
       ysName
       ( consCharCore
           ','
-          ( appendStringCore
-              (showElementCore aTy (CVar dictName showDictA) (CVar yName aTy))
-              (showListTailCallCore aTy (CVar dictName showDictA) (CVar ysName listA))
-          )
+          (showElementWithShowsCore aTy (CVar showsName showsTy) (CVar yName aTy) (showListTailCallCore aTy (CVar showsName showsTy) (CVar ysName listA) (CVar restName stringTy)))
       )
 
 showListDictionaryCorePair :: ClassInfo -> Either TypecheckError (CoreBinder, CoreExpr)
@@ -10030,23 +19946,137 @@ showListDictionaryCorePair info = do
       showDictA = showDictCoreType aTy
       showDictListA = showDictCoreType listA
       dictName = builtinLocalTermName "$show_list_instance_dict" (-1915)
-      method =
+      precName = builtinLocalTermName "$show_list_instance_prec" (-1932)
+      xsName = builtinLocalTermName "$show_list_instance_xs" (-1933)
+      restName = builtinLocalTermName "$show_list_instance_rest" (-1934)
+      showXsName = builtinLocalTermName "$show_list_instance_show_xs" (-1935)
+      listPrecName = builtinLocalTermName "$show_list_instance_list_prec" (-2431)
+      listXsName = builtinLocalTermName "$show_list_instance_list_xs" (-2432)
+      listRestName = builtinLocalTermName "$show_list_instance_list_rest" (-2433)
+      elementShowList =
         CApp
           ( CTypeApp
-              (CVar showListMethodName showListMethodCoreType)
+              (CVar (preludeTermName "showList" (-1432)) showListSelectorCoreType)
               [aTy]
-              (CTyFun showDictA (CTyFun listA stringTy))
+              (CTyFun showDictA (showListFieldCoreType aTy))
           )
           (CVar dictName showDictA)
+          (showListFieldCoreType aTy)
+      showsPrecMethodWith precBinderName xsBinderName restBinderName =
+        CLam
+          (CoreBinder precBinderName intTy)
+          ( CLam
+              (CoreBinder xsBinderName listA)
+              ( CLam
+                  (CoreBinder restBinderName stringTy)
+                  (CApp (CApp elementShowList (CVar xsBinderName listA) showSCoreType) (CVar restBinderName stringTy) stringTy)
+                  showSCoreType
+              )
+              (CTyFun listA showSCoreType)
+          )
+          (showsPrecFunctionCoreType listA)
+      showsPrecMethod =
+        showsPrecMethodWith precName xsName restName
+      showListShowsPrecMethod =
+        showsPrecMethodWith listPrecName listXsName listRestName
+      showMethod =
+        CLam
+          (CoreBinder showXsName listA)
+          (CApp (CApp elementShowList (CVar showXsName listA) showSCoreType) emptyStringCore stringTy)
           (CTyFun listA stringTy)
+      showListMethod =
+        showListFromShowsMethod listA showListShowsPrecMethod
       typedConstructor =
         CTypeApp
           (CCon (classInfoDictConstructorName info) constructorTy)
           [listA]
-          (CTyFun (exprType method) showDictListA)
-      body = CApp typedConstructor method showDictListA
+          (CTyFun (exprType showsPrecMethod) (CTyFun (exprType showMethod) (CTyFun (exprType showListMethod) showDictListA)))
+      body =
+        CApp
+          (CApp (CApp typedConstructor showsPrecMethod (CTyFun (exprType showMethod) (CTyFun (exprType showListMethod) showDictListA))) showMethod (CTyFun (exprType showListMethod) showDictListA))
+          showListMethod
+          showDictListA
       rhs = CTypeLam [a] (CLam (CoreBinder dictName showDictA) body (CTyFun showDictA showDictListA)) showListDictionaryCoreType
   pure (CoreBinder showListDictionaryName showListDictionaryCoreType, rhs)
+
+builtinReadSupportCoreBinds :: Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
+builtinReadSupportCoreBinds classes =
+  case Map.lookup builtinReadClassName classes of
+    Nothing -> Right []
+    Just info -> do
+      listDictionaryPair <- readListDictionaryCorePair info
+      pure [CoreRec [listDictionaryPair]]
+
+readListDictionaryName :: RName
+readListDictionaryName =
+  preludeTermName "$fReadList" (-1706)
+
+readDictCoreType :: CoreType -> CoreType
+readDictCoreType ty =
+  CTyApp (CTyCon (classDictionaryTypeName builtinReadClassName)) ty
+
+readListDictionaryCoreType :: CoreType
+readListDictionaryCoreType =
+  CTyForall [a] (CTyFun readDictA readDictListA)
+ where
+  a = preludeTypeVariable "a" (-2530)
+  aTy = CTyVar a
+  readDictA = readDictCoreType aTy
+  readDictListA = readDictCoreType (CTyList aTy)
+
+readListSelectorCoreType :: CoreType
+readListSelectorCoreType =
+  CTyForall [a] (CTyFun readDictA (readSCoreType listA))
+ where
+  a = preludeTypeVariable "a" (-1561)
+  aTy = CTyVar a
+  listA = CTyList aTy
+  readDictA = readDictCoreType aTy
+
+readListDictionaryCorePair :: ClassInfo -> Either TypecheckError (CoreBinder, CoreExpr)
+readListDictionaryCorePair info = do
+  constructorTy <- classDictionaryConstructorCoreType info
+  let a = preludeTypeVariable "a" (-2530)
+      aTy = CTyVar a
+      listA = CTyList aTy
+      readDictA = readDictCoreType aTy
+      readDictListA = readDictCoreType listA
+      dictName = builtinLocalTermName "$read_list_instance_dict" (-2714)
+      precName = builtinLocalTermName "$read_list_instance_prec" (-2715)
+      xsName = builtinLocalTermName "$read_list_instance_xs" (-2716)
+      showListPrecName = builtinLocalTermName "$read_list_instance_list_prec" (-2717)
+      showListXsName = builtinLocalTermName "$read_list_instance_list_xs" (-2718)
+      elementReadList =
+        applyCore
+          ( CTypeApp
+              (CVar (preludeTermName "readList" (-1434)) readListSelectorCoreType)
+              [aTy]
+              (CTyFun readDictA (readSCoreType listA))
+          )
+          (CVar dictName readDictA)
+          (readSCoreType listA)
+      readsPrecMethodWith precBinderName xsBinderName =
+        coreLam precBinderName intTy (coreLam xsBinderName stringTy (applyCore elementReadList (CVar xsBinderName stringTy) (readResultsCoreType listA)))
+      readsPrecMethod =
+        readsPrecMethodWith precName xsName
+      readListShowsPrecMethod =
+        readsPrecMethodWith showListPrecName showListXsName
+      readListParser =
+        applyCore readListShowsPrecMethod zeroInt (readSCoreType listA)
+      readListMethod =
+        readListFromParserMethod listA readListParser
+      typedConstructor =
+        CTypeApp
+          (CCon (classInfoDictConstructorName info) constructorTy)
+          [listA]
+          (CTyFun (exprType readsPrecMethod) (CTyFun (exprType readListMethod) readDictListA))
+      body =
+        applyCore
+          (applyCore typedConstructor readsPrecMethod (CTyFun (exprType readListMethod) readDictListA))
+          readListMethod
+          readDictListA
+      rhs = CTypeLam [a] (coreLam dictName readDictA body) readListDictionaryCoreType
+  pure (CoreBinder readListDictionaryName readListDictionaryCoreType, rhs)
 
 builtinFunctorSupportCoreBinds :: Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
 builtinFunctorSupportCoreBinds classes
@@ -10102,7 +20132,7 @@ functorListMapCorePair =
 
 builtinMonadSupportCoreBinds :: Map.Map RName ClassInfo -> Either TypecheckError [CoreBind]
 builtinMonadSupportCoreBinds classes
-  | builtinMonadClassName `Map.member` classes =
+  | builtinMonadClassName `Map.member` classes || builtinIxClassName `Map.member` classes =
       Right [CoreRec [monadListAppendCorePair, monadListBindCorePair]]
   | otherwise =
       Right []
@@ -10202,28 +20232,43 @@ classDictionaryFullConstructorCoreType info = do
   fieldTypes <- classDictionaryCoreFieldTypes Map.empty Map.empty info
   pure (CTyForall [classInfoVariable info] (foldr CTyFun resultTy fieldTypes))
 
-showElementCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr
-showElementCore elementTy dictionary element =
-  CApp showFunction element stringTy
- where
-  dictionaryTy = showDictCoreType elementTy
-  showFunction =
-    CApp
-      (CTypeApp (CVar (preludeTermName "show" (-1431)) showSelectorCoreType) [elementTy] (CTyFun dictionaryTy (CTyFun elementTy stringTy)))
-      dictionary
-      (CTyFun elementTy stringTy)
+showElementWithShowsCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+showElementWithShowsCore elementTy showsFunction element rest =
+  CApp (CApp (CApp showsFunction zeroInt (CTyFun elementTy showSCoreType)) element showSCoreType) rest stringTy
 
-showListTailCallCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr
-showListTailCallCore elementTy dictionary listValue =
-  CApp tailFunction listValue stringTy
+showListTailCallCore :: CoreType -> CoreExpr -> CoreExpr -> CoreExpr -> CoreExpr
+showListTailCallCore elementTy showsFunction listValue rest =
+  CApp (CApp tailFunction listValue showSCoreType) rest stringTy
  where
   listTy = CTyList elementTy
-  dictionaryTy = showDictCoreType elementTy
   tailFunction =
     CApp
-      (CTypeApp (CVar showListTailName showListTailCoreType) [elementTy] (CTyFun dictionaryTy (CTyFun listTy stringTy)))
-      dictionary
-      (CTyFun listTy stringTy)
+      (CTypeApp (CVar showListTailName showListTailCoreType) [elementTy] (CTyFun (showsPrecFunctionCoreType elementTy) (CTyFun listTy showSCoreType)))
+      showsFunction
+      (CTyFun listTy showSCoreType)
+
+showListFromShowsMethod :: CoreType -> CoreExpr -> CoreExpr
+showListFromShowsMethod elementTy showsFunction =
+  CApp listFunction showsFunction (showListFieldCoreType elementTy)
+ where
+  listTy = CTyList elementTy
+  listFunction =
+    CTypeApp
+      (CVar showListMethodName showListMethodCoreType)
+      [elementTy]
+      (CTyFun (showsPrecFunctionCoreType elementTy) (CTyFun listTy showSCoreType))
+
+showsPrecFromRenderedMethod :: Text -> Int -> CoreType -> (CoreExpr -> CoreExpr) -> CoreExpr
+showsPrecFromRenderedMethod occurrence unique valueTy renderValue =
+  CLam precBinder (CLam valueBinder (CLam restBinder methodBody showSCoreType) (CTyFun valueTy showSCoreType)) (showsPrecFunctionCoreType valueTy)
+ where
+  precBinder = CoreBinder (builtinLocalTermName (occurrence <> "_prec") unique) intTy
+  valueName = builtinLocalTermName (occurrence <> "_value") (unique - 1)
+  restName = builtinLocalTermName (occurrence <> "_rest") (unique - 2)
+  valueBinder = CoreBinder valueName valueTy
+  restBinder = CoreBinder restName stringTy
+  methodBody =
+    appendStringCore (renderValue (CVar valueName valueTy)) (CVar restName stringTy)
 
 appendStringCore :: CoreExpr -> CoreExpr -> CoreExpr
 appendStringCore lhs rhs =
@@ -10244,20 +20289,20 @@ listCaseCore scrutinee caseName elementTy resultTy nilBody headName tailName con
 
 showCharLiteralCore :: CoreExpr -> CoreExpr
 showCharLiteralCore value =
+  showCharLiteralCoreWith "$show_char_case" (-1916) value
+
+showCharLiteralCoreWith :: Text -> Int -> CoreExpr -> CoreExpr
+showCharLiteralCoreWith caseOccurrence caseUnique value =
   CCase value (CoreBinder caseName charTy) (specialCases <> [defaultCase]) stringTy
  where
-  caseName = builtinLocalTermName "$show_char_case" (-1916)
+  caseName = builtinLocalTermName caseOccurrence caseUnique
   specialCases =
-    [ charCase '\n' "'\\n'"
-    , charCase '\t' "'\\t'"
-    , charCase '\r' "'\\r'"
-    , charCase '\b' "'\\b'"
-    , charCase '\f' "'\\f'"
-    , charCase '\v' "'\\v'"
-    , charCase '\a' "'\\a'"
-    , charCase '\'' "'\\''"
-    , charCase '\\' "'\\\\'"
+    [ charCase char ("'\\" <> escaped <> "'")
+    | (char, escaped) <- showEscapedControlChars
     ]
+      <> [ charCase '\'' "'\\''"
+         , charCase '\\' "'\\\\'"
+         ]
   charCase char rendered =
     CoreAlt (LiteralAlt (LChar char)) [] (stringLiteralCore rendered)
   defaultCase =
@@ -10269,24 +20314,84 @@ showStringCharCore value rest =
  where
   caseName = builtinLocalTermName "$show_string_char_case" (-1917)
   specialCases =
-    [ charCase '\n' "\\n"
-    , charCase '\t' "\\t"
-    , charCase '\r' "\\r"
-    , charCase '\b' "\\b"
-    , charCase '\f' "\\f"
-    , charCase '\v' "\\v"
-    , charCase '\a' "\\a"
-    , charCase '"' "\\\""
-    , charCase '\\' "\\\\"
+    [ charCase char ("\\" <> escaped)
+    | (char, escaped) <- showEscapedControlChars
+    , char /= '\SO'
     ]
+      <> [CoreAlt (LiteralAlt (LChar '\SO')) [] (prefixStringCore "\\SO" (protectSOEscapeRestCore rest))]
+      <> [ charCase '"' "\\\""
+         , charCase '\\' "\\\\"
+         ]
   charCase char rendered =
     CoreAlt (LiteralAlt (LChar char)) [] (prefixStringCore rendered rest)
   defaultCase =
     CoreAlt DefaultAlt [] (consCharExprCore (CVar caseName charTy) rest)
 
+protectSOEscapeRestCore :: CoreExpr -> CoreExpr
+protectSOEscapeRestCore rest =
+  listCaseCore
+    rest
+    caseName
+    charTy
+    stringTy
+    emptyStringCore
+    headName
+    tailName
+    (boolCaseCore "$show_string_so_escape_ambiguous" (-2437) headIsH stringTy escapedRest originalRest)
+ where
+  caseName = builtinLocalTermName "$show_string_so_escape_case" (-2434)
+  headName = builtinLocalTermName "$show_string_so_escape_head" (-2435)
+  tailName = builtinLocalTermName "$show_string_so_escape_tail" (-2436)
+  headExpr = CVar headName charTy
+  tailExpr = CVar tailName stringTy
+  originalRest = consCharExprCore headExpr tailExpr
+  escapedRest = prefixStringCore "\\&" originalRest
+  headIsH = CPrimOp PrimEq [headExpr, CLit (LChar 'H') charTy] boolTy
+
+showEscapedControlChars :: [(Char, Text)]
+showEscapedControlChars =
+  [ ('\NUL', "NUL")
+  , ('\SOH', "SOH")
+  , ('\STX', "STX")
+  , ('\ETX', "ETX")
+  , ('\EOT', "EOT")
+  , ('\ENQ', "ENQ")
+  , ('\ACK', "ACK")
+  , ('\a', "a")
+  , ('\b', "b")
+  , ('\t', "t")
+  , ('\n', "n")
+  , ('\v', "v")
+  , ('\f', "f")
+  , ('\r', "r")
+  , ('\SO', "SO")
+  , ('\SI', "SI")
+  , ('\DLE', "DLE")
+  , ('\DC1', "DC1")
+  , ('\DC2', "DC2")
+  , ('\DC3', "DC3")
+  , ('\DC4', "DC4")
+  , ('\NAK', "NAK")
+  , ('\SYN', "SYN")
+  , ('\ETB', "ETB")
+  , ('\CAN', "CAN")
+  , ('\EM', "EM")
+  , ('\SUB', "SUB")
+  , ('\ESC', "ESC")
+  , ('\FS', "FS")
+  , ('\GS', "GS")
+  , ('\RS', "RS")
+  , ('\US', "US")
+  , ('\DEL', "DEL")
+  ]
+
 quotedCharCore :: CoreExpr -> CoreExpr
 quotedCharCore charExpr =
   consCharCore '\'' (consCharExprCore charExpr (consCharCore '\'' emptyStringCore))
+
+showStringLiteralCore :: CoreExpr -> CoreExpr
+showStringLiteralCore value =
+  consCharCore '"' (CApp (CVar showStringCharsName showStringCharsCoreType) value stringTy)
 
 stringLiteralCore :: Text -> CoreExpr
 stringLiteralCore value =
@@ -10311,6 +20416,97 @@ emptyStringCore =
 builtinLocalTermName :: Text -> Int -> RName
 builtinLocalTermName occurrence unique =
   RName TermNamespace occurrence unique False
+
+uniquifyCoreModuleBinders :: CoreModule -> CoreModule
+uniquifyCoreModuleBinders coreModule =
+  coreModule {coreModuleBinds = uniquifiedBinds}
+ where
+  (uniquifiedBinds, _) =
+    runState (traverse uniquifyTopCoreBind (coreModuleBinds coreModule)) (-9000000)
+
+uniquifyTopCoreBind :: CoreBind -> State Int CoreBind
+uniquifyTopCoreBind = \case
+  CoreNonRec binder rhs -> do
+    rhs' <- uniquifyCoreExpr Map.empty rhs
+    pure (CoreNonRec binder rhs')
+  CoreRec pairs -> do
+    pairs' <- traverse (\(binder, rhs) -> (binder,) <$> uniquifyCoreExpr Map.empty rhs) pairs
+    pure (CoreRec pairs')
+
+uniquifyCoreBind :: Map.Map RName RName -> CoreBind -> State Int (CoreBind, Map.Map RName RName)
+uniquifyCoreBind env = \case
+  CoreNonRec binder rhs -> do
+    newBinder <- freshCoreLocalBinder binder
+    rhs' <- uniquifyCoreExpr env rhs
+    let env' = Map.insert (coreBinderName binder) (coreBinderName newBinder) env
+    pure (CoreNonRec newBinder rhs', env')
+  CoreRec pairs -> do
+    newBinders <- traverse (freshCoreLocalBinder . fst) pairs
+    let oldNames = map (coreBinderName . fst) pairs
+        newNames = map coreBinderName newBinders
+        env' = Map.union (Map.fromList (zip oldNames newNames)) env
+    rhs' <- traverse (uniquifyCoreExpr env' . snd) pairs
+    pure (CoreRec (zip newBinders rhs'), env')
+
+uniquifyCoreExpr :: Map.Map RName RName -> CoreExpr -> State Int CoreExpr
+uniquifyCoreExpr env = \case
+  CVar name ty ->
+    pure (CVar (Map.findWithDefault name name env) ty)
+  CLit literal ty ->
+    pure (CLit literal ty)
+  CCon name ty ->
+    pure (CCon name ty)
+  CSpanned sourceRange expression ->
+    CSpanned sourceRange <$> uniquifyCoreExpr env expression
+  CLam binder body ty -> do
+    newBinder <- freshCoreLocalBinder binder
+    body' <- uniquifyCoreExpr (Map.insert (coreBinderName binder) (coreBinderName newBinder) env) body
+    pure (CLam newBinder body' ty)
+  CApp fn arg ty ->
+    CApp <$> uniquifyCoreExpr env fn <*> uniquifyCoreExpr env arg <*> pure ty
+  CTypeLam variables body ty ->
+    CTypeLam variables <$> uniquifyCoreExpr env body <*> pure ty
+  CTypeApp fn arguments ty ->
+    CTypeApp <$> uniquifyCoreExpr env fn <*> pure arguments <*> pure ty
+  CLet bind body ty -> do
+    (bind', env') <- uniquifyCoreBind env bind
+    body' <- uniquifyCoreExpr env' body
+    pure (CLet bind' body' ty)
+  CCase scrutinee binder alternatives ty -> do
+    scrutinee' <- uniquifyCoreExpr env scrutinee
+    newBinder <- freshCoreLocalBinder binder
+    let env' = Map.insert (coreBinderName binder) (coreBinderName newBinder) env
+    alternatives' <- traverse (uniquifyCoreAlt env') alternatives
+    pure (CCase scrutinee' newBinder alternatives' ty)
+  CCoerce expression ty ->
+    CCoerce <$> uniquifyCoreExpr env expression <*> pure ty
+  CPrimOp op arguments ty ->
+    CPrimOp op <$> traverse (uniquifyCoreExpr env) arguments <*> pure ty
+  CForeignCall foreignImport arguments ty ->
+    CForeignCall foreignImport <$> traverse (uniquifyCoreExpr env) arguments <*> pure ty
+  CForeignImportValue foreignImport ty ->
+    pure (CForeignImportValue foreignImport ty)
+
+uniquifyCoreAlt :: Map.Map RName RName -> CoreAlt -> State Int CoreAlt
+uniquifyCoreAlt env (CoreAlt altCon binders body) = do
+  newBinders <- traverse freshCoreLocalBinder binders
+  let env' =
+        Map.union
+          (Map.fromList (zip (map coreBinderName binders) (map coreBinderName newBinders)))
+          env
+  body' <- uniquifyCoreExpr env' body
+  pure (CoreAlt altCon newBinders body')
+
+freshCoreLocalBinder :: CoreBinder -> State Int CoreBinder
+freshCoreLocalBinder (CoreBinder name ty) = do
+  name' <- freshCoreLocalName name
+  pure (CoreBinder name' ty)
+
+freshCoreLocalName :: RName -> State Int RName
+freshCoreLocalName name = do
+  unique <- get
+  modify (subtract 1)
+  pure name {nameUnique = unique}
 
 superclassSelectorName :: ClassInfo -> Int -> ClassConstraint -> RName
 superclassSelectorName info index superclass =
@@ -10669,6 +20865,7 @@ typedExprType = \case
   TLit _ ty -> ty
   TCon _ _ _ ty -> ty
   TNewtypeCon _ _ _ ty _ -> ty
+  TSpanned _ expression -> typedExprType expression
   TTuple _ ty -> ty
   TList _ ty -> ty
   TLam _ _ ty -> ty
@@ -10691,6 +20888,8 @@ typedExprMetaVars expression =
         freeMetaVarsScheme scheme
           <> Set.unions (map freeMetaVars typeArguments)
           <> freeMetaVars (typedBinderType binder)
+      TSpanned _ inner ->
+        typedExprMetaVars inner
       TTuple fields _ ->
         Set.unions (map typedExprMetaVars fields)
       TList elements _ ->
@@ -10729,6 +20928,8 @@ typedExprFreeTermNames = \case
     Set.empty
   TNewtypeCon _ _ _ _ _ ->
     Set.empty
+  TSpanned _ expression ->
+    typedExprFreeTermNames expression
   TTuple fields _ ->
     Set.unions (map typedExprFreeTermNames fields)
   TList elements _ ->
@@ -10807,6 +21008,9 @@ freshTermBinder occurrence ty =
 literalMonoType :: Literal -> MonoType
 literalMonoType = \case
   LInt {} -> intMonoType
+  LInteger {} -> integerMonoType
+  LFloat {} -> floatMonoType
+  LDouble {} -> doubleMonoType
   LChar {} -> charMonoType
   LString {} -> stringMonoType
 
@@ -10821,6 +21025,18 @@ stringLiteralPattern value =
 intMonoType :: MonoType
 intMonoType =
   coreTypeToMono intTy
+
+integerMonoType :: MonoType
+integerMonoType =
+  coreTypeToMono integerTy
+
+floatMonoType :: MonoType
+floatMonoType =
+  coreTypeToMono floatTy
+
+doubleMonoType :: MonoType
+doubleMonoType =
+  coreTypeToMono doubleTy
 
 boolMonoType :: MonoType
 boolMonoType =
@@ -10842,9 +21058,45 @@ stringMonoType :: MonoType
 stringMonoType =
   coreTypeToMono stringTy
 
+filePathMonoType :: MonoType
+filePathMonoType =
+  stringMonoType
+
+ioErrorMonoType :: MonoType
+ioErrorMonoType =
+  coreTypeToMono ioErrorTy
+
+ioErrorTypeMonoType :: MonoType
+ioErrorTypeMonoType =
+  coreTypeToMono ioErrorTypeTy
+
+handleMonoType :: MonoType
+handleMonoType =
+  coreTypeToMono handleTy
+
+handlePosnMonoType :: MonoType
+handlePosnMonoType =
+  coreTypeToMono handlePosnTy
+
+ioModeMonoType :: MonoType
+ioModeMonoType =
+  coreTypeToMono ioModeTy
+
+bufferModeMonoType :: MonoType
+bufferModeMonoType =
+  coreTypeToMono bufferModeTy
+
+seekModeMonoType :: MonoType
+seekModeMonoType =
+  coreTypeToMono seekModeTy
+
+exitCodeMonoType :: MonoType
+exitCodeMonoType =
+  coreTypeToMono exitCodeTy
+
 rationalMonoType :: MonoType
 rationalMonoType =
-  TyTuple [intMonoType, intMonoType]
+  TyApp (TyCon ratioTyConName) integerMonoType
 
 ioMonoType :: MonoType -> MonoType
 ioMonoType resultTy =
@@ -10886,13 +21138,17 @@ throwTypecheck err = do
 emitTypecheckWarning :: TypecheckWarning -> InferM ()
 emitTypecheckWarning warning = do
   spans <- typecheckSpanStack <$> get
-  let spanned =
-        case warning of
-          TypecheckWarningAt {} ->
-            warning
-          _ ->
-            maybe warning (`TypecheckWarningAt` warning) (listToMaybe spans)
-  modify (\state -> state {typecheckWarnings = typecheckWarnings state <> [spanned]})
+  unless (any isStandardLibrarySpan spans) $ do
+    let spanned =
+          case warning of
+            TypecheckWarningAt {} ->
+              warning
+            _ ->
+              maybe warning (`TypecheckWarningAt` warning) (listToMaybe spans)
+    modify (\state -> state {typecheckWarnings = typecheckWarnings state <> [spanned]})
+ where
+  isStandardLibrarySpan sourceRange =
+    "<standard-library>" `List.isPrefixOf` spanFile sourceRange
 
 withTypecheckSpan :: Maybe SourceSpan -> InferM a -> InferM a
 withTypecheckSpan Nothing action =

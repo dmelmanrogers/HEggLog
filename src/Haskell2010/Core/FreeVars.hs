@@ -10,7 +10,7 @@ import Haskell2010.Core.Syntax
 import Haskell2010.Names (RName)
 
 freeVarsModule :: CoreModule -> Set.Set RName
-freeVarsModule (CoreModule _ _ binds _foreignExports) =
+freeVarsModule (CoreModule _ _ binds _foreignExports _) =
   Set.unions (map freeVarsBind binds) `Set.difference` boundNames binds
 
 freeVarsBind :: CoreBind -> Set.Set RName
@@ -28,6 +28,8 @@ freeVarsExpr = \case
     Set.empty
   CCon {} ->
     Set.empty
+  CSpanned _ expression ->
+    freeVarsExpr expression
   CLam binder body _ ->
     Set.delete (coreBinderName binder) (freeVarsExpr body)
   CApp fn arg _ ->

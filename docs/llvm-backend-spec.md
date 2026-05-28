@@ -287,6 +287,17 @@ Native compile mode does not shell-concatenate commands; it invokes `clang` with
 an argument list, captures stdout and stderr, and returns structured build
 failure information that includes the command, exit code, stdout, and stderr.
 
+Native link inputs are represented explicitly rather than inferred from shell
+strings. `NativeLinkOptions` carries extra object/archive paths, library names,
+library search paths, and macOS framework names. The compile CLI maps repeated
+`--link-object`, `--link-library`, `--library-path`, and `--framework` flags to
+those options and appends them to the clang argument vector. Haskell 2010 FFI
+lowering also records `ForeignLinkMetadata` for header-qualified imports,
+static imports, address imports, and foreign exports; the STG LLVM backend
+emits that metadata as LLVM comments for diagnostics and future C-stub/link
+planning. Headers are metadata only in this backend contract; object files and
+libraries must be supplied explicitly by the build invocation.
+
 ## Required Tests
 
 The current contract is covered by:

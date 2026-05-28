@@ -48,14 +48,19 @@ slice is implemented for `IO`,
 dictionaries for `IO`, `Maybe`, and lists with `fmap`, higher-kinded `Monad`
 dictionaries for `IO`, `Maybe`, and lists, `return`, `(>>)`, `(>>=)`, `fail`,
 generic expression and bind-statement `do` sequencing with local `let`, and
-built-in `Show Int`/`Show Bool` dictionaries.
-The current `Show` slice also includes exact `Show Char`, exact `Show String`,
-and generated structural list dictionaries.
+Report-shaped `Show` dictionaries for `Int`, `Bool`, `Char`, exact `String`,
+generated structural lists, and supported derived data/newtype declarations.
+Prelude also exposes `shows`.
 The implemented FFI slice includes structured `foreign import`/`foreign export`
 declarations, generated `Foreign`/`Foreign.C`/`Foreign.C.Types` interfaces,
-marshallable scalar/pointer/synonym/local-newtype validation, static `ccall`,
+marshallable scalar/floating/pointer/synonym/local-newtype validation, static `ccall`,
 address, `dynamic`, `wrapper`, foreign-export, `StablePtr`, and manual
-`ForeignPtr` native wet coverage for the supported ABI surface.
+`ForeignPtr` native wet coverage for the supported ABI surface. `freeHaskellFunPtr`
+now releases wrapper callback slots, callback-after-free aborts, and released
+slots are reused by later wrapper allocations. FFI link metadata now preserves
+header-qualified imports and C symbols in native results and emitted LLVM
+comments, and the compile CLI passes explicit object, library, library-path,
+and framework inputs through to clang.
 The typechecker now also exposes source-spanned non-exhaustive and redundant
 pattern-match warnings for supported `case`, function, and lambda patterns
 through `typecheckModuleToCoreWithWarnings`; native compilation carries those
@@ -63,19 +68,25 @@ warnings in `Haskell2010LLVMResult`, and the compile CLI renders them to stderr.
 The following Haskell 2010 requirements are planned but not
 implemented:
 
-- report-complete pattern coverage and runtime source attribution beyond the
-  current executable-subset diagnostics
+- report-complete pattern coverage beyond the current executable-subset
+  diagnostics
 - remaining source-surface implementation closure
-- instance contexts, derived `Read`, and the full
-  `showsPrec`/`showList` hierarchy
-- Fractional/Floating classes, arbitrary-precision `Integer`, full
-  `Ratio`/`Rational` behavior, and broader Prelude/library subset
+- instance contexts
+- generic `Ratio a` behavior beyond the current `Ratio Integer`/`Rational`
+  surface, native out-of-i64 `Integer` payloads, exact shortest-roundtrip
+  floating lexical helpers, and broader Prelude/library subset
 - remaining standard-library value surfaces beyond the currently generated
   partial module interfaces
+- package databases, interface-file roots, and persistent interface-file
+  separate compilation beyond the current explicit whole-program source
+  boundary
 - Haskell source desugaring and negative fixtures beyond the current executable subset
-- broader IO, including handles, rich recoverable IO errors, and effects beyond line-oriented stdin/stdout
-- remaining FFI closure for floating-point marshalling, link metadata,
-  callback/finalizer lifetimes, and broader `Foreign.*` modules
+- remaining IO follow-up scope is outside the Haskell 2010 text baseline:
+  post-2010 encoding/binary IO, threaded/asynchronous IO behavior, and richer
+  terminal echo/control effects beyond the current metadata and `isatty` checks
+- target-specific FFI follow-up outside the current Darwin `ccall` runtime slice,
+  such as non-Darwin errno accessors or `stdcall` diagnostics on targets where
+  that ABI is meaningful
 - full Haskell 2010 conformance suite breadth beyond the current
   manifest-backed executable subset
 
@@ -92,19 +103,26 @@ pattern-match diagnostics, TEST-CONF-013 completed source-surface negative
 fixtures, TEST-CONF-014 completed machine-checked source matrix closure, and
 ADT-007 completed record update expressions for the supported record subset.
 
-The following chunk is Prelude, deriving, and typeclass library completion:
-TC-029, TC-030, and TEST-CONF-015. PRELUDE-019 is complete for `($)`, `(.)`,
-`flip`, `head`, `tail`, `null`, `fst`, and `snd`; PRELUDE-020 is complete for
-generated/importable standard-library module interfaces that have real support,
-including `Control.Monad` `Functor(fmap)` for `[]`, `Maybe`, and `IO`.
-The remaining tasks cover report-shaped `Show`, `Read`, and a Report-facing
-library conformance closure pass that reconciles Chapter 9 Prelude plus the
-Part II library module inventory against the tracker before additional library
-surface is claimed.
+The following chunk is Prelude, deriving, and typeclass library completion.
+PRELUDE-019 is complete for `($)`, `(.)`, `flip`, `head`, `tail`, `null`,
+`fst`, and `snd`; PRELUDE-020 is complete for generated/importable
+standard-library module interfaces that have real support, including
+`Control.Monad` `Functor(fmap)`, `Monad(..)`, `MonadPlus(..)`, and Report
+monadic combinators for supported `IO`, `Maybe`, and list dictionaries; and
+TEST-CONF-015 is complete for validator-backed reconciliation of Chapter 9
+Prelude plus the Part II library module inventory. TC-029 is complete for
+report-shaped `Show`, and TC-030 is complete for Report-shaped `Read`,
+including `ReadS`, `readsPrec`, `readList`, `reads`, `read`, `lex`,
+`readParen`, standard supported instances, and derived `Read`. The remaining
+library tasks now continue through LIB-002 and the remaining numbered
+standard-library module tasks.
 
 Remaining FFI work is no longer tracked by a broad FFI-wide deferral. FFI-010
-through FFI-013 now own floating-point marshalling, link metadata, callback and
-finalizer lifetime completion, and broader `Foreign.*` library surface.
+is complete for floating-point native ABI marshalling, FFI-011 is complete for
+link metadata and explicit native link inputs, FFI-012 is complete for
+explicit callback/finalizer lifetime behavior, and FFI-013 is complete for the
+previously documented errno, Storable, raw allocation, array, and C-string
+library gaps under the current native runtime model.
 
 ## What Is Parsed Today
 
@@ -172,9 +190,13 @@ supported infix subset desugared to generated Core lambdas; built-in `Show Int`,
 `Show Bool`, `Show Char`, exact `Show String`, and generated list `Show`
 dictionaries; and primitive `/`.
 Foreign declarations now typecheck at the frontend boundary: generated
-`Foreign`, `Foreign.C`, and `Foreign.C.Types` module interfaces expose the
-initial FFI type surface, valid `ccall`/`stdcall` imports and exports are
-checked for marshallable scalar/pointer/synonym/local-newtype shapes, and
+`Foreign`, `Foreign.C`, `Foreign.C.Types`, `Foreign.Ptr`,
+`Foreign.C.Error`, `Foreign.C.String`, `Foreign.ForeignPtr`,
+`Foreign.Marshal`, `Foreign.Marshal.Alloc`, `Foreign.Marshal.Array`,
+`Foreign.Marshal.Error`, `Foreign.Marshal.Utils`, and `Foreign.Storable`
+module interfaces expose the current FFI library
+surface, valid `ccall`/`stdcall` imports and exports are
+checked for marshallable scalar/floating/pointer/synonym/local-newtype shapes, and
 invalid address, `dynamic`, `wrapper`, or export signatures fail before
 lowering. Valid foreign imports now lower into explicit Core/STG foreign IR:
 static imports, `dynamic`, and `wrapper` become eta-expanded foreign-call
@@ -183,18 +205,31 @@ a precise unsupported runtime boundary when foreign calls are reached outside
 the native backend. The native LLVM backend now lowers supported
 `foreign import ccall` functions to external `declare`/direct `call`
 instructions or indirect `FunPtr` calls, with boxed `Int`/`Bool`/`Char`, signed
-and unsigned integer C ABI declarations, checked narrowing for outgoing integer
+`Float`/`Double`, signed and unsigned integer C ABI declarations,
+`CFloat`/`CDouble` ABI declarations, checked narrowing for outgoing integer
 arguments, checked unsigned 64-bit result boxing, boxed `Ptr`/`FunPtr` values,
 static `&symbol` data and function addresses, pointer arguments/results,
-`IO` sequencing, and C-callable `wrapper` callbacks backed by process-lifetime
-closure slots covered by linked C-helper native wet tests. `foreign export
-ccall` declarations now lower through Core/STG export metadata into C-callable
-native LLVM entrypoints for the supported scalar/pointer ABI slice; native wet
-tests cover a C helper calling exported pure and `IO` Haskell functions.
+floating-point arguments/results, `IO` sequencing, and C-callable `wrapper`
+callbacks backed by process-lifetime closure slots covered by linked C-helper
+native wet tests. `foreign export ccall` declarations now lower through
+Core/STG export metadata into C-callable native LLVM entrypoints for the
+supported scalar/floating/pointer ABI slice; native wet tests cover C helpers
+calling exported pure and `IO` Haskell functions.
 Explicit `StablePtr` ownership and manual `ForeignPtr` finalizer APIs are also
-implemented and wet-tested. Floating-point marshalling, broader link metadata,
-automatic GC finalization, and `freeHaskellFunPtr`/callback-slot reclamation
-remain pending.
+implemented and wet-tested. The broader Foreign library surface now includes
+null pointer values, pointer and function-pointer casts, `FinalizerPtr` and
+`FinalizerEnvPtr` aliases, `freeHaskellFunPtr`, `unsafeForeignPtrToPtr`,
+`castForeignPtr`, `throwIf`, `throwIf_`, `throwIfNull`, `void`, `maybeNew`,
+`maybeWith`, `maybePeek`, all Report errno constants, `Errno(Errno)`,
+`isValidErrno`, errno access/reset, retry/may-block/path errno guards,
+`Storable` peek/poke/offset methods, raw allocation/reallocation/free/finalizer
+values, array allocation/copy/move/sentinel traversal, and C/CW string
+conversion helpers, covered by native C-helper fixtures. FFI link metadata is
+preserved in the native result and emitted LLVM comments for headers,
+import/address symbols, and export symbols; explicit link inputs are passed
+through the compile CLI to clang. Automatic GC finalization remains outside the
+current process-lifetime runtime claim; the prior Foreign library marshalling
+gaps are implemented and tested.
 Recursive top-level functions, mutually recursive
 top-level groups, singleton self-recursive bindings, and local recursive `let`
 bindings now emit recursive Core groups in the supported subset. The initial
@@ -210,8 +245,9 @@ and `Integral Int` dictionaries cover `(==)`, `(/=)`, `compare`, `(<)`,
 `signum`, `toRational`, `quot`, `rem`, `div`, `mod`, `quotRem`, `divMod`,
 and `toInteger`.
 Built-in `Show Int`, `Show Bool`, `Show Char`, exact `Show String`, and
-generated structural list `Show` cover `show` and `print` for the supported
-scalar/string/list executable subset. Derived `Bounded` dictionaries now cover
+generated structural list `Show` cover `showsPrec`, `show`, `showList`,
+`shows`, and `print` for the supported scalar/string/list executable subset.
+Derived `Bounded` dictionaries now cover
 all-nullary enumerations plus single-constructor products, records, and
 newtypes with field-wise `minBound`/`maxBound` calls.
 `fromInteger` is part of the executable `Num Int` dictionary, integer literals
@@ -235,12 +271,13 @@ defaulting and dictionary elaboration. Unsupported class-constraint positions
 now use a structured placeholder diagnostic for method-specific constraints,
 instance contexts, and expression type-signature constraints, so broader class
 features remain planned without silent fallback.
-`/` remains checked concrete `Int` division; derived `Show` is implemented for
-the executable data/newtype subset, derived `Enum` is implemented for
+`/` is now the Haskell 2010 `Fractional` method and checked concrete integer
+division lives behind `quot`/`rem`/`div`/`mod`; derived `Show` is implemented with
+Report-shaped `showsPrec`/`show`/`showList` methods for the executable
+data/newtype subset, derived `Enum` is implemented for
 nullary-constructor data declarations with report-shaped constructor ordering
 and bounds behavior, and derived `Bounded` is implemented for the eligible
-Haskell 2010 constructor shapes. The full report-compatible
-`showsPrec`/`showList` hierarchy remains planned.
+Haskell 2010 constructor shapes.
 
 ## What Core Evaluates Today
 
@@ -377,8 +414,8 @@ and compiled to native executables through the existing clang toolchain.
     wet-tested default/no-egglog CLI runs.
 14. Built-in Prelude class dictionary coverage. Completed for `Eq Int`,
     `Eq Bool`, `Eq Char`, `Ord Int`, `Ord Bool`, `Ord Char`, executable `Num Int`,
-    executable `Real Int`, executable `Integral Int`, `Show Int`, `Show Bool`,
-    `Show Char`, exact `Show String`, and generated
+    executable `Real Int`, executable `Integral Int`, Report-shaped `Show Int`,
+    `Show Bool`, `Show Char`, exact `Show String`, and generated
     structural list `Show` methods,
     including generated built-in dictionaries/selectors, overloaded
     comparison/arithmetic/show method desugaring, Core/STG lowering/evaluation,
@@ -397,7 +434,7 @@ and compiled to native executables through the existing clang toolchain.
     finite executable subset.
 16. IO printing/input and `Show` bootstrap. Completed for `IO`, `main :: IO ()`,
     `putStrLn`, `getLine`, `print`, `return`, `(>>)`, `(>>=)`, expression and bind-statement
-    `do` sequencing with local `let`, broadened built-in `Show`, Core/STG output/result oracles,
+    `do` sequencing with local `let`, broadened Report-shaped `Show`, Core/STG output/result oracles,
     source strings and built-in show results as list-of-`Char` output, native stdin line input, and
     wet-tested default/no-egglog CLI runs.
 17. Numeric literals and defaulting. Completed for dictionary-backed
@@ -412,7 +449,8 @@ and compiled to native executables through the existing clang toolchain.
     names, export/import filtering, hiding, qualified aliases, `Thing(..)`
     child exports/imports, whole-program Core flattening for the executable
     subset, root-module `main` native entrypoint selection, Core/STG/native
-    oracles, and default/no-egglog wet tests.
+    oracles, default/no-egglog wet tests, and the MOD-011/MOD-012 documented
+    boundary for deferred separate compilation/interface files.
 19. Egglog Core optimizer known-constructor expansion. Completed for known
     literal case selection, saturated known-constructor case selection, and
     constructor-field projection for ADT/list/tuple/dictionary-shaped Core,
@@ -493,4 +531,6 @@ Already-completed typeclass expansion work, including
 superclass dictionaries, default methods, overlap rejection, public
 `Enum`/`Bounded`, derived `Enum`/`Bounded`, numeric defaulting, the supported `Monad` class surface, and
 MOD-009 instance import/export behavior should be preserved as regression
-baseline while those tasks proceed.
+baseline while those tasks proceed. MOD-003 source import search paths and
+MOD-011/MOD-012 are also complete and should be treated as the guardrail for
+future package-database and interface-file work.

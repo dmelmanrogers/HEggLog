@@ -12,12 +12,13 @@ where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Haskell2010.Core.Syntax
+import Haskell2010.FixedWidth (fixedIntegralOccurrence)
 import Haskell2010.Names (renderRName)
 import qualified Haskell2010.Syntax as S
 import Haskell2010.Syntax (Literal (..), ModuleName (..))
 
 renderCoreModule :: CoreModule -> Text
-renderCoreModule (CoreModule maybeName _ binds foreignExports) =
+renderCoreModule (CoreModule maybeName _ binds foreignExports _) =
   Text.unlines $
     header <> map renderCoreBind binds <> map renderForeignExport foreignExports
  where
@@ -46,6 +47,8 @@ renderCoreExpr = \case
     withType (renderLiteral literal) ty
   CCon name ty ->
     withType (renderRName name) ty
+  CSpanned _ expression ->
+    renderCoreExpr expression
   CLam binder body ty ->
     withType ("(\\" <> renderCoreBinder binder <> " -> " <> renderCoreExpr body <> ")") ty
   CApp fn arg ty ->
@@ -126,27 +129,194 @@ renderCorePrimOp = \case
   PrimEq -> "=="
   PrimLt -> "<"
   PrimNegate -> "negate#"
+  PrimBitAnd -> "and#"
+  PrimBitOr -> "or#"
+  PrimBitXor -> "xor#"
+  PrimBitComplement -> "complement#"
+  PrimShift -> "shift#"
+  PrimShiftL -> "shiftL#"
+  PrimShiftR -> "shiftR#"
+  PrimRotate -> "rotate#"
+  PrimRotateL -> "rotateL#"
+  PrimRotateR -> "rotateR#"
+  PrimBit -> "bit#"
+  PrimTestBit -> "testBit#"
+  PrimIntegerAdd -> "integerAdd#"
+  PrimIntegerSub -> "integerSub#"
+  PrimIntegerMul -> "integerMul#"
+  PrimIntegerQuot -> "integerQuot#"
+  PrimIntegerRem -> "integerRem#"
+  PrimIntegerEq -> "integerEq#"
+  PrimIntegerLt -> "integerLt#"
+  PrimIntegerNegate -> "integerNegate#"
+  PrimIntegerAbs -> "integerAbs#"
+  PrimIntegerSignum -> "integerSignum#"
+  PrimIntegerToInt -> "integerToInt#"
+  PrimIntToInteger -> "intToInteger#"
+  PrimIntegerToFloat width -> renderFloatingWidth width <> ".fromInteger#"
+  PrimShowInteger -> "showInteger#"
   PrimCharToInt -> "charToInt#"
   PrimIntToChar -> "intToChar#"
   PrimShowInt -> "showInt#"
   PrimShowBool -> "showBool#"
   PrimPutStrLn -> "putStrLn#"
   PrimGetLine -> "getLine#"
+  PrimGetArgs -> "getArgs#"
+  PrimGetProgName -> "getProgName#"
+  PrimGetEnv -> "getEnv#"
+  PrimExitWith -> "exitWith#"
+  PrimStdHandle handle -> renderStdHandlePrim handle
+  PrimOpenFile -> "openFile#"
+  PrimHClose -> "hClose#"
+  PrimReadFile -> "readFile#"
+  PrimWriteFile -> "writeFile#"
+  PrimAppendFile -> "appendFile#"
+  PrimHFileSize -> "hFileSize#"
+  PrimHSetFileSize -> "hSetFileSize#"
+  PrimHIsEOF -> "hIsEOF#"
+  PrimHSetBuffering -> "hSetBuffering#"
+  PrimHGetBuffering -> "hGetBuffering#"
+  PrimHFlush -> "hFlush#"
+  PrimHGetPosn -> "hGetPosn#"
+  PrimHSetPosn -> "hSetPosn#"
+  PrimHSeek -> "hSeek#"
+  PrimHTell -> "hTell#"
+  PrimHIsOpen -> "hIsOpen#"
+  PrimHIsClosed -> "hIsClosed#"
+  PrimHIsReadable -> "hIsReadable#"
+  PrimHIsWritable -> "hIsWritable#"
+  PrimHIsSeekable -> "hIsSeekable#"
+  PrimHIsTerminalDevice -> "hIsTerminalDevice#"
+  PrimHSetEcho -> "hSetEcho#"
+  PrimHGetEcho -> "hGetEcho#"
+  PrimHShow -> "hShow#"
+  PrimHWaitForInput -> "hWaitForInput#"
+  PrimHReady -> "hReady#"
+  PrimHGetChar -> "hGetChar#"
+  PrimHGetLine -> "hGetLine#"
+  PrimHLookAhead -> "hLookAhead#"
+  PrimHGetContents -> "hGetContents#"
+  PrimHPutChar -> "hPutChar#"
+  PrimHPutStr -> "hPutStr#"
+  PrimHPutStrLn -> "hPutStrLn#"
   PrimIOThen -> "thenIO#"
   PrimIOBind -> "bindIO#"
   PrimIOReturn -> "returnIO#"
   PrimIOFail -> "failIO#"
+  PrimIOError -> "ioError#"
+  PrimIOCatch -> "catchIO#"
+  PrimIOTry -> "tryIO#"
+  PrimIOFix -> "fixIO#"
+  PrimNullPtr -> "nullPtr#"
+  PrimCastPtr -> "castPtr#"
+  PrimIsNullPtr -> "isNullPtr#"
   PrimNewStablePtr -> "newStablePtr#"
   PrimDeRefStablePtr -> "deRefStablePtr#"
   PrimFreeStablePtr -> "freeStablePtr#"
   PrimCastStablePtrToPtr -> "castStablePtrToPtr#"
   PrimCastPtrToStablePtr -> "castPtrToStablePtr#"
+  PrimFreeHaskellFunPtr -> "freeHaskellFunPtr#"
   PrimNewForeignPtr -> "newForeignPtr#"
   PrimNewForeignPtr_ -> "newForeignPtr_#"
   PrimAddForeignPtrFinalizer -> "addForeignPtrFinalizer#"
   PrimFinalizeForeignPtr -> "finalizeForeignPtr#"
   PrimWithForeignPtr -> "withForeignPtr#"
   PrimTouchForeignPtr -> "touchForeignPtr#"
+  PrimUnsafeForeignPtrToPtr -> "unsafeForeignPtrToPtr#"
+  PrimCastForeignPtr -> "castForeignPtr#"
+  PrimPtrPlus -> "plusPtr#"
+  PrimPtrMinus -> "minusPtr#"
+  PrimPtrAlign -> "alignPtr#"
+  PrimMallocBytes -> "mallocBytes#"
+  PrimReallocBytes -> "reallocBytes#"
+  PrimFree -> "free#"
+  PrimFinalizerFree -> "finalizerFree#"
+  PrimPeek kind -> "peek#" <> renderForeignStorableKind kind
+  PrimPoke kind -> "poke#" <> renderForeignStorableKind kind
+  PrimCopyBytes -> "copyBytes#"
+  PrimMoveBytes -> "moveBytes#"
+  PrimGetErrno -> "getErrno#"
+  PrimResetErrno -> "resetErrno#"
+  PrimPeekCString -> "peekCString#"
+  PrimPeekCStringLen -> "peekCStringLen#"
+  PrimNewCString -> "newCString#"
+  PrimPeekCWString -> "peekCWString#"
+  PrimPeekCWStringLen -> "peekCWStringLen#"
+  PrimNewCWString -> "newCWString#"
+  PrimFloat width op -> renderFloatingWidth width <> "." <> renderFloatingPrimOp op <> "#"
+  PrimFloatInt width op -> renderFloatingWidth width <> "." <> renderFloatingIntPrimOp op <> "#"
+  PrimFixedIntegral fixed op -> fixedIntegralOccurrence fixed <> "." <> Text.pack (show op) <> "#"
+
+renderForeignStorableKind :: ForeignStorableKind -> Text
+renderForeignStorableKind = \case
+  StoreInt -> "Int"
+  StoreBool -> "Bool"
+  StoreChar -> "Char"
+  StoreInt8 -> "Int8"
+  StoreWord8 -> "Word8"
+  StoreInt16 -> "Int16"
+  StoreWord16 -> "Word16"
+  StoreInt32 -> "Int32"
+  StoreWord32 -> "Word32"
+  StoreInt64 -> "Int64"
+  StoreWord -> "Word"
+  StoreWord64 -> "Word64"
+  StoreFloat -> "Float"
+  StoreDouble -> "Double"
+  StorePtr -> "Ptr"
+
+renderStdHandlePrim :: StdHandle -> Text
+renderStdHandlePrim = \case
+  StdInHandle -> "stdin#"
+  StdOutHandle -> "stdout#"
+  StdErrHandle -> "stderr#"
+
+renderFloatingWidth :: FloatingWidth -> Text
+renderFloatingWidth = \case
+  FloatWidth -> "float"
+  DoubleWidth -> "double"
+
+renderFloatingPrimOp :: FloatingPrimOp -> Text
+renderFloatingPrimOp = \case
+  FloatAdd -> "add"
+  FloatSub -> "sub"
+  FloatMul -> "mul"
+  FloatDiv -> "div"
+  FloatEq -> "eq"
+  FloatLt -> "lt"
+  FloatNegate -> "negate"
+  FloatAbs -> "abs"
+  FloatSignum -> "signum"
+  FloatFromInt -> "fromInt"
+  FloatShow -> "show"
+  FloatExp -> "exp"
+  FloatLog -> "log"
+  FloatSqrt -> "sqrt"
+  FloatSin -> "sin"
+  FloatCos -> "cos"
+  FloatTan -> "tan"
+  FloatAsin -> "asin"
+  FloatAcos -> "acos"
+  FloatAtan -> "atan"
+  FloatSinh -> "sinh"
+  FloatCosh -> "cosh"
+  FloatTanh -> "tanh"
+  FloatAsinh -> "asinh"
+  FloatAcosh -> "acosh"
+  FloatAtanh -> "atanh"
+  FloatPow -> "pow"
+  FloatAtan2 -> "atan2"
+
+renderFloatingIntPrimOp :: FloatingIntPrimOp -> Text
+renderFloatingIntPrimOp = \case
+  FloatTruncate -> "truncate"
+  FloatRound -> "round"
+  FloatCeiling -> "ceiling"
+  FloatFloor -> "floor"
+  FloatIsNaN -> "isNaN"
+  FloatIsInfinite -> "isInfinite"
+  FloatIsDenormalized -> "isDenormalized"
+  FloatIsNegativeZero -> "isNegativeZero"
 
 renderForeignImport :: CoreForeignImport -> Text
 renderForeignImport foreignImport =
@@ -246,6 +416,9 @@ withType expression ty =
 renderLiteral :: Literal -> Text
 renderLiteral = \case
   LInt n -> Text.pack (show n)
+  LInteger n -> Text.pack (show n) <> "i"
+  LFloat n -> Text.pack (show n) <> "f"
+  LDouble n -> Text.pack (show n)
   LChar c -> Text.pack (show c)
   LString value -> Text.pack (show (Text.unpack value))
 

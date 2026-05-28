@@ -5,6 +5,7 @@ module Haskell2010.Lexer
   , charLiteral
   , conid
   , eof
+  , floating
   , integer
   , lexeme
   , moduleName
@@ -21,7 +22,7 @@ module Haskell2010.Lexer
 where
 
 import Control.Monad (void)
-import Data.Char (isAlphaNum, isLower, isSpace, isUpper)
+import Data.Char (isAlphaNum, isDigit, isLower, isSpace, isUpper)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Void (Void)
@@ -133,6 +134,22 @@ integer =
  where
   hexadecimal = C.string "0x" *> L.hexadecimal <|> C.string "0X" *> L.hexadecimal
   octal = C.string "0o" *> L.octal <|> C.string "0O" *> L.octal
+
+floating :: Parser Double
+floating =
+  lexeme . try $ do
+    whole <- some (satisfy isDigit)
+    fractional <- ((:) <$> single '.' <*> some (satisfy isDigit)) <|> pure ""
+    exponentPart <- exponentPartParser <|> pure ""
+    if null fractional && null exponentPart
+      then fail "floating literal requires a fractional or exponent part"
+      else pure (read (whole <> fractional <> exponentPart))
+ where
+  exponentPartParser = do
+    marker <- single 'e' <|> single 'E'
+    sign <- (: []) <$> (single '+' <|> single '-') <|> pure ""
+    digits <- some (satisfy isDigit)
+    pure (marker : sign <> digits)
 
 charLiteral :: Parser Char
 charLiteral =

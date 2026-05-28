@@ -33,6 +33,9 @@ substExpr target replacement expression =
       (expression', supply)
     expression'@CCon {} ->
       (expression', supply)
+    CSpanned sourceRange expression' ->
+      let (expression'', supplyAfterExpression) = go supply expression'
+       in (CSpanned sourceRange expression'', supplyAfterExpression)
     CLam binder body ty
       | coreBinderName binder == target ->
           (CLam binder body ty, supply)
@@ -205,6 +208,8 @@ renameBound old new = \case
     expression
   expression@CCon {} ->
     expression
+  CSpanned sourceRange expression ->
+    CSpanned sourceRange (renameBound old new expression)
   CLam binder body ty ->
     CLam (renameBinder old new binder) (renameBound old new body) ty
   CApp fn arg ty ->
@@ -250,6 +255,8 @@ allNamesExpr = \case
     allNamesType ty
   CCon name ty ->
     Set.insert name (allNamesType ty)
+  CSpanned _ expression ->
+    allNamesExpr expression
   CLam binder body ty ->
     allNamesBinder binder <> allNamesExpr body <> allNamesType ty
   CApp fn arg ty ->

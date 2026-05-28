@@ -16,4 +16,7 @@ main = do
   putStrLn (show (Years 7))
   putStrLn (show (Person { label = "Ada", age = 42 }))
   putStrLn (show [Box True, Box False])
+  putStrLn (showsPrec 11 (Box True) "!")
+  putStrLn (shows (Box False) "!")
+  putStrLn (showList [Box True, Box False] "!")
   return ()

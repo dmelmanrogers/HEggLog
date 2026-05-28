@@ -4,7 +4,7 @@ twice x = x + x
 
 defaulted = 6
 
-viaFromInteger :: Int
+viaFromInteger :: Integer
 viaFromInteger = fromInteger 35
 
 main :: IO ()

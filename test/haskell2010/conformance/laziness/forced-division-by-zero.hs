@@ -1,3 +1,3 @@
 module Main where
 
-main = 1 / 0
+main = div 1 0

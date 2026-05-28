@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 import Data.Char (isAlphaNum, toLower)
 import Data.List (isInfixOf, isPrefixOf)
 import qualified Data.Text as Text
@@ -11,6 +11,7 @@ import System.Directory
   , executable
   , findExecutable
   , getPermissions
+  , removeFile
   )
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..), exitFailure)
@@ -37,6 +38,7 @@ data E2ECase = E2ECase
   , egglogModes :: [EgglogMode]
   , alsoEmitLLVM :: Bool
   , includeReport :: Bool
+  , extraCompileArgs :: [String]
   , stdinText :: Text
   , expectedCompileWarnings :: [Text]
   }
@@ -79,7 +81,280 @@ manifestCounts =
 
 tests :: FilePath -> FilePath -> [Test]
 tests hegglog clang =
-  concatMap (caseTests hegglog clang) e2eCases
+  commandModelTests hegglog <> concatMap (caseTests hegglog clang) e2eCases
+
+commandModelTests :: FilePath -> [Test]
+commandModelTests hegglog =
+  cliHelpTests hegglog <>
+  [ TestLabel "CLI help uses stdout" $
+      TestCase $ do
+        result <- runCommand hegglog ["--help"]
+        assertExitSuccess ("help " <> showCommand hegglog ["--help"]) result
+        assertBool "help stdout names compiler" ("HeggLog compiler" `isInfixOf` resultStdout result)
+        assertBool "help stdout documents check command" ("hegglog check FILE" `isInfixOf` resultStdout result)
+        assertBool "help stdout documents run command" ("hegglog run FILE" `isInfixOf` resultStdout result)
+        assertBool "help stdout documents compile command" ("hegglog compile FILE" `isInfixOf` resultStdout result)
+        assertEqual "help stderr" "" (resultStderr result)
+  , TestLabel "CLI check help uses stdout" $
+      TestCase $ do
+        result <- runCommand hegglog ["check", "--help"]
+        assertExitSuccess ("check help " <> showCommand hegglog ["check", "--help"]) result
+        assertBool "check help stdout names mode" ("HeggLog check mode" `isInfixOf` resultStdout result)
+        assertBool "check help stdout documents no codegen" ("without emitting LLVM IR" `isInfixOf` resultStdout result)
+        assertBool "check help stdout documents dump flags" ("--dump-core" `isInfixOf` resultStdout result)
+        assertBool "check help stdout documents strict egglog" ("--strict-egglog" `isInfixOf` resultStdout result)
+        assertEqual "check help stderr" "" (resultStderr result)
+  , TestLabel "CLI compile help uses stdout" $
+      TestCase $ do
+        result <- runCommand hegglog ["compile", "--help"]
+        assertExitSuccess ("compile help " <> showCommand hegglog ["compile", "--help"]) result
+        assertBool "compile help stdout names mode" ("HeggLog compile mode" `isInfixOf` resultStdout result)
+        assertBool "compile help stdout documents link objects" ("--link-object PATH" `isInfixOf` resultStdout result)
+        assertBool "compile help stdout documents dump flags" ("--dump-optimized-core" `isInfixOf` resultStdout result)
+        assertBool "compile help stdout documents keep intermediates" ("--keep-intermediates" `isInfixOf` resultStdout result)
+        assertBool "compile help stdout documents strict egglog" ("--strict-egglog" `isInfixOf` resultStdout result)
+        assertEqual "compile help stderr" "" (resultStderr result)
+  , TestLabel "CLI emit-core help uses stdout" $
+      TestCase $ do
+        result <- runCommand hegglog ["emit-core", "--help"]
+        assertExitSuccess ("emit-core help " <> showCommand hegglog ["emit-core", "--help"]) result
+        assertBool "emit-core help stdout names mode" ("HeggLog emit-core mode" `isInfixOf` resultStdout result)
+        assertBool "emit-core help stdout documents typed Core" ("typed Haskell 2010 Core" `isInfixOf` resultStdout result)
+        assertEqual "emit-core help stderr" "" (resultStderr result)
+  , TestLabel "CLI emit-stg help uses stdout" $
+      TestCase $ do
+        result <- runCommand hegglog ["emit-stg", "--help"]
+        assertExitSuccess ("emit-stg help " <> showCommand hegglog ["emit-stg", "--help"]) result
+        assertBool "emit-stg help stdout names mode" ("HeggLog emit-stg mode" `isInfixOf` resultStdout result)
+        assertBool "emit-stg help stdout documents STG" ("emit Haskell 2010 STG" `isInfixOf` resultStdout result)
+        assertEqual "emit-stg help stderr" "" (resultStderr result)
+  , TestLabel "CLI run help uses stdout" $
+      TestCase $ do
+        result <- runCommand hegglog ["run", "--help"]
+        assertExitSuccess ("run help " <> showCommand hegglog ["run", "--help"]) result
+        assertBool "run help stdout names mode" ("HeggLog run mode" `isInfixOf` resultStdout result)
+        assertBool "run help stdout documents output forwarding" ("forward program stdout/stderr" `isInfixOf` resultStdout result)
+        assertBool "run help stdout documents dump flags" ("--dump-stg" `isInfixOf` resultStdout result)
+        assertBool "run help stdout documents keep intermediates" ("--keep-intermediates" `isInfixOf` resultStdout result)
+        assertBool "run help stdout documents strict egglog" ("--strict-egglog" `isInfixOf` resultStdout result)
+        assertEqual "run help stderr" "" (resultStderr result)
+  , TestLabel "CLI report help uses stdout" $
+      TestCase $ do
+        result <- runCommand hegglog ["report", "--help"]
+        assertExitSuccess ("report help " <> showCommand hegglog ["report", "--help"]) result
+        assertBool "report help stdout names mode" ("HeggLog report mode" `isInfixOf` resultStdout result)
+        assertBool "report help stdout documents legacy mode" ("legacy .hg" `isInfixOf` resultStdout result)
+        assertBool "report help stdout documents Haskell mode" ("Haskell 2010 .hs reports" `isInfixOf` resultStdout result)
+        assertBool "report help stdout documents strict egglog" ("--strict-egglog" `isInfixOf` resultStdout result)
+        assertEqual "report help stderr" "" (resultStderr result)
+  , TestLabel "CLI command errors use stderr" $
+      TestCase $ do
+        result <- runCommand hegglog []
+        assertNonZeroExit ("missing command " <> hegglog) result
+        assertEqual "missing command stdout" "" (resultStdout result)
+        assertBool "missing command stderr has diagnostic" ("missing command or source file" `isInfixOf` resultStderr result)
+        assertBool "missing command stderr has usage" ("usage:" `isInfixOf` resultStderr result)
+  , TestLabel "CLI check validates Haskell module without main" $
+      TestCase $ do
+        let args = ["check", "test/e2e/programs/haskell2010/check-library/Library.hs"]
+        result <- runCommand hegglog args
+        assertExitSuccess ("check library " <> showCommand hegglog args) result
+        assertEqual "check library stdout" "" (resultStdout result)
+        assertEqual "check library stderr" "" (resultStderr result)
+  , TestLabel "CLI report emits Haskell 2010 diagnostic sections" $
+      TestCase $ do
+        let args = ["report", "test/e2e/programs/haskell2010/check-library/Library.hs"]
+        result <- runCommand hegglog args
+        assertExitSuccess ("report library " <> showCommand hegglog args) result
+        assertEqual "report library stderr" "" (resultStderr result)
+        assertBool "report stdout status" ("Status: ok" `isInfixOf` resultStdout result)
+        assertBool "report stdout mode" ("mode: Haskell 2010" `isInfixOf` resultStdout result)
+        assertBool "report stdout original Core" ("== Original Typed Core ==" `isInfixOf` resultStdout result)
+        assertBool "report stdout optimized Core" ("== Optimized Typed Core ==" `isInfixOf` resultStdout result)
+        assertBool "report stdout STG" ("== STG ==" `isInfixOf` resultStdout result)
+  , TestLabel "CLI report honors Haskell 2010 no-egglog mode" $
+      TestCase $ do
+        let args = ["report", "test/e2e/programs/haskell2010/check-library/Library.hs", "--no-egglog"]
+        result <- runCommand hegglog args
+        assertExitSuccess ("report library no-egglog " <> showCommand hegglog args) result
+        assertEqual "report no-egglog stderr" "" (resultStderr result)
+        assertBool "report no-egglog status" ("egglog-core: disabled" `isInfixOf` resultStdout result)
+  , TestLabel "CLI report strict egglog rejects legacy optimizer fallback" $
+      TestCase $ do
+        let args = ["report", "test/e2e/programs/top-level-function.hg", "--strict-egglog"]
+        result <- runCommand hegglog args
+        assertNonZeroExit ("report strict egglog " <> showCommand hegglog args) result
+        assertEqual "report strict stdout" "" (resultStdout result)
+        assertBool "report strict stderr" ("--strict-egglog" `isInfixOf` resultStderr result)
+  , TestLabel "CLI check dumps selected Haskell 2010 artifacts to stderr" $
+      TestCase $ do
+        let args = ["check", "test/e2e/programs/haskell2010/check-library/Library.hs", "--dump-core", "--dump-stg"]
+        result <- runCommand hegglog args
+        assertExitSuccess ("check dump " <> showCommand hegglog args) result
+        assertEqual "check dump stdout" "" (resultStdout result)
+        assertBool "check dump stderr contains Core section" ("== Core ==" `isInfixOf` resultStderr result)
+        assertBool "check dump stderr contains module Core" ("module Library" `isInfixOf` resultStderr result)
+        assertBool "check dump stderr contains STG section" ("== STG ==" `isInfixOf` resultStderr result)
+        assertBool "check dump stderr contains STG wrapper" ("stg {" `isInfixOf` resultStderr result)
+  , TestLabel "CLI check validates legacy hg without codegen output" $
+      TestCase $ do
+        let args = ["check", "test/e2e/programs/arithmetic.hg"]
+        result <- runCommand hegglog args
+        assertExitSuccess ("check hg " <> showCommand hegglog args) result
+        assertEqual "check hg stdout" "" (resultStdout result)
+        assertEqual "check hg stderr" "" (resultStderr result)
+  , TestLabel "CLI dump flags reject legacy hg sources" $
+      TestCase $ do
+        let args = ["check", "test/e2e/programs/arithmetic.hg", "--dump-core"]
+        result <- runCommand hegglog args
+        assertNonZeroExit ("check hg dump rejection " <> showCommand hegglog args) result
+        assertEqual "check hg dump stdout" "" (resultStdout result)
+        assertBool "check hg dump stderr explains unsupported source" ("legacy .hg sources have no typed Core/STG" `isInfixOf` resultStderr result)
+  , TestLabel "CLI emit-core writes typed Haskell Core to stdout" $
+      TestCase $ do
+        let args = ["emit-core", "test/e2e/programs/haskell2010/check-library/Library.hs", "--original", "--no-egglog"]
+        result <- runCommand hegglog args
+        assertExitSuccess ("emit-core stdout " <> showCommand hegglog args) result
+        assertBool "emit-core stdout contains module header" ("module Library" `isInfixOf` resultStdout result)
+        assertBool "emit-core stdout contains typed binding" ("answer" `isInfixOf` resultStdout result && " : Int" `isInfixOf` resultStdout result)
+        assertEqual "emit-core stderr" "" (resultStderr result)
+  , TestLabel "CLI emit-core writes selected Core sections to output file" $
+      TestCase $
+        withSystemTempDirectory "hegglog-e2e-core" $ \tmpDir -> do
+          let corePath = tmpDir </> "core.txt"
+              args = ["emit-core", "test/e2e/programs/haskell2010/lazy-argument.hs", "--both", "-o", corePath]
+          result <- runCommand hegglog args
+          assertExitSuccess ("emit-core output " <> showCommand hegglog args) result
+          assertEqual "emit-core output stdout" "" (resultStdout result)
+          assertEqual "emit-core output stderr" "" (resultStderr result)
+          coreText <- Text.IO.readFile corePath
+          assertBool "emit-core file contains original section" ("== Original Typed Core ==" `Text.isInfixOf` coreText)
+          assertBool "emit-core file contains optimized section" ("== Optimized Typed Core ==" `Text.isInfixOf` coreText)
+  , TestLabel "CLI emit-stg writes validated STG to stdout" $
+      TestCase $ do
+        let args = ["emit-stg", "test/e2e/programs/haskell2010/check-library/Library.hs", "--no-egglog"]
+        result <- runCommand hegglog args
+        assertExitSuccess ("emit-stg stdout " <> showCommand hegglog args) result
+        assertBool "emit-stg stdout contains STG program wrapper" ("stg {" `isInfixOf` resultStdout result)
+        assertBool "emit-stg stdout contains typed binding" ("answer" `isInfixOf` resultStdout result && " : Int" `isInfixOf` resultStdout result)
+        assertEqual "emit-stg stderr" "" (resultStderr result)
+  , TestLabel "CLI emit-stg writes STG to output file" $
+      TestCase $
+        withSystemTempDirectory "hegglog-e2e-stg" $ \tmpDir -> do
+          let stgPath = tmpDir </> "program.stg"
+              args = ["emit-stg", "test/e2e/programs/haskell2010/check-library/Library.hs", "-o", stgPath]
+          result <- runCommand hegglog args
+          assertExitSuccess ("emit-stg output " <> showCommand hegglog args) result
+          assertEqual "emit-stg output stdout" "" (resultStdout result)
+          assertEqual "emit-stg output stderr" "" (resultStderr result)
+          stgText <- Text.IO.readFile stgPath
+          assertBool "emit-stg file contains STG program wrapper" ("stg {" `Text.isInfixOf` stgText)
+          assertBool "emit-stg file contains thunk/function marker" ("thunk[" `Text.isInfixOf` stgText || "fun " `Text.isInfixOf` stgText)
+  , TestLabel "CLI emit-stg rejects legacy hg sources" $
+      TestCase $ do
+        let args = ["emit-stg", "test/e2e/programs/arithmetic.hg"]
+        result <- runCommand hegglog args
+        assertNonZeroExit ("emit-stg legacy rejection " <> showCommand hegglog args) result
+        assertEqual "emit-stg legacy stdout" "" (resultStdout result)
+        assertBool "emit-stg legacy stderr explains unsupported source" ("legacy .hg has no STG IR" `isInfixOf` resultStderr result)
+  , TestLabel "CLI compile dump flags preserve LLVM stdout" $
+      TestCase $ do
+        let args = ["compile", "test/e2e/programs/haskell2010/lazy-argument.hs", "--emit-llvm", "--dump-optimized-core"]
+        result <- runCommand hegglog args
+        assertExitSuccess ("compile dump " <> showCommand hegglog args) result
+        assertBool "compile dump stdout contains LLVM" ("define" `isInfixOf` resultStdout result)
+        assertBool "compile dump stderr contains optimized Core section" ("== Optimized Core ==" `isInfixOf` resultStderr result)
+        assertBool "compile dump stderr contains main binding" ("main" `isInfixOf` resultStderr result)
+  , TestLabel "CLI compile strict Egglog succeeds on supported legacy ANF" $
+      TestCase $ do
+        let args = ["compile", "test/e2e/programs/arithmetic.hg", "--emit-llvm", "--strict-egglog"]
+        result <- runCommand hegglog args
+        assertExitSuccess ("compile strict egglog " <> showCommand hegglog args) result
+        assertBool "compile strict stdout contains LLVM" ("define" `isInfixOf` resultStdout result)
+        assertBool "compile strict stdout records optimizer" ("egglog: optimized" `isInfixOf` resultStdout result)
+        assertEqual "compile strict stderr" "" (resultStderr result)
+  , TestLabel "CLI compile strict Egglog rejects legacy fallback" $
+      TestCase $ do
+        let args = ["compile", "test/e2e/programs/top-level-function.hg", "--emit-llvm", "--strict-egglog"]
+        result <- runCommand hegglog args
+        assertNonZeroExit ("compile strict egglog fallback " <> showCommand hegglog args) result
+        assertEqual "compile strict fallback stdout" "" (resultStdout result)
+        assertBool "compile strict fallback stderr names strict flag" ("--strict-egglog" `isInfixOf` resultStderr result)
+  , TestLabel "CLI check strict Egglog rejects Haskell Core fallback" $
+      TestCase $ do
+        let args = ["check", "test/e2e/programs/haskell2010/lazy-argument.hs", "--strict-egglog"]
+        result <- runCommand hegglog args
+        assertNonZeroExit ("check strict egglog Haskell fallback " <> showCommand hegglog args) result
+        assertEqual "check strict fallback stdout" "" (resultStdout result)
+        assertBool "check strict fallback stderr names strict flag" ("--strict-egglog" `isInfixOf` resultStderr result)
+  , TestLabel "CLI compile keep-intermediates preserves emitted LLVM copy" $
+      TestCase $ do
+        cleanupKeptIntermediates "lazy-argument"
+        let args = ["compile", "test/e2e/programs/haskell2010/lazy-argument.hs", "--emit-llvm", "--keep-intermediates"]
+        result <- runCommand hegglog args
+        assertExitSuccess ("compile keep intermediates " <> showCommand hegglog args) result
+        assertBool "compile keep stdout contains LLVM" ("define" `isInfixOf` resultStdout result)
+        assertBool "compile keep stderr reports LLVM path" ("kept LLVM intermediate at .context/hegglog/intermediates/lazy-argument.ll" `isInfixOf` resultStderr result)
+        assertFileExists "compile keep LLVM file" (keptLLVMPath "lazy-argument")
+  , TestLabel "CLI run forwards program output without build chatter" $
+      TestCase $ do
+        let args = ["run", "test/e2e/programs/haskell2010/lazy-argument.hs"]
+        result <- runCommand hegglog args
+        assertExitSuccess ("run source " <> showCommand hegglog args) result
+        assertEqual "run stdout" "1\n" (resultStdout result)
+        assertEqual "run stderr" "" (resultStderr result)
+  , TestLabel "CLI run dump flags preserve program stdout" $
+      TestCase $ do
+        let args = ["run", "test/e2e/programs/haskell2010/lazy-argument.hs", "--dump-stg"]
+        result <- runCommand hegglog args
+        assertExitSuccess ("run dump " <> showCommand hegglog args) result
+        assertEqual "run dump stdout" "1\n" (resultStdout result)
+        assertBool "run dump stderr contains STG section" ("== STG ==" `isInfixOf` resultStderr result)
+        assertBool "run dump stderr contains STG wrapper" ("stg {" `isInfixOf` resultStderr result)
+  , TestLabel "CLI run keep-intermediates preserves native artifacts" $
+      TestCase $ do
+        cleanupKeptIntermediates "lazy-argument"
+        let args = ["run", "test/e2e/programs/haskell2010/lazy-argument.hs", "--keep-intermediates"]
+        result <- runCommand hegglog args
+        assertExitSuccess ("run keep intermediates " <> showCommand hegglog args) result
+        assertEqual "run keep stdout" "1\n" (resultStdout result)
+        assertBool "run keep stderr reports LLVM path" ("kept LLVM intermediate at .context/hegglog/intermediates/lazy-argument.ll" `isInfixOf` resultStderr result)
+        assertBool "run keep stderr reports object path" ("kept object intermediate at .context/hegglog/intermediates/lazy-argument.o" `isInfixOf` resultStderr result)
+        assertBool "run keep stderr reports executable path" ("kept executable intermediate at .context/hegglog/intermediates/lazy-argument" `isInfixOf` resultStderr result)
+        assertFileExists "run keep LLVM file" (keptLLVMPath "lazy-argument")
+        assertFileExists "run keep object file" (keptObjectPath "lazy-argument")
+        assertExecutableExists (keptExecutablePath "lazy-argument")
+  , TestLabel "CLI run preserves nonzero program exit" $
+      TestCase $ do
+        let args = ["run", "test/e2e/programs/runtime-errors/division-by-zero.hg"]
+        result <- runCommand hegglog args
+        assertNonZeroExit ("run runtime error " <> showCommand hegglog args) result
+        assertEqual "run runtime-error stdout" "" (resultStdout result)
+        assertBool "run runtime-error stderr reports exit" ("native executable exited with" `isInfixOf` resultStderr result)
+  ]
+
+cliHelpTests :: FilePath -> [Test]
+cliHelpTests hegglog =
+  [ TestLabel ("CLI " <> label <> " help matches public golden stdout") $
+      TestCase $ do
+        expected <- Text.IO.readFile goldenPath
+        result <- runCommand hegglog args
+        assertExitSuccess (label <> " help " <> showCommand hegglog args) result
+        assertEqual (label <> " help stdout") (Text.unpack expected) (resultStdout result)
+        assertEqual (label <> " help stderr") "" (resultStderr result)
+  | (label, args, goldenPath) <- cliHelpGoldenCases
+  ]
+
+cliHelpGoldenCases :: [(String, [String], FilePath)]
+cliHelpGoldenCases =
+  [ ("general", ["--help"], "test/golden/cli-help/general.txt")
+  , ("check", ["check", "--help"], "test/golden/cli-help/check.txt")
+  , ("compile", ["compile", "--help"], "test/golden/cli-help/compile.txt")
+  , ("emit-core", ["emit-core", "--help"], "test/golden/cli-help/emit-core.txt")
+  , ("emit-stg", ["emit-stg", "--help"], "test/golden/cli-help/emit-stg.txt")
+  , ("report", ["report", "--help"], "test/golden/cli-help/report.txt")
+  , ("run", ["run", "--help"], "test/golden/cli-help/run.txt")
+  ]
 
 caseTests :: FilePath -> FilePath -> E2ECase -> [Test]
 caseTests hegglog clang e2eCase =
@@ -109,7 +384,7 @@ runNativeCase :: FilePath -> E2ECase -> EgglogMode -> Assertion
 runNativeCase hegglog e2eCase mode =
   withSystemTempDirectory "hegglog-e2e-native" $ \tmpDir -> do
     let outputPath = tmpDir </> executableName e2eCase mode
-        args = ["compile", sourcePath e2eCase, "-o", outputPath] <> modeArgs mode
+        args = ["compile", sourcePath e2eCase, "-o", outputPath] <> extraCompileArgs e2eCase <> modeArgs mode
     compileResult <- runCommand hegglog args
     case expected e2eCase of
       ExpectSuccess expectedStdout -> do
@@ -140,7 +415,7 @@ runEmitLLVMCase hegglog clang e2eCase =
   withSystemTempDirectory "hegglog-e2e-llvm" $ \tmpDir -> do
     let llvmPath = tmpDir </> safeCaseName e2eCase <.> "ll"
         exePath = tmpDir </> safeCaseName e2eCase <> "-from-llvm"
-        args = ["compile", sourcePath e2eCase, "--emit-llvm", "-o", llvmPath]
+        args = ["compile", sourcePath e2eCase, "--emit-llvm", "-o", llvmPath] <> extraCompileArgs e2eCase
     emitResult <- runCommand hegglog args
     assertExitSuccess ("emit LLVM " <> showCommand hegglog args) emitResult
     assertCompileWarnings e2eCase emitResult
@@ -188,6 +463,31 @@ runCommandWithInput command args stdinText' = do
       , resultStderr = stderrText
       }
 
+keptIntermediateDirectory :: FilePath
+keptIntermediateDirectory =
+  ".context" </> "hegglog" </> "intermediates"
+
+keptLLVMPath :: FilePath -> FilePath
+keptLLVMPath baseName =
+  keptIntermediateDirectory </> baseName <.> "ll"
+
+keptObjectPath :: FilePath -> FilePath
+keptObjectPath baseName =
+  keptIntermediateDirectory </> baseName <.> "o"
+
+keptExecutablePath :: FilePath -> FilePath
+keptExecutablePath baseName =
+  keptIntermediateDirectory </> baseName
+
+cleanupKeptIntermediates :: FilePath -> IO ()
+cleanupKeptIntermediates baseName =
+  mapM_ removeFileIfExists [keptLLVMPath baseName, keptObjectPath baseName, keptExecutablePath baseName]
+
+removeFileIfExists :: FilePath -> IO ()
+removeFileIfExists path = do
+  exists <- doesFileExist path
+  when exists (removeFile path)
+
 requireExecutable :: String -> String -> IO FilePath
 requireExecutable envName executableName' = do
   override <- lookupEnv envName
@@ -214,6 +514,11 @@ assertNonZeroExit label result =
     ExitSuccess ->
       assertFailure (label <> " unexpectedly succeeded" <> renderCapturedOutput result)
     ExitFailure {} -> pure ()
+
+assertFileExists :: String -> FilePath -> Assertion
+assertFileExists label path = do
+  exists <- doesFileExist path
+  assertBool (label <> " should exist at " <> path) exists
 
 assertExecutableExists :: FilePath -> Assertion
 assertExecutableExists path = do
@@ -292,6 +597,7 @@ successCase name path expectedStdout modes emitLLVM =
     , egglogModes = modes
     , alsoEmitLLVM = emitLLVM
     , includeReport = True
+    , extraCompileArgs = []
     , stdinText = ""
     , expectedCompileWarnings = []
     }
@@ -305,9 +611,14 @@ nativeOnlySuccessCase name path expectedStdout modes emitLLVM =
     , egglogModes = modes
     , alsoEmitLLVM = emitLLVM
     , includeReport = False
+    , extraCompileArgs = []
     , stdinText = ""
     , expectedCompileWarnings = []
     }
+
+nativeOnlySuccessCaseWithCompileArgs :: Text -> FilePath -> Text -> [EgglogMode] -> Bool -> [String] -> E2ECase
+nativeOnlySuccessCaseWithCompileArgs name path expectedStdout modes emitLLVM compileArgs =
+  (nativeOnlySuccessCase name path expectedStdout modes emitLLVM) {extraCompileArgs = compileArgs}
 
 nativeOnlySuccessCaseWithInput :: Text -> FilePath -> Text -> Text -> [EgglogMode] -> Bool -> E2ECase
 nativeOnlySuccessCaseWithInput name path input expectedStdout modes emitLLVM =
@@ -326,6 +637,7 @@ runtimeErrorCase name path modes =
     , egglogModes = modes
     , alsoEmitLLVM = False
     , includeReport = False
+    , extraCompileArgs = []
     , stdinText = ""
     , expectedCompileWarnings = []
     }
@@ -339,9 +651,185 @@ compileErrorCase name path categories =
     , egglogModes = [DefaultEgglog]
     , alsoEmitLLVM = False
     , includeReport = False
+    , extraCompileArgs = []
     , stdinText = ""
     , expectedCompileWarnings = []
     }
+
+dataListExpectedStdout :: Text
+dataListExpectedStdout =
+  Text.intercalate
+    "\n"
+    [ "3"
+    , "[1,2]"
+    , "a-b-c"
+    , "ab,cd,ef"
+    , "[[1,4,7],[2,5,8],[3,6]]"
+    , "[\"\",\"a\",\"b\",\"ab\"]"
+    , "[\"abc\",\"bac\",\"cba\",\"bca\",\"cab\",\"acb\"]"
+    , "6"
+    , "True"
+    , "15"
+    , "5"
+    , "haskell"
+    , "[1,2,3]"
+    , "[1,11,2,12]"
+    , "False"
+    , "True"
+    , "True"
+    , "True"
+    , "6"
+    , "24"
+    , "4"
+    , "1"
+    , "[0,1,3,6]"
+    , "[1,3,6]"
+    , "[[1,2,3],[2,3],[3],[]]"
+    , "[6,5,3]"
+    , "6"
+    , "[1,3,6]"
+    , "6"
+    , "[6,5,3]"
+    , "[1,3,5,7,9]"
+    , "[7,7,7,7]"
+    , "[1,2,1,2,1]"
+    , "[4,3,2,1]"
+    , "[1,2]"
+    , "[3,4]"
+    , "[1,2]"
+    , "[3,4]"
+    , "[1,2]"
+    , "[3,1]"
+    , "[1,2]"
+    , "[3,1]"
+    , "[1,2]"
+    , "[3,1]"
+    , "fix"
+    , "[\"m\",\"i\",\"ss\"]"
+    , "[\"\",\"a\",\"ab\",\"abc\"]"
+    , "[\"abc\",\"bc\",\"c\",\"\"]"
+    , "True"
+    , "True"
+    , "True"
+    , "True"
+    , "2"
+    , "3"
+    , "[1,3]"
+    , "[2,4]"
+    , "8"
+    , "1"
+    , "[1,3,5]"
+    , "2"
+    , "[0,2]"
+    , "[11,22]"
+    , "[6]"
+    , "[10]"
+    , "[15]"
+    , "[21]"
+    , "[28]"
+    , "2"
+    , "1"
+    , "1"
+    , "1"
+    , "1"
+    , "1"
+    , "[1,2]"
+    , "ab"
+    , "3"
+    , "4"
+    , "5"
+    , "6"
+    , "7"
+    , "[\"a\",\"b\"]"
+    , "[\"a\",\"b\",\"c\"]"
+    , "a"
+    , "b"
+    , ""
+    , "a b c"
+    , "ban"
+    , "bnana"
+    , "bana"
+    , "dogcw"
+    , "ississippi"
+    , "[1,2,3]"
+    , "[1,2,3,4]"
+    , "ab"
+    , "bnana"
+    , "bana"
+    , "dogcw"
+    , "ississippi"
+    , "[\"aa\",\"bb\"]"
+    , "[3,2,1]"
+    , "[1,2,3,4]"
+    , "4"
+    , "1"
+    , "3"
+    , "[1,2]"
+    , "[2,3]"
+    , "[1,2]"
+    , "[3]"
+    , "6"
+    , "[8,8,8]"
+    ]
+
+dataBitsExpectedStdout :: Text
+dataBitsExpectedStdout =
+  Text.intercalate
+    "\n"
+    [ "2"
+    , "7"
+    , "5"
+    , "-1"
+    , "4"
+    , "12"
+    , "-9223372036854775808"
+    , "0"
+    , "-1"
+    , "-9223372036854775808"
+    , "2"
+    , "1"
+    , "32"
+    , "0"
+    , "8"
+    , "-2"
+    , "2"
+    , "True"
+    , "False"
+    , "64"
+    , "True"
+    , "8"
+    ]
+
+dataRatioExpectedStdout :: Text
+dataRatioExpectedStdout =
+  Text.intercalate
+    "\n"
+    [ "3"
+    , "2"
+    , "-3"
+    , "2"
+    , "0"
+    , "1"
+    , "3 % 2"
+    , "True"
+    , "True"
+    , "7 % 4"
+    , "5 % 4"
+    , "3 % 8"
+    , "-3 % 2"
+    , "3 % 2"
+    , "1 % 1"
+    , "3 % 2"
+    , "7"
+    , "1"
+    , "[3 % 2,-3 % 2]"
+    , "0 % 1"
+    , "3 % 10"
+    , "3 % 2"
+    , "3 % 2"
+    , "!"
+    , "[3 % 2,-3 % 2]"
+    ]
 
 e2eCases :: [E2ECase]
 e2eCases =
@@ -381,25 +869,35 @@ e2eCases =
   , nativeOnlySuccessCase "haskell2010-string-output" "test/e2e/programs/haskell2010/string-output.hs" "native\nok\n7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-string-show-output" "test/e2e/programs/haskell2010/string-show-output.hs" "42\nFalse" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-string-char-patterns" "test/e2e/programs/haskell2010/string-char-patterns.hs" "6" [DefaultEgglog, NoEgglog] True
-  , nativeOnlySuccessCase "haskell2010-broad-show" "test/e2e/programs/haskell2010/broad-show.hs" "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Q'\n\"ok\"" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-broad-show" "test/e2e/programs/haskell2010/broad-show.hs" "'Z'\n\"hi\"\n[1,2,3]\n[True,False]\n[\"a\",\"b\"]\n'Z'!\n\"hi\"!\n\"ab\"!\n[1,2]!\n'\\NUL'\n\"\\n\\\"\\\\\"\n\"\\SO\\&H\"\n'Q'\n\"ok\"" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-numeric-defaulting" "test/e2e/programs/haskell2010/numeric-defaulting.hs" "7\n47" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-numeric-hierarchy" "test/e2e/programs/haskell2010/numeric-hierarchy.hs" "3\n2\n-4\n3\n-3\n-2\n3\n2\n-4\n3\n7\n1\n7" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-prelude-foldl" "test/e2e/programs/haskell2010/prelude-foldl.hs" "1234\n-6\nabcd\n2\n7\n5" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-prelude-functions" "test/e2e/programs/haskell2010/prelude-functions.hs" "5\n21\n7\n1\n[2,3]\nTrue\nFalse\n42\nok" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-standard-library-modules" "test/e2e/programs/haskell2010/standard-library-modules.hs" "9\n9\n5\nTrue\nstdlib" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-data-list" "test/haskell2010/conformance/modules/data-list.hs" dataListExpectedStdout [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-data-maybe" "test/haskell2010/conformance/modules/data-maybe.hs" "7\n5\nTrue\nFalse\nTrue\nok\n11\n3\n[8]\n[]\n1\nTrue\n[1,3]\n[30,40]" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-data-char" "test/haskell2010/conformance/modules/data-char.hs" "True\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nFalse\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nUppercaseLetter\nNonSpacingMark\nAzQ\n15\nf\n65\nA\n\\n!\n\\SO\\&H\n\\n\nHello\n'A'\n7\n!" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-data-ix" "test/haskell2010/conformance/modules/data-ix.hs" "[1,2,3,4]\n2\nTrue\nxyz\n[False,True]\n[LT,EQ,GT]\n1\n[Red,Green,Blue]\n1\nTrue\n2\n4" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-data-array" "test/haskell2010/conformance/modules/data-array.hs" "abc\nbc\n1\n3\n[1,2,3]\naZc\n2\n3\n1\n0\n10\nbc\nAbc\nTrue\nGT\narray (1,3) [(1,'a'),(2,'b'),(3,'c')]\n(array (1,3) [(1,'a'),(2,'b'),(3,'c')])!\nabc\nxy" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-data-bits" "test/haskell2010/conformance/modules/data-bits.hs" dataBitsExpectedStdout [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-data-ratio" "test/haskell2010/conformance/modules/data-ratio.hs" dataRatioExpectedStdout [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-modules" "test/e2e/programs/haskell2010/modules/Main.hs" "20" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCaseWithCompileArgs "haskell2010-import-search-path" "test/e2e/programs/haskell2010/search-path/Main.hs" "42" [DefaultEgglog, NoEgglog] True ["-i", "test/e2e/programs/haskell2010/search-path-lib"]
   , nativeOnlySuccessCase "haskell2010-io-printing" "test/e2e/programs/haskell2010/io-printing.hs" "ok\nanswer\n42\nTrue" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-io-normal-examples" "test/e2e/programs/haskell2010/io-normal-examples.hs" "hello\nbound\n\"quoted\"\n'X'\n\"plain\"\n[1,2,3]\n[True,False]" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCaseWithInput "haskell2010-io-getline" "test/e2e/programs/haskell2010/io-getline.hs" "hegg\nlog\nunused\n" "first=hegg\nsecond=log\n7" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-system-io-files" "test/haskell2010/conformance/io/system-io-files.hs" "ab\n1\n4\nbc\nFalse\nFalse\nTrue\ndef\nxyz\n11\n8\n1\n7\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nTrue\nFalse\nTrue\nTrue\nrw\nQ" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-monad" "test/e2e/programs/haskell2010/monad.hs" "monad\n[11,21,12,22]\n[1,3]\n7\nmaybe fail" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-monad-explicit-fail" "test/e2e/programs/haskell2010/monad-explicit-fail.hs" "[]\nmaybe explicit fail\n7" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-control-monad" "test/e2e/programs/haskell2010/control-monad.hs" "[2,3,4]\n4\n5\n[2,4]\n6\n[1,2]\n7\n8\n7\n9\n9\n10\n11\n[1,2,3]\n[3,4]\n[1,2]\n[11,12]\n[11,22]\n21\n32\n6\n13\n[2,2,2]\n14\n15\n99\n[16,17]\n[]\nwhen\nunless\n16\n33\n6\n10\n15\n34\n35" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-guards-as-patterns" "test/e2e/programs/haskell2010/guards-as-patterns.hs" "15" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-sections" "test/e2e/programs/haskell2010/sections.hs" "6" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-user-defined-operators" "test/e2e/programs/haskell2010/user-defined-operators.hs" "537" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-where-layout" "test/e2e/programs/haskell2010/where-layout.hs" "14" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-arithmetic-sequences" "test/e2e/programs/haskell2010/arithmetic-sequences.hs" "[1,2,3,4]\n[1,3,5,7]\n[6,4,2,0]\nabcd\nfdb\n[7,8,9]" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-derived-enum" "test/e2e/programs/haskell2010/derived-enum.hs" "0\n2\n2\n1\nWest\n[1,2,3]\n[3,2,1,0]\n[1,2,3]\n[0,2]\n[3,2,1,0]\n[1,2,3]\n[3,2,1,0]\n0" [DefaultEgglog, NoEgglog] True
-  , nativeOnlySuccessCase "haskell2010-derived-bounded" "test/e2e/programs/haskell2010/derived-bounded.hs" "0\n3\nPair (False) (North)\nPair (True) (West)\nRecord { low = (False), high = (North) }\nRecord { low = (True), high = (West) }\nFlag (False)\nFlag (True)" [DefaultEgglog, NoEgglog] True
+  , nativeOnlySuccessCase "haskell2010-derived-bounded" "test/e2e/programs/haskell2010/derived-bounded.hs" "0\n3\nPair False North\nPair True West\nRecord {low = False, high = North}\nRecord {low = True, high = West}\nFlag False\nFlag True" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCase "haskell2010-list-comprehensions" "test/e2e/programs/haskell2010/list-comprehensions.hs" "[2,3,4,6,8,12]\nabde\n[3,4]\n[3,7]\n[9]\n[12,13]" [DefaultEgglog, NoEgglog] True
   , nativeOnlySuccessCaseWithCompileWarnings "haskell2010-pattern-diagnostics" "test/e2e/programs/haskell2010/pattern-diagnostics.hs" "7" [DefaultEgglog, NoEgglog] True ["non-exhaustive pattern match", "case alternatives", "False"]
   , nativeOnlySuccessCase "haskell2010-adt-box" "test/e2e/programs/haskell2010/adt-box.hs" "7" [DefaultEgglog, NoEgglog] True
@@ -415,6 +913,13 @@ e2eCases =
   , runtimeErrorCase "haskell2010-guard-fallthrough" "test/e2e/programs/haskell2010/guard-fallthrough.hs" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "haskell2010-derived-enum-runtime-error" "test/e2e/programs/haskell2010/derived-enum-runtime-error.hs" [DefaultEgglog, NoEgglog]
   , runtimeErrorCase "haskell2010-prelude-head-empty" "test/e2e/programs/haskell2010/prelude-head-empty.hs" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-data-list-partial" "test/haskell2010/conformance/modules/data-list-partial.hs" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-data-maybe-partial" "test/haskell2010/conformance/modules/data-maybe-partial.hs" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-data-char-partial" "test/haskell2010/conformance/modules/data-char-partial.hs" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-data-array-partial" "test/haskell2010/conformance/modules/data-array-partial.hs" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-data-array-duplicate-partial" "test/haskell2010/conformance/modules/data-array-duplicate-partial.hs" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-data-bits-negative-shift-partial" "test/haskell2010/conformance/modules/data-bits-negative-shift-partial.hs" [DefaultEgglog, NoEgglog]
+  , runtimeErrorCase "haskell2010-data-ratio-zero-denominator-partial" "test/haskell2010/conformance/modules/data-ratio-zero-denominator-partial.hs" [DefaultEgglog, NoEgglog]
   , compileErrorCase "open-free-variable" "test/e2e/programs/compile-errors/open-free-variable.hg" ["free", "unbound", "unknown", "backend"]
   , compileErrorCase "type-error" "test/e2e/programs/compile-errors/type-error.hg" ["type"]
   , compileErrorCase "unsupported-recursion" "test/e2e/programs/unsupported/unsupported-recursion.hg" ["recursive", "recursion", "unbound", "unknown"]

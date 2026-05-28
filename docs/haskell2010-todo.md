@@ -115,7 +115,7 @@ This document is the authoritative engineering backlog. The matching machine-rea
 
 - Goal: Provide a coherent Prelude strategy and enough library behavior for representative Haskell 2010 programs.
 - Exit criteria: Representative Prelude programs compile; implicit import behavior works; deviations are explicit.
-- Task IDs included: PRELUDE-001, PRELUDE-002, PRELUDE-003, PRELUDE-004, PRELUDE-005, PRELUDE-006, PRELUDE-007, PRELUDE-008, PRELUDE-009, PRELUDE-010, PRELUDE-011, PRELUDE-012, PRELUDE-013, PRELUDE-014, PRELUDE-015, PRELUDE-016, PRELUDE-017, PRELUDE-018, PRELUDE-019, PRELUDE-020
+- Task IDs included: PRELUDE-001, PRELUDE-002, PRELUDE-003, PRELUDE-004, PRELUDE-005, PRELUDE-006, PRELUDE-007, PRELUDE-008, PRELUDE-009, PRELUDE-010, PRELUDE-011, PRELUDE-012, PRELUDE-013, PRELUDE-014, PRELUDE-015, PRELUDE-016, PRELUDE-017, PRELUDE-018, PRELUDE-019, PRELUDE-020, LIB-001, LIB-002, LIB-003, LIB-004, LIB-005, LIB-006, LIB-007, LIB-008, LIB-009, LIB-010, LIB-011, LIB-012
 - Required wet tests: Prelude function and implicit-import native wet tests.
 - Risk level: high
 
@@ -217,37 +217,26 @@ Complete: SURFACE-001, SURFACE-002, and SURFACE-003.
 
 ## Next coherent chunk: Prelude, deriving, and typeclass library completion
 
-1. TC-029 — report-shaped Show hierarchy.
-2. TC-030 — Read implementation.
-3. TEST-CONF-015 — library conformance closure.
-
-TEST-CONF-015 is the Report-facing closure task for the standard-library
-surface, not just a fixture chore. It must reconcile Chapter 9 Prelude and the
-Part II Haskell 2010 Libraries module inventory against the tracker before
-additional library implementation continues, so missing work is recorded
-explicitly instead of rediscovered ad hoc.
-
-Its audit scope includes:
-
-- report-shaped `Show` (`showsPrec`, `shows`, `show`, `showList`) and `Read`
-  (`ReadS`, `readsPrec`, `readList`, `reads`, `read`)
-- remaining Prelude classes, functions, and derived-instance behavior not yet
-  implemented
-- `Control.Monad`, `Data.Array`, `Data.Bits`, `Data.Char`, `Data.Complex`,
-  `Data.Int`, `Data.Ix`, `Data.List`, `Data.Maybe`, `Data.Ratio`, `Data.Word`,
-  `Numeric`, `System.Environment`, `System.Exit`, `System.IO`, and
-  `System.IO.Error`
-- remaining `Foreign.*` modules tracked by FFI-010 through FFI-013
+1. LIB-001 — Control.Monad report completion.
+2. LIB-002 — Data.List report completion.
+3. LIB-003 — Data.Maybe report completion.
+4. LIB-004 — Data.Char report completion.
+5. LIB-007 — Data.Ratio and Rational report completion.
+6. LIB-010 — Numeric report completion.
 
 Completed in this chunk: PRELUDE-019 — Prelude function completion;
-PRELUDE-020 — standard library module expansion.
+PRELUDE-020 — standard library module expansion; TEST-CONF-015 — validator-backed
+library conformance reconciliation against Chapter 9 Prelude and the Part II
+library inventory; TC-030 — Report-shaped Read implementation.
+Haskell 2010 Libraries inventory.
 
 ## Remaining FFI closure chunk
 
-1. FFI-010 — floating-point FFI marshalling.
-2. FFI-011 — FFI link metadata.
-3. FFI-012 — callback and finalizer lifetime completion.
-4. FFI-013 — Foreign library surface completion.
+FFI-010 is complete for floating-point FFI marshalling, and FFI-011 is complete
+for FFI link metadata plus explicit native link inputs.
+
+1. FFI-012 — callback and finalizer lifetime completion.
+2. FFI-013 — Foreign library surface completion.
 
 # Task Backlog
 
@@ -12469,12 +12458,12 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Completed for the executable Show subset: exact `Int`, `Bool`, `Char`, and `String`, plus generated list dictionaries. Full Haskell 2010 `showsPrec`/`showList` method hierarchy, derived `Show`, user-defined ADT-shaped output, exhaustive lexical escaping, and standard library packaging remain tracked by later class/Prelude tasks.
+- Milestone M11 (Type classes and dictionaries). Completed for the broadened executable Show subset: exact `Int`, `Bool`, `Char`, and `String`, plus generated list dictionaries. TC-029 later promoted this surface to the Report-shaped `showsPrec`/`show`/`showList` hierarchy with derived constructor precedence and supported lexical escaping.
 
-## TC-016 — Read, if implemented or documented deviation
+## TC-016 — Close Read documented deviation
 
 Status:
-- documented deviation
+- complete
 
 Category:
 - typechecker
@@ -12487,7 +12476,7 @@ Blocks:
 - none
 
 Scope:
-- Decide and document that the Haskell 2010 `Read` class is not part of the current supported class surface. Keep the deviation explicit in the renamer/typechecker boundary and in the conformance suite until the compiler has a coherent `ReadS`/lexical parser surface, `readsPrec`/`readList` methods, standard instances, and derived `Read` synthesis.
+- Close the historical Haskell 2010 `Read` documented deviation now that TC-030 has implemented coherent `ReadS`/lexical parser support, `readsPrec`/`readList` methods, standard supported instances, and derived `Read` synthesis. The tracker, matrix, docs, and conformance suite must no longer present `Read` as an active unsupported/deviation boundary.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -12503,9 +12492,11 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- Read is explicitly documented as a Haskell 2010 Prelude/typeclass deviation according to status `documented deviation`.
+- TC-016 is marked complete rather than documented deviation.
+- Read is no longer listed as an active Haskell 2010 Prelude/typeclass deviation.
+- The old unsupported Read conformance fixture is removed and replaced by positive standard and derived Read coverage.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
+- The Haskell 2010 conformance matrix points to TC-030 for implemented Read work and to concrete LIB tasks for remaining library gaps.
 
 Required tests:
 - typechecker unit tests
@@ -12519,7 +12510,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). TC-016 is complete as a documented deviation: `Read` is recognized as a Prelude class name only far enough to produce an explicit unsupported type-class diagnostic, and no `Read` dictionaries, `readsPrec`, `readList`, `read`, `reads`, or `lex` behavior is exported. The conformance fixture `test/haskell2010/conformance/unsupported/read-class.hs` prevents accidental silent acceptance. Full implementation should be scheduled only after the compiler has report-compatible lexical read support and derived `Read` generation.
+- Milestone M11 (Type classes and dictionaries). Complete. TC-016 is closed as an active deviation: `Read` is no longer represented as unsupported in the current Haskell 2010 tracker, matrix, or conformance manifest. TC-030 owns the implemented Read surface, including `Read` dictionaries, lexical read helpers, standard supported instances, and derived `Read`; the old unsupported fixture has been replaced by positive native conformance coverage.
 
 ## TC-017 — Num
 
@@ -12931,7 +12922,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: supported data/newtype declarations can derive `Ord` when an `Eq` superclass dictionary is available, and structural list ordering supports string and list-backed fields. Derived `Show` is covered by TC-025, derived `Enum` by TC-031, and derived `Bounded` by TC-032; derived `Read` remains separate in TC-030.
+- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: supported data/newtype declarations can derive `Ord` when an `Eq` superclass dictionary is available, and structural list ordering supports string and list-backed fields. Derived `Show` is covered by TC-025, derived `Read` by TC-030, derived `Enum` by TC-031, and derived `Bounded` by TC-032.
 
 ## TC-025 — derived Show
 
@@ -12981,7 +12972,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: generated `Show` dictionaries return ordinary `[Char]` values and compose through the existing structural list/string `Show` surface. Because the current class exposes `show :: a -> String` rather than the full Haskell 2010 `showsPrec`/`showList` hierarchy, derived product fields are conservatively parenthesized until the report-compatible method hierarchy is implemented.
+- Milestone M11 (Type classes and dictionaries). Complete for the derived executable subset: generated `Show` dictionaries return ordinary `[Char]` values and compose through the structural list/string `Show` surface. TC-029 later promoted derived `Show` to the Report-shaped `showsPrec`/`show`/`showList` hierarchy, so product-field parentheses now follow the active precedence context instead of the former conservative rendering.
 
 ## TC-026 — class negative tests
 
@@ -13136,7 +13127,7 @@ Notes:
 ## TC-029 — report-shaped Show hierarchy
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -13188,15 +13179,21 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Not started. The current `Show` implementation remains the executable
-  `show :: a -> String` subset with scalar, string/list, and derived data/newtype
-  dictionaries. TC-029 still owns the report-shaped `showsPrec`/`showList`
-  hierarchy, precedence-sensitive rendering, and exhaustive escaping.
+- Complete. The generated Prelude now exposes `shows` and the `Show` class uses
+  the Report-shaped `showsPrec`, `show`, and `showList` dictionary layout.
+  Built-in `Show Int`, `Show Bool`, `Show Char`, exact `Show String`,
+  generated structural list dictionaries, and supported derived data/newtype
+  dictionaries all use the same method hierarchy. Derived product constructors
+  honor application precedence, nested constructor fields use `showsPrec 11`,
+  records render with record-construction syntax, `ShowS` continuations are
+  respected for lists, and native/conformance coverage locks scalar, list,
+  string, product, record, recursive, precedence-sensitive, and supported
+  escaping behavior.
 
 ## TC-030 — Read implementation
 
 Status:
-- not started
+- complete
 
 Category:
 - typechecker
@@ -13245,20 +13242,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Complete. `Haskell2010.StandardLibrary` now exposes generated/importable
-  interfaces for `Prelude`, `Control.Monad`, `Data.Int`, `Data.List`,
-  `Data.Maybe`, `Data.Word`, `System.IO`, and the implemented `Foreign`,
-  `Foreign.C`, `Foreign.C.String`, `Foreign.C.Types`, `Foreign.ForeignPtr`,
-  `Foreign.Ptr`, and `Foreign.StablePtr` slices. The generated modules use the
-  shared `ModuleInterface` export, child-export, fixity, and instance slots;
-  no reserved module is importable as an empty placeholder. Native e2e and
-  conformance fixtures cover explicit imports from `Data.List`, `Data.Maybe`,
-  `Control.Monad`, and `System.IO`, including `Functor(fmap)` execution for
-  lists, `Maybe`, and `IO`; the old unsupported package/search-path
-  fixture now targets reserved `Data.Char` so unsupported standard-library
-  modules still fail explicitly. The standard-library layout doc identifies
-  every Haskell 2010 Libraries module as implemented, partial, reserved, or
-  owned by a follow-up task.
+- Milestone M11 (Type classes and dictionaries). Complete for the current executable subset: the generated Prelude exposes `ReadS`, `readsPrec`, `readList`, `reads`, `read`, `lex`, and `readParen`; built-in dictionaries cover `Int`, `Bool`, `Char`, `String`, structural lists, `Ordering`, and unit; derived `Read` synthesizes dictionaries for supported data/newtype declarations including nullary constructors, products, records, recursive data, `String` fields, list-backed contexts, and precedence-sensitive nested constructors. Core/STG/native unit tests and manifest-backed native fixtures cover successful parsing, partial-read behavior, token-boundary rejection, and derived constructor parsing. Remaining richer numeric read helpers and broader library exports stay owned by their LIB tasks.
 
 ## TC-031 — derived Enum
 
@@ -13424,11 +13408,14 @@ Notes:
   `quotRem`, `divMod`, and `toInteger`, with Core/STG/native lowering for a
   checked remainder primitive and Haskell 2010 `quot`/`rem` versus `div`/`mod`
   semantics. Defaulting recognizes `Real` and `Integral` constraints in the
-  supported standard-class numeric universe, `Integer` defaults continue to
-  map to the checked executable `Int` representation, and invalid default
-  declarations remain explicit compile errors. Fractional, floating,
-  arbitrary-precision `Integer`, and full `Ratio`/`Rational` behavior remain
-  tracked as future library/runtime work rather than being silently claimed.
+  supported standard-class numeric universe, `Integer` defaults now select the
+  distinct `Integer` type, and invalid default declarations remain explicit
+  compile errors. Core and STG execution carry arbitrary-precision `Integer`
+  values through host `Integer` semantics; native LLVM still uses the existing
+  i64 boxed payload path for `Integer` values and rejects out-of-payload
+  literals explicitly instead of silently truncating them. Fractional and
+  floating behavior are covered by `LIB-008`/`LIB-010`; `LIB-007` now supplies
+  the current `Ratio Integer`/`Rational` representation used by `toRational`.
 
 ## PRELUDE-001 — Prelude module strategy
 
@@ -14402,7 +14389,7 @@ Notes:
   are introduced. Core, STG, LLVM/native, e2e, and conformance fixtures cover
   the successful function slice plus empty-list `head` native runtime failure.
   Remaining Prelude functions stay unclaimed and continue under PRELUDE-020,
-  TC-029, TC-030, TEST-CONF-015, or later dedicated library tasks.
+  TEST-CONF-015, or later dedicated library tasks.
 
 ## PRELUDE-020 — standard library module expansion
 
@@ -14455,6 +14442,646 @@ Documentation updates:
 
 Notes:
 - Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+
+## LIB-001 — Control.Monad report completion
+
+Status:
+- complete
+
+Category:
+- libraries
+
+Depends on:
+- TC-020
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Complete the Haskell 2010 `Control.Monad` surface around `Functor`, `Monad`, `mapM`, `mapM_`, `sequence`, `sequence_`, `(=<<)`, and related report combinators for supported Monad instances.
+
+Non-goals:
+- Do not add transformer libraries or post-2010 APIs.
+- Do not claim polymorphic behavior without Core/STG/native tests.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `test/haskell2010/conformance/`
+- `test/e2e/programs/haskell2010/control-monad.hs`
+
+Acceptance criteria:
+- `Control.Monad` exports the full Haskell 2010 report surface for Functor, Monad, and standard monadic combinators.
+- `mapM`, `mapM_`, `sequence`, `sequence_`, `(=<<)`, and related combinators compile through Core/STG/native for supported Monad instances.
+- Generated module interfaces, Prelude exports, fixities, conformance matrix rows, and fixtures agree on the supported surface.
+
+Required tests:
+- module import conformance tests
+- Monad native wet tests
+- negative unsupported-boundary tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Complete. `Control.Monad` now exports `Functor(fmap)`, `Monad(..)`, `MonadPlus(..)`, and the Haskell 2010 monadic combinator surface for supported `IO`, `Maybe`, and list instances. Prelude also exposes the Report monadic exports `mapM`, `mapM_`, `sequence`, `sequence_`, and `(=<<)`. The implementation has generated Core bindings, built-in `MonadPlus` dictionaries for `Maybe` and lists, interface/fixity coverage, conformance coverage, and a broad native e2e fixture covering every new combinator.
+
+## LIB-002 — Data.List report completion
+
+Status:
+- complete
+
+Category:
+- libraries
+
+Depends on:
+- PRELUDE-019
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Complete the Haskell 2010 `Data.List` report API beyond the generated list/function slice.
+
+Non-goals:
+- Do not introduce fusion rewrites or optimizer-specific behavior as part of the library semantics.
+- Do not weaken existing list laziness or partial-function boundaries.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Data.List` exports the Haskell 2010 list API beyond the current generated slice.
+- List transformations, folds, scans, sublists, searches, indexing, zips, unzips, special-list helpers, and generic functions have real implementations or explicit narrower deviations.
+- Partial functions and bottom behavior are documented and tested through native or runtime-error fixtures.
+
+Required tests:
+- `Data.List` conformance fixtures
+- native wet tests
+- runtime-error tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Complete. `Data.List` is now a source-backed virtual standard-library module
+  loaded through the module graph before generated-only builtin module handling.
+  It exports the Haskell 2010 Report list API beyond the previous generated
+  subset, including transformations, folds and scans, map accumulators,
+  infinite-list producers, sublist operations, predicates, searches, indexing,
+  zips and unzips, text helpers, set-like list operations, ordered-list helpers,
+  `By` variants, and generic functions. The virtual module is parsed, renamed,
+  typechecked, lowered through Core/STG, and compiled natively like ordinary
+  source, while internal standard-library pattern diagnostics are suppressed so
+  user diagnostics stay focused on user code. Native e2e and conformance
+  fixtures cover the broad success surface, imported fixities, default and
+  `--no-egglog` modes, emit-LLVM output, and empty-list partial selector
+  runtime failure.
+
+## LIB-003 — Data.Maybe report completion
+
+Status:
+- complete
+
+Category:
+- libraries
+
+Depends on:
+- PRELUDE-DATA-003
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Complete the Haskell 2010 `Data.Maybe` module surface using the existing built-in `Maybe` constructors and dictionary machinery.
+
+Non-goals:
+- Do not change the representation of `Maybe`.
+- Do not hide partial `fromJust` behavior behind total helpers.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Data.Maybe` exports `Maybe(..)`, `maybe`, `isJust`, `isNothing`, `fromJust`, `fromMaybe`, `maybeToList`, `listToMaybe`, `catMaybes`, and `mapMaybe` where required by the Haskell 2010 Libraries Report.
+- Partial `fromJust` behavior has an explicit runtime-error fixture.
+- Prelude and `Data.Maybe` imports share the same implemented definitions without ambiguity.
+
+Required tests:
+- `Data.Maybe` conformance fixtures
+- native wet tests
+- runtime-error tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Complete. `Data.Maybe` is now a source-backed virtual standard-library
+  module loaded through the module graph before generated-only builtin module
+  handling. It re-exports the built-in `Maybe(..)` constructors and implements
+  the Haskell 2010 Report helper surface: `maybe`, `isJust`, `isNothing`,
+  `fromJust`, `fromMaybe`, `listToMaybe`, `maybeToList`, `catMaybes`, and
+  `mapMaybe`. The virtual module is parsed, renamed, typechecked, lowered
+  through Core/STG, and compiled natively like ordinary source. Native e2e and
+  conformance fixtures cover the positive helper surface, default and
+  `--no-egglog` modes, emit-LLVM output, and `fromJust Nothing` runtime
+  failure.
+
+## LIB-004 — Data.Char report completion
+
+Status:
+- complete
+
+Category:
+- libraries
+
+Depends on:
+- PRELUDE-DATA-007
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Implement the Haskell 2010 `Data.Char` classification, conversion, digit, numeric representation, and string representation APIs.
+
+Non-goals:
+- Do not claim full Unicode behavior without explicit tests and documented character-table policy.
+- Do not implement Show/Read escape behavior separately from TC-029 and TC-030.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Data.Char` exports report-compatible character classification, case conversion, digit, numeric representation, and string representation functions.
+- Character ordinal behavior, escape rendering, and lexical read helpers agree with Show/Read tasks where they overlap.
+- Reserved `Data.Char` imports are replaced by positive and negative fixtures once implemented.
+
+Required tests:
+- `Data.Char` conformance fixtures
+- Show/Read character tests
+- native wet tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Complete. `Data.Char` is now a source-backed virtual standard-library
+  module loaded through the module graph before generated-only builtin module
+  handling. It re-exports `Char` and `String`, defines
+  `GeneralCategory(..)`, and implements classification predicates, ASCII
+  digit predicates, `ord`, `chr`, `digitToInt`, `intToDigit`, simple Unicode
+  case conversion, `showLitChar`, `lexLitChar`, and `readLitChar` in ordinary
+  source. The character table policy is explicit: the compact table covers the
+  Haskell lexical ASCII surface, Latin-1, common Greek letter ranges, combining
+  mark ranges, Unicode separator code points required by `isSpace`, and the
+  Euro sign; unlisted code points classify as `NotAssigned` until a generated
+  Unicode database table is introduced. Native e2e and conformance fixtures
+  cover positive classification/conversion/literal behavior, default and
+  `--no-egglog` modes, emit-LLVM output, and invalid `digitToInt` runtime
+  failure.
+
+## LIB-005 — Data.Array and Data.Ix report completion
+
+Status:
+- complete
+
+Category:
+- libraries
+
+Depends on:
+- PRELUDE-020
+- TC-031
+
+Blocks:
+- none
+
+Scope:
+- Implement `Data.Ix` and immutable non-strict `Data.Array` per the Haskell 2010 Libraries Report.
+
+Non-goals:
+- Do not implement mutable arrays or post-2010 array packages.
+- Do not add boxed-array runtime behavior without clear forcing and bounds semantics.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `src/Haskell2010/STG/LLVM.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Data.Ix` exports the `Ix` class and `range`/`index`/`inRange`/`rangeSize` behavior with derived `Ix` support where required.
+- `Data.Array` exports immutable non-strict arrays, construction, access, updates, derived arrays, and report-specified errors.
+- Array and Ix semantics are covered by native and negative conformance fixtures.
+
+Required tests:
+- `Data.Ix` conformance fixtures
+- `Data.Array` native wet tests
+- negative bounds/error tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Complete. `Data.Ix` is importable and exports the Report `Ix` class with
+  scalar instances for `Int`, `Char`, `Bool`, `Ordering`, and `()`, structural
+  tuple instances, and derived `Ix` support for enumerations and single
+  constructor product types. `Data.Array` is a source-backed virtual module
+  implementing immutable non-strict arrays, `array`, `listArray`,
+  `accumArray`, `(!)`, `bounds`, `indices`, `elems`, `assocs`, `(//)`,
+  `accum`, `ixmap`, and `Functor`/`Eq`/`Ord`/`Show`/`Read` instances for
+  supported element types. Positive native fixtures cover Ix ranges/indexing,
+  derived Ix, array construction/access/update/accumulation/ixmap/fmap/
+  comparison/show/read, and negative wet fixtures cover out-of-range and
+  duplicate association runtime failures.
+
+## LIB-006 — Data.Bits report completion
+
+Status:
+- complete
+
+Category:
+- libraries
+
+Depends on:
+- TC-033
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Implement the Haskell 2010 `Data.Bits` class and operations for supported integral representations.
+
+Non-goals:
+- Do not silently generalize over numeric types without checked dictionary support.
+- Do not rely on undefined target shift behavior.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `src/Haskell2010/STG/LLVM.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Data.Bits` exports the Haskell 2010 `Bits(..)` class and all report methods through the generated standard-library interface.
+- `Bits Int` is implemented with the required `Num` superclass, Core/STG interpreter behavior, and native LLVM lowering for bitwise operators, shifts, rotates, `bit`, setters/clearers/toggles, predicates, `bitSize`, and `isSigned`.
+- Directional operations reject negative bit counts explicitly, and native lowering guards large shift counts so LLVM never receives undefined shift amounts.
+- Fixed-width `Int*`/`Word*` instances are implemented by `LIB-009`; plain `Word` remains intentionally outside the Haskell 2010 basic FFI type set.
+
+Required tests:
+- `test/haskell2010/conformance/modules/data-bits.hs`
+- `test/haskell2010/conformance/modules/data-bits-negative-shift-partial.hs`
+- native wet tests through default, no-egglog, and emit-LLVM modes
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015 so the reserved `Data.Bits` module has a numbered owner.
+- Completed by implementing the report-shaped `Data.Bits` boundary for `Int`; `LIB-009` extends that same boundary to fixed-width `Int*`/`Word*` representations.
+
+## LIB-007 — Data.Ratio and Rational report completion
+
+Status:
+- complete
+
+Category:
+- libraries
+
+Depends on:
+- TC-033
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Replace the current executable-subset rational pair behavior with a report-shaped `Ratio`/`Rational` library surface.
+
+Non-goals:
+- Do not implement floating decimal parsing here.
+- Do not change `Integral Int` behavior without preserving existing tests.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Data.Ratio` exports `Ratio`, `Rational`, `(%)`, `numerator`, `denominator`, and report-compatible normalization behavior.
+- Prelude `Rational` and `toRational` use the same representation instead of the current executable-subset pair encoding.
+- Zero denominator and sign normalization behavior are tested explicitly.
+
+Required tests:
+- `test/haskell2010/conformance/modules/data-ratio.hs`
+- `test/haskell2010/conformance/modules/data-ratio-zero-denominator-partial.hs`
+- native wet tests through default, no-egglog, emit-LLVM, and x86 clang paths
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015 to make the Rational gap explicit.
+- Complete for the current `Rational` surface. `Data.Ratio` is importable and
+  exports `Ratio`, `Rational`, `(%)`, `numerator`, `denominator`, and
+  `approxRational`. The executable runtime now represents `Rational` as
+  normalized `Ratio Integer`, normalizes signs and common divisors, rejects
+  zero denominators at runtime, and backs `toRational` with the same
+  constructor instead of the old `(Int, Int)` pair. Built-in `Ratio Integer`
+  dictionaries cover `Eq`, `Ord`, `Num`, `Real`, `Show`, and `Read`, including
+  precedence-aware `show`/`read` round trips and list `Read`/`Show`.
+  `approxRational` implements the Report simplest-rational algorithm for the
+  currently supported `Rational` input type. Generic `Ratio a` dictionaries
+  beyond the standard `Rational = Ratio Integer` path remain a broader
+  typeclass/library generality task; floating/fractional integration is covered
+  by `LIB-008`.
+
+## LIB-008 — Data.Complex and floating numeric tower
+
+Status:
+- complete
+
+Category:
+- libraries
+
+Depends on:
+- FFI-010
+- LIB-007
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Implement `Float`/`Double`, the floating Prelude classes, and the Haskell 2010 `Data.Complex` module.
+
+Non-goals:
+- Do not claim IEEE edge-case conformance before explicit platform tests exist.
+- Do not implement only parser syntax without native semantics.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `src/Haskell2010/STG/LLVM.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Float` and `Double` representations support `Fractional`, `Floating`, `RealFrac`, and `RealFloat` methods required by Prelude.
+- `Data.Complex` exports `Complex` and rectangular, polar, magnitude, phase, conjugate, and numeric instances.
+- Floating edge cases and native lowering are tested for supported targets.
+
+Required tests:
+- floating numeric conformance fixtures
+- `Data.Complex` native wet tests
+- backend/FFI marshalling tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015 to tie the then-reserved `Data.Complex` module to the numeric tower work.
+- Complete. `Float` and `Double` are represented through Core/STG/native
+  literals and boxed runtime values, participate in defaulting, and provide
+  executable `Eq`, `Ord`, `Num`, `Real`, `Fractional`, `Floating`,
+  `RealFrac`, `RealFloat`, and `Show` dictionaries. Floating primitives cover
+  arithmetic, comparisons, conversion from integer/rational input in the
+  supported `Ratio Integer` representation, elementary and hyperbolic functions,
+  power/atan2, integral conversions, and IEEE predicates used by the Prelude
+  classes. `Data.Complex` is now an importable source-backed standard module
+  exporting `Complex((:+))`, rectangular accessors, conjugation, polar
+  construction/decomposition, magnitude, and phase, with generic
+  `RealFloat a`-constrained `Eq`, `Num`, `Fractional`, `Floating`, `Show`,
+  and `Read` instances. Native default/no-egglog fixtures cover the floating
+  Prelude tower and `Data.Complex`; FFI floating ABI coverage remains under
+  `FFI-010`. `LIB-010` now provides the importable `Numeric` module and native
+  coverage for finite floating read/show helpers over the current executable
+  `Double` path.
+
+## LIB-009 — Data.Int and Data.Word report completion
+
+Status:
+- complete
+
+Category:
+- libraries
+
+Depends on:
+- TC-033
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Move `Data.Word.Word` plus the fixed-width `Data.Int`/`Data.Word` support from importable type names to real representations, instances, and runtime behavior.
+
+Non-goals:
+- Do not conflate C ABI type aliases with Haskell fixed-width types unless the representation contract is explicit.
+- Do not widen silently without checked conversions.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `src/Haskell2010/STG/LLVM.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Data.Word.Word` and the fixed-width `Data.Int`/`Data.Word` types have real runtime representations, numeric instances, bounds, enum behavior, and conversions rather than only importable type names.
+- Overflow, bounds, show/read, enum, bits, and FFI interactions are specified and tested.
+- Generated module interfaces expose only implemented types and instances.
+
+Required tests:
+- fixed-width numeric conformance fixtures
+- native wet tests
+- FFI scalar tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Complete for the fixed-width `Data.Int`/`Data.Word` surface owned by this task. `Data.Int` and `Data.Word` now use shared fixed-width runtime representations for `Int8`, `Int16`, `Int32`, `Int64`, `Word`, `Word8`, `Word16`, `Word32`, and `Word64`, with Core/STG/native primitives for modulo arithmetic, signed and unsigned comparisons, quotient/remainder, bounds, `Show`, `Read` through the arbitrary `Integer` lexer, `Enum`, `Ix`, and `Bits`. Native conformance covers overflow, bounds, unsigned `Word64` rendering, signed shift edge cases, fixed-width list/range behavior, and static FFI scalar marshalling for `Int8`, `Word8`, and `Word64`. Plain `Word` remains intentionally rejected as a Haskell 2010 basic FFI type; the Report basic FFI word types are `Word8`/`Word16`/`Word32`/`Word64`. `FFI-013` adds generated `Storable` support for the fixed-width and pointer-shaped runtime representations. Core/STG fixed-width conversions consume arbitrary `Integer` values and normalize modulo the target width; the native path remains bounded by the current i64 `Integer` payload representation.
+
+## LIB-010 — Numeric report completion
+
+Status:
+- complete
+
+Category:
+- libraries
+
+Depends on:
+- TC-029
+- TC-030
+- LIB-007
+- LIB-008
+
+Blocks:
+- none
+
+Scope:
+- Implement the Haskell 2010 `Numeric` module and integrate it with report-shaped Show, Read, Ratio, and floating support.
+
+Non-goals:
+- Do not implement duplicate numeric parsers separate from TC-030 lexical read behavior.
+- Do not claim formatting bases or floating rendering without golden tests.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `Numeric` exports report-compatible showing, reading, and miscellaneous numeric formatting/parsing helpers.
+- `showSigned`/`showInt`/`readSigned`/`readDec`/`showFloat`/`readFloat`/`lexDigits` integrate with Show and Read implementation choices.
+- Positive and negative fixtures cover representative bases, signs, floats, and malformed inputs.
+
+Required tests:
+- `Numeric` conformance fixtures
+- Show/Read integration tests
+- native wet tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Complete for the current executable Haskell 2010 numeric tower. `Numeric` is now an importable source-backed virtual module with report-named exports for integral bases, signed reads/shows, finite floating renders/parses, `floatToDigits`, `lexDigits`, and `fromRat`. The implementation is covered through Core typechecking/evaluation, Core-to-STG preservation, LLVM emission, a native wet fixture, and the conformance manifest. Floating parser coverage targets the supported `Double` execution path and the current `Integer`/`Ratio Integer` representation; exact shortest-roundtrip floating lexical polish beyond the finite helper surface remains tracked separately from this module-level closure.
+
+## LIB-011 — System.Environment and System.Exit report completion
+
+Status:
+- complete
+
+Category:
+- libraries
+
+Depends on:
+- IO-014
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Implement the Haskell 2010 process environment and exit modules with deterministic native behavior.
+
+Non-goals:
+- Do not introduce platform-specific process behavior without documented deviations.
+- Do not mutate global environment state in tests without isolation.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `src/Haskell2010/STG/LLVM.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `System.Environment` exports argument, program name, environment lookup, and environment mutation/query APIs where required by the Libraries Report.
+- `System.Exit` exports `ExitCode` and process exit actions with deterministic native behavior.
+- Command-line and environment-sensitive tests isolate process state and document platform limitations.
+
+Required tests:
+- `System.Environment` conformance fixtures
+- `System.Exit` native wet tests
+- CLI integration tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Complete as a generated native process module pair. `System.Environment` imports expose `getArgs`, `getProgName`, and `getEnv` backed by C `argc`/`argv`, basename extraction, environment lookup, `[Char]`/C-string conversion, and `DoesNotExistError` failures for missing variables. `System.Exit` imports expose `ExitCode(ExitSuccess, ExitFailure)`, `exitWith`, `exitFailure`, and `exitSuccess`; `ExitCode` has built-in `Eq`/`Ord`/`Show`/`Read`, valid native `exitWith` calls propagate a distinct non-catchable IO-exit result so `System.IO.Error.catch` does not intercept process termination, and POSIX-prohibited `ExitFailure 0` surfaces as a catchable illegal-operation `IOError`. Covered by `modules.system-environment`, `modules.system-exit`, `modules.system-exit-failure`, `modules.system-exit-catch`, and `modules.system-exit-zero-catch` conformance fixtures.
+
+## LIB-012 — System.IO report completion
+
+Status:
+- complete
+
+Category:
+- libraries
+
+Depends on:
+- IO-011
+- IO-014
+- PRELUDE-020
+
+Blocks:
+- none
+
+Scope:
+- Expand `System.IO` from line-oriented stdin/stdout to the Haskell 2010 handle, file, buffering, seek, text IO, and error surfaces.
+
+Non-goals:
+- Do not implement asynchronous or post-2010 IO APIs.
+- Do not claim post-2010 encoding, binary IO, threaded IO, or richer terminal
+  control behavior from this Haskell 2010 text-IO task.
+
+Files likely touched:
+- `src/Haskell2010/StandardLibrary.hs`
+- `src/Haskell2010/Typecheck.hs`
+- `src/Haskell2010/STG/LLVM.hs`
+- `test/haskell2010/conformance/`
+
+Acceptance criteria:
+- `System.IO` expands from the line-oriented stdin/stdout subset to the report handle, file open/close, buffering, seek, text input/output, and error behavior surface at the import/typechecking/Core/STG boundary.
+- `System.IO.Error` integration is coordinated with IO-011 and tested through recoverable and unrecoverable IO cases.
+- Native tests cover standard handles, file-backed handles, seek/position behavior,
+  semi-closed `hGetContents`, productive `fixIO`, and report-shaped text IO
+  behavior deterministically.
+
+Required tests:
+- `System.IO` conformance fixtures
+- `System.IO.Error` conformance fixtures
+- native wet tests
+
+Documentation updates:
+- `docs/haskell2010-standard-library-layout.md`
+- `docs/haskell2010-conformance-matrix.md`
+- `docs/haskell2010-todo.md`
+
+Notes:
+- Created by TEST-CONF-015 to make the remaining IO library surface explicit.
+- Completed for the native Haskell 2010 text IO runtime model. The generated `System.IO`
+  interface now exposes the Haskell 2010 Report names for `IOMode`,
+  `BufferMode`, `SeekMode`, `Handle`, `HandlePosn`, standard handles,
+  open/close, buffering, positioning, handle properties, text IO, Prelude IO
+  aliases, `readIO`, and `readLn`. Core/STG/native primitives and validators
+  cover the expanded surface, and native conformance covers standard handles,
+  file-backed handles, open/close, `readFile`, `writeFile`, `appendFile`,
+  buffering metadata, line and character input, `hLookAhead`, `getContents`,
+  semi-closed `hGetContents`, EOF checks, `hFileSize`, `hSetFileSize`,
+  `hGetPosn`, `hSetPosn`, `hSeek`, `hTell`, handle predicates, `hPrint`,
+  `hShow`, and productive `fixIO` in default and no-egglog modes.
 
 ## IO-001 — IO type representation
 
@@ -14748,7 +15375,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M13 (IO and do-notation). Complete for current line-input subset: `getLine :: IO String` lowers through Core/STG/native, native runtime input builds list-backed strings, and stdin fixtures cover two sequential reads. EOF/error behavior remains owned by IO-011.
+- Milestone M13 (IO and do-notation). Complete for current line-input subset: `getLine :: IO String` lowers through Core/STG/native, native runtime input builds list-backed strings, and stdin fixtures cover two sequential reads. Recoverable `IOError` behavior is implemented by IO-011; EOF-specific native standard-handle behavior is covered by LIB-012.
 
 ## IO-007 — return
 
@@ -14848,7 +15475,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M13 (IO and do-notation). Completed for explicit `(>>=)`, do-bind statements, `return`-produced values, normal `putStrLn`/`print` examples over `String`, `Char`, and lists, native `getLine` over stdin, and the supported `Monad IO` dictionary. Handles and rich recoverable IO error behavior remain separate tasks.
+- Milestone M13 (IO and do-notation). Completed for explicit `(>>=)`, do-bind statements, `return`-produced values, normal `putStrLn`/`print` examples over `String`, `Char`, and lists, native `getLine` over stdin, recoverable `IOError` behavior, and the supported `Monad IO` dictionary. The expanded `System.IO` surface is tracked by LIB-012, including file-backed handles, seek/position behavior, semi-closed lazy contents, and productive `fixIO`.
 
 ## IO-009 — (>>)
 
@@ -14951,7 +15578,7 @@ Notes:
 ## IO-011 — IO error behavior
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -14964,7 +15591,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver IO error behavior for IO and do-notation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver IO error behavior for IO and do-notation while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Core, STG, and native IO actions now carry explicit success/failure results so handlers can observe `IOError` payloads instead of native execution aborting before recovery.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -14980,7 +15607,9 @@ Files likely touched:
 - `test/haskell2010/conformance/`
 
 Acceptance criteria:
-- IO error behavior is implemented, completed, or explicitly documented according to status `not started`.
+- Core, STG, and native IO actions represent success and failure explicitly so `ioError`, `catch`, `try`, and `fail` compose instead of aborting before handlers run.
+- `System.IO.Error` exposes `IOError`, `IOErrorType` constants, `mkIOError`, `annotateIOError`, classifiers, accessors, `userError`, `ioError`, `catch`, and `try` for the supported executable subset.
+- Uncaught native IO failures terminate nonzero, while caught failures preserve `IOError` payloads through `catch` and `try`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -15245,7 +15874,7 @@ Notes:
 ## MOD-003 — import search path
 
 Status:
-- not started
+- complete
 
 Category:
 - modules
@@ -15274,7 +15903,7 @@ Files likely touched:
 - `test/haskell2010/conformance/modules/`
 
 Acceptance criteria:
-- import search path is implemented, completed, or explicitly documented according to status `not started`.
+- import search path is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -15282,6 +15911,16 @@ Required tests:
 - module graph tests
 - import/export negative tests
 - multi-module native wet tests
+
+Notes:
+- Complete. Haskell 2010 source import resolution is now root-directory-first
+  over the root module's directory plus ordered repeated CLI `-i`/`--import-path`
+  source roots. Missing imports report every searched path; read, parse,
+  module-name mismatch, duplicate-module, and cycle failures remain hard
+  diagnostics. Unit, conformance, and native e2e fixtures cover cross-directory
+  imports, including default and `--no-egglog` native execution and emit-LLVM
+  coverage. Package databases, interface-file roots, and unimplemented library
+  modules remain documented outside MOD-003.
 
 Documentation updates:
 - `docs/haskell2010-frontend-spec.md`
@@ -15655,7 +16294,7 @@ Notes:
 ## MOD-011 — separate compilation decision/documentation
 
 Status:
-- not started
+- complete
 
 Category:
 - modules
@@ -15668,7 +16307,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver separate compilation decision/documentation for Full modules while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver separate compilation decision/documentation for Full modules while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Current behavior is explicit source-graph whole-program compilation behind `Haskell2010.ModuleGraph.currentModuleCompilationBoundary`; true separate compilation is deferred until package/search-path identity and interface artifact invalidation are stable.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -15681,10 +16320,12 @@ Files likely touched:
 - `src/Haskell2010/ModuleGraph.hs`
 - `src/Haskell2010/Renamer.hs`
 - `src/Haskell2010/Native.hs`
+- `test/Main.hs`
 - `test/haskell2010/conformance/modules/`
+- `docs/haskell2010-module-compilation-boundary.md`
 
 Acceptance criteria:
-- separate compilation decision/documentation is implemented, completed, or explicitly documented according to status `not started`.
+- separate compilation decision/documentation is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -15697,14 +16338,15 @@ Documentation updates:
 - `docs/haskell2010-frontend-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 - `docs/haskell2010-todo.md`
+- `docs/haskell2010-module-compilation-boundary.md`
 
 Notes:
-- Milestone M14 (Full modules). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M14 (Full modules). Complete as a documented and code-level boundary: same-directory source modules compile as one loaded graph, while persistent interface/object reuse remains a future implementation gated by stable module search policy.
 
 ## MOD-012 — interface file future plan
 
 Status:
-- not started
+- complete
 
 Category:
 - modules
@@ -15717,7 +16359,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver interface file future plan for Full modules while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver interface file future plan for Full modules while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Current behavior deliberately emits no interface files; the planned artifact shape, invalidation requirements, and implementation order are documented in `docs/haskell2010-module-compilation-boundary.md`.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -15730,10 +16372,12 @@ Files likely touched:
 - `src/Haskell2010/ModuleGraph.hs`
 - `src/Haskell2010/Renamer.hs`
 - `src/Haskell2010/Native.hs`
+- `test/Main.hs`
 - `test/haskell2010/conformance/modules/`
+- `docs/haskell2010-module-compilation-boundary.md`
 
 Acceptance criteria:
-- interface file future plan is implemented, completed, or explicitly documented according to status `not started`.
+- interface file future plan is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -15746,9 +16390,10 @@ Documentation updates:
 - `docs/haskell2010-frontend-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 - `docs/haskell2010-todo.md`
+- `docs/haskell2010-module-compilation-boundary.md`
 
 Notes:
-- Milestone M14 (Full modules). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M14 (Full modules). Complete as a future plan and explicit code policy; interface files remain intentionally deferred until search roots, generated library module identity, fingerprints, and native link metadata can be encoded soundly.
 
 ## MOD-013 — multi-module native wet tests
 
@@ -15998,7 +16643,7 @@ Notes:
 ## FFI-004 — C calling convention representation
 
 Status:
-- in progress
+- complete
 
 Category:
 - runtime
@@ -16048,12 +16693,12 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: ccall/stdcall are represented structurally, unsupported conventions are rejected before lowering, and the supported ccall native ABI slice is implemented; stdcall target-specific native lowering remains explicit future work.
+- Milestone M15 (FFI). Complete. ccall/stdcall and reserved calling-convention identifiers are represented structurally, unsupported conventions are rejected before native lowering, Report-shaped ccall entity strings with unbracketed .h headers/defaulted symbols are parsed, and the supported ccall native ABI slice is implemented; target-specific non-ccall native ABI lowering remains an explicit future boundary rather than an open representation gap.
 
 ## FFI-005 — primitive marshalling
 
 Status:
-- in progress
+- complete
 
 Category:
 - runtime
@@ -16086,7 +16731,7 @@ Acceptance criteria:
 - The typechecker validates marshallable scalar, pointer, type-synonym, and local visible-newtype foreign types.
 - Static, address, `dynamic`, and `wrapper` import signatures receive shape-specific diagnostics.
 - `foreign export` declarations validate that the exported binding can instantiate to the declared foreign type.
-- Runtime primitive marshalling and ABI conversion are implemented for the supported scalar integer/Bool/Char and pointer ABI slice; floating-point and broader Foreign library marshalling remain explicit future work.
+- Runtime primitive marshalling and ABI conversion are implemented for the supported scalar integer/Bool/Char/Float/Double and pointer ABI slice, including the current Foreign library marshalling surface for Storable, allocation, arrays, errno, and C strings.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -16103,12 +16748,12 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, and export validation are implemented; floating-point and broader Foreign library marshalling remain explicit future work.
+- Milestone M15 (FFI). Complete for the current native runtime model. Generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/Float/Double/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, export validation, and the FFI-013 Foreign library surface are implemented, including Storable, allocation, arrays, errno, and C strings.
 
 ## FFI-006 — runtime integration
 
 Status:
-- in progress
+- complete
 
 Category:
 - runtime
@@ -16135,12 +16780,12 @@ Files likely touched:
 - `docs/runtime-spec.md`
 
 Acceptance criteria:
-- Static, `dynamic`, and `wrapper` foreign imports lower to explicit Core/STG foreign-call nodes.
+- Static, `dynamic`, and `wrapper` foreign imports lower to explicit Core/STG foreign-call nodes, and `foreign export` declarations lower to explicit Core/STG module metadata.
 - Address imports lower to explicit inert Core/STG foreign-import value nodes.
 - Core/STG validators, pretty-printers, evaluators, optimizer traversal, and native backend boundaries preserve the foreign IR without silently dropping imports.
 - Core/STG evaluation reports explicit unsupported runtime diagnostics when foreign calls are reached outside native lowering.
-- Supported `foreign import ccall` nodes lower to native LLVM declarations/direct calls or indirect `FunPtr` calls with scalar integer/Bool/Char marshalling, `Ptr`/`FunPtr` pointer marshalling, static `&symbol` address boxing, `wrapper` callback trampolines, and `IO` sequencing.
-- Explicit `StablePtr` ownership and manual `ForeignPtr` finalizer APIs are implemented and wet-tested; automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, broader callback lifetime management, and floating-point marshalling remain pending.
+- Supported `foreign import ccall` nodes lower to native LLVM declarations/direct calls or indirect `FunPtr` calls with scalar integer/Bool/Char/Float/Double marshalling, `Ptr`/`FunPtr` pointer marshalling, static `&symbol` address boxing, `wrapper` callback trampolines, and `IO` sequencing.
+- Explicit `StablePtr` ownership, manual `ForeignPtr` finalizer APIs, `freeHaskellFunPtr`, wrapper callback-slot reclamation, callback-after-free rejection, and reverse-order/idempotent finalization are implemented and wet-tested; automatic GC finalizer scheduling remains scoped out under the process-lifetime runtime model.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -16155,12 +16800,12 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: Core/STG IR is complete for imports and export metadata, scalar/pointer/static-address/dynamic/wrapper/export ccall native runtime integration is implemented and wet-tested, and unsupported FFI entities still fail at explicit boundaries.
+- Milestone M15 (FFI). Complete. Core/STG IR is complete for imports and export metadata, scalar/floating/pointer/static-address/dynamic/wrapper/export ccall native runtime integration is implemented and wet-tested, explicit StablePtr/manual ForeignPtr/freeHaskellFunPtr ownership paths are wired through the runtime, and unsupported FFI entities still fail at explicit boundaries.
 
 ## FFI-007 — LLVM external declaration lowering
 
 Status:
-- in progress
+- complete
 
 Category:
 - runtime
@@ -16191,9 +16836,9 @@ Acceptance criteria:
 - Static scalar and pointer calls emit direct LLVM `call` instructions and link successfully against C helper objects in native wet tests.
 - Static `&symbol` imports for `Ptr a` and `FunPtr ft` emit external data/function declarations and box the raw address as a pointer value.
 - `dynamic` imports emit typed indirect calls through unboxed `FunPtr` values.
-- `wrapper` imports emit process-lifetime callback slots and C-callable trampoline functions for the supported scalar/pointer ABI slice.
+- `wrapper` imports emit reclaimable process-lifetime callback slots and C-callable trampoline functions for the supported scalar/floating/pointer ABI slice.
 - Unsupported FFI entities still report explicit native ABI diagnostics instead of being silently dropped.
-- Broader link metadata, floating-point marshalling, automatic GC finalization, `freeHaskellFunPtr`/callback-slot reclamation, and broader callback lifetime APIs remain pending.
+- Automatic GC finalization remains scoped out under the process-lifetime runtime model; explicit wrapper callback release is implemented through `freeHaskellFunPtr`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -16208,12 +16853,12 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: static scalar/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks, and foreign export ccall entrypoints are implemented; link metadata, floating-point, and callback-slot reclamation remain open.
+- Milestone M15 (FFI). Complete. Static scalar/floating/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks with `freeHaskellFunPtr` reclamation, foreign export ccall entrypoints, and FFI link metadata are implemented with explicit native ABI diagnostics for unsupported entities.
 
 ## FFI-008 — FFI native tests
 
 Status:
-- in progress
+- complete
 
 Category:
 - runtime
@@ -16240,9 +16885,9 @@ Files likely touched:
 - `docs/runtime-spec.md`
 
 Acceptance criteria:
-- Static scalar `ccall` native tests compile/link generated LLVM with a C helper and assert stdout.
+- Static scalar and floating `ccall` native tests compile/link generated LLVM with a C helper and assert stdout.
 - Static pointer/address native tests cover `Ptr`, `FunPtr`, data `&symbol`, function `&symbol`, pointer arguments, pointer results, and ordered pointer mutation through `IO`.
-- Dynamic/wrapper native tests cover indirect `FunPtr` calls, multiple live wrapped callbacks, C-to-Haskell callback re-entry, callback `IO`, and result marshalling.
+- Dynamic/wrapper native tests cover indirect `FunPtr` calls, multiple live wrapped callbacks, C-to-Haskell callback re-entry, callback `IO`, result marshalling, explicit wrapper release, double-free/idempotence, slot reclamation, and callback-after-free runtime failure.
 - Foreign export native tests cover C helpers calling exported pure and `IO` Haskell functions; remaining FFI forms add native tests as each ABI feature lands.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
@@ -16258,7 +16903,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: static scalar, pointer/address, dynamic/wrapper, and foreign-export native C-helper wet tests are implemented; floating-point, link metadata, finalizer lifetime, and broader library coverage remain open.
+- Milestone M15 (FFI). Complete. Static scalar, floating, pointer/address, dynamic/wrapper lifetime, foreign-export, StablePtr, ForeignPtr finalizer, link metadata, explicit link-object, and FFI-013 Foreign library native C-helper coverage are implemented for the current runtime model in default and no-egglog conformance modes.
 
 ## FFI-009 — FFI-wide deferral retired
 
@@ -16313,7 +16958,7 @@ Notes:
 ## FFI-010 — floating-point FFI marshalling
 
 Status:
-- not started
+- complete
 
 Category:
 - runtime
@@ -16345,7 +16990,7 @@ Acceptance criteria:
 - Foreign imports and exports validate and marshal `Float`, `Double`, `CFloat`, and `CDouble` according to the supported C ABI.
 - Core/STG/LLVM types distinguish floating-point ABI values from boxed runtime values without corrupting existing integer/pointer marshalling.
 - Native C-helper fixtures cover direct calls, callbacks, exports, and result marshalling for floating-point values.
-- Unsupported floating ABI combinations fail explicitly until implemented.
+- Unsupported foreign ABI combinations continue to fail explicitly until implemented.
 - Docs and matrix remove floating-point FFI from the remaining-gap list only after native coverage passes.
 
 Required tests:
@@ -16360,12 +17005,12 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete. Native floating FFI marshalling maps `Float`/`CFloat` to LLVM `float` and `Double`/`CDouble` to LLVM `double`, boxes runtime `Float`/`Double` values separately from integer/pointer objects, and covers static calls, dynamic `FunPtr` calls, wrapper callbacks, and `foreign export` through `ffi.floating-ccall` in default and no-egglog modes.
 
 ## FFI-011 — FFI link metadata
 
 Status:
-- not started
+- complete
 
 Category:
 - runtime
@@ -16413,12 +17058,12 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete. Foreign import/export lowering now carries `ForeignLinkMetadata` through the Haskell 2010 native result and emits LLVM comments for header-qualified imports, static/address symbols, and exported C symbols. The CLI and LLVM toolchain accept repeated `--link-object`, `--link-library`, `--library-path`, and `--framework` flags and pass them to clang. The conformance harness now builds FFI helper fixtures through those link flags instead of a side-channel manual clang path, and tests cover header-qualified ccall metadata plus missing link-input diagnostics.
 
 ## FFI-012 — callback and finalizer lifetime completion
 
 Status:
-- not started
+- complete
 
 Category:
 - runtime
@@ -16466,12 +17111,12 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete. `freeHaskellFunPtr` is now a generated `Foreign`/`Foreign.Ptr` binding that lowers through Core, STG, validation, evaluation, optimization boundaries, and native LLVM. Wrapper imports now allocate from reclaimable per-import callback slots, double-free of a wrapper pointer is idempotent, unknown frees and callback-after-free paths abort instead of re-entering stale closures, and freed slots can be reused after the fixed pool is saturated. Manual `ForeignPtr` finalization remains explicit under the process-lifetime allocation model: automatic GC scheduling is not claimed, while `finalizeForeignPtr` is idempotent and finalizers run in reverse registration order. Unit/native and conformance fixtures cover wrapper reclamation, callback-after-free runtime failure, double-free/idempotence, finalizer ordering, StablePtr round trips, and withForeignPtr/touchForeignPtr liveness barriers.
 
 ## FFI-013 — Foreign library surface completion
 
 Status:
-- not started
+- complete
 
 Category:
 - libraries
@@ -16518,7 +17163,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete for the current generated/importable Foreign library surface. `Foreign.Ptr` exposes null pointer values and pointer/function-pointer casts; `Foreign.ForeignPtr` exposes `FinalizerPtr`, `FinalizerEnvPtr`, `unsafeForeignPtrToPtr`, and `castForeignPtr`; `Foreign.Marshal.Error` and `Foreign.Marshal.Utils` expose guard and Maybe pointer helpers; `Foreign.C.Error` exposes `Errno(Errno)`, all Report errno constants with target-runtime values, `isValidErrno`, errno access/reset, `errnoToIOError`, retry/may-block guards, and path-carrying errno helpers; `Foreign.Storable` exposes generated dictionaries for supported scalar, pointer, and fixed-width runtime representations; `Foreign.Marshal.Alloc` and `Foreign.Marshal.Array` expose raw allocation, reallocation, free, byte copy/move, pointer advancement, and list/sentinel array helpers; and `Foreign.C.String` exposes C/CW string conversion helpers. Native conformance fixtures `ffi.foreign-library-surface`, `ffi.foreign-storable`, `ffi.foreign-marshal-array`, `ffi.foreign-c-string`, and `ffi.foreign-c-error` cover the surface in default and no-egglog modes.
 
 ## EGG-CORE-001 — Core Egglog schema
 
@@ -17533,7 +18178,7 @@ Notes:
 ## DIAG-002 — lexer diagnostics
 
 Status:
-- in progress
+- complete
 
 Category:
 - diagnostics
@@ -17546,7 +18191,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver lexer diagnostics for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver source-spanned Haskell 2010 lexer/parser diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Lexical failures are normalized through the shared Haskell 2010 diagnostic renderer before they reach native compilation or module-graph loading.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -17556,34 +18201,33 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Syntax/Span.hs`
-- `src/Haskell2010/Parser.hs`
-- `src/Haskell2010/Renamer.hs`
-- `src/Haskell2010/Typecheck.hs`
-- `src/CLI/Report.hs`
-- `test/golden/`
+- `src/Haskell2010/Diagnostics.hs`
+- `src/Haskell2010/ModuleGraph.hs`
+- `src/Haskell2010/Native.hs`
+- `test/Main.hs`
 
 Acceptance criteria:
-- lexer diagnostics is implemented, completed, or explicitly documented according to status `in progress`.
+- Haskell 2010 lexical parse failures render as stable `file:line:column-end: Haskell 2010 parse error: ...` diagnostics without raw Megaparsec caret bundles on native/module paths.
+- Invalid character-literal coverage verifies source attribution and one-line diagnostic normalization.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
-- diagnostic golden tests
-- negative conformance tests
-- CLI rendering tests
+- parser unit diagnostics
+- negative conformance diagnostics
+- CLI/native rendering checks through existing compile-error cases
 
 Documentation updates:
 - `docs/diagnostics-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Completed by the Haskell 2010 diagnostic renderer used by module graph and native compilation. Verified with `cabal build all`, `cabal test hegglog-test`, and the Haskell 2010 conformance harness.
 
 ## DIAG-003 — layout diagnostics
 
 Status:
-- in progress
+- complete
 
 Category:
 - diagnostics
@@ -17596,7 +18240,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver layout diagnostics for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver source-spanned Haskell 2010 layout diagnostics for implicit `let`, `where`, `do`, and `case ... of` layout blocks while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -17606,29 +18250,30 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Syntax/Span.hs`
+- `src/Haskell2010/Diagnostics.hs`
+- `src/Haskell2010/Layout.hs`
 - `src/Haskell2010/Parser.hs`
-- `src/Haskell2010/Renamer.hs`
-- `src/Haskell2010/Typecheck.hs`
-- `src/CLI/Report.hs`
-- `test/golden/`
+- `test/Main.hs`
+- `test/haskell2010/conformance/manifest.json`
 
 Acceptance criteria:
-- layout diagnostics is implemented, completed, or explicitly documented according to status `in progress`.
+- Implicit layout blocks validate misaligned continuation items against their layout keyword reference column and emit explicit layout messages rather than unrelated parse-token expectations.
+- Layout diagnostics render as stable `file:line:column-end: Haskell 2010 layout error: ...` messages on native/module paths.
+- Existing malformed layout conformance fixtures assert layout categories and concrete source-span prefixes.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
-- diagnostic golden tests
-- negative conformance tests
-- CLI rendering tests
+- parser layout diagnostic unit tests
+- negative conformance layout tests
+- CLI/native rendering checks through compile-error layout fixtures
 
 Documentation updates:
 - `docs/diagnostics-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Completed by context-aware implicit layout block validation and diagnostic classification. Verified with `cabal build all`, `cabal test hegglog-test`, and the Haskell 2010 conformance harness.
 
 ## DIAG-004 — parser diagnostics
 
@@ -17783,7 +18428,7 @@ Notes:
 ## DIAG-007 — kind diagnostics
 
 Status:
-- not started
+- complete
 
 Category:
 - diagnostics
@@ -17796,7 +18441,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver kind diagnostics for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver source-spanned Haskell 2010 kind diagnostics for supported source type expressions, partial type-constructor use, and higher-kinded class arguments while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -17806,34 +18451,33 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Syntax/Span.hs`
-- `src/Haskell2010/Parser.hs`
-- `src/Haskell2010/Renamer.hs`
 - `src/Haskell2010/Typecheck.hs`
-- `src/CLI/Report.hs`
-- `test/golden/`
+- `test/Main.hs`
+- `test/haskell2010/conformance/manifest.json`
 
 Acceptance criteria:
-- kind diagnostics is implemented, completed, or explicitly documented according to status `not started`.
+- Kind mismatches and kind occurs-check failures render with `kind error` severity instead of the generic `type error` severity.
+- Kind diagnostics preserve the source span of the offending source type or class-constraint argument.
+- The conformance manifest checks the kind-error category and concrete source-span prefix for partial type-constructor use.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
-- diagnostic golden tests
-- negative conformance tests
-- CLI rendering tests
+- typechecker kind diagnostic unit tests
+- negative kind conformance tests
+- CLI/native rendering checks through compile-error kind fixtures
 
 Documentation updates:
 - `docs/diagnostics-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Completed by kind-specific typechecker diagnostic severity plus source-span assertions for kind mismatches and higher-kinded class constraints. Verified with `cabal build all`, `cabal test hegglog-test`, and the Haskell 2010 conformance harness.
 
 ## DIAG-008 — class/instance diagnostics
 
 Status:
-- in progress
+- complete
 
 Category:
 - diagnostics
@@ -17846,7 +18490,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver class/instance diagnostics for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver source-spanned class/instance diagnostics for the Haskell 2010 frontend while preserving the current .hg substrate and the documented executable-subset behavior.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -17856,29 +18500,30 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Syntax/Span.hs`
-- `src/Haskell2010/Parser.hs`
-- `src/Haskell2010/Renamer.hs`
 - `src/Haskell2010/Typecheck.hs`
-- `src/CLI/Report.hs`
-- `test/golden/`
+- `test/Main.hs`
+- `test/haskell2010/conformance/manifest.json`
+- `docs/diagnostics-spec.md`
+- `docs/haskell2010-conformance-matrix.md`
 
 Acceptance criteria:
-- class/instance diagnostics is implemented, completed, or explicitly documented according to status `in progress`.
+- Class-constraint failures render as `class error` diagnostics with source spans for explicit constraint positions and overloaded use-site dictionary obligations.
+- Instance declaration conflicts and malformed instance method sets render as `instance error` diagnostics from structured typechecker constructors rather than generic unsupported-form text.
+- Negative and unsupported conformance fixtures lock the class/instance diagnostic categories and source-span prefixes.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
+- The Haskell 2010 conformance matrix points to this task for implemented work.
 
 Required tests:
-- diagnostic golden tests
-- negative conformance tests
-- CLI rendering tests
+- typechecker class/instance diagnostic unit tests
+- negative class/instance conformance tests
+- CLI/native rendering checks through compile-error class/instance fixtures
 
 Documentation updates:
 - `docs/diagnostics-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Completed by structured class/instance typechecker errors, declaration/use-site span preservation, manifest-backed span prefix checks, and diagnostics documentation. Verified with `cabal build all`, `cabal test hegglog-test`, and the Haskell 2010 conformance harness.
 
 ## DIAG-009 — pattern-match diagnostics
 
@@ -17933,13 +18578,14 @@ Notes:
   source-spanned warnings with missing witnesses where finite constructor
   coverage can identify them, supported duplicate/unreachable alternatives emit
   redundant-pattern warnings, native compile results preserve warnings, and the
-  compile CLI renders warnings to stderr. Broader report-complete coverage and
-  lazy runtime source attribution remain tracked outside this task.
+  compile CLI renders warnings to stderr. Broader report-complete coverage
+  remains tracked outside this task; nested runtime subexpression attribution is
+  covered by DIAG-014.
 
 ## DIAG-010 — module/import diagnostics
 
 Status:
-- in progress
+- complete
 
 Category:
 - diagnostics
@@ -17952,7 +18598,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver module/import diagnostics for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver source-spanned module/import diagnostics for the Haskell 2010 frontend while preserving the current .hg substrate and the documented executable-subset behavior.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -17962,29 +18608,36 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Syntax/Span.hs`
 - `src/Haskell2010/Parser.hs`
 - `src/Haskell2010/Renamer.hs`
-- `src/Haskell2010/Typecheck.hs`
-- `src/CLI/Report.hs`
-- `test/golden/`
+- `src/Haskell2010/ModuleGraph.hs`
+- `src/Haskell2010/Syntax.hs`
+- `src/Haskell2010/StandardLibrary.hs`
+- `test/Main.hs`
+- `test/haskell2010/conformance/manifest.json`
+- `docs/diagnostics-spec.md`
+- `docs/haskell2010-conformance-matrix.md`
 
 Acceptance criteria:
-- module/import diagnostics is implemented, completed, or explicitly documented according to status `in progress`.
+- Import declarations carry source spans from parsing through module graph loading and renaming.
+- Missing source modules render as `module/import error` diagnostics at the responsible import declaration and report the searched paths.
+- Explicit import lists that name non-exported entities render as structured `MissingImportName` diagnostics at the import declaration.
+- Negative and unsupported conformance fixtures lock module/import diagnostic categories and source-span prefixes.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
-- The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
+- The Haskell 2010 conformance matrix points to this task for implemented work.
 
 Required tests:
-- diagnostic golden tests
-- negative conformance tests
-- CLI rendering tests
+- parser import-span unit tests
+- renamer import-list diagnostic unit tests
+- module graph negative conformance tests
+- CLI/native rendering checks through compile-error module/import fixtures
 
 Documentation updates:
 - `docs/diagnostics-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Completed by import-declaration source spans, structured missing import-name diagnostics, source-spanned missing-module diagnostics, and manifest-backed span prefix checks. Verified with `cabal build all`, `cabal test hegglog-test`, and the Haskell 2010 conformance harness.
 
 ## DIAG-011 — Core validation diagnostics
 
@@ -18089,7 +18742,7 @@ Notes:
 ## DIAG-013 — runtime source attribution
 
 Status:
-- not started
+- complete
 
 Category:
 - diagnostics
@@ -18102,7 +18755,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver runtime source attribution for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver runtime source attribution for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Core and STG interpreter closures now carry source-defined top-level binding spans so forced runtime failures are reported at the responsible source binding.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -18112,34 +18765,36 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Syntax/Span.hs`
-- `src/Haskell2010/Parser.hs`
-- `src/Haskell2010/Renamer.hs`
+- `src/Haskell2010/Core/Syntax.hs`
+- `src/Haskell2010/Core/Eval.hs`
+- `src/Haskell2010/STG/Syntax.hs`
+- `src/Haskell2010/STG/Eval.hs`
+- `src/Haskell2010/STG/Lower.hs`
 - `src/Haskell2010/Typecheck.hs`
-- `src/CLI/Report.hs`
-- `test/golden/`
+- `test/Main.hs`
 
 Acceptance criteria:
-- runtime source attribution is implemented, completed, or explicitly documented according to status `not started`.
+- runtime source attribution is implemented for source-defined top-level Core and STG runtime closures and renders through the standard `runtime error` source diagnostic.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
+- Core evaluator runtime attribution unit tests
+- Core-to-STG runtime attribution unit tests
 - negative conformance tests
-- CLI rendering tests
 
 Documentation updates:
 - `docs/diagnostics-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M17 (Diagnostics). Completed by threading top-level binding spans through typed bindings, Core modules, STG programs, and interpreter runtime closures. DIAG-014 now extends this with nested expression spans inside source bindings.
 
 ## DIAG-014 — nested runtime spans
 
 Status:
-- not started
+- complete
 
 Category:
 - diagnostics
@@ -18152,7 +18807,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver nested runtime spans for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver nested runtime spans for Diagnostics while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Source expression spans now survive typed elaboration, Core, Core optimization, STG lowering, lazy STG thunk allocation, and partial-application thunks so Core/STG interpreter failures report the innermost surviving source expression.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -18162,26 +18817,31 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
-- `src/Syntax/Span.hs`
-- `src/Haskell2010/Parser.hs`
-- `src/Haskell2010/Renamer.hs`
 - `src/Haskell2010/Typecheck.hs`
-- `src/CLI/Report.hs`
-- `test/golden/`
+- `src/Haskell2010/Core/Syntax.hs`
+- `src/Haskell2010/Core/Eval.hs`
+- `src/Haskell2010/STG/Syntax.hs`
+- `src/Haskell2010/STG/Eval.hs`
+- `src/Haskell2010/STG/Lower.hs`
+- `test/Main.hs`
 
 Acceptance criteria:
-- nested runtime spans is implemented, completed, or explicitly documented according to status `not started`.
+- nested runtime spans are implemented for Core and STG interpreter runtime errors, including delayed failures through lazy thunks and lowered partial-application chains.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
 Required tests:
 - diagnostic golden tests
+- Core evaluator nested runtime attribution unit tests
+- Core-to-STG nested runtime attribution unit tests
 - negative conformance tests
-- CLI rendering tests
 
 Documentation updates:
 - `docs/diagnostics-spec.md`
 - `docs/haskell2010-conformance-matrix.md`
+
+Notes:
+- Milestone M17 (Diagnostics). Completed by adding source span wrappers to typed/Core/STG expressions, preserving them through substitution, validation, optimization, STG lowering, evaluator execution, and test-side structural walkers. Core and STG nested runtime attribution now point at source expressions such as `div` in `main = 10 + div 1 0` rather than only the containing binding or outer arithmetic expression.
 
 Notes:
 - Milestone M17 (Diagnostics). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
@@ -18304,7 +18964,7 @@ Notes:
 ## CLI-001 — command model
 
 Status:
-- in progress
+- complete
 
 Category:
 - cli
@@ -18326,6 +18986,7 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
+- `src/CLI/Command.hs`
 - `src/Main.hs`
 - `src/CLI/Compile.hs`
 - `src/CLI/Report.hs`
@@ -18333,7 +18994,7 @@ Files likely touched:
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- command model is implemented, completed, or explicitly documented according to status `in progress`.
+- command model is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -18348,12 +19009,12 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M18 (CLI productization). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M18 (CLI productization). Complete as of the CLI command-model implementation: top-level parsing now lives in `CLI.Command`, `Main` dispatches parsed commands, `compile` and `report` have scoped help, legacy `hegglog FILE` report mode and `hegglog FILE --emit-llvm` compile mode are preserved, malformed commands write diagnostics plus scoped usage to stderr, and CLI unit/wet tests cover parser, help text, and stdout/stderr discipline.
 
 ## CLI-002 — `hegglog check`
 
 Status:
-- not started
+- complete
 
 Category:
 - cli
@@ -18375,14 +19036,17 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
+- `src/CLI/Command.hs`
 - `src/Main.hs`
 - `src/CLI/Compile.hs`
 - `src/CLI/Report.hs`
+- `src/Backend/Compile.hs`
+- `src/Haskell2010/Native.hs`
 - `test/Main.hs`
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- `hegglog check` is implemented, completed, or explicitly documented according to status `not started`.
+- `hegglog check` is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -18397,12 +19061,12 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M18 (CLI productization). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M18 (CLI productization). Complete: `hegglog check FILE` has scoped parser/help/error handling, accepts only no-codegen flags, validates `.hg` through the shared pre-LLVM backend pipeline, validates Haskell 2010 source/module graphs through parse, rename, typecheck, Core optimization mode, and Core-to-STG validation without LLVM/native codegen, does not require a root `main`, and has CLI unit plus subprocess wet coverage.
 
 ## CLI-003 — `hegglog run`
 
 Status:
-- not started
+- complete
 
 Category:
 - cli
@@ -18424,6 +19088,7 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
+- `src/CLI/Command.hs`
 - `src/Main.hs`
 - `src/CLI/Compile.hs`
 - `src/CLI/Report.hs`
@@ -18431,7 +19096,7 @@ Files likely touched:
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- `hegglog run` is implemented, completed, or explicitly documented according to status `not started`.
+- `hegglog run` is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -18446,7 +19111,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M18 (CLI productization). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M18 (CLI productization). Complete: `hegglog run FILE` has scoped parser/help/error handling, accepts import/native link/no-egglog flags without output-mode flags, compiles through the normal native pipeline into a temporary executable, suppresses compile-time build chatter on success, forwards program stdout/stderr, exits with the program status, cleans up the temporary executable, and has CLI unit plus subprocess wet coverage for success and nonzero runtime exits.
 
 ## CLI-004 — `hegglog compile`
 
@@ -18505,13 +19170,23 @@ Documentation updates:
 - `docs/current-capabilities.md`
 - `docs/haskell2010-todo.md`
 
+Implementation notes:
+- The default native build path remains direct and temporary.
+- The kept native build path is intentionally two-stage: `.ll` to `.o`, then `.o` plus explicit link options to the executable. This makes the preserved object file match the actual linked artifact.
+- Kept artifact paths are deterministic and currently keyed by source basename.
+
+Validation:
+- `cabal build hegglog`
+- CLI parser/help tests cover accepted and rejected `--keep-intermediates` forms.
+- CLI wet tests cover preserved LLVM, object, and executable artifacts and stdout/stderr preservation.
+
 Notes:
 - Milestone M18 (CLI productization). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
 
 ## CLI-005 — `hegglog report`
 
 Status:
-- in progress
+- complete
 
 Category:
 - cli
@@ -18540,7 +19215,10 @@ Files likely touched:
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- `hegglog report` is implemented, completed, or explicitly documented according to status `in progress`.
+- `hegglog report` emits source-aware diagnostic/status reports for legacy `.hg` and Haskell 2010 `.hs` sources.
+- Report mode supports `--no-egglog`, `--strict-egglog`, and repeated `-i`/`--import-path` flags with scoped command diagnostics.
+- Haskell 2010 reports parse, rename, typecheck, optimize according to flags, validate Core/STG, and render stable warnings, optimization, typed Core, and STG sections.
+- Legacy `.hg` reports preserve parser/typechecker/interpreter/ANF/facts/rewrite/EGraph/Egglog/Core output and make strict Egglog fallback failures explicit.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -18555,12 +19233,22 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M18 (CLI productization). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M18 (CLI productization). Status reflects the codebase after CLI-005 implementation and should be revised whenever implementation or conformance coverage changes.
+
+Implementation notes:
+- `CLI.Command` parses `report FILE [--no-egglog] [--strict-egglog] [-i PATH]`; the legacy positional `hegglog FILE` form remains mapped to report mode with default options.
+- `.hs` reports use the same Haskell 2010 module-graph/check pipeline as `check`, including import search paths, Core Egglog mode selection, Core/STG validation, and warning rendering.
+- `.hg` reports preserve the existing full legacy report and now represent disabled Egglog and strict Egglog fallback failures explicitly instead of hiding optimizer status.
+
+Validation:
+- `cabal build hegglog`
+- CLI parser/help tests cover report options and scoped rejection of output, dump, native link, and conflicting Egglog flags.
+- CLI wet tests cover Haskell 2010 report sections, `--no-egglog`, legacy report compatibility, and strict legacy optimizer rejection.
 
 ## CLI-006 — `hegglog emit-core`
 
 Status:
-- not started
+- complete
 
 Category:
 - cli
@@ -18572,7 +19260,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver `hegglog emit-core` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver `hegglog emit-core` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. The command now emits validated typed Haskell 2010 Core to stdout or a file, supports original/optimized/both Core selections, honors `--no-egglog` and import paths for `.hs`, and exposes legacy `.hg` Core IR only through the legacy default path.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -18589,7 +19277,7 @@ Files likely touched:
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- `hegglog emit-core` is implemented, completed, or explicitly documented according to status `not started`.
+- `hegglog emit-core` emits validated typed Haskell 2010 Core to stdout or `-o`/`--output` files, with `--original`, `--optimized`, `--both`, `--no-egglog`, and import-path support.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -18609,7 +19297,7 @@ Notes:
 ## CLI-007 — `hegglog emit-stg`
 
 Status:
-- not started
+- complete
 
 Category:
 - cli
@@ -18621,7 +19309,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver `hegglog emit-stg` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver `hegglog emit-stg` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. The command now emits validated Haskell 2010 STG to stdout or a file, honors `--no-egglog` and import paths for `.hs`, uses a stable STG pretty-printer for runtime/backend debugging, and rejects legacy `.hg` sources because that frontend has no STG layer.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -18634,11 +19322,12 @@ Files likely touched:
 - `src/Main.hs`
 - `src/CLI/Compile.hs`
 - `src/CLI/Report.hs`
+- `src/Haskell2010/STG/Pretty.hs`
 - `test/Main.hs`
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- `hegglog emit-stg` is implemented, completed, or explicitly documented according to status `not started`.
+- `hegglog emit-stg` emits validated Haskell 2010 STG to stdout or `-o`/`--output` files, with `--no-egglog` and import-path support.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -18756,7 +19445,7 @@ Notes:
 ## CLI-010 — `--strict-egglog`
 
 Status:
-- not started
+- complete
 
 Category:
 - cli
@@ -18768,7 +19457,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver `--strict-egglog` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver `--strict-egglog` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. `hegglog check`, `hegglog compile`, `hegglog emit-core`, `hegglog emit-stg`, and `hegglog run` accept the flag. Default optimization remains opportunistic, `--no-egglog` disables Egglog, and `--strict-egglog` requires Egglog support instead of silently falling back to unoptimized ANF/Core for nontrivial unsupported optimizer input.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -18778,14 +19467,19 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
+- `src/Backend/Compile.hs`
+- `src/Optimize/CoreEgglog.hs`
+- `src/Haskell2010/Native.hs`
 - `src/Main.hs`
 - `src/CLI/Compile.hs`
-- `src/CLI/Report.hs`
+- `src/CLI/Command.hs`
 - `test/Main.hs`
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- `--strict-egglog` is implemented, completed, or explicitly documented according to status `not started`.
+- `--strict-egglog` is accepted by check, compile, emit-core, emit-stg, and run.
+- `--strict-egglog` is rejected when combined with `--no-egglog`.
+- Strict mode requires Egglog support and fails instead of falling back to unoptimized ANF/Core when nontrivial optimizer input is unsupported.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -18799,13 +19493,23 @@ Documentation updates:
 - `docs/current-capabilities.md`
 - `docs/haskell2010-todo.md`
 
+Implementation notes:
+- Legacy `.hg` strict mode fails on top-level/lambda-lifted/closure-converted programs that previously reported Egglog unsupported and compiled unoptimized.
+- Haskell 2010 strict mode routes through the Core Egglog optimizer in strict mode; unsupported nontrivial Core fragments become check/compile errors.
+- The option parser rejects `--strict-egglog` with `--no-egglog` before pipeline execution.
+
+Validation:
+- `cabal test hegglog-test`
+- `cabal test e2e-wet-test`
+- Manual strict CLI smoke tests for supported legacy optimization, legacy fallback rejection, Haskell Core fallback rejection, and flag conflict diagnostics.
+
 Notes:
 - Milestone M18 (CLI productization). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
 
 ## CLI-011 — `--keep-intermediates`
 
 Status:
-- not started
+- complete
 
 Category:
 - cli
@@ -18817,7 +19521,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver `--keep-intermediates` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver `--keep-intermediates` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. `hegglog compile` and `hegglog run` accept the flag. LLVM-output modes preserve a generated LLVM copy under `.context/hegglog/intermediates`; native keep mode writes LLVM, compiles a real object file, then links the executable from that object. `hegglog run --keep-intermediates` also preserves the otherwise-temporary executable in the same directory. Non-codegen commands reject the flag with scoped diagnostics.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -18827,14 +19531,17 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
+- `src/Backend/LLVM/Toolchain.hs`
 - `src/Main.hs`
 - `src/CLI/Compile.hs`
-- `src/CLI/Report.hs`
+- `src/CLI/Command.hs`
 - `test/Main.hs`
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- `--keep-intermediates` is implemented, completed, or explicitly documented according to status `not started`.
+- `--keep-intermediates` is accepted by compile and run and rejected by non-codegen commands with scoped diagnostics.
+- LLVM intermediates are preserved under `.context/hegglog/intermediates` for LLVM output modes.
+- Native keep mode preserves generated LLVM, object, and temporary run executable artifacts under `.context/hegglog/intermediates`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -18854,7 +19561,7 @@ Notes:
 ## CLI-012 — dump flags
 
 Status:
-- not started
+- complete
 
 Category:
 - cli
@@ -18866,7 +19573,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver dump flags for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver stable dump flags for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. `hegglog check`, `hegglog compile`, and `hegglog run` accept `--dump-core`, `--dump-optimized-core`, and `--dump-stg`. Dumps render original typed Core, optimized typed Core, and validated STG with stable section headers on stderr, preserving LLVM stdout and program stdout contracts. Legacy `.hg` sources reject dump flags with a clear diagnostic because that pipeline has no typed Haskell 2010 Core/STG artifacts.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -18879,11 +19586,24 @@ Files likely touched:
 - `src/Main.hs`
 - `src/CLI/Compile.hs`
 - `src/CLI/Report.hs`
+- `src/CLI/Command.hs`
 - `test/Main.hs`
 - `test/e2e/Main.hs`
 
+Implementation notes:
+- Dump artifacts are carried through the existing Haskell 2010 check/compile results rather than recomputing the pipeline.
+- The selected sections are emitted in deterministic order: Core, Optimized Core, then STG.
+- `emit-core` and `emit-stg` remain explicit IR output commands and reject dump flags instead of duplicating command semantics.
+
+Validation:
+- `cabal build hegglog`
+- CLI parser/help tests cover dump flag parsing and invalid command combinations.
+- CLI wet tests cover check stderr dumps, compile `--emit-llvm` stdout preservation, run stdout preservation, and legacy `.hg` rejection.
+
 Acceptance criteria:
-- dump flags is implemented, completed, or explicitly documented according to status `not started`.
+- `--dump-core`, `--dump-optimized-core`, and `--dump-stg` are accepted by `check`, `compile`, and `run`.
+- Dump output uses stable section headers on stderr so LLVM stdout and program stdout remain machine-readable.
+- Dump flags reject legacy `.hg` sources with a clear diagnostic because that pipeline has no typed Haskell 2010 Core/STG artifacts.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -19050,7 +19770,7 @@ Notes:
 ## CLI-016 — help text tests
 
 Status:
-- in progress
+- complete
 
 Category:
 - cli
@@ -19079,7 +19799,9 @@ Files likely touched:
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- help text tests is implemented, completed, or explicitly documented according to status `in progress`.
+- All public help topics are locked by exact golden fixtures.
+- The executable CLI help paths compare stdout exactly against the same public golden fixtures and verify stderr remains empty.
+- Help emission writes the stored usage text directly so each topic has one intentional trailing newline rather than an accidental extra blank line.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -19094,7 +19816,12 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M18 (CLI productization). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M18 (CLI productization). Status reflects the codebase after CLI-016 implementation and should be revised whenever implementation or conformance coverage changes.
+
+Implementation notes:
+- `test/golden/cli-help/*.txt` now defines the public help text contract for general, check, compile, emit-core, emit-stg, report, and run.
+- `hegglog-test` compares `CLI.Command` usage constants exactly against those fixtures.
+- `e2e-wet-test` invokes the built executable help commands and compares stdout exactly against the same fixtures while asserting stderr is empty.
 
 ## TEST-CONF-001 — conformance manifest
 
@@ -19831,26 +20558,19 @@ Notes:
 ## TEST-CONF-015 — library conformance closure
 
 Status:
-- not started
+- complete
 
 Category:
 - testing
 
 Depends on:
-- PRELUDE-018
-- TC-029
-- TC-030
-- TC-031
-- TC-032
-- TC-033
-- PRELUDE-019
 - PRELUDE-020
 
 Blocks:
 - none
 
 Scope:
-- Every newly claimed standard class, derived instance, Prelude function, and standard-library module has manifest-backed positive and negative coverage.
+- Reconcile the Haskell 2010 Chapter 9 Prelude and Part II Libraries inventory against the generated standard-library boundary, conformance matrix, manifest, and tracker before additional library surface is claimed.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -19867,7 +20587,9 @@ Files likely touched:
 
 Acceptance criteria:
 - Every newly claimed standard class, derived instance, Prelude function, and standard-library module has manifest-backed positive and negative coverage.
+- Chapter 9 Prelude and the Part II Haskell 2010 Libraries module inventory are reconciled against the tracker before additional library surface is claimed.
 - Unsupported library features remain explicit unsupported-documented cases until implemented.
+- The closure audit explicitly accounts for report-shaped Show/Read, remaining Prelude classes/functions, Control.Monad, Data.Array, Data.Bits, Data.Char, Data.Complex, Data.Int, Data.Ix, Data.List, Data.Maybe, Data.Ratio, Data.Word, Numeric, System.Environment, System.Exit, System.IO, System.IO.Error, and the FFI-owned Foreign.* modules.
 - The conformance results summary reports library coverage by class/function/module instead of only by broad category.
 - Docs, tracker, matrix, and manifest agree on library support boundaries.
 - The validator catches manifest cases that are missing from the matrix or docs coverage summary.
@@ -19884,7 +20606,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Added or refreshed by the tracker reconciliation audit so future work has a stable task ID instead of living only in roadmap prose.
+- Complete. Reconciled the Haskell 2010 Chapter 9 Prelude and Part II Libraries inventory against the generated standard-library boundary, conformance matrix, manifest, and tracker. Added a validator-backed Library Conformance Closure table, explicit unsupported-documented fixtures for reserved Report modules, a positive scalar type import fixture for `Data.Int`/`Data.Word`/`Foreign.C.Types`, and numbered `LIB-*` follow-up tasks for every previously unnumbered library gap. Further library implementation must update the table, matrix, manifest, and generated module boundary together.
 
 ## DOC-001 — Backlog and roadmap consistency policy
 
