@@ -9248,7 +9248,7 @@
     {
       "id": "FFI-004",
       "title": "C calling convention representation",
-      "status": "in progress",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -9260,7 +9260,7 @@
         "The FFI typechecker accepts Haskell 2010 `ccall`/`stdcall` declarations and rejects non-Haskell-2010 calling conventions before lowering.",
         "The supported ccall ABI slice links to native runtime lowering; stdcall remains represented and typechecked but target-specific native lowering remains an explicit gap.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps."
       ],
       "required_tests": [
         "parser unit tests",
@@ -9275,12 +9275,12 @@
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
       ],
-      "notes": "Milestone M15 (FFI). In progress: ccall/stdcall are represented structurally, unsupported conventions are rejected before lowering, and the supported ccall native ABI slice is implemented; stdcall target-specific native lowering remains explicit future work."
+      "notes": "Milestone M15 (FFI). Complete. ccall/stdcall and reserved calling-convention identifiers are represented structurally, unsupported conventions are rejected before native lowering, Report-shaped ccall entity strings with unbracketed .h headers/defaulted symbols are parsed, and the supported ccall native ABI slice is implemented; target-specific non-ccall native ABI lowering remains an explicit future boundary rather than an open representation gap."
     },
     {
       "id": "FFI-005",
       "title": "primitive marshalling",
-      "status": "in progress",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -9294,7 +9294,7 @@
         "`foreign export` declarations validate that the exported binding can instantiate to the declared foreign type.",
         "Runtime primitive marshalling and ABI conversion are implemented for the supported scalar integer/Bool/Char/Float/Double and pointer ABI slice, including the current Foreign library marshalling surface for Storable, allocation, arrays, errno, and C strings.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps."
       ],
       "required_tests": [
         "typechecker unit tests",
@@ -9308,12 +9308,12 @@
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
       ],
-      "notes": "Milestone M15 (FFI). In progress for target-specific ABI follow-up; generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/Float/Double/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, export validation, and the FFI-013 Foreign library surface are implemented, including Storable, allocation, arrays, errno, and C strings under the current native runtime model."
+      "notes": "Milestone M15 (FFI). Complete for the current native runtime model. Generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/Float/Double/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, export validation, and the FFI-013 Foreign library surface are implemented, including Storable, allocation, arrays, errno, and C strings."
     },
     {
       "id": "FFI-006",
       "title": "runtime integration",
-      "status": "in progress",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -9328,7 +9328,7 @@
         "Supported `foreign import ccall` nodes lower to native LLVM declarations/direct calls or indirect `FunPtr` calls with scalar integer/Bool/Char/Float/Double marshalling, `Ptr`/`FunPtr` pointer marshalling, static `&symbol` address boxing, `wrapper` callback trampolines, and `IO` sequencing.",
         "Explicit `StablePtr` ownership, manual `ForeignPtr` finalizer APIs, `freeHaskellFunPtr`, wrapper callback-slot reclamation, callback-after-free rejection, and reverse-order/idempotent finalization are implemented and wet-tested; automatic GC finalizer scheduling remains scoped out under the process-lifetime runtime model.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps."
       ],
       "required_tests": [
         "runtime unit tests",
@@ -9340,12 +9340,12 @@
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
       ],
-      "notes": "Milestone M15 (FFI). In progress: Core/STG IR is complete for imports and export metadata, scalar/floating/pointer/static-address/dynamic/wrapper/export ccall native runtime integration is implemented and wet-tested, and unsupported FFI entities still fail at explicit boundaries."
+      "notes": "Milestone M15 (FFI). Complete. Core/STG IR is complete for imports and export metadata, scalar/floating/pointer/static-address/dynamic/wrapper/export ccall native runtime integration is implemented and wet-tested, explicit StablePtr/manual ForeignPtr/freeHaskellFunPtr ownership paths are wired through the runtime, and unsupported FFI entities still fail at explicit boundaries."
     },
     {
       "id": "FFI-007",
       "title": "LLVM external declaration lowering",
-      "status": "in progress",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -9361,7 +9361,7 @@
         "Unsupported FFI entities still report explicit native ABI diagnostics instead of being silently dropped.",
         "Automatic GC finalization remains scoped out under the process-lifetime runtime model; explicit wrapper callback release is implemented through `freeHaskellFunPtr`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps."
       ],
       "required_tests": [
         "runtime unit tests",
@@ -9373,12 +9373,12 @@
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
       ],
-      "notes": "Milestone M15 (FFI). In progress: static scalar/floating/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks with freeHaskellFunPtr reclamation, and foreign export ccall entrypoints are implemented; FFI link metadata is complete."
+      "notes": "Milestone M15 (FFI). Complete. Static scalar/floating/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks with freeHaskellFunPtr reclamation, foreign export ccall entrypoints, and FFI link metadata are implemented with explicit native ABI diagnostics for unsupported entities."
     },
     {
       "id": "FFI-008",
       "title": "FFI native tests",
-      "status": "in progress",
+      "status": "complete",
       "category": "runtime",
       "depends_on": [
         "LLVM-002"
@@ -9391,7 +9391,7 @@
         "Dynamic/wrapper native tests cover indirect `FunPtr` calls, multiple live wrapped callbacks, C-to-Haskell callback re-entry, callback `IO`, result marshalling, explicit wrapper release, double-free/idempotence, slot reclamation, and callback-after-free runtime failure.",
         "Foreign export native tests cover C helpers calling exported pure and `IO` Haskell functions; remaining FFI forms add native tests as each ABI feature lands.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
-        "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
+        "The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps."
       ],
       "required_tests": [
         "runtime unit tests",
@@ -9403,7 +9403,7 @@
         "docs/laziness-and-stg-plan.md",
         "docs/haskell2010-conformance-matrix.md"
       ],
-      "notes": "Milestone M15 (FFI). Static scalar, floating, pointer/address, dynamic/wrapper lifetime, foreign-export, StablePtr, ForeignPtr finalizer, link metadata, explicit link-object, and FFI-013 Foreign library native C-helper coverage are implemented for the current runtime model."
+      "notes": "Milestone M15 (FFI). Complete. Static scalar, floating, pointer/address, dynamic/wrapper lifetime, foreign-export, StablePtr, ForeignPtr finalizer, link metadata, explicit link-object, and FFI-013 Foreign library native C-helper coverage are implemented for the current runtime model in default and no-egglog conformance modes."
     },
     {
       "id": "FFI-009",
@@ -10528,7 +10528,7 @@
     {
       "id": "CLI-001",
       "title": "command model",
-      "status": "in progress",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10536,7 +10536,7 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "command model is implemented, completed, or explicitly documented according to status `in progress`.",
+        "command model is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10554,7 +10554,7 @@
     {
       "id": "CLI-002",
       "title": "`hegglog check`",
-      "status": "not started",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10562,7 +10562,7 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "`hegglog check` is implemented, completed, or explicitly documented according to status `not started`.",
+        "`hegglog check` is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10580,7 +10580,7 @@
     {
       "id": "CLI-003",
       "title": "`hegglog run`",
-      "status": "not started",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10588,7 +10588,7 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "`hegglog run` is implemented, completed, or explicitly documented according to status `not started`.",
+        "`hegglog run` is implemented, completed, or explicitly documented according to status `complete`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10645,7 +10645,7 @@
     {
       "id": "CLI-005",
       "title": "`hegglog report`",
-      "status": "in progress",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10653,7 +10653,10 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "`hegglog report` is implemented, completed, or explicitly documented according to status `in progress`.",
+        "`hegglog report` emits source-aware diagnostic/status reports for legacy `.hg` and Haskell 2010 `.hs` sources.",
+        "Report mode supports `--no-egglog`, `--strict-egglog`, and repeated `-i`/`--import-path` flags with scoped command diagnostics.",
+        "Haskell 2010 reports parse, rename, typecheck, optimize according to flags, validate Core/STG, and render stable warnings, optimization, typed Core, and STG sections.",
+        "Legacy `.hg` reports preserve parser/typechecker/interpreter/ANF/facts/rewrite/EGraph/Egglog/Core output and make strict Egglog fallback failures explicit.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10671,7 +10674,7 @@
     {
       "id": "CLI-006",
       "title": "`hegglog emit-core`",
-      "status": "not started",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10679,7 +10682,7 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "`hegglog emit-core` is implemented, completed, or explicitly documented according to status `not started`.",
+        "`hegglog emit-core` emits validated typed Haskell 2010 Core to stdout or `-o`/`--output` files, with `--original`, `--optimized`, `--both`, `--no-egglog`, and import-path support.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10697,7 +10700,7 @@
     {
       "id": "CLI-007",
       "title": "`hegglog emit-stg`",
-      "status": "not started",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10705,7 +10708,7 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "`hegglog emit-stg` is implemented, completed, or explicitly documented according to status `not started`.",
+        "`hegglog emit-stg` emits validated Haskell 2010 STG to stdout or `-o`/`--output` files, with `--no-egglog` and import-path support.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10775,7 +10778,7 @@
     {
       "id": "CLI-010",
       "title": "`--strict-egglog`",
-      "status": "not started",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10783,7 +10786,9 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "`--strict-egglog` is implemented, completed, or explicitly documented according to status `not started`.",
+        "`--strict-egglog` is accepted by check, compile, emit-core, emit-stg, and run.",
+        "`--strict-egglog` is rejected when combined with `--no-egglog`.",
+        "Strict mode requires Egglog support and fails instead of falling back to unoptimized ANF/Core when nontrivial optimizer input is unsupported.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10801,7 +10806,7 @@
     {
       "id": "CLI-011",
       "title": "`--keep-intermediates`",
-      "status": "not started",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10809,7 +10814,9 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "`--keep-intermediates` is implemented, completed, or explicitly documented according to status `not started`.",
+        "`--keep-intermediates` is accepted by compile and run and rejected by non-codegen commands with scoped diagnostics.",
+        "LLVM intermediates are preserved under `.context/hegglog/intermediates` for LLVM output modes.",
+        "Native keep mode preserves generated LLVM, object, and temporary run executable artifacts under `.context/hegglog/intermediates`.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],
@@ -10827,7 +10834,7 @@
     {
       "id": "CLI-012",
       "title": "dump flags",
-      "status": "not started",
+      "status": "complete",
       "category": "cli",
       "depends_on": [
         "DIAG-015"
@@ -10835,7 +10842,9 @@
       "blocks": [],
       "milestone": "M18",
       "acceptance_criteria": [
-        "dump flags is implemented, completed, or explicitly documented according to status `not started`.",
+        "`--dump-core`, `--dump-optimized-core`, and `--dump-stg` are accepted by check, compile, and run.",
+        "Dump output uses stable section headers on stderr so LLVM stdout and program stdout remain machine-readable.",
+        "Dump flags reject legacy .hg sources with a clear diagnostic because that pipeline has no typed Haskell 2010 Core/STG artifacts.",
         "All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.",
         "The Haskell 2010 conformance matrix points to this task for implemented work or documented deviations."
       ],

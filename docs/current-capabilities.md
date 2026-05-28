@@ -19,6 +19,43 @@ subset. For that subset, HeggLog can:
 - build native executables through `clang`
 - execute native artifacts under mandatory wet tests
 
+The `hegglog` executable now has a single normalized command parser for the
+supported top-level commands: `hegglog check FILE ...`, `hegglog run FILE
+...`, `hegglog emit-core FILE ...`, `hegglog emit-stg FILE ...`,
+`hegglog compile FILE ...`, `hegglog report FILE`, and the legacy
+`hegglog FILE` report/interpreter form.
+`check` parses, renames, typechecks, optimizes according to the selected Egglog
+mode, and validates Core/STG without LLVM or native code generation and without
+requiring a root `main` binding. `emit-core` reuses that validation pipeline and
+emits typed Haskell 2010 Core to stdout or a file, with `--original`,
+`--optimized`, and `--both` selections for typechecker Core versus checked
+post-optimizer Core. For legacy `.hg`, `emit-core` exposes the existing lowered
+legacy Core IR without changing report/interpreter behavior. `emit-stg` uses
+the same Haskell 2010 validation path and emits checked STG to stdout or a file
+for runtime/backend debugging; legacy `.hg` sources are rejected because that
+frontend has no STG layer.
+`report` emits source-aware diagnostic/status output: legacy `.hg` reports keep
+the parser/typechecker/interpreter/ANF/facts/rewrite/EGraph/Egglog/Core report,
+while Haskell 2010 `.hs` reports run the check pipeline and render stable source,
+warning, optimization, typed Core, and STG sections. Report mode accepts
+`--no-egglog`, `--strict-egglog`, and repeated Haskell 2010 import paths.
+`run` compiles through the normal native pipeline into a temporary executable,
+forwards program stdout/stderr without build chatter, and exits with the
+program status. Egglog optimization is explicitly controllable: `--no-egglog`
+disables it, while `--strict-egglog` requires optimizer support and fails
+instead of falling back to unoptimized ANF/Core for nontrivial unsupported input.
+`check`, `compile`, and `run` also expose stable debug dump flags:
+`--dump-core`, `--dump-optimized-core`, and `--dump-stg`. These dump original
+typed Core, optimized typed Core, and validated STG to stderr with stable
+section headers, keeping generated LLVM stdout and program stdout
+machine-readable. `compile` and `run` support `--keep-intermediates`, preserving
+debug artifacts under `.context/hegglog/intermediates`; native keep mode writes
+the generated LLVM, compiles a real object file, and links the executable from
+that object, while `run` also preserves its normally temporary executable.
+General, check, emit-core, emit-stg, run, compile, and report help are stable
+stdout-producing commands; malformed command lines produce diagnostics and
+scoped usage text on stderr before exiting nonzero.
+
 The native executable path supports checked signed `Int64` arithmetic,
 checked division, conditionals, top-level first-order direct calls,
 lambda-lifted non-capturing lambdas, and closure-converted local function
@@ -269,7 +306,7 @@ Current status:
   agreement
 - Haskell 2010 conformance suite: implemented as
   `haskell2010-conformance-test`; it contains 157 manifest-tracked fixtures with
-  111 native-success cases, 15 native-runtime-error cases, 28 compile-error
+  111 native-success cases, 15 native-runtime-error cases, 29 compile-error
   cases, and 3 unsupported-documented cases
 - Haskell 2010 standard library layout: implemented for the current executable
   subset as generated/importable `Prelude`, `Control.Monad`, `Data.Int`,
@@ -346,8 +383,16 @@ Current tests include:
 - native executable tests in the normal Cabal suite
 - `e2e-wet-test`, included in `cabal test all`, which invokes the built
   `hegglog` CLI, compiles real `.hg` and executable-subset `.hs` files,
-  executes native artifacts, verifies stdout/stderr/exit codes, compares
-  report-mode `Result: <value>` output, runs Haskell 2010 default Egglog and
+  checks help/error stdout and stderr discipline, checks no-codegen validation
+  for `.hg` and Haskell 2010 library modules, checks `emit-core` stdout/file
+  output for validated typed Haskell 2010 Core sections, checks `emit-stg`
+  stdout/file output and legacy `.hg` rejection, checks dump flag stderr output
+  and stdout preservation for check/compile/run, checks `--keep-intermediates`
+  LLVM/object/executable preservation, checks `--strict-egglog` success and
+  fallback rejection behavior, checks top-level `run` stdout, stderr, and
+  nonzero-exit behavior, executes native artifacts, verifies
+  stdout/stderr/exit codes, compares report-mode `Result: <value>` output,
+  runs Haskell 2010 default Egglog and
   `--no-egglog` native cases including ADT, list, tuple, Prelude, recursive
   programs, user-defined type class dictionary programs, derived `Eq`/`Ord`/`Show`/`Enum`/`Bounded`
   programs, and built-in `Eq`/`Ord`/`Num`/`Fractional`/`Floating`/`RealFrac`/`RealFloat`/`Show`/`Enum`/`Bounded` dictionary programs, `Data.Complex` programs, numeric-defaulting and

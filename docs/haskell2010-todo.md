@@ -16693,7 +16693,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: ccall/stdcall are represented structurally, unsupported conventions are rejected before lowering, and the supported ccall native ABI slice is implemented; stdcall target-specific native lowering remains explicit future work.
+- Milestone M15 (FFI). Complete. ccall/stdcall and reserved calling-convention identifiers are represented structurally, unsupported conventions are rejected before native lowering, Report-shaped ccall entity strings with unbracketed .h headers/defaulted symbols are parsed, and the supported ccall native ABI slice is implemented; target-specific non-ccall native ABI lowering remains an explicit future boundary rather than an open representation gap.
 
 ## FFI-005 — primitive marshalling
 
@@ -16748,12 +16748,12 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress for target-specific ABI follow-up; generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/Float/Double/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, export validation, and the FFI-013 Foreign library surface are implemented, including Storable, allocation, arrays, errno, and C strings under the current native runtime model.
+- Milestone M15 (FFI). Complete for the current native runtime model. Generated library surfaces, source-level marshallable type validation, scalar/integer/Bool/Char/Float/Double/pointer/newtype/synonym marshalling, dynamic/wrapper shape checks, export validation, and the FFI-013 Foreign library surface are implemented, including Storable, allocation, arrays, errno, and C strings.
 
 ## FFI-006 — runtime integration
 
 Status:
-- in progress
+- complete
 
 Category:
 - runtime
@@ -16780,7 +16780,7 @@ Files likely touched:
 - `docs/runtime-spec.md`
 
 Acceptance criteria:
-- Static, `dynamic`, and `wrapper` foreign imports lower to explicit Core/STG foreign-call nodes.
+- Static, `dynamic`, and `wrapper` foreign imports lower to explicit Core/STG foreign-call nodes, and `foreign export` declarations lower to explicit Core/STG module metadata.
 - Address imports lower to explicit inert Core/STG foreign-import value nodes.
 - Core/STG validators, pretty-printers, evaluators, optimizer traversal, and native backend boundaries preserve the foreign IR without silently dropping imports.
 - Core/STG evaluation reports explicit unsupported runtime diagnostics when foreign calls are reached outside native lowering.
@@ -16800,12 +16800,12 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: Core/STG IR is complete for imports and export metadata, scalar/floating/pointer/static-address/dynamic/wrapper/export ccall native runtime integration is implemented and wet-tested, and unsupported FFI entities still fail at explicit boundaries.
+- Milestone M15 (FFI). Complete. Core/STG IR is complete for imports and export metadata, scalar/floating/pointer/static-address/dynamic/wrapper/export ccall native runtime integration is implemented and wet-tested, explicit StablePtr/manual ForeignPtr/freeHaskellFunPtr ownership paths are wired through the runtime, and unsupported FFI entities still fail at explicit boundaries.
 
 ## FFI-007 — LLVM external declaration lowering
 
 Status:
-- in progress
+- complete
 
 Category:
 - runtime
@@ -16853,12 +16853,12 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). In progress: static scalar/floating/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks with `freeHaskellFunPtr` reclamation, and foreign export ccall entrypoints are implemented; FFI link metadata is complete.
+- Milestone M15 (FFI). Complete. Static scalar/floating/pointer ccall declarations/direct calls, address imports, dynamic imports, wrapper callbacks with `freeHaskellFunPtr` reclamation, foreign export ccall entrypoints, and FFI link metadata are implemented with explicit native ABI diagnostics for unsupported entities.
 
 ## FFI-008 — FFI native tests
 
 Status:
-- in progress
+- complete
 
 Category:
 - runtime
@@ -16903,7 +16903,7 @@ Documentation updates:
 - `docs/haskell2010-conformance-matrix.md`
 
 Notes:
-- Milestone M15 (FFI). Static scalar, floating, pointer/address, dynamic/wrapper lifetime, foreign-export, StablePtr, ForeignPtr finalizer, link metadata, explicit link-object, and FFI-013 Foreign library native C-helper coverage are implemented for the current runtime model.
+- Milestone M15 (FFI). Complete. Static scalar, floating, pointer/address, dynamic/wrapper lifetime, foreign-export, StablePtr, ForeignPtr finalizer, link metadata, explicit link-object, and FFI-013 Foreign library native C-helper coverage are implemented for the current runtime model in default and no-egglog conformance modes.
 
 ## FFI-009 — FFI-wide deferral retired
 
@@ -18964,7 +18964,7 @@ Notes:
 ## CLI-001 — command model
 
 Status:
-- in progress
+- complete
 
 Category:
 - cli
@@ -18986,6 +18986,7 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
+- `src/CLI/Command.hs`
 - `src/Main.hs`
 - `src/CLI/Compile.hs`
 - `src/CLI/Report.hs`
@@ -18993,7 +18994,7 @@ Files likely touched:
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- command model is implemented, completed, or explicitly documented according to status `in progress`.
+- command model is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -19008,12 +19009,12 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M18 (CLI productization). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M18 (CLI productization). Complete as of the CLI command-model implementation: top-level parsing now lives in `CLI.Command`, `Main` dispatches parsed commands, `compile` and `report` have scoped help, legacy `hegglog FILE` report mode and `hegglog FILE --emit-llvm` compile mode are preserved, malformed commands write diagnostics plus scoped usage to stderr, and CLI unit/wet tests cover parser, help text, and stdout/stderr discipline.
 
 ## CLI-002 — `hegglog check`
 
 Status:
-- not started
+- complete
 
 Category:
 - cli
@@ -19035,14 +19036,17 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
+- `src/CLI/Command.hs`
 - `src/Main.hs`
 - `src/CLI/Compile.hs`
 - `src/CLI/Report.hs`
+- `src/Backend/Compile.hs`
+- `src/Haskell2010/Native.hs`
 - `test/Main.hs`
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- `hegglog check` is implemented, completed, or explicitly documented according to status `not started`.
+- `hegglog check` is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -19057,12 +19061,12 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M18 (CLI productization). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M18 (CLI productization). Complete: `hegglog check FILE` has scoped parser/help/error handling, accepts only no-codegen flags, validates `.hg` through the shared pre-LLVM backend pipeline, validates Haskell 2010 source/module graphs through parse, rename, typecheck, Core optimization mode, and Core-to-STG validation without LLVM/native codegen, does not require a root `main`, and has CLI unit plus subprocess wet coverage.
 
 ## CLI-003 — `hegglog run`
 
 Status:
-- not started
+- complete
 
 Category:
 - cli
@@ -19084,6 +19088,7 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
+- `src/CLI/Command.hs`
 - `src/Main.hs`
 - `src/CLI/Compile.hs`
 - `src/CLI/Report.hs`
@@ -19091,7 +19096,7 @@ Files likely touched:
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- `hegglog run` is implemented, completed, or explicitly documented according to status `not started`.
+- `hegglog run` is implemented, completed, or explicitly documented according to status `complete`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -19106,7 +19111,7 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M18 (CLI productization). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M18 (CLI productization). Complete: `hegglog run FILE` has scoped parser/help/error handling, accepts import/native link/no-egglog flags without output-mode flags, compiles through the normal native pipeline into a temporary executable, suppresses compile-time build chatter on success, forwards program stdout/stderr, exits with the program status, cleans up the temporary executable, and has CLI unit plus subprocess wet coverage for success and nonzero runtime exits.
 
 ## CLI-004 — `hegglog compile`
 
@@ -19165,13 +19170,23 @@ Documentation updates:
 - `docs/current-capabilities.md`
 - `docs/haskell2010-todo.md`
 
+Implementation notes:
+- The default native build path remains direct and temporary.
+- The kept native build path is intentionally two-stage: `.ll` to `.o`, then `.o` plus explicit link options to the executable. This makes the preserved object file match the actual linked artifact.
+- Kept artifact paths are deterministic and currently keyed by source basename.
+
+Validation:
+- `cabal build hegglog`
+- CLI parser/help tests cover accepted and rejected `--keep-intermediates` forms.
+- CLI wet tests cover preserved LLVM, object, and executable artifacts and stdout/stderr preservation.
+
 Notes:
 - Milestone M18 (CLI productization). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
 
 ## CLI-005 — `hegglog report`
 
 Status:
-- in progress
+- complete
 
 Category:
 - cli
@@ -19200,7 +19215,10 @@ Files likely touched:
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- `hegglog report` is implemented, completed, or explicitly documented according to status `in progress`.
+- `hegglog report` emits source-aware diagnostic/status reports for legacy `.hg` and Haskell 2010 `.hs` sources.
+- Report mode supports `--no-egglog`, `--strict-egglog`, and repeated `-i`/`--import-path` flags with scoped command diagnostics.
+- Haskell 2010 reports parse, rename, typecheck, optimize according to flags, validate Core/STG, and render stable warnings, optimization, typed Core, and STG sections.
+- Legacy `.hg` reports preserve parser/typechecker/interpreter/ANF/facts/rewrite/EGraph/Egglog/Core output and make strict Egglog fallback failures explicit.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -19215,12 +19233,22 @@ Documentation updates:
 - `docs/haskell2010-todo.md`
 
 Notes:
-- Milestone M18 (CLI productization). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
+- Milestone M18 (CLI productization). Status reflects the codebase after CLI-005 implementation and should be revised whenever implementation or conformance coverage changes.
+
+Implementation notes:
+- `CLI.Command` parses `report FILE [--no-egglog] [--strict-egglog] [-i PATH]`; the legacy positional `hegglog FILE` form remains mapped to report mode with default options.
+- `.hs` reports use the same Haskell 2010 module-graph/check pipeline as `check`, including import search paths, Core Egglog mode selection, Core/STG validation, and warning rendering.
+- `.hg` reports preserve the existing full legacy report and now represent disabled Egglog and strict Egglog fallback failures explicitly instead of hiding optimizer status.
+
+Validation:
+- `cabal build hegglog`
+- CLI parser/help tests cover report options and scoped rejection of output, dump, native link, and conflicting Egglog flags.
+- CLI wet tests cover Haskell 2010 report sections, `--no-egglog`, legacy report compatibility, and strict legacy optimizer rejection.
 
 ## CLI-006 — `hegglog emit-core`
 
 Status:
-- not started
+- complete
 
 Category:
 - cli
@@ -19232,7 +19260,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver `hegglog emit-core` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver `hegglog emit-core` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. The command now emits validated typed Haskell 2010 Core to stdout or a file, supports original/optimized/both Core selections, honors `--no-egglog` and import paths for `.hs`, and exposes legacy `.hg` Core IR only through the legacy default path.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -19249,7 +19277,7 @@ Files likely touched:
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- `hegglog emit-core` is implemented, completed, or explicitly documented according to status `not started`.
+- `hegglog emit-core` emits validated typed Haskell 2010 Core to stdout or `-o`/`--output` files, with `--original`, `--optimized`, `--both`, `--no-egglog`, and import-path support.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -19269,7 +19297,7 @@ Notes:
 ## CLI-007 — `hegglog emit-stg`
 
 Status:
-- not started
+- complete
 
 Category:
 - cli
@@ -19281,7 +19309,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver `hegglog emit-stg` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver `hegglog emit-stg` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. The command now emits validated Haskell 2010 STG to stdout or a file, honors `--no-egglog` and import paths for `.hs`, uses a stable STG pretty-printer for runtime/backend debugging, and rejects legacy `.hg` sources because that frontend has no STG layer.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -19294,11 +19322,12 @@ Files likely touched:
 - `src/Main.hs`
 - `src/CLI/Compile.hs`
 - `src/CLI/Report.hs`
+- `src/Haskell2010/STG/Pretty.hs`
 - `test/Main.hs`
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- `hegglog emit-stg` is implemented, completed, or explicitly documented according to status `not started`.
+- `hegglog emit-stg` emits validated Haskell 2010 STG to stdout or `-o`/`--output` files, with `--no-egglog` and import-path support.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -19416,7 +19445,7 @@ Notes:
 ## CLI-010 — `--strict-egglog`
 
 Status:
-- not started
+- complete
 
 Category:
 - cli
@@ -19428,7 +19457,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver `--strict-egglog` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver `--strict-egglog` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. `hegglog check`, `hegglog compile`, `hegglog emit-core`, `hegglog emit-stg`, and `hegglog run` accept the flag. Default optimization remains opportunistic, `--no-egglog` disables Egglog, and `--strict-egglog` requires Egglog support instead of silently falling back to unoptimized ANF/Core for nontrivial unsupported optimizer input.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -19438,14 +19467,19 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
+- `src/Backend/Compile.hs`
+- `src/Optimize/CoreEgglog.hs`
+- `src/Haskell2010/Native.hs`
 - `src/Main.hs`
 - `src/CLI/Compile.hs`
-- `src/CLI/Report.hs`
+- `src/CLI/Command.hs`
 - `test/Main.hs`
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- `--strict-egglog` is implemented, completed, or explicitly documented according to status `not started`.
+- `--strict-egglog` is accepted by check, compile, emit-core, emit-stg, and run.
+- `--strict-egglog` is rejected when combined with `--no-egglog`.
+- Strict mode requires Egglog support and fails instead of falling back to unoptimized ANF/Core when nontrivial optimizer input is unsupported.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -19459,13 +19493,23 @@ Documentation updates:
 - `docs/current-capabilities.md`
 - `docs/haskell2010-todo.md`
 
+Implementation notes:
+- Legacy `.hg` strict mode fails on top-level/lambda-lifted/closure-converted programs that previously reported Egglog unsupported and compiled unoptimized.
+- Haskell 2010 strict mode routes through the Core Egglog optimizer in strict mode; unsupported nontrivial Core fragments become check/compile errors.
+- The option parser rejects `--strict-egglog` with `--no-egglog` before pipeline execution.
+
+Validation:
+- `cabal test hegglog-test`
+- `cabal test e2e-wet-test`
+- Manual strict CLI smoke tests for supported legacy optimization, legacy fallback rejection, Haskell Core fallback rejection, and flag conflict diagnostics.
+
 Notes:
 - Milestone M18 (CLI productization). Status reflects the codebase after commit 0043a2d and should be revised whenever implementation or conformance coverage changes.
 
 ## CLI-011 — `--keep-intermediates`
 
 Status:
-- not started
+- complete
 
 Category:
 - cli
@@ -19477,7 +19521,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver `--keep-intermediates` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver `--keep-intermediates` for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. `hegglog compile` and `hegglog run` accept the flag. LLVM-output modes preserve a generated LLVM copy under `.context/hegglog/intermediates`; native keep mode writes LLVM, compiles a real object file, then links the executable from that object. `hegglog run --keep-intermediates` also preserves the otherwise-temporary executable in the same directory. Non-codegen commands reject the flag with scoped diagnostics.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -19487,14 +19531,17 @@ Non-goals:
 - Do not add optimizer rewrites outside documented safety rules.
 
 Files likely touched:
+- `src/Backend/LLVM/Toolchain.hs`
 - `src/Main.hs`
 - `src/CLI/Compile.hs`
-- `src/CLI/Report.hs`
+- `src/CLI/Command.hs`
 - `test/Main.hs`
 - `test/e2e/Main.hs`
 
 Acceptance criteria:
-- `--keep-intermediates` is implemented, completed, or explicitly documented according to status `not started`.
+- `--keep-intermediates` is accepted by compile and run and rejected by non-codegen commands with scoped diagnostics.
+- LLVM intermediates are preserved under `.context/hegglog/intermediates` for LLVM output modes.
+- Native keep mode preserves generated LLVM, object, and temporary run executable artifacts under `.context/hegglog/intermediates`.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 
@@ -19514,7 +19561,7 @@ Notes:
 ## CLI-012 — dump flags
 
 Status:
-- not started
+- complete
 
 Category:
 - cli
@@ -19526,7 +19573,7 @@ Blocks:
 - none
 
 Scope:
-- Deliver dump flags for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. Keep the work behind the IR/API boundary named by this category and update conformance status rather than claiming broader support.
+- Deliver stable dump flags for CLI productization while preserving the current .hg substrate and the documented Haskell 2010 executable-subset behavior. `hegglog check`, `hegglog compile`, and `hegglog run` accept `--dump-core`, `--dump-optimized-core`, and `--dump-stg`. Dumps render original typed Core, optimized typed Core, and validated STG with stable section headers on stderr, preserving LLVM stdout and program stdout contracts. Legacy `.hg` sources reject dump flags with a clear diagnostic because that pipeline has no typed Haskell 2010 Core/STG artifacts.
 
 Non-goals:
 - Do not weaken existing .hg behavior or tests.
@@ -19539,11 +19586,24 @@ Files likely touched:
 - `src/Main.hs`
 - `src/CLI/Compile.hs`
 - `src/CLI/Report.hs`
+- `src/CLI/Command.hs`
 - `test/Main.hs`
 - `test/e2e/Main.hs`
 
+Implementation notes:
+- Dump artifacts are carried through the existing Haskell 2010 check/compile results rather than recomputing the pipeline.
+- The selected sections are emitted in deterministic order: Core, Optimized Core, then STG.
+- `emit-core` and `emit-stg` remain explicit IR output commands and reject dump flags instead of duplicating command semantics.
+
+Validation:
+- `cabal build hegglog`
+- CLI parser/help tests cover dump flag parsing and invalid command combinations.
+- CLI wet tests cover check stderr dumps, compile `--emit-llvm` stdout preservation, run stdout preservation, and legacy `.hg` rejection.
+
 Acceptance criteria:
-- dump flags is implemented, completed, or explicitly documented according to status `not started`.
+- `--dump-core`, `--dump-optimized-core`, and `--dump-stg` are accepted by `check`, `compile`, and `run`.
+- Dump output uses stable section headers on stderr so LLVM stdout and program stdout remain machine-readable.
+- Dump flags reject legacy `.hg` sources with a clear diagnostic because that pipeline has no typed Haskell 2010 Core/STG artifacts.
 - All affected compiler invariants remain validated by the relevant unit, conformance, and wet tests.
 - The Haskell 2010 conformance matrix points to this task for implemented work or explicit remaining gaps.
 

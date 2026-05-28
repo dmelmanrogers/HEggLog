@@ -94,6 +94,63 @@ Run current `.hg` report/interpreter mode:
 
 ```bash
 cabal run hegglog -- examples/test.hg
+cabal run hegglog -- report examples/test.hg
+```
+
+Emit a Haskell 2010 diagnostic/status report without native code generation:
+
+```bash
+cabal run hegglog -- report test/e2e/programs/haskell2010/lazy-argument.hs
+cabal run hegglog -- report test/e2e/programs/haskell2010/lazy-argument.hs --no-egglog
+```
+
+The top-level CLI accepts `hegglog --help`, `hegglog check --help`,
+`hegglog emit-core --help`, `hegglog emit-stg --help`, `hegglog run --help`,
+`hegglog compile --help`, and `hegglog report --help`. Help is printed to
+stdout; malformed command lines print a scoped diagnostic and the relevant
+usage text to stderr.
+
+Check a supported source file without native code generation:
+
+```bash
+cabal run hegglog -- check test/e2e/programs/haskell2010/lazy-argument.hs
+```
+
+Dump stable intermediate IR while preserving command stdout:
+
+```bash
+cabal run hegglog -- check test/e2e/programs/haskell2010/lazy-argument.hs --dump-core --dump-stg
+cabal run hegglog -- compile test/e2e/programs/haskell2010/lazy-argument.hs --emit-llvm --dump-optimized-core
+cabal run hegglog -- run test/e2e/programs/haskell2010/lazy-argument.hs --dump-stg
+```
+
+Preserve generated intermediates for debugging:
+
+```bash
+cabal run hegglog -- compile test/e2e/programs/haskell2010/lazy-argument.hs --emit-llvm --keep-intermediates
+cabal run hegglog -- run test/e2e/programs/haskell2010/lazy-argument.hs --keep-intermediates
+ls .context/hegglog/intermediates
+```
+
+Emit validated typed Haskell 2010 Core without LLVM or native code generation:
+
+```bash
+cabal run hegglog -- emit-core test/e2e/programs/haskell2010/lazy-argument.hs --original --no-egglog
+cabal run hegglog -- emit-core test/e2e/programs/haskell2010/lazy-argument.hs --both -o /tmp/hegglog.core
+```
+
+Emit validated Haskell 2010 STG without LLVM or native code generation:
+
+```bash
+cabal run hegglog -- emit-stg test/e2e/programs/haskell2010/lazy-argument.hs --no-egglog
+cabal run hegglog -- emit-stg test/e2e/programs/haskell2010/lazy-argument.hs -o /tmp/hegglog.stg
+```
+
+Compile and run a supported source file through a temporary native executable:
+
+```bash
+cabal run hegglog -- run test/e2e/programs/haskell2010/lazy-argument.hs
+# 1
 ```
 
 Compile a current supported `.hg` program to a native executable:
@@ -125,7 +182,9 @@ cabal run hegglog -- compile examples/llvm/division.hg -o /tmp/hegglog-division 
 ```
 
 The same `--no-egglog` flag disables the Haskell 2010 Core optimizer for `.hs`
-Core-0 programs.
+Core-0 programs. Use `--strict-egglog` on `check`, `compile`, `emit-core`,
+`emit-stg`, `report`, or `run` when an unsupported Egglog optimization fallback
+should be reported as an error instead of producing unoptimized output.
 
 ## Haskell 2010 Roadmap
 

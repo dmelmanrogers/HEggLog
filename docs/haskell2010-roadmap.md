@@ -526,6 +526,28 @@ Acceptance criteria:
 
 ### Phase 18 - CLI Productization
 
+Status: started. `CLI-001`, `CLI-002`, `CLI-003`, `CLI-005`, `CLI-006`, `CLI-007`, `CLI-010`, `CLI-011`, and `CLI-012`
+are complete: top-level command parsing is centralized in `CLI.Command`,
+`Main` dispatches parsed commands, `check` validates through Core/STG without
+LLVM/native codegen, `run` compiles to a temporary native executable and
+forwards program output, `emit-core` emits validated typed Haskell 2010 Core to
+stdout or a file with original/optimized/both selections, `emit-stg` emits
+validated Haskell 2010 STG to stdout or a file, `report` emits source-aware
+diagnostic/status reports for both legacy `.hg` and Haskell 2010 `.hs` sources,
+and `check`/`compile`/`run` support stable `--dump-core`, `--dump-optimized-core`, and `--dump-stg`
+diagnostic output on stderr without changing LLVM stdout or program stdout.
+Egglog behavior is explicitly controllable with `--no-egglog` and
+`--strict-egglog`; strict mode rejects unsupported optimizer fallback paths
+instead of silently compiling unoptimized output.
+`compile` and `run` also support `--keep-intermediates`, preserving generated
+LLVM/object artifacts and run-mode temporary executables under
+`.context/hegglog/intermediates`.
+`compile` and `report` have scoped help, legacy report and legacy `FILE
+--emit-llvm` forms remain supported, and CLI unit/wet tests cover help, error,
+check, report, emit-core, emit-stg, strict Egglog, dump flags, kept intermediates, and run
+stdout/stderr/exit behavior.
+The broader command set below remains tracked by the remaining CLI tasks.
+
 Commands:
 
 - `hegglog check Main.hs`
@@ -558,7 +580,7 @@ Status: baseline implemented. The project now has
 `test/haskell2010/conformance/manifest.json`, a structured corpus under
 `test/haskell2010/conformance/`, and the mandatory
 `haskell2010-conformance-test` Cabal suite. The baseline currently records 157
-fixtures: 111 native-success cases, 15 native-runtime-error cases, 28 compile-error
+fixtures: 111 native-success cases, 15 native-runtime-error cases, 29 compile-error
 cases, and 3 unsupported-documented cases. The suite invokes the built
 `hegglog` executable as a subprocess, compiles native-success cases to actual
 executables, executes those artifacts directly, compares stdout exactly, checks
