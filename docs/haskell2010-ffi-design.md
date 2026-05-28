@@ -53,8 +53,8 @@ The compiler must preserve this distinction in the IR and runtime contract.
 
 For `ccall` imports, entity strings cover:
 
-- static functions: `"static [header.h] symbol"` or just `"symbol"`
-- static addresses: `"[header.h] &symbol"`
+- static functions: `"static header.h symbol"` or just `"symbol"`
+- static addresses: `"header.h &symbol"`
 - dynamic stubs: `"dynamic"`
 - wrapper stubs: `"wrapper"`
 

@@ -3199,6 +3199,7 @@ validateForeignExportsAgainstEnv env =
 validateForeignImport :: RForeignImport -> InferM ()
 validateForeignImport foreignImport = do
   validateForeignCallConv "foreign import" (rForeignImportCallConv foreignImport)
+  validateForeignImportEntitySyntax (rForeignImportName foreignImport) (rForeignImportEntity foreignImport)
   ty <- foreignDeclarationMonoType "foreign import" (rForeignImportType foreignImport)
   case S.foreignImportEntityKind (rForeignImportEntity foreignImport) of
     S.ForeignImportDefault ->
@@ -3217,8 +3218,54 @@ validateForeignImport foreignImport = do
 validateForeignExport :: RForeignExport -> InferM ()
 validateForeignExport foreignExport = do
   validateForeignCallConv "foreign export" (rForeignExportCallConv foreignExport)
+  validateForeignExportEntitySyntax (rForeignExportEntity foreignExport)
   ty <- foreignDeclarationMonoType "foreign export" (rForeignExportType foreignExport)
   validateForeignFunctionType "foreign export" ty
+
+validateForeignImportEntitySyntax :: RName -> S.ForeignImportEntity -> InferM ()
+validateForeignImportEntitySyntax importName entity =
+  case S.foreignImportEntityKind entity of
+    S.ForeignImportDefault ->
+      validateForeignCSymbol "foreign import default symbol" (nameOcc importName)
+    S.ForeignImportStatic _ symbol ->
+      validateForeignCSymbol "foreign import static symbol" symbol
+    S.ForeignImportAddress _ symbol ->
+      validateForeignCSymbol "foreign import address symbol" symbol
+    S.ForeignImportDynamic ->
+      pure ()
+    S.ForeignImportWrapper ->
+      pure ()
+    S.ForeignImportUnknown raw ->
+      throwTypecheck (UnsupportedCore0 ("unknown foreign import entity `" <> raw <> "`"))
+
+validateForeignExportEntitySyntax :: S.ForeignExportEntity -> InferM ()
+validateForeignExportEntitySyntax entity =
+  case S.foreignExportEntitySymbol entity of
+    Nothing ->
+      pure ()
+    Just symbol ->
+      validateForeignCSymbol "foreign export symbol" symbol
+
+validateForeignCSymbol :: Text -> Text -> InferM ()
+validateForeignCSymbol context symbol
+  | isValidForeignCSymbol symbol =
+      pure ()
+  | otherwise =
+      throwTypecheck (UnsupportedCore0 (context <> " `" <> symbol <> "` is not a valid C identifier"))
+
+isValidForeignCSymbol :: Text -> Bool
+isValidForeignCSymbol symbol =
+  case Text.uncons symbol of
+    Nothing ->
+      False
+    Just (first, rest) ->
+      isCSymbolStart first && Text.all isCSymbolRest rest
+ where
+  isCSymbolStart c =
+    c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
+
+  isCSymbolRest c =
+    isCSymbolStart c || ('0' <= c && c <= '9')
 
 validateForeignCallConv :: Text -> S.ForeignCallConv -> InferM ()
 validateForeignCallConv context = \case

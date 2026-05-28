@@ -259,9 +259,10 @@ foreignImportDecl = do
   reserved "import"
   callConv <- foreignCallConv
   safety <- option ForeignSafe (try foreignSafety)
-  entity <- option defaultForeignImportEntity (try foreignImportEntitySpec)
+  rawEntity <- optional (try stringLiteral)
   name <- bindingName
   void (symbol "::")
+  let entity = foreignImportEntitySpecFor name rawEntity
   ForeignImportDecl . ForeignImport callConv safety entity name <$> typeParser
 
 foreignExportDecl :: Parser ForeignDeclInfo
@@ -293,14 +294,15 @@ foreignSafety = do
     "unsafe" -> pure ForeignUnsafe
     other -> fail ("unknown foreign import safety " <> Text.unpack other)
 
-foreignImportEntitySpec :: Parser ForeignImportEntity
-foreignImportEntitySpec = do
-  raw <- stringLiteral
-  pure
-    ForeignImportEntity
-      { foreignImportEntityRaw = Just raw
-      , foreignImportEntityKind = parseForeignImportEntity raw
-      }
+foreignImportEntitySpecFor :: Text -> Maybe Text -> ForeignImportEntity
+foreignImportEntitySpecFor importName rawEntity =
+  ForeignImportEntity
+    { foreignImportEntityRaw = rawEntity
+    , foreignImportEntityKind =
+        case rawEntity of
+          Nothing -> ForeignImportDefault
+          Just raw -> parseForeignImportEntity importName raw
+    }
 
 foreignExportEntitySpec :: Parser ForeignExportEntity
 foreignExportEntitySpec = do
@@ -311,13 +313,6 @@ foreignExportEntitySpec = do
       , foreignExportEntitySymbol = if Text.null raw then Nothing else Just raw
       }
 
-defaultForeignImportEntity :: ForeignImportEntity
-defaultForeignImportEntity =
-  ForeignImportEntity
-    { foreignImportEntityRaw = Nothing
-    , foreignImportEntityKind = ForeignImportDefault
-    }
-
 defaultForeignExportEntity :: ForeignExportEntity
 defaultForeignExportEntity =
   ForeignExportEntity
@@ -325,43 +320,91 @@ defaultForeignExportEntity =
     , foreignExportEntitySymbol = Nothing
     }
 
-parseForeignImportEntity :: Text -> ForeignImportEntityKind
-parseForeignImportEntity raw =
+parseForeignImportEntity :: Text -> Text -> ForeignImportEntityKind
+parseForeignImportEntity _ raw
+  | Text.null (Text.strip raw) =
+      ForeignImportDefault
+parseForeignImportEntity importName raw =
   case Text.words raw of
-    [] ->
-      ForeignImportUnknown raw
     ["dynamic"] ->
       ForeignImportDynamic
     ["wrapper"] ->
       ForeignImportWrapper
     "static" : rest ->
-      parseStaticImportEntity raw rest
+      parseStaticImportEntity importName raw rest
     rest ->
-      parseStaticImportEntity raw rest
+      parseStaticImportEntity importName raw rest
  where
-  parseStaticImportEntity rawText tokens =
-    case tokens of
-      [] ->
+  parseStaticImportEntity defaultSymbol rawText tokens =
+    case splitOptionalHeader tokens of
+      Nothing ->
         ForeignImportUnknown rawText
-      headerToken : symbolTokens
-        | Just header <- parseHeader headerToken ->
-            parseImportSymbol rawText (Just header) (Text.unwords symbolTokens)
-      symbolTokens ->
-        parseImportSymbol rawText Nothing (Text.unwords symbolTokens)
+      Just (header, afterHeader) ->
+        let (isAddress, symbolTokens) = splitOptionalAddress afterHeader
+         in case symbolTokens of
+              [] ->
+                finishStaticEntity rawText header isAddress defaultSymbol
+              [symbolText] ->
+                finishStaticEntity rawText header isAddress symbolText
+              _ ->
+                ForeignImportUnknown rawText
 
-  parseImportSymbol rawText header symbolText
-    | Text.null symbolText =
+  finishStaticEntity rawText header isAddress symbolText
+    | not (isValidForeignCSymbol symbolText) =
         ForeignImportUnknown rawText
-    | Just ffiSymbol <- Text.stripPrefix "&" symbolText =
-        if Text.null ffiSymbol then ForeignImportUnknown rawText else ForeignImportAddress header ffiSymbol
+    | isAddress =
+        ForeignImportAddress header symbolText
     | otherwise =
         ForeignImportStatic header symbolText
 
+  splitOptionalHeader = \case
+    token : rest
+      | Just header <- parseHeader token ->
+          Just (Just header, rest)
+      | looksLikeInvalidHeader token ->
+          Nothing
+    tokens ->
+      Just (Nothing, tokens)
+
+  splitOptionalAddress = \case
+    "&" : rest ->
+      (True, rest)
+    token : rest
+      | Just ffiSymbol <- Text.stripPrefix "&" token
+      , not (Text.null ffiSymbol) ->
+          (True, ffiSymbol : rest)
+    tokens ->
+      (False, tokens)
+
   parseHeader token
     | "[" `Text.isPrefixOf` token && "]" `Text.isSuffixOf` token =
-        Just (Text.dropEnd 1 (Text.drop 1 token))
+        validHeaderName (Text.dropEnd 1 (Text.drop 1 token))
+    | ".h" `Text.isSuffixOf` token =
+        validHeaderName token
     | otherwise =
         Nothing
+
+  looksLikeInvalidHeader token =
+    ("[" `Text.isPrefixOf` token && "]" `Text.isSuffixOf` token)
+      || "." `Text.isInfixOf` token
+
+  validHeaderName header
+    | ".h" `Text.isSuffixOf` header = Just header
+    | otherwise = Nothing
+
+isValidForeignCSymbol :: Text -> Bool
+isValidForeignCSymbol ffiSymbol =
+  case Text.uncons ffiSymbol of
+    Nothing ->
+      False
+    Just (first, rest) ->
+      isCSymbolStart first && Text.all isCSymbolRest rest
+ where
+  isCSymbolStart c =
+    c == '_' || ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
+
+  isCSymbolRest c =
+    isCSymbolStart c || ('0' <= c && c <= '9')
 
 functionBinding :: Parser Decl
 functionBinding =
