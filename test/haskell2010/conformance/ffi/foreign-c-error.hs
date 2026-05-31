@@ -39,7 +39,7 @@ main = do
 
   print eINTR
   print (isValidErrno eACCES)
-  print (isValidErrno eADV)
+  print (isValidErrno (Errno (0 - 1)))
   print (length errnoSamples)
   print (isValidErrno (Errno 0))
 

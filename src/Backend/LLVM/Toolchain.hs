@@ -204,8 +204,12 @@ renderNativeLinkOptions :: NativeLinkOptions -> [String]
 renderNativeLinkOptions options =
   nativeLinkObjects options
     <> ["-L" <> path | path <- nativeLinkLibraryPaths options]
-    <> ["-l" <> library | library <- nativeLinkLibraries options]
+    <> ["-l" <> library | library <- nativeLinkLibraries options <> runtimeNativeLinkLibraries]
     <> concat [["-framework", framework] | framework <- nativeLinkFrameworks options]
+
+runtimeNativeLinkLibraries :: [String]
+runtimeNativeLinkLibraries =
+  ["m"]
 
 runNativeExecutable :: FilePath -> IO NativeRunResult
 runNativeExecutable path =
@@ -248,7 +252,8 @@ runWithClang :: FilePath -> Text.Text -> IO LLVMRunResult
 runWithClang clang llvmText = do
   path <- writeLLVMText llvmText
   let exePath = ".context/llvm/latest"
-  (compileCode, compileOut, compileErr) <- readProcessWithExitCode clang [path, "-o", exePath] ""
+      args = path : renderNativeLinkOptions defaultNativeLinkOptions <> ["-o", exePath]
+  (compileCode, compileOut, compileErr) <- readProcessWithExitCode clang args ""
   case compileCode of
     ExitFailure {} ->
       pure (LLVMRunFailed compileOut compileErr)

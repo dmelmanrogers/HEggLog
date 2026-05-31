@@ -29,6 +29,7 @@ import qualified Data.Ratio as Ratio
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Foreign.C.Error as CError
 import Haskell2010.Core.Syntax
 import qualified Haskell2010.Core.Validate as CoreValidate
 import Haskell2010.FixedWidth
@@ -2541,105 +2542,109 @@ supportedPreludeValueOccurrences =
 errnoConstantValues :: [(Text, Integer)]
 errnoConstantValues =
   [ ("eOK", 0)
-  , ("e2BIG", 7)
-  , ("eACCES", 13)
-  , ("eADDRINUSE", 48)
-  , ("eADDRNOTAVAIL", 49)
-  , ("eADV", -1)
-  , ("eAFNOSUPPORT", 47)
-  , ("eAGAIN", 35)
-  , ("eALREADY", 37)
-  , ("eBADF", 9)
-  , ("eBADMSG", 94)
-  , ("eBADRPC", 72)
-  , ("eBUSY", 16)
-  , ("eCHILD", 10)
-  , ("eCOMM", -1)
-  , ("eCONNABORTED", 53)
-  , ("eCONNREFUSED", 61)
-  , ("eCONNRESET", 54)
-  , ("eDEADLK", 11)
-  , ("eDESTADDRREQ", 39)
-  , ("eDIRTY", -1)
-  , ("eDOM", 33)
-  , ("eDQUOT", 69)
-  , ("eEXIST", 17)
-  , ("eFAULT", 14)
-  , ("eFBIG", 27)
-  , ("eFTYPE", 79)
-  , ("eHOSTDOWN", 64)
-  , ("eHOSTUNREACH", 65)
-  , ("eIDRM", 90)
-  , ("eILSEQ", 92)
-  , ("eINPROGRESS", 36)
-  , ("eINTR", 4)
-  , ("eINVAL", 22)
-  , ("eIO", 5)
-  , ("eISCONN", 56)
-  , ("eISDIR", 21)
-  , ("eLOOP", 62)
-  , ("eMFILE", 24)
-  , ("eMLINK", 31)
-  , ("eMSGSIZE", 40)
-  , ("eMULTIHOP", 95)
-  , ("eNAMETOOLONG", 63)
-  , ("eNETDOWN", 50)
-  , ("eNETRESET", 52)
-  , ("eNETUNREACH", 51)
-  , ("eNFILE", 23)
-  , ("eNOBUFS", 55)
-  , ("eNODATA", 96)
-  , ("eNODEV", 19)
-  , ("eNOENT", 2)
-  , ("eNOEXEC", 8)
-  , ("eNOLCK", 77)
-  , ("eNOLINK", 97)
-  , ("eNOMEM", 12)
-  , ("eNOMSG", 91)
-  , ("eNONET", -1)
-  , ("eNOPROTOOPT", 42)
-  , ("eNOSPC", 28)
-  , ("eNOSR", 98)
-  , ("eNOSTR", 99)
-  , ("eNOSYS", 78)
-  , ("eNOTBLK", 15)
-  , ("eNOTCONN", 57)
-  , ("eNOTDIR", 20)
-  , ("eNOTEMPTY", 66)
-  , ("eNOTSOCK", 38)
-  , ("eNOTTY", 25)
-  , ("eNXIO", 6)
-  , ("eOPNOTSUPP", 102)
-  , ("ePERM", 1)
-  , ("ePFNOSUPPORT", 46)
-  , ("ePIPE", 32)
-  , ("ePROCLIM", 67)
-  , ("ePROCUNAVAIL", 76)
-  , ("ePROGMISMATCH", 75)
-  , ("ePROGUNAVAIL", 74)
-  , ("ePROTO", 100)
-  , ("ePROTONOSUPPORT", 43)
-  , ("ePROTOTYPE", 41)
-  , ("eRANGE", 34)
-  , ("eREMCHG", -1)
-  , ("eREMOTE", 71)
-  , ("eROFS", 30)
-  , ("eRPCMISMATCH", 73)
-  , ("eRREMOTE", -1)
-  , ("eSHUTDOWN", 58)
-  , ("eSOCKTNOSUPPORT", 44)
-  , ("eSPIPE", 29)
-  , ("eSRCH", 3)
-  , ("eSRMNT", -1)
-  , ("eSTALE", 70)
-  , ("eTIME", 101)
-  , ("eTIMEDOUT", 60)
-  , ("eTOOMANYREFS", 59)
-  , ("eTXTBSY", 26)
-  , ("eUSERS", 68)
-  , ("eWOULDBLOCK", 35)
-  , ("eXDEV", 18)
+  , errnoConstantPair "e2BIG" CError.e2BIG
+  , errnoConstantPair "eACCES" CError.eACCES
+  , errnoConstantPair "eADDRINUSE" CError.eADDRINUSE
+  , errnoConstantPair "eADDRNOTAVAIL" CError.eADDRNOTAVAIL
+  , errnoConstantPair "eADV" CError.eADV
+  , errnoConstantPair "eAFNOSUPPORT" CError.eAFNOSUPPORT
+  , errnoConstantPair "eAGAIN" CError.eAGAIN
+  , errnoConstantPair "eALREADY" CError.eALREADY
+  , errnoConstantPair "eBADF" CError.eBADF
+  , errnoConstantPair "eBADMSG" CError.eBADMSG
+  , errnoConstantPair "eBADRPC" CError.eBADRPC
+  , errnoConstantPair "eBUSY" CError.eBUSY
+  , errnoConstantPair "eCHILD" CError.eCHILD
+  , errnoConstantPair "eCOMM" CError.eCOMM
+  , errnoConstantPair "eCONNABORTED" CError.eCONNABORTED
+  , errnoConstantPair "eCONNREFUSED" CError.eCONNREFUSED
+  , errnoConstantPair "eCONNRESET" CError.eCONNRESET
+  , errnoConstantPair "eDEADLK" CError.eDEADLK
+  , errnoConstantPair "eDESTADDRREQ" CError.eDESTADDRREQ
+  , errnoConstantPair "eDIRTY" CError.eDIRTY
+  , errnoConstantPair "eDOM" CError.eDOM
+  , errnoConstantPair "eDQUOT" CError.eDQUOT
+  , errnoConstantPair "eEXIST" CError.eEXIST
+  , errnoConstantPair "eFAULT" CError.eFAULT
+  , errnoConstantPair "eFBIG" CError.eFBIG
+  , errnoConstantPair "eFTYPE" CError.eFTYPE
+  , errnoConstantPair "eHOSTDOWN" CError.eHOSTDOWN
+  , errnoConstantPair "eHOSTUNREACH" CError.eHOSTUNREACH
+  , errnoConstantPair "eIDRM" CError.eIDRM
+  , errnoConstantPair "eILSEQ" CError.eILSEQ
+  , errnoConstantPair "eINPROGRESS" CError.eINPROGRESS
+  , errnoConstantPair "eINTR" CError.eINTR
+  , errnoConstantPair "eINVAL" CError.eINVAL
+  , errnoConstantPair "eIO" CError.eIO
+  , errnoConstantPair "eISCONN" CError.eISCONN
+  , errnoConstantPair "eISDIR" CError.eISDIR
+  , errnoConstantPair "eLOOP" CError.eLOOP
+  , errnoConstantPair "eMFILE" CError.eMFILE
+  , errnoConstantPair "eMLINK" CError.eMLINK
+  , errnoConstantPair "eMSGSIZE" CError.eMSGSIZE
+  , errnoConstantPair "eMULTIHOP" CError.eMULTIHOP
+  , errnoConstantPair "eNAMETOOLONG" CError.eNAMETOOLONG
+  , errnoConstantPair "eNETDOWN" CError.eNETDOWN
+  , errnoConstantPair "eNETRESET" CError.eNETRESET
+  , errnoConstantPair "eNETUNREACH" CError.eNETUNREACH
+  , errnoConstantPair "eNFILE" CError.eNFILE
+  , errnoConstantPair "eNOBUFS" CError.eNOBUFS
+  , errnoConstantPair "eNODATA" CError.eNODATA
+  , errnoConstantPair "eNODEV" CError.eNODEV
+  , errnoConstantPair "eNOENT" CError.eNOENT
+  , errnoConstantPair "eNOEXEC" CError.eNOEXEC
+  , errnoConstantPair "eNOLCK" CError.eNOLCK
+  , errnoConstantPair "eNOLINK" CError.eNOLINK
+  , errnoConstantPair "eNOMEM" CError.eNOMEM
+  , errnoConstantPair "eNOMSG" CError.eNOMSG
+  , errnoConstantPair "eNONET" CError.eNONET
+  , errnoConstantPair "eNOPROTOOPT" CError.eNOPROTOOPT
+  , errnoConstantPair "eNOSPC" CError.eNOSPC
+  , errnoConstantPair "eNOSR" CError.eNOSR
+  , errnoConstantPair "eNOSTR" CError.eNOSTR
+  , errnoConstantPair "eNOSYS" CError.eNOSYS
+  , errnoConstantPair "eNOTBLK" CError.eNOTBLK
+  , errnoConstantPair "eNOTCONN" CError.eNOTCONN
+  , errnoConstantPair "eNOTDIR" CError.eNOTDIR
+  , errnoConstantPair "eNOTEMPTY" CError.eNOTEMPTY
+  , errnoConstantPair "eNOTSOCK" CError.eNOTSOCK
+  , errnoConstantPair "eNOTTY" CError.eNOTTY
+  , errnoConstantPair "eNXIO" CError.eNXIO
+  , errnoConstantPair "eOPNOTSUPP" CError.eOPNOTSUPP
+  , errnoConstantPair "ePERM" CError.ePERM
+  , errnoConstantPair "ePFNOSUPPORT" CError.ePFNOSUPPORT
+  , errnoConstantPair "ePIPE" CError.ePIPE
+  , errnoConstantPair "ePROCLIM" CError.ePROCLIM
+  , errnoConstantPair "ePROCUNAVAIL" CError.ePROCUNAVAIL
+  , errnoConstantPair "ePROGMISMATCH" CError.ePROGMISMATCH
+  , errnoConstantPair "ePROGUNAVAIL" CError.ePROGUNAVAIL
+  , errnoConstantPair "ePROTO" CError.ePROTO
+  , errnoConstantPair "ePROTONOSUPPORT" CError.ePROTONOSUPPORT
+  , errnoConstantPair "ePROTOTYPE" CError.ePROTOTYPE
+  , errnoConstantPair "eRANGE" CError.eRANGE
+  , errnoConstantPair "eREMCHG" CError.eREMCHG
+  , errnoConstantPair "eREMOTE" CError.eREMOTE
+  , errnoConstantPair "eROFS" CError.eROFS
+  , errnoConstantPair "eRPCMISMATCH" CError.eRPCMISMATCH
+  , errnoConstantPair "eRREMOTE" CError.eRREMOTE
+  , errnoConstantPair "eSHUTDOWN" CError.eSHUTDOWN
+  , errnoConstantPair "eSOCKTNOSUPPORT" CError.eSOCKTNOSUPPORT
+  , errnoConstantPair "eSPIPE" CError.eSPIPE
+  , errnoConstantPair "eSRCH" CError.eSRCH
+  , errnoConstantPair "eSRMNT" CError.eSRMNT
+  , errnoConstantPair "eSTALE" CError.eSTALE
+  , errnoConstantPair "eTIME" CError.eTIME
+  , errnoConstantPair "eTIMEDOUT" CError.eTIMEDOUT
+  , errnoConstantPair "eTOOMANYREFS" CError.eTOOMANYREFS
+  , errnoConstantPair "eTXTBSY" CError.eTXTBSY
+  , errnoConstantPair "eUSERS" CError.eUSERS
+  , errnoConstantPair "eWOULDBLOCK" CError.eWOULDBLOCK
+  , errnoConstantPair "eXDEV" CError.eXDEV
   ]
+
+errnoConstantPair :: Text -> CError.Errno -> (Text, Integer)
+errnoConstantPair name (CError.Errno value) =
+  (name, toInteger value)
 
 errnoConstantValue :: Text -> Maybe Integer
 errnoConstantValue occurrence =
@@ -11055,27 +11060,27 @@ preludeCorePair name =
 
   errnoErrorType value =
     boolCase
-      (errnoEq value 2)
+      (errnoEq value (errnoConstant "eNOENT" 2))
       throwErrnoCase
       ioErrorTypeTy
       (CCon ioErrorDoesNotExistTypeDataConName ioErrorTypeTy)
       ( boolCase
-          (boolOrChain [errnoEq value 1, errnoEq value 13])
+          (boolOrChain [errnoEq value (errnoConstant "ePERM" 1), errnoEq value (errnoConstant "eACCES" 13)])
           throwErrnoCase
           ioErrorTypeTy
           (CCon ioErrorPermissionTypeDataConName ioErrorTypeTy)
           ( boolCase
-              (errnoEq value 17)
+              (errnoEq value (errnoConstant "eEXIST" 17))
               throwErrnoCase
               ioErrorTypeTy
               (CCon ioErrorAlreadyExistsTypeDataConName ioErrorTypeTy)
               ( boolCase
-                  (errnoEq value 28)
+                  (errnoEq value (errnoConstant "eNOSPC" 28))
                   throwErrnoCase
                   ioErrorTypeTy
                   (CCon ioErrorFullTypeDataConName ioErrorTypeTy)
                   ( boolCase
-                      (boolOrChain [errnoEq value 16, errnoEq value 48])
+                      (boolOrChain [errnoEq value (errnoConstant "eBUSY" 16), errnoEq value (errnoConstant "eADDRINUSE" 48)])
                       throwErrnoCase
                       ioErrorTypeTy
                       (CCon ioErrorAlreadyInUseTypeDataConName ioErrorTypeTy)

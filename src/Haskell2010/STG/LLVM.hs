@@ -27,6 +27,7 @@ import Backend.LLVM.IR
 import Backend.LLVM.Validate
 import Numeric (showHex)
 import Runtime.Int (hintToInteger, mkHIntLiteral, renderIntError)
+import qualified System.Info as SystemInfo
 
 data STGLLVMError
   = STGLLVMInvalidSTG [STGValidate.STGValidationError]
@@ -5393,7 +5394,7 @@ foreignLibraryRuntimeDeclarations =
   , "declare void @free(ptr)"
   , "declare ptr @memcpy(ptr, ptr, i64)"
   , "declare ptr @memmove(ptr, ptr, i64)"
-  , "declare ptr @__error()"
+  , "declare ptr @" <> errnoLocationFunctionName <> "()"
   , ffiPointerRuntimeDefinitions
   , ffiAllocationRuntimeDefinitions
   , ffiErrnoRuntimeDefinitions
@@ -5413,7 +5414,7 @@ foreignLibraryRuntimeDeclarations =
       , ("i64", "i64", Nothing)
       , ("u64", "i64", Nothing)
       ]
-    <> [ ffiBoolPeekDefinition
+      <> [ ffiBoolPeekDefinition
        , ffiBoolPokeDefinition
        , ffiCharPeekDefinition
        , ffiCharPokeDefinition
@@ -5424,6 +5425,13 @@ foreignLibraryRuntimeDeclarations =
        , ffiPtrPeekDefinition
        , ffiPtrPokeDefinition
        ]
+
+errnoLocationFunctionName :: Text
+errnoLocationFunctionName =
+  case SystemInfo.os of
+    "darwin" -> "__error"
+    "freebsd" -> "__error"
+    _ -> "__errno_location"
 
 ffiPointerRuntimeDefinitions :: Text
 ffiPointerRuntimeDefinitions =
@@ -5566,7 +5574,7 @@ ffiErrnoRuntimeDefinitions =
   Text.unlines
     [ "define ptr @" <> ffiGetErrnoFunctionName <> "() {"
     , "entry:"
-    , "  %errno_ptr = call ptr @__error()"
+    , "  %errno_ptr = call ptr @" <> errnoLocationFunctionName <> "()"
     , "  %errno32 = load i32, ptr %errno_ptr"
     , "  %errno64 = sext i32 %errno32 to i64"
     , "  %boxed = call ptr @" <> makeIntFunctionName <> "(i64 %errno64)"
@@ -5576,7 +5584,7 @@ ffiErrnoRuntimeDefinitions =
     , ""
     , "define ptr @" <> ffiResetErrnoFunctionName <> "() {"
     , "entry:"
-    , "  %errno_ptr = call ptr @__error()"
+    , "  %errno_ptr = call ptr @" <> errnoLocationFunctionName <> "()"
     , "  store i32 0, ptr %errno_ptr"
     , "  %result = call ptr @hegglog_hs_io_unit_success()"
     , "  ret ptr %result"
